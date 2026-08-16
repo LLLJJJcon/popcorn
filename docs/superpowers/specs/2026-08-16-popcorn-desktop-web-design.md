@@ -1,575 +1,590 @@
-# Popcorn Language Desktop Web Product Design
+# Popcorn Language YouTube Extension and Web Product Design
 
 **Date:** 2026-08-16
 
-**Status:** Approved for implementation planning
+**Status:** Approved design; pending written-spec review
 
 **Product:** Popcorn Language
 
-**Delivery target:** Desktop web application
+**Delivery target:** Chrome extension plus authenticated desktop web application
 
-## 1. Objective
+## 1. Product Objective
 
-Build a deployable English-language desktop web application that helps native English speakers learning Mandarin Chinese turn useful expressions from authentic Chinese content into expressions they can reuse independently.
+Popcorn helps native English speakers learning Mandarin Chinese turn useful expressions from authentic Chinese YouTube videos into expressions they can reuse independently.
 
-The delivered product must demonstrate one persistent learning loop:
+The first release must prove one persistent learning loop:
 
-1. A learner signs in and imports authentic content.
-2. The system analyses the Chinese content and identifies one to three useful Chinese expressions.
-3. The learner writes a personal response in Chinese using a selected expression.
-4. The system evaluates accuracy, naturalness, and contextual fit.
-5. The attempt and expression are saved to the learner's cloud memory.
-6. The expression returns later in a new context.
-7. Behavioural evidence advances the learner's mastery state and progress record.
+1. The learner watches a supported Chinese YouTube video.
+2. The Chrome extension provides the transcript, English translation, overview, chapters, key quotes, and selected-text explanations without making the learner leave YouTube.
+3. The learner saves a video, moment, subtitle selection, key quote, or explanation without interrupting playback.
+4. The raw saved material reaches the learner's Popcorn cloud account before any optional AI enrichment begins.
+5. After watching, the learner opens Popcorn Web and reviews saved moments grouped under one video.
+6. The learner chooses a useful expression and writes an original Chinese response.
+7. The system evaluates accuracy, naturalness, and contextual fit.
+8. Valid practice evidence creates or updates an Expression Card and schedules later reuse in a new context.
+9. Independent reuse advances mastery from `tried` to `reused` and eventually `owned`.
 
-The application must be a working full-stack product with authenticated cloud persistence, not a collection of disconnected prototype screens.
+The product is not a generic content importer and not a disconnected AI summarizer. The Chrome extension is the acquisition surface; Popcorn Web is the durable knowledge, practice, and review surface.
 
-## 2. Scope
+## 2. Product Boundary
 
-### 2.1 Included
+### 2.1 First-release learner and language
 
-- Desktop web application built with Next.js and TypeScript.
-- English interface copy, navigation, instructions, system messages, and AI explanations.
-- Mandarin Chinese learning content and learner output, using Simplified Chinese characters in the first release.
-- Supabase authentication, PostgreSQL, Storage, Row Level Security, and pgvector.
-- Learner profile with approximate Chinese level and learning goal; the first release fixes the native language to English and target language to Mandarin Chinese.
-- Import through pasted text, public URL, and image or screenshot upload.
-- Deterministic AI pipeline for content scanning, expression extraction, task activation, and response evaluation.
-- Expression Vault with persistent Expression Cards and attempt history.
-- Behavioural mastery states: `seen`, `understood`, `tried`, `reused`, and `owned`.
-- Active Queue and due reuse tasks.
-- Progress page with weekly activity, mastery distribution, and transfer evidence.
-- English explanations of Chinese meaning, tone, communicative function, grammar, and contextual fit.
-- Semantic duplicate detection and related-expression retrieval using pgvector.
-- JSON and Markdown export of learner-owned expression data.
-- Automated unit, contract, integration, security, and browser-level tests.
-- Vercel deployment, production Supabase configuration, and a seeded demonstration account.
+- Native language: English.
+- Target language: Mandarin Chinese.
+- Interface, instructions, translations, overviews, explanations, and feedback: English.
+- Authentic source content, transcript, saved expressions, prompts, and learner output: Simplified Chinese.
+- Supported source: standard public `youtube.com/watch` pages with an available native Simplified Chinese subtitle track.
+- A requested Chinese subtitle that resolves to another language is unsupported and must not enter the learning pipeline.
 
-### 2.2 Explicitly excluded
+### 2.2 Included surfaces
 
-- Native iOS or Android applications.
-- Mobile-specific page layouts, bottom navigation, gesture design, or touch-first interaction.
-- Progressive Web App installation, service workers, or offline mode.
-- URL ingestion that bypasses paywalls, authentication, robots restrictions, or technical access controls.
-- Large-scale crawling or redistribution of copyrighted content.
-- A full beginner curriculum, live classes, social community, or marketplace.
-- Japanese or another selectable target-language flow.
-- Chinese-language interface localisation.
-- Open-ended autonomous agents that decide product workflow.
-- Microservices, FastAPI, Redis, background worker infrastructure, or a separate vector database.
+- Chrome 116 or newer using the Side Panel API.
+- Popcorn account sign-up, sign-in, sign-out, password recovery, and extension linking.
+- A YouTube Side Panel with `Transcript`, `Overview`, and `Saved` tabs.
+- `中文`, `English`, and `Bilingual` transcript views.
+- Timestamp navigation, playback following, manual-scroll pause, copy, and transcript export in the extension.
+- On-demand AI overview, full-video chapters, key quotes, and selected-text explanations.
+- Non-blocking saves from the whole video, player moment, `N` shortcut, subtitle row or selection, key quote, and AI explanation.
+- A private cloud learning-material snapshot containing video metadata, the immutable native transcript snapshot, generated overview and chapters, key quotes, and English translations already generated for viewed or saved segments.
+- Durable, idempotent synchronization with an offline pending queue.
+- A Popcorn Web `Saved` library grouped by video and ordered by timestamp.
+- AI-assisted candidate-expression analysis grounded in saved subtitle evidence.
+- `Use It Now` response, evaluation, revision, and resubmission.
+- Expression Vault, deterministic Practice schedule, and evidence-based Progress.
+- Account and saved-source deletion with explicit treatment of existing learning evidence.
+- A seeded demo account and a known public Chinese-video fixture with cached provider results.
 
-### 2.3 Desktop support boundary
+### 2.3 Deferred add-ons
 
-- Primary viewport: desktop browsers at 1280x720 and above.
-- Minimum supported viewport width: 1024 pixels.
-- Supported current browser families: Chrome, Edge, Firefox, and Safari.
-- Narrower viewports may show a clear unsupported-layout message; they are not a first-release acceptance target.
+The following are product-completion add-ons, not first-release tasks or acceptance requirements:
 
-## 3. Product Principles
+- Pasted text, generic public URL, image, or screenshot input.
+- Shorts, live streams, private or access-restricted videos, embeds, or videos without native Simplified Chinese subtitles.
+- AI-generated audio transcription or fallback transcription.
+- Native mobile applications, mobile-specific layouts, PWA installation, offline web mode, Firefox, Safari, or other Chromium browsers.
+- Traditional Chinese learning flows, another target language, or selectable source/target language pairs.
+- User-supplied Supadata, DeepSeek, OpenAI, or other provider keys.
+- Full-transcript English pre-generation.
+- Folders, tags, collaborative notes, rich note editing, recommendations, community, social features, marketplace, streaks, achievements, or gameplay.
+- Vector search, knowledge-graph visualization, Louvain clustering, Deep Research, agent chat, MCP, and Expression Health Check.
+- Batch JSON, Markdown, CSV, or Anki export.
 
-1. **Learner responds first.** AI may guide, explain, and revise, but must not replace the learner's first attempt with a complete answer.
-2. **Evidence advances mastery.** A learner cannot manually mark an expression as owned.
-3. **One to three expressions per item.** The system prioritises quality and relevance over exhaustive extraction.
-4. **Memory compounds across sessions.** Saved expressions, attempts, and due tasks must be recoverable after sign-out and on another computer.
-5. **AI is bounded by contracts.** Every model response is schema-validated, versioned, and recoverable.
-6. **Chinese is the learning target.** Interface guidance and explanations are in English; authentic input, extracted expressions, practice prompts, and learner output are in Mandarin Chinese.
-7. **Demo stability is a product requirement.** Known inputs may use versioned cached AI results when the provider is unavailable.
+### 2.4 Browser and viewport boundary
 
-## 4. Architecture
+- Extension: Chrome 116 or newer on desktop.
+- Web primary viewport: 1280x720 and above.
+- Web minimum supported width: 1024 pixels.
+- Narrower web viewports may show a clear unsupported-layout message.
+- The capstone delivery may use a packaged or unpacked extension; Chrome Web Store publication is not required for first release.
 
-### 4.1 Runtime architecture
+## 3. Upstream Product Foundations and Reuse Policy
 
-The product uses one Next.js application for the desktop user interface and server-side API routes. Next.js Route Handlers expose versioned `/api/v1` endpoints. Supabase provides authentication, PostgreSQL, Storage, Row Level Security, and pgvector. AI capabilities are accessed only through a server-side provider adapter so provider keys and prompts never reach the browser.
+### 3.1 YouTube Digest: code reuse foundation
+
+Repository: `https://github.com/zarazhangrui/youtube-digest.git`
+
+Pinned commit: `d03e1f61e017b032159ffd1821cac6e7693ce0c7`
+
+License: MIT, Copyright (c) 2026 Zara Zhang. Popcorn must preserve the upstream copyright and license notice for copied or substantially adapted code.
+
+The implementation plans must identify reuse at task and file level. Agents must import and adapt the pinned implementation instead of independently regenerating equivalent behavior.
+
+| Upstream area | Required Popcorn treatment |
+|---|---|
+| `manifest.json` | Copy and adapt the name, permissions, stable extension identity, Popcorn hosts, icons, and options surface. |
+| `content.js` button injection and reconciliation | Reuse `findDigestButtonHost`, `createDigestButton`, `injectDigestButton`, resize reconciliation, and mutation reconciliation. |
+| `content.js` player note behavior | Reuse and adapt `injectNoteButton`, `handleNoteKeyboardShortcut`, `saveCurrentNote`, timestamp capture, and save feedback. |
+| `content.js` playback control | Reuse timestamp seeking and safe page cleanup behavior. |
+| `sidepanel.html` and `sidepanel.css` | Use as the Side Panel foundation; rename and simplify tabs and controls for Popcorn. |
+| `sidepanel.js` transcript segmentation | Reuse `normalizeCaptionText`, `splitOversizedThought`, `groupTranscriptEntries`, stable segment alignment, and safe subtitle markup rendering. |
+| `sidepanel.js` transcript experience | Reuse transcript rendering, selection-aware seeking, playback tracking, active-row highlighting, manual-scroll pause, and `Follow playback`. |
+| `sidepanel.js` AI surfaces | Reuse overview, chapters, key-quote presentation, selection explanation, retry states, and timestamp navigation; route calls through Popcorn APIs. |
+| `sidepanel.js` translation experience | Reuse lazy translation queues, stable-ID alignment, per-segment retry, and bilingual rendering; reverse the direction to Chinese-to-English. |
+| `background.js` message routing and bounded-response patterns | Adapt for Popcorn authentication, fast API submission, status lookup, and durable sync. |
+| `background.js` direct provider calls and permanent local notes | Do not retain. Replace Supadata/DeepSeek keys and local-only notes with Popcorn server APIs and cloud persistence. |
+| `prompts/*.md` | Preserve the useful prompt structure, timestamp grounding, and structured-output discipline; rewrite instructions for English-speaking learners of Mandarin Chinese. |
+| `tests/*.test.js` | Copy the relevant tests, change language expectations, and extend them for authentication, cloud sync, worker restart, and exact saved payloads. |
+
+Parallel reimplementations of upstream button injection, transcript grouping, playback following, bilingual row rendering, overview layout, or selection explanation are prohibited unless a failing adaptation test proves the upstream code cannot satisfy a documented Popcorn requirement.
+
+### 3.2 LLM Wiki: method reference only
+
+Repository: `https://github.com/nashsu/llm_wiki.git`
+
+Pinned release: `v0.6.9`
+
+Pinned commit: `723e259309aea5e3850265b631f80224f66dd9f6`
+
+License: GPLv3.
+
+Popcorn may adapt the public design methods described in `llm-wiki.md` and the release README, but must not copy GPLv3 implementation code into the Popcorn codebase. The adopted methods are:
+
+- immutable raw sources followed by generated structured knowledge;
+- schema-governed knowledge organization;
+- two-stage analysis and knowledge update;
+- source traceability;
+- content hashing and incremental work avoidance;
+- durable processing queues;
+- asynchronous human review for ambiguous decisions;
+- index, operation log, and staged retrieval concepts.
+
+Popcorn does not adopt the LLM Wiki desktop runtime, Markdown filesystem storage, Obsidian structure, LanceDB, graph engine, community detection, agent chat, Deep Research, web clipper, MCP implementation, or GPLv3 source files.
+
+## 4. Product Principles
+
+1. **Watching is never interrupted by organization.** Saving does not open a form, navigate away, pause playback, or demand an immediate learning decision.
+2. **Raw save before AI.** The original save must be durable before overview, cleanup, extraction, or other AI work begins.
+3. **Saving is interest, not mastery.** A save, translation view, or explanation view cannot advance `tried`, `reused`, or `owned`.
+4. **Learner responds first.** AI may guide and revise but must not provide a complete model answer before the learner's first attempt.
+5. **Evidence advances mastery.** Mastery transitions are deterministic and server-controlled.
+6. **One source, many traceable moments.** A video has one user-owned parent record; every saved item and learned expression preserves video, subtitle, and timestamp evidence.
+7. **Original text is exact.** A saved quote or selection is the text the learner acted on, not text reconstructed later from an approximate timestamp.
+8. **Long work belongs to the cloud.** The extension submits fast requests and never depends on a long-lived service worker or long provider response.
+9. **Knowledge compounds selectively.** AI analyzes saved evidence, not every subtitle in every watched video.
+10. **Demo stability is a product requirement.** Known public videos may use versioned cached provider results when external services are unavailable.
+
+## 5. User Experience
+
+### 5.1 First-run setup
+
+1. The learner installs the Popcorn extension.
+2. On an eligible YouTube page, the learner opens Popcorn.
+3. The Side Panel explains the product and presents one explicit `Sign in to Popcorn` action.
+4. Chrome opens an interactive Popcorn authentication flow.
+5. Successful authentication returns control to the extension and stores the session only in a trusted extension context.
+6. The extension immediately checks the active video and either shows the transcript or a precise unsupported reason.
+
+Interactive authentication may not launch automatically on installation or first panel open.
+
+### 5.2 Watching and understanding
+
+- `Transcript` opens first and does not require an AI call for the original subtitle view.
+- The learner can switch between `中文`, `English`, and `Bilingual`.
+- English translation is lazy and progressive; only visible or explicitly retried segments are requested.
+- Clicking a timestamp or transcript row seeks the video unless the learner is selecting text.
+- Active subtitles follow playback; manual scrolling pauses auto-follow until the learner selects `Follow playback`.
+- `Overview` is on demand and contains complete video chapters and three to five timestamp-grounded key quotes.
+- Selecting transcript text offers `Explain` and `Save` actions.
+
+### 5.3 Save entry points
+
+| Entry point | Exact saved payload |
+|---|---|
+| `Save Video` | YouTube ID, canonical URL, title, channel, thumbnail, duration, description, current playback position, and a request for a native transcript snapshot. |
+| Player note or `N` | Video identity and the captured playback second; the server resolves the nearby subtitle without blocking the click. |
+| Subtitle row | Stable transcript segment ID, exact original Chinese, displayed English translation if present, start/end seconds, and bounded surrounding segments. |
+| Text selection | Exact selected Chinese, source segment IDs, character offsets, start/end seconds, displayed translation if present, and bounded context. |
+| Key Quote | Exact quote shown to the learner, quote timestamp, linked source segments, and video identity. |
+| AI Explanation | Exact selected Chinese, English explanation shown to the learner, source segment IDs, timestamp range, and bounded context. |
+
+Every click creates a client-generated `clientEventId`. Retrying the same event cannot create a duplicate.
+
+The only immediate presentation states are `Saving…`, `Saved to Popcorn`, `Saved locally; sign in to sync`, and a concise retryable failure. Success feedback must not cover important video controls.
+
+### 5.4 After-watching web journey
+
+Web navigation is `Home`, `Saved`, `Practice`, `Vault`, and `Progress`.
+
+- `Home` shows one primary next action: recent unsorted saves or due practice.
+- `Saved` groups material by video and shows the count of saved moments and processing state.
+- A video detail page presents the snapshot, overview, chapters, saved items in timestamp order, and candidate expressions.
+- The learner may ignore, delete, or practice any saved item without processing the others.
+- Candidate expressions show exact subtitle evidence before the learner chooses one.
+- `Use It Now` begins with an original learner response, followed by evaluation and optional revision.
+- `Practice` replaces the internal term `Queue` in user-facing copy.
+- `Vault` contains only expressions backed by a valid attempt, never raw saves alone.
+
+### 5.5 Returning learner
+
+- `Home` prioritizes due Practice over inactive saved material.
+- A due task uses a different context and withholds a complete answer.
+- After submission, the learner sees feedback, the resulting evidence state, and the next scheduled action.
+- Progress emphasizes successful reuse and ownership rather than collection volume.
+
+## 6. Runtime Architecture
 
 ```text
-Desktop Browser
-    |
-    | Next.js pages + typed API client
-    v
-Next.js Route Handlers (/api/v1)
-    |-- authentication and authorisation
-    |-- domain services and mastery transitions
-    |-- AI pipeline orchestration
-    |-- export and demo-safe caching
-    |
-    +--> Supabase Auth / PostgreSQL / Storage / pgvector
-    |
-    +--> AI Provider Adapter
+YouTube Page
+  |  content script: buttons, timestamp capture, lightweight feedback
+  v
+Chrome Side Panel
+  |  transcript/overview UI, explicit sign-in, save commands
+  v
+Extension Service Worker
+  |  sole session owner, durable small sync queue, fast API calls
+  v
+Popcorn Next.js API (/api/v1)
+  |-- auth and user-scoped authorization
+  |-- idempotent save and sync endpoints
+  |-- transcript and knowledge job status
+  |-- practice, vault, progress, and deletion endpoints
+  v
+Supabase
+  |-- Auth
+  |-- PostgreSQL + RLS
+  |-- durable knowledge_jobs and mastery evidence
+  |-- Cron recovery for pending jobs
+  v
+Server-only Provider Adapters
+  |-- Supadata native transcript retrieval
+  |-- AI overview, translation, explanation, extraction, evaluation
 ```
 
-### 4.2 Application boundaries
+### 6.1 Extension boundaries
 
-- The browser owns presentation state, form state, navigation, and server-state caching.
-- Route Handlers own authentication checks, input validation, status codes, and response envelopes.
-- Domain services own mastery transitions, queue scheduling, deduplication, and progress calculations.
-- Repositories own database queries and must always operate under an authenticated user context.
-- The AI pipeline owns model calls, prompt versions, schema validation, retry decisions, and result caching.
-- Supabase policies provide a second enforcement boundary so application bugs cannot expose another user's records.
+- The content script is an untrusted page-adjacent context. It may observe YouTube state and send bounded messages but may not read auth tokens, provider keys, cached cloud payloads, or other users' data.
+- The Side Panel owns presentation state and may request actions through the service worker. It does not own refresh tokens or initialize an independent auth refresher.
+- The service worker is the only extension session owner. It stores session and pending events through a custom `chrome.storage.local` adapter restricted to trusted extension contexts.
+- No correctness depends on service-worker global variables, ordinary timers, or an uninterrupted network request.
+- Pending sync stores compact event descriptors, not complete transcripts or AI results.
+- Chrome alarms, extension startup, panel open, and new-save events may all trigger the same idempotent sync routine.
 
-### 4.3 API response contract
+### 6.2 Authentication flow
 
-Every `/api/v1` endpoint returns one of two envelopes:
+- An explicit user action starts `chrome.identity.launchWebAuthFlow`.
+- The flow uses PKCE and a stable extension redirect identity.
+- The authorization code is short-lived and exchanged exactly once; access or refresh tokens must not appear in a user-visible URL, log, screenshot, or source file.
+- A single refresh mutex in the service worker prevents overlapping refresh attempts.
+- Expired sessions keep unsynced events locally and present a non-blocking sign-in-required state.
+- Every pending event is bound to the user ID that created it. Signing into a different account can never reassign or upload another account's queued events.
+- Explicit sign-out with pending events requires a clear choice to sync first or discard them; successful sign-out clears tokens and PKCE material.
+- Provider credentials and the Supabase service role key never reach the extension.
 
-```ts
-type ApiSuccess<T> = {
-  ok: true;
-  data: T;
-  requestId: string;
-};
+### 6.3 Fast-save and durable-job boundary
 
-type ApiFailure = {
-  ok: false;
-  error: {
-    code: string;
-    message: string;
-    retryable: boolean;
-    fieldErrors?: Record<string, string[]>;
-  };
-  requestId: string;
-};
-```
+The save endpoint performs only bounded work:
 
-Domain packages may not depend on React components or Route Handler request objects. Shared contracts are versioned in one package and may be modified only through a reviewed contract change.
+1. Validate the authenticated user and payload size.
+2. Validate the canonical YouTube ID and save kind.
+3. Upsert the user's `video_sources` parent.
+4. Insert the exact `saved_items` record using `clientEventId` idempotency.
+5. Insert or coalesce a pending `knowledge_jobs` record.
+6. Commit and return success.
 
-## 5. Module Design
+Transcript fetch, provider polling, overview generation, translation, candidate extraction, and knowledge updates occur after this transaction. A scheduled server-side consumer and an on-demand recovery trigger use the same durable job table. Jobs are leased, bounded, retryable, and safe after process termination.
 
-## M0. Engineering Foundation
+## 7. Product Modules
 
-**Purpose:** Establish the shared repository, tooling, code boundaries, and continuous verification used by every later module.
+### M0. Foundation and Upstream Intake
 
-**Responsibilities:**
+- Preserve the existing Next.js/Supabase foundation.
+- Add an `extension/` package based on the pinned YouTube Digest source.
+- Preserve upstream MIT attribution and add machine-checkable provenance.
+- Establish shared formatting, tests, packaging, and contract generation.
 
-- Next.js App Router and strict TypeScript configuration.
-- Tailwind CSS and a small desktop component foundation based on shadcn/ui.
-- ESLint, formatting, unit testing, Playwright, environment validation, and CI.
-- Feature-oriented source directories and import-boundary rules.
-- Shared error, logging, request ID, and test-fixture conventions.
-- Local Supabase configuration and migration commands.
+### M1. Identity, Contracts, Data, and Security
 
-**Produces:** A clean application that builds, tests, and serves a minimal authenticated shell without product behaviour.
+- Web and extension authentication contracts.
+- YouTube source, snapshot, transcript, saved-item, processing-job, expression, practice, attempt, mastery, and review contracts.
+- RLS, ownership, indexes, idempotency keys, and processing-job leases.
+- Three mastery states: `tried`, `reused`, `owned`.
+- Deterministic scheduling and append-only mastery events.
 
-**Dependency:** None.
+### M2. YouTube Acquisition Extension
 
-## M1. Data Model, Contracts, and Security
+- Adapt pinned manifest, content script, Side Panel, styles, prompts, and tests.
+- Require and validate native Simplified Chinese subtitles.
+- Reverse translation to Chinese-to-English.
+- Route transcript and AI work through Popcorn APIs.
+- Add exact save payloads and cloud status.
 
-**Purpose:** Freeze the shared language that allows independent feature Agents to work without editing the same core files.
+### M3. Reliable Cloud Capture
 
-**Responsibilities:**
+- Extension link and session management.
+- Compact offline queue, retry alarms, and byte-budget enforcement.
+- Idempotent batch sync and one-parent-per-user-video behavior.
+- Immutable transcript snapshots and transcript revisions by content hash.
+- Durable processing jobs with scheduled recovery.
 
-- Database migrations and generated database types.
-- Zod schemas for API input, output, and AI structured results.
-- Domain identifiers, enums, and event contracts.
-- Row Level Security and Storage ownership policies.
-- Mastery transition table and queue scheduling rules.
-- API error codes and export format version.
+### M4. Saved Knowledge Organization
 
-**Produces:** Reviewed migrations, shared contracts, RLS tests, and fixture builders.
+- Video-grouped `Saved` library and detail page.
+- Two-stage saved-item analysis and expression-knowledge update.
+- Source traceability from expression through occurrence to transcript segment and timestamp.
+- Ambiguous expression merges remain separate candidates until learner confirmation.
+- Incremental work avoidance by transcript, saved-item, prompt, and model hashes.
 
-**Dependencies:** M0.
+### M5. Use It Now
 
-## M2. Identity, Profile, and Web Shell
+- Candidate selection, original response, evaluation, revision, and resubmission.
+- Separate accuracy, naturalness, and contextual-fit feedback.
+- A valid attempt creates or updates an Expression Card and records `tried` evidence atomically.
 
-**Purpose:** Give every learner an isolated cloud identity and a stable desktop application frame.
+### M6. Practice, Vault, and Mastery
 
-**Responsibilities:**
+- Vault search and expression detail with source occurrences and attempt history.
+- Deterministic due Practice tasks using new contexts.
+- Failed or heavily assisted reuse schedules an earlier retry.
+- Independent successful reuse may advance `reused`; repeated cross-context evidence may advance `owned`.
 
-- Sign-up, sign-in, sign-out, password reset, and session restoration.
-- Protected routes and server-side user resolution.
-- Learner profile editing.
-- Fixed English-native and Mandarin-Chinese-target language context, plus editable Chinese level and learning goal.
-- Desktop navigation for Home, Import, Vault, Queue, and Progress.
-- First-run onboarding and profile completion gate.
-- Account export and deletion entry points.
+### M7. Progress, Deletion, and Delivery
 
-**Produces:** A learner can sign in on another computer and recover the same profile.
+- Basic Progress: weekly attempts, due completions, independent reuse, and `tried/reused/owned` distribution.
+- Saved-source deletion with explicit learning-evidence effects.
+- Account deletion.
+- Production web deployment, packaged extension, seeded demo account, cached fixtures, observability, and recovery documentation.
 
-**Dependencies:** M1 contracts, profile schema, and RLS.
+## 8. Core Data Model
 
-## M3. Content Ingestion and Normalisation
-
-**Purpose:** Convert supported user input into one safe, traceable content representation for the AI pipeline.
-
-**Responsibilities:**
-
-- Pasted-text form and validation.
-- Public URL fetch with timeouts, content-type allowlist, size limits, and readable-text extraction.
-- Screenshot or image upload to user-isolated Supabase Storage.
-- Normalised text, source metadata, content hash, and import status.
-- Clear handling for inaccessible, unsupported, empty, or oversized content.
-- User guidance about sensitive and copyrighted content.
-
-**Produces:** `NormalisedContent` records with stable IDs and hashes.
-
-**Dependencies:** M1 content contracts, storage policies, and content tables.
-
-## M4. AI Analysis and Evaluation Pipeline
-
-**Purpose:** Provide predictable language analysis and feedback behind stable typed interfaces.
-
-**Responsibilities:**
-
-- Provider adapter for text, image, structured output, and embeddings without exposing provider-specific types to callers.
-- Scan stage for detected language, topic, tone, and approximate difficulty.
-- Extract stage returning one to three candidate expressions with meaning, function, tone, evidence span, and confidence.
-- Activate stage creating a response task tied to learner intent and level.
-- Evaluate stage returning separate accuracy, naturalness, and contextual-fit feedback.
-- Prompt version, model version, duration, token usage, and status recording.
-- Zod validation, bounded retry, failure persistence, and versioned result cache.
-- Fixed evaluation fixtures for prompt regression checks.
-
-**Produces:** Typed analysis and evaluation services usable without knowledge of the AI vendor.
-
-**Dependencies:** M1 AI schemas, run tables, and error taxonomy. It consumes M3 output after integration but can be built against fixtures.
-
-## M5. Use It Now Practice Loop
-
-**Purpose:** Turn one selected expression into an immediate learner-generated response and actionable feedback.
-
-**Responsibilities:**
-
-- Analysis results and expression selection.
-- Response-task presentation without showing a complete model answer first.
-- Draft submission, evaluation display, revision, and resubmission.
-- Clear distinction between accuracy, naturalness, and contextual fit.
-- Attempt history for the current task.
-- Domain event emission when valid evidence is created.
-
-**Produces:** A complete import-to-feedback interaction and durable `AttemptRecorded` evidence.
-
-**Dependencies:** M2 authenticated shell, M3 content ingestion, M4 analysis and evaluation, and M1 event contracts.
-
-## M6. Expression Memory and Active Queue
-
-**Purpose:** Convert attempts into durable learner memory and create a reason to return.
-
-**Responsibilities:**
-
-- Automatic Expression Card creation and duplicate-safe updates.
-- Vault list, search, filters, and expression detail.
-- Original occurrence, meaning, tone, function, examples, and attempt history.
-- Evidence-driven mastery state transitions.
-- Queue scheduling, due tasks, completion, and rescheduling.
-- Reuse tasks that place an expression in a new context.
-- JSON and Markdown export.
-
-**Produces:** Cross-session Vault persistence and a due reuse task that can advance an expression from `tried` to `reused`.
-
-**Dependencies:** M1 memory contracts and transition rules, M4 embeddings, and M5 attempt events.
-
-## M7. Progress, Semantic Relations, and Chinese Learning Quality
-
-**Purpose:** Make accumulated Chinese capability visible and ensure semantic features respect Chinese expression boundaries, tone, register, and context.
-
-**Responsibilities:**
-
-- Weekly completed attempts, due-task completion, and independent reuse counts.
-- Mastery-state distribution and transition history.
-- Transfer evidence shown separately from simple activity volume.
-- pgvector duplicate suggestions and related expressions by communicative function.
-- Expression Health Check for stalled expressions.
-- Chinese expression normalisation that preserves meaningful character, word, phrase, and regional distinctions.
-- English explanations that remain grounded in the original Chinese evidence span.
-- Mandarin Chinese fixtures covering informal speech, online language, polite requests, disagreement, reactions, and common ambiguity.
-
-**Produces:** A trustworthy Progress page, useful semantic relationships between Chinese expressions, and an end-to-end Chinese learning demonstration for English-speaking learners.
-
-**Dependencies:** M6 durable evidence and queues, M4 embeddings, and M2 profile language settings.
-
-## M8. Desktop Web Experience and Accessibility
-
-**Purpose:** Make the application coherent, usable, and reliable during ordinary use and live assessment.
-
-**Responsibilities:**
-
-- Desktop page composition and consistent navigation.
-- Shared loading, empty, success, warning, and error presentations.
-- Keyboard navigation, focus management, labels, contrast, and reduced-motion support.
-- Browser compatibility at the supported desktop viewport boundary.
-- Long-text, multi-script, slow-network, and AI-failure presentation.
-- Demo-safe error messages that explain recovery without exposing internal details.
-
-**Produces:** A consistent desktop experience across all product modules.
-
-**Dependencies:** M0 component primitives and M1 error contract. It may build against fixtures while M5 and M6 are in progress.
-
-## M9. Integration, Quality, Deployment, and Demonstration
-
-**Purpose:** Prove that the modules form one reliable product in production-like conditions.
-
-**Responsibilities:**
-
-- Contract and migration compatibility checks.
-- Full integration of Chinese content, AI, attempts, memory, queue, and progress.
-- End-to-end browser scenarios and cross-user isolation tests.
-- Vercel deployment and production Supabase configuration.
-- Seeded demo account with existing Vault, progress history, and a due transfer task.
-- Versioned cached AI responses for known demo inputs.
-- Backup, restore rehearsal, observability, and presentation checklist.
-
-**Produces:** A deployed URL and a repeatable live demonstration from any supported desktop browser.
-
-**Dependencies:** M2 through M8.
-
-## 6. Core Data Model
-
-The initial database contains the following ownership-scoped records:
-
-| Entity | Purpose | Key relationships |
+| Entity | Purpose | Required identity or relationship |
 |---|---|---|
-| `profiles` | Learner preferences and language configuration | One per authenticated user |
-| `content_items` | Imported text, URL, or image metadata | Owned by user; source for occurrences |
-| `ai_runs` | Versioned scan, extraction, evaluation, and embedding runs | References content or attempt |
-| `expression_senses` | Canonical expression meaning, tone, and function | Language-scoped; referenced by occurrences |
-| `expression_occurrences` | Expression evidence within imported content | Links content to expression sense |
-| `user_expressions` | Learner-specific Expression Card and current mastery | Links user to expression sense |
-| `practice_tasks` | Immediate or reuse task with context and due state | Links user expression and source context |
-| `attempts` | Learner response, support level, feedback, and revision | Links task and user expression |
-| `mastery_events` | Append-only evidence and state transition history | Links attempt and user expression |
-| `review_tasks` | Active Queue schedule and completion status | One scheduling record per due action |
-| `expression_relations` | Semantic or functional relationship | Links two expression senses |
+| `profiles` | Learner level and goal | One per authenticated user |
+| `video_sources` | User-owned YouTube video parent | Unique `(user_id, youtube_video_id)` |
+| `video_snapshots` | Immutable metadata and transcript version | Belongs to source; unique transcript hash per source |
+| `transcript_segments` | Exact ordered native subtitle evidence | Belongs to snapshot; stable segment ID and time range |
+| `saved_items` | Exact learner save action | Belongs to user/source/snapshot when resolved; unique `client_event_id` per user |
+| `generated_artifacts` | Overview, chapters, quotes, translations, explanations | Prompt/model/versioned and source-grounded |
+| `knowledge_jobs` | Durable provider and knowledge work | Leased state machine with attempt count and next retry |
+| `expression_senses` | User-owned structured Chinese expression knowledge | Meaning, tone, function, register, normalized text |
+| `expression_occurrences` | Source traceability | Links expression to saved item and transcript segment |
+| `user_expressions` | Learner mastery projection | Current `tried/reused/owned` state |
+| `practice_tasks` | Immediate or due new-context task | Links user expression and task context |
+| `attempts` | Learner response, assistance, feedback, revision | Links task and user expression |
+| `mastery_events` | Append-only evidence history | Links attempt and state transition |
+| `review_tasks` | Deterministic Practice schedule | One scheduling record per due action |
 
-All user-owned tables include `user_id`, creation time, update time where relevant, and policies preventing cross-user reads or writes. State history is append-only; current state on `user_expressions` is a projection maintained by a domain service, not a client-provided value.
+Every user-owned row carries `user_id`. RLS policies apply to reads and writes. Background service-role operations must carry an explicit user scope and are covered by cross-user tests.
 
-## 7. Mastery and Queue Rules
+### 8.1 Saved-item states
 
-### 7.1 Mastery evidence
+Before cloud creation, an extension queue event is locally `pending_sync` or `sign_in_required`. These are not `saved_items` database states.
 
-- `seen`: a candidate expression was presented to the learner.
-- `understood`: the learner inspected the explanation or correctly completed a comprehension check.
-- `tried`: the learner submitted an original response using the expression with assistance allowed.
-- `reused`: the learner used the expression successfully in a later or different context without a complete answer being supplied.
-- `owned`: the learner produced successful independent evidence across at least two distinct contexts on separate occasions, including one due reuse task.
+After cloud creation, `saved_items.status` is one of:
 
-Transitions are monotonic in the first release. A weak later attempt creates new evidence and a new review task but does not silently erase historical achievement. The Progress page must distinguish recent performance from highest demonstrated mastery.
+- `saved`: the raw cloud record is durable;
+- `resolving_source`: transcript or snapshot is being resolved;
+- `organizing`: AI analysis is running;
+- `ready`: source and candidate knowledge are available;
+- `unsupported`: the source has no valid native Simplified Chinese transcript;
+- `failed`: processing failed after bounded retries, while the raw save remains durable.
 
-### 7.2 Queue scheduling
+### 8.2 Knowledge-job states
 
-- New `tried` evidence schedules an initial reuse task.
+`knowledge_jobs.status` is `pending`, `leased`, `succeeded`, `retryable_failed`, or `terminal_failed`.
+
+- A lease has an expiry so a terminated worker does not strand the job.
+- Retry uses bounded exponential backoff and persists the provider error category.
+- A job result is idempotent by job type, source hash, saved-item hash, prompt version, and model version.
+- Provider failure never deletes or rewrites the original saved item.
+
+## 9. Knowledge Organization and Retrieval
+
+### 9.1 Adapted LLM Wiki layers
+
+```text
+Raw Source
+  video snapshot + immutable transcript + exact saved item
+      |
+      v
+Structured Knowledge
+  generated video artifact + candidate expression + source occurrence
+      |
+      v
+Learning Evidence
+  attempt + mastery event + due Practice task
+```
+
+The raw layer is immutable. Generated knowledge may be regenerated by version. Learning evidence may not be rewritten by knowledge regeneration.
+
+### 9.2 Two-stage organization
+
+1. **Analysis stage:** inspect the saved item and bounded source context; propose one to three candidate expressions with meaning, tone, communicative function, confidence, and exact evidence.
+2. **Knowledge-update stage:** only after the learner selects and practices an expression, create or update the expression sense and attach the occurrence and attempt evidence.
+
+The system never mass-creates Vault cards from a complete transcript.
+
+### 9.3 First-release retrieval
+
+- Exact normalized Simplified Chinese expression match.
+- Chinese substring and PostgreSQL trigram matching.
+- English meaning search.
+- Filters for communicative function, register, source video, mastery, and date.
+- Source-overlap signals for presenting additional occurrences of the same expression.
+
+Vector embeddings and graph traversal are deferred. PostgreSQL's default English full-text parser is not treated as a Chinese tokenizer.
+
+## 10. Mastery and Scheduling
+
+- `tried`: the learner submits an original response using the expression; assistance is recorded.
+- `reused`: the learner succeeds without a complete supplied answer in a later or meaningfully different context.
+- `owned`: the learner produces successful independent evidence across at least two distinct contexts on separate occasions, including one due Practice task.
+
+Transitions are monotonic in the first release. A weak later attempt records recent performance and schedules more practice but does not erase the highest demonstrated state.
+
+- New `tried` evidence schedules initial reuse.
 - Failed or heavily assisted reuse schedules an earlier retry.
 - Successful independent reuse schedules a later transfer task.
-- Queue rules are deterministic and unit tested; AI may generate task content but may not choose the mastery transition or due date.
+- AI may generate task content but may not choose the mastery transition or due date.
+- `saved`, translation viewed, overview viewed, explanation viewed, and candidate accepted are not mastery evidence.
 
-## 8. Primary Data Flows
+## 11. Primary Data Flows
 
-### 8.1 Import to first attempt
+### 11.1 Open supported video
 
-1. The authenticated learner submits text, URL, or image.
-2. M3 validates and stores a `content_items` record.
-3. M4 scans the normalised content and extracts candidates.
-4. The learner selects one candidate.
-5. M4 creates a response-task payload using the profile and content context.
-6. M5 records the learner's response and requests evaluation.
-7. M5 stores the attempt and emits `AttemptRecorded` in the same server-controlled transaction boundary.
-8. M6 creates or updates the Expression Card, appends mastery evidence, and schedules the next task.
+1. The extension resolves the active canonical YouTube ID.
+2. The service worker checks the Popcorn session.
+3. Popcorn requests `mode=native` with preferred `lang=zh` from the transcript provider.
+4. Popcorn validates the actual returned language and Simplified Chinese content rather than trusting the request preference.
+5. A direct transcript result is normalized immediately; an asynchronous provider job is polled by the server-side job system.
+6. Stable transcript segments are returned to the Side Panel.
 
-### 8.2 Due reuse task
+### 11.2 Save during playback
 
-1. M6 queries due Chinese review tasks for the signed-in learner.
-2. The learner opens a task containing a new context but not a complete answer.
-3. M5 records and evaluates the independent response.
-4. M6 applies deterministic transition rules and reschedules if needed.
-5. M7 recalculates progress from persisted evidence.
+1. The UI constructs the exact bounded payload and a new `clientEventId`.
+2. The service worker persists the compact event locally before attempting network sync.
+3. The API commits the source parent, saved item, and knowledge job.
+4. The API returns success; the local pending event is removed.
+5. Cloud processing resolves the transcript snapshot and generated artifacts.
+6. The website reflects progressive states without hiding raw saved content.
 
-### 8.3 AI cache and recovery
+### 11.3 Offline or expired session
 
-1. M4 constructs a cache key from content hash, task type, prompt version, model version, and relevant language profile fields.
-2. A valid cached success is returned without a new model call.
-3. An uncached request creates an `ai_runs` row with `running` status.
-4. Schema-valid output is stored as `succeeded`; invalid or provider-failed output is stored as `failed` with a safe error category.
-5. Retry is bounded and idempotent. The user may retry a failed step without duplicating content, attempts, mastery evidence, or queue records.
+1. The compact event remains in `chrome.storage.local`.
+2. A bounded queue budget prevents full transcript or provider payload storage.
+3. Network recovery, startup, panel open, or an alarm retries the same `clientEventId`.
+4. An expired session changes the event to sign-in-required but does not delete it.
+5. After explicit sign-in, queued events resume automatically.
 
-## 9. Error Handling and Safety
+### 11.4 Saved item to Expression Card
 
-### 9.1 Error categories
+1. The learner opens a ready saved item.
+2. The system presents one to three source-grounded candidates.
+3. The learner selects one and receives a response task without a complete answer.
+4. The learner submits an original response.
+5. The server evaluates and atomically stores the attempt, expression occurrence, `tried` mastery event, and initial Practice schedule.
 
-- `AUTH_REQUIRED` and `FORBIDDEN` for identity and ownership failures.
-- `VALIDATION_FAILED` for form, API, and structured-output failures.
-- `CONTENT_UNAVAILABLE`, `CONTENT_UNSUPPORTED`, and `CONTENT_TOO_LARGE` for ingestion failures.
-- `AI_TEMPORARILY_UNAVAILABLE`, `AI_OUTPUT_INVALID`, and `AI_RATE_LIMITED` for model failures.
-- `CONFLICT` for duplicate or stale state transitions.
-- `INTERNAL_ERROR` for unexpected failures identified by request ID.
+### 11.5 Delete source
 
-### 9.2 Recovery behaviour
+- If no practice evidence depends on the source, deleting it may remove the snapshot, saved items, candidates, and generated artifacts.
+- If practice evidence exists, the confirmation identifies the affected expressions. The default removes source content and occurrences but retains attempts and mastery history with a `Source deleted` marker.
+- Account deletion removes all user-owned source, generated knowledge, learning evidence, and extension link data.
 
-- Forms retain safe user input after recoverable failures.
-- Retrying an operation uses an idempotency key.
-- Partial AI failures do not advance mastery.
-- Cached demo inputs remain usable if the AI provider is unavailable.
-- URL import never falls back to unsafe scraping behaviour.
-- Image access uses signed URLs and user-isolated storage paths.
-- Server logs exclude raw sensitive content by default.
+## 12. Error Handling and Safety
 
-## 10. Testing Strategy
+### 12.1 Error categories
 
-### 10.1 Unit tests
+- `AUTH_REQUIRED`, `SESSION_EXPIRED`, `FORBIDDEN`
+- `INVALID_YOUTUBE_VIDEO`, `UNSUPPORTED_YOUTUBE_PAGE`
+- `NATIVE_CHINESE_TRANSCRIPT_REQUIRED`, `TRANSCRIPT_UNAVAILABLE`, `TRANSCRIPT_EMPTY`
+- `SYNC_QUEUE_FULL`, `SYNC_RETRYING`, `IDEMPOTENCY_CONFLICT`
+- `PROVIDER_RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_OUTPUT_INVALID`
+- `JOB_LEASE_CONFLICT`, `JOB_RETRY_EXHAUSTED`
+- `VALIDATION_FAILED`, `CONFLICT`, `INTERNAL_ERROR`
 
-- Mastery transitions and queue scheduling.
-- Content normalisation, hashing, limits, and URL allowlist behaviour.
-- API and AI Zod schemas.
-- Progress aggregation and Chinese expression normalisation.
-- Cache keys, retry policy, and idempotency.
+### 12.2 Recovery requirements
 
-### 10.2 Contract tests
+- Safe raw user input survives recoverable failures.
+- Partial provider results do not advance mastery.
+- A provider error may leave generated content pending or failed but cannot remove the saved item.
+- Cached known-video results remain usable during a demo outage.
+- The server accepts only canonical YouTube watch identities for this release.
+- User-supplied strings are stored and rendered as escaped plain text.
+- Server logs exclude tokens, raw private content, full provider responses, and sensitive transcript bodies by default.
+- The application stores no YouTube video file and does not bypass access controls.
+- Full transcript snapshots are private, user-owned learning records and are not redistributed publicly.
+- Production readiness requires a recorded review of the selected transcript provider's current terms, retention rules, and permission for private transcript snapshots. An incompatibility blocks deployment until the provider or granted rights change; it may not silently weaken the agreed snapshot product.
 
-- Route Handler envelopes and error codes.
-- Provider adapter fixtures for scan, extract, activate, evaluate, and embeddings.
-- Database generated types against migration state.
-- Shared event payload compatibility between M5 and M6.
+## 13. Testing Strategy
 
-### 10.3 Integration and security tests
+### 13.1 Reused upstream tests
 
-- Authenticated database operations under RLS.
-- Storage upload and signed retrieval.
-- Import-to-attempt-to-memory transaction behaviour.
-- Duplicate submission and retry safety.
-- Two test users cannot read or mutate each other's profile, content, expressions, attempts, queue, or progress.
+Adapt the pinned YouTube Digest tests for:
 
-### 10.4 Browser tests
+- responsive Digest/Popcorn button injection and duplicate repair;
+- transcript segmentation and oversized-entry splitting;
+- selection-aware timestamp navigation;
+- safe subtitle markup rendering;
+- stable-ID translation alignment and per-segment retry;
+- provider response size, timeout, and structured-output boundaries where still server-relevant;
+- minimum extension permissions and packaged-release checks.
 
-- Sign in and profile restoration.
-- Text, URL, and screenshot import.
-- Analysis, selection, response, feedback, and revision.
-- Vault persistence after sign-out and sign-in.
-- Due task completion and progress update.
-- English interface guidance with Chinese content, expression, and response rendering.
-- Export and account deletion confirmation.
-- Supported desktop viewports and keyboard-only critical path.
+### 13.2 Extension tests
 
-### 10.5 AI evaluation fixtures
+- Explicit authentication and PKCE redirect handling.
+- One service-worker refresh owner and concurrent-refresh mutex.
+- Compact event is persisted before network submission.
+- Worker termination or extension reload does not lose pending events.
+- Alarm/startup/panel-open retry is idempotent.
+- Local byte budget rejects unbounded cache growth without silently dropping events.
+- Player, subtitle, selection, quote, and explanation saves contain the exact expected payload.
+- Key Quote saving preserves the displayed quote rather than reconstructing it by timestamp.
+- Non-Chinese provider fallback is rejected.
 
-A small version-controlled fixture set covers Mandarin Chinese tone and register differences, ambiguity, online slang, regional caveats, weak learner responses, and unsafe or malformed model output. Expected explanations are written in English. Prompt changes must pass schema, regression, and human-readable snapshot review before integration.
+### 13.3 Contract, integration, and security tests
 
-## 11. Multi-Agent Development Design
+- Unique `(user_id, client_event_id)` and `(user_id, youtube_video_id)` behavior.
+- Snapshot revision by transcript hash.
+- Atomic raw save plus job creation.
+- Job lease expiry, retry, and idempotent result application.
+- AI failure preserves raw saved data.
+- Two users cannot access each other's sources, transcripts, saved items, generated artifacts, jobs, expressions, attempts, or progress.
+- A service-role worker cannot process a job under the wrong user scope.
+- Deleting a source does not silently delete mastery evidence.
 
-### 11.1 Coordination rules
+### 13.4 Web and learning tests
 
-- The primary Agent owns planning, shared contracts, integration, reviews, and full-suite verification.
-- At most three implementation Agents work concurrently, matching the available concurrency slots while preserving one slot for coordination.
-- Each Agent owns a bounded module and an explicit file set.
-- Parallel Agents must not edit shared contracts, database migrations, root configuration, or another module's files.
-- Required shared-contract changes return to the primary Agent as a proposal before implementation continues.
-- Every Agent returns changed files, commands run, test results, unresolved risks, and any requested contract change.
-- Parallel work starts only from a verified shared baseline and ends at an integration checkpoint.
+- Home shows a recent-save next action.
+- Saved groups multiple moments under one video.
+- Progressive processing states preserve access to raw saves.
+- Candidate evidence links to the correct subtitle and timestamp.
+- A save alone creates no Vault card or mastery event.
+- A valid first attempt creates `tried` evidence and a due task.
+- Independent cross-context evidence advances `reused` and `owned` under deterministic rules.
+- Progress reports attempts, due completions, independent reuse, and mastery distribution.
 
-### 11.2 Sequential foundation
+### 13.5 Browser and live verification
 
-The following work is strictly sequential:
+- Playwright uses a persistent Chrome context with the unpacked extension loaded.
+- CI mocks Supadata and AI providers with fixed fixtures.
+- Manual smoke testing covers several real public Chinese YouTube videos.
+- The demo uses one known public video and versioned cached results, while still demonstrating a real extension save entering the authenticated cloud account.
 
-1. M0 engineering foundation.
-2. M1 data model, API contracts, RLS, event contracts, and fixtures.
-3. Baseline build, unit tests, migration reset, and RLS tests.
+### 13.6 Provenance and license checks
 
-No feature Agent starts before these interfaces pass review.
+- Record the pinned YouTube Digest commit and copied file map.
+- Preserve its MIT license and copyright notice.
+- Fail review if protected upstream behaviors are independently reimplemented without a documented test-backed exception.
+- Record LLM Wiki as a design-method reference only.
+- Fail review if GPLv3 LLM Wiki source code is copied into Popcorn.
 
-### 11.3 Parallel batch A
+## 14. Acceptance Criteria
 
-After M1 is frozen:
+The first release is complete when all of the following are true:
 
-- **Agent A:** M2 Identity, Profile, and Web Shell.
-- **Agent B:** M3 Content Ingestion and Normalisation.
-- **Agent C:** M4 AI Analysis and Evaluation Pipeline using fixed content fixtures.
-- **Primary Agent:** Reviews contract compliance and prepares integration tests without changing feature-owned files.
+1. A learner explicitly signs into Popcorn from the extension and retains one recoverable session without exposing provider or service-role credentials.
+2. A standard video with native Simplified Chinese subtitles shows the original, English, and bilingual transcript modes.
+3. A non-Chinese fallback transcript is rejected rather than treated as authentic Chinese input.
+4. Overview, complete chapters, key quotes, selected-text explanation, playback following, and timestamp navigation work from the pinned YouTube Digest adaptation.
+5. The learner can save a video, player moment, subtitle row or selection, key quote, and AI explanation without pausing, navigating, or completing a form.
+6. The exact acted-on text and source range are stored for subtitle, quote, and explanation saves.
+7. Raw saves remain durable when AI, translation, transcript resolution, or knowledge organization fails.
+8. An offline or session-expired save survives extension-worker termination and syncs later with the same `clientEventId`.
+9. Multiple saves from one video produce one user-owned video parent and traceable timestamped items.
+10. The Saved website shows the video snapshot, raw saves, progressive processing, and source-grounded expression candidates.
+11. Saving, viewing, translating, or explaining creates no mastery evidence.
+12. A valid original attempt creates or updates an Expression Card, records `tried`, and schedules Practice atomically.
+13. Later independent use in distinct contexts can advance `reused` and `owned` under deterministic rules.
+14. Home, Saved, Practice, Vault, and Progress derive from authenticated cloud data and remain available across computers.
+15. Source deletion has explicit, tested effects and cannot silently erase mastery history.
+16. RLS and worker-scope tests prove cross-user isolation.
+17. The deployed web application, packaged extension, seeded demo account, and known-video cached path support a repeatable live demonstration.
+18. First-release UI and tests contain no pasted-text, generic URL, image, or screenshot input path.
+19. Required unit, contract, integration, security, web E2E, and extension E2E checks pass from a clean checkout.
+20. Upstream provenance and license checks pass.
 
-These modules are independent because they consume M1 contracts and do not require each other's implementation.
+## 15. Implementation Planning Constraints
 
-### 11.4 Integration checkpoint A
+The revised implementation plans must:
 
-The primary Agent integrates M2, M3, and M4 and verifies:
-
-- A signed-in learner can store and retrieve content.
-- Normalised content satisfies the AI pipeline contract.
-- AI results remain isolated to the owning user.
-- Full build, migration, unit, contract, and RLS suites pass.
-
-This checkpoint is sequential.
-
-### 11.5 Parallel batch B
-
-After checkpoint A:
-
-- **Agent A:** M5 Use It Now Practice Loop.
-- **Agent B:** M6 Expression Memory and Active Queue, initially consuming reviewed `AttemptRecorded` fixtures.
-- **Agent C:** M8 Desktop Web Experience and Accessibility using existing feature fixtures and stories.
-- **Primary Agent:** Owns the real M5-to-M6 event integration and prevents shared UI or contract conflicts.
-
-M5 and M6 may proceed in parallel only because M1 freezes their event payload. Their real event connection is integrated sequentially by the primary Agent.
-
-### 11.6 Integration checkpoint B
-
-The primary Agent verifies the complete text-import vertical slice:
-
-`sign in -> import -> analyse -> select -> respond -> evaluate -> save -> queue`
-
-This checkpoint includes retry and duplicate-submission tests and is sequential.
-
-### 11.7 Parallel batch C
-
-After the core evidence loop is stable:
-
-- **Agent A:** M7 Progress aggregation and Expression Health Check.
-- **Agent B:** M7 pgvector deduplication and related-expression retrieval.
-- **Agent C:** M7 Chinese-language quality fixtures, English-explanation checks, and browser scenarios for mixed-script rendering.
-- **Primary Agent:** Runs the complete suite, reviews query cost and data isolation, and integrates the three M7 submodules.
-
-The M7 submodules use separate service, query, and test files. Shared migrations are created sequentially by the primary Agent before this batch begins.
-
-### 11.8 Sequential delivery
-
-M9 is coordinated sequentially because deployment, seed data, migrations, caching, and end-to-end tests share the same environment and production state. Individual Agents may investigate independent failures in parallel, but only the primary Agent applies final integration decisions and declares the build ready.
-
-## 12. File Ownership Boundaries
-
-The implementation plan will assign exact paths, but the intended ownership is:
-
-```text
-src/app/                         Primary Agent for shared layouts and routes
-src/features/auth/               M2 owner
-src/features/profile/            M2 owner
-src/features/content/            M3 owner
-src/features/analysis/           M4 owner
-src/features/practice/           M5 owner
-src/features/vault/              M6 owner
-src/features/queue/              M6 owner
-src/features/progress/           M7 progress owner
-src/features/relations/          M7 semantic owner
-src/features/chinese/            M7 Chinese-language quality owner
-src/components/ui/               M0/M8 owner; reviewed shared changes only
-src/server/api/                  Primary Agent owns shared routing conventions
-src/server/ai/                   M4 owner
-src/server/domain/               Primary Agent owns shared domain contracts
-src/server/repositories/         Module owner by repository file
-src/contracts/                   Primary Agent only
-supabase/migrations/             Primary Agent only during parallel batches
-supabase/tests/                  Primary Agent with module-specific additions
-tests/e2e/                       M9 owner; feature Agents may propose scenarios
-```
-
-## 13. Acceptance Criteria
-
-The desktop web product is complete when all of the following are true:
-
-1. A learner can sign in on a supported desktop browser and recover the same profile and learning history on another computer.
-2. Text, one supported public URL, and a screenshot can each produce a stored content item and a schema-valid analysis.
-3. Analysis identifies one to three expressions with meaning, tone, function, and evidence from the source.
-4. The learner can submit and revise a personal response and receive separate accuracy, naturalness, and contextual-fit feedback.
-5. A successful attempt creates a persistent Expression Card, mastery evidence, and a due task without duplicate records.
-6. A later reuse attempt in a new context can advance mastery according to deterministic rules.
-7. Vault, Queue, and Progress are derived from authenticated persistent data rather than browser-only state.
-8. The interface, instructions, and AI explanations are in English while authentic content, extracted expressions, practice prompts, and learner responses are correctly rendered and evaluated in Simplified Chinese.
-9. RLS tests prove cross-user isolation for every user-owned data group.
-10. AI failures are visible, retryable where safe, and do not corrupt mastery state.
-11. The seeded demo account contains history, progress, and a due transfer task.
-12. The final demonstration succeeds from the deployed URL in a supported desktop browser.
-13. Unit, contract, integration, security, and required Playwright tests pass from a clean checkout.
-
-## 14. Implementation Planning Constraints
-
-The subsequent implementation plans must:
-
-- Be organised by the modules and integration checkpoints in this design, not by calendar week.
-- Use test-driven steps and independently reviewable deliverables.
-- Specify exact files, interfaces, commands, expected failures, and expected passing results.
-- Preserve the sequential foundation and integration gates.
-- Assign parallel tasks only where file ownership and shared state do not overlap.
-- Treat M0 and M1 as the first implementation plan before feature Agents are dispatched.
-- Keep mobile UI, PWA, offline mode, and native applications outside all task lists.
+- modify the existing foundation, Batch A, Batch B, Batch C, delivery, orchestration, and execution-runbook documents rather than adding an alternative plan set;
+- remove generic text, URL, image, screenshot, pgvector, advanced relation, advanced Progress, and export tasks from first-release execution;
+- assign exact upstream repository, pinned ref, file, function, reuse mode, target file, required adaptation, license action, and verification test at the relevant task;
+- require agents to inspect and reuse pinned YouTube Digest code before creating extension behavior;
+- state explicitly that LLM Wiki contributes methods only and that its GPLv3 implementation code may not be copied;
+- establish extension authentication, raw-save contracts, idempotency, immutable snapshot, durable-job, and three-state mastery contracts before feature work begins;
+- keep long provider work out of extension requests and service-worker lifecycle assumptions;
+- use test-driven, independently reviewable tasks with exact files, commands, expected failures, and passing results;
+- preserve sequential contract and migration ownership before parallel feature batches;
+- include integration gates for extension-to-cloud save, Saved-to-practice, and practice-to-mastery;
+- treat real-provider smoke tests as manual delivery verification and keep CI deterministic with fixtures.
