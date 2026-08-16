@@ -1,0 +1,50 @@
+{
+  "name": "popcorn",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm test:unit && pnpm test:contract && pnpm test:integration",
+    "test:unit": "vitest run src --passWithNoTests",
+    "test:contract": "vitest run tests/contracts --passWithNoTests",
+    "test:integration": "vitest run tests/integration --passWithNoTests",
+    "test:provenance": "vitest run tests/provenance --passWithNoTests",
+    "test:e2e": "playwright test --pass-with-no-tests",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:provenance && pnpm build",
+    "db:reset": "supabase db reset",
+    "db:test": "supabase test db"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.9.0",
+    "@supabase/supabase-js": "^2.112.3",
+    "@tanstack/react-query": "^5.101.4",
+    "next": "16.3.1",
+    "openai": "^6.49.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5.2.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.1",
+    "jsdom": "^28.1.0",
+    "supabase": "^2.114.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
+  },
+  "packageManager": "pnpm@11.19.0"
+}
