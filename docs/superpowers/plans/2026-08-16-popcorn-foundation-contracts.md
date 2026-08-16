@@ -1,515 +1,578 @@
 # Popcorn Foundation and Contracts Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Create a reproducible Next.js/Supabase codebase with frozen API, domain, event, database, and security contracts for all feature modules.
+**Goal:** Freeze the reproducible web, extension, API, database, security, job, and three-state mastery contracts required by every later Popcorn feature.
 
-**Architecture:** A single App Router project uses feature directories for browser code, Route Handlers for /api/v1, domain services for deterministic learning logic, repositories for persistence, and Supabase migrations plus RLS as the data boundary.
+**Architecture:** Keep the Next.js App Router web/API application at the repository root and add a plain Manifest V3 extension under `extension/`. Supabase Auth/PostgreSQL/RLS is the durable boundary; extension requests are fast and idempotent, while provider work uses leased `knowledge_jobs` recovered by Supabase Cron.
 
-**Tech Stack:** Next.js, TypeScript, pnpm, Tailwind CSS, Zod, Supabase CLI, Vitest, Testing Library, Playwright.
+**Tech Stack:** Next.js, TypeScript, pnpm, Zod, Supabase Auth/PostgreSQL/Cron, Chrome Manifest V3, Vitest, Testing Library, Playwright.
 
 ## Global Constraints
 
-- Desktop web only, minimum supported width 1024 pixels.
-- English interface; Mandarin Chinese target language using Simplified Chinese.
-- Strict TypeScript and Zod at external boundaries.
-- Native language is fixed to en; target language is fixed to zh-CN.
-- All user-owned records use UUID user_id and RLS.
-- No product secrets in tracked files.
-- Migrations and contracts are primary-Agent-owned after this plan.
+- Canonical product spec: `docs/superpowers/specs/2026-08-16-popcorn-desktop-web-design.md`.
+- Extension support starts at Chrome 116; web support starts at 1024 pixels.
+- Native language is fixed to `en`; target language is fixed to `zh-CN`.
+- The first release accepts only standard public YouTube watch pages with native Simplified Chinese subtitles.
+- Mastery states are exactly `tried`, `reused`, and `owned`; saving or viewing content is never mastery evidence.
+- Every user-owned database row carries `user_id`; every public table enables RLS.
+- Provider keys and the Supabase service-role key are server-only.
+- Long provider work never runs in an extension request or depends on a live service worker.
+- Pasted text, generic URL, image, screenshot, pgvector, graph, advanced Progress, and export are outside this plan.
+- Root configuration, shared contracts, migrations, generated database types, and upstream provenance are primary-Agent-owned after this plan.
 
----
+## Upstream Reuse Contract
+
+| Repository | Pinned ref | Use in this plan | License action |
+|---|---|---|---|
+| `zarazhangrui/youtube-digest` | `d03e1f61e017b032159ffd1821cac6e7693ce0c7` | Vendor the listed extension source and tests before any extension feature work. | Preserve its MIT license and copyright notice. |
+| `nashsu/llm_wiki` | `v0.6.9`, commit `723e259309aea5e3850265b631f80224f66dd9f6` | Record method provenance only: immutable raw sources, two-stage organization, traceability, incremental cache, durable review. | Do not copy GPLv3 implementation code. |
 
 ## Planned File Map
 
-    package.json                         scripts and dependency boundary
-    src/contracts/api.ts                success/failure response envelope
-    src/contracts/content.ts            content ingestion contracts
-    src/contracts/analysis.ts           AI structured result contracts
-    src/contracts/practice.ts           practice and evaluation contracts
-    src/contracts/memory.ts             mastery and queue contracts
-    src/server/domain/mastery.ts         deterministic state transitions
-    src/server/domain/schedule-review.ts deterministic due-date policy
-    src/server/env.ts                    server environment validation
-    supabase/migrations/...              schema, indexes, RLS, pgvector
-    supabase/tests/rls.sql               cross-user policy assertions
-    tests/factories/                     stable module fixtures
+```text
+package.json                                shared scripts and dependency boundary
+extension/                                 pinned YouTube Digest intake target
+extension/UPSTREAM.md                      exact source-to-target provenance
+third_party/youtube-digest/LICENSE         required MIT notice
+THIRD_PARTY_NOTICES.md                     distributable attribution
+scripts/vendor-youtube-digest.sh           reproducible pinned intake
+src/contracts/api.ts                       stable API envelopes and error codes
+src/contracts/source.ts                    video, snapshot, transcript, and save types
+src/contracts/knowledge.ts                 artifacts, candidates, and durable job types
+src/contracts/practice.ts                  task, evaluation, and attempt types
+src/contracts/memory.ts                    mastery and review types
+src/server/domain/mastery.ts               deterministic three-state transition
+src/server/domain/schedule-review.ts        deterministic due-date policy
+src/server/domain/lease-job.ts              pure durable-job lease rules
+supabase/migrations/202608160001_schema.sql core data model and indexes
+supabase/migrations/202608160002_rls.sql    ownership and append-only policies
+supabase/migrations/202608160003_cron.sql   scheduled recovery hook
+supabase/tests/rls.sql                      cross-user and append-only proof
+tests/provenance/                           upstream pin and license proof
+```
 
-### Task 1: Scaffold the verified application
-
-**Files:**
-
-- Create: package.json
-- Create: pnpm-lock.yaml
-- Create: tsconfig.json
-- Create: next.config.ts
-- Create: src/app/layout.tsx
-- Create: src/app/page.tsx
-- Create: src/app/globals.css
-- Create: vitest.config.ts
-- Create: playwright.config.ts
-- Create: .env.example
-- Create: .gitignore
-- Test: src/app/page.test.tsx
-
-**Interfaces:**
-
-- Consumes: none.
-- Produces: scripts dev, build, lint, typecheck, test, test:unit, test:contract, test:integration, test:e2e, verify, db:reset, and db:test.
-
-- [ ] **Step 1: Scaffold Next.js without overwriting project documents**
-
-Run from a temporary directory:
-
-    pnpm create next-app@latest popcorn-app --ts --tailwind --eslint --app --src-dir --import-alias "@/*" --use-pnpm
-
-Expected: a new popcorn-app directory. Copy only the generated application/configuration files into the repository; preserve docs and existing report artifacts.
-
-- [ ] **Step 2: Install the planned libraries**
-
-Run:
-
-    pnpm add zod @supabase/ssr @supabase/supabase-js @tanstack/react-query openai
-    pnpm add -D vitest @vitejs/plugin-react jsdom @testing-library/react @testing-library/jest-dom @testing-library/user-event @playwright/test supabase
-
-Expected: package.json and pnpm-lock.yaml record all dependencies.
-
-- [ ] **Step 3: Add the failing home-page test**
-
-Create src/app/page.test.tsx:
-
-    import { render, screen } from "@testing-library/react";
-    import HomePage from "./page";
-
-    test("describes the Chinese expression learning loop in English", () => {
-      render(<HomePage />);
-      expect(
-        screen.getByRole("heading", {
-          name: "Turn real Chinese into language you can use",
-        }),
-      ).toBeInTheDocument();
-    });
-
-Run:
-
-    pnpm vitest run src/app/page.test.tsx
-
-Expected: FAIL because the generated heading differs.
-
-- [ ] **Step 4: Implement the minimum page and test setup**
-
-Set src/app/page.tsx to:
-
-    export default function HomePage() {
-      return (
-        <main>
-          <h1>Turn real Chinese into language you can use</h1>
-        </main>
-      );
-    }
-
-Configure Vitest with jsdom, the @ alias, globals, and a setup file importing @testing-library/jest-dom/vitest.
-
-Run:
-
-    pnpm vitest run src/app/page.test.tsx
-    pnpm lint
-    pnpm typecheck
-    pnpm build
-
-Expected: all four commands exit 0.
-
-- [ ] **Step 5: Commit**
-
-Run:
-
-    git add package.json pnpm-lock.yaml tsconfig.json next.config.ts src vitest.config.ts playwright.config.ts .env.example .gitignore
-    git commit -m "build: scaffold Popcorn desktop web app"
-
-### Task 2: Define environment and API envelopes
+### Task 1: Scaffold the web baseline and reproducible upstream intake
 
 **Files:**
 
-- Create: src/server/env.ts
-- Create: src/contracts/api.ts
-- Create: src/server/api/respond.ts
-- Test: src/server/env.test.ts
-- Test: src/server/api/respond.test.ts
+- Create: `package.json`
+- Create: `pnpm-lock.yaml`
+- Create: `tsconfig.json`
+- Create: `next.config.ts`
+- Create: `vitest.config.ts`
+- Create: `playwright.config.ts`
+- Create: `src/app/layout.tsx`
+- Create: `src/app/page.tsx`
+- Create: `src/test/setup.ts`
+- Create: `.env.example`
+- Create: `scripts/vendor-youtube-digest.sh`
+- Create: `extension/UPSTREAM.md`
+- Create: `THIRD_PARTY_NOTICES.md`
+- Create: `tests/provenance/youtube-digest.test.ts`
+- Test: `src/app/page.test.tsx`
 
 **Interfaces:**
 
-- Consumes: process.env.
-- Produces: Env, ApiSuccess<T>, ApiFailure, success<T>(), and failure().
+- Consumes: pinned upstream Git commit `d03e1f61e017b032159ffd1821cac6e7693ce0c7`.
+- Produces: root scripts `dev`, `build`, `lint`, `typecheck`, `test`, `test:unit`, `test:contract`, `test:integration`, `test:provenance`, `test:e2e`, `verify`, `db:reset`, and `db:test`; vendored `extension/`; verified MIT attribution.
 
-- [ ] **Step 1: Write failing schema and envelope tests**
+- [ ] **Step 1: Scaffold Next.js without overwriting documents**
 
-Use these assertions:
+Run from a temporary directory and copy only generated application/configuration files:
 
-    import { parseServerEnv } from "@/server/env";
-    import { failure, success } from "@/server/api/respond";
+```bash
+pnpm create next-app@latest popcorn-app --ts --tailwind --eslint --app --src-dir --import-alias "@/*" --use-pnpm
+```
 
-    test("requires all server credentials", () => {
-      expect(() => parseServerEnv({})).toThrow("NEXT_PUBLIC_SUPABASE_URL");
-    });
+Expected: the temporary app builds; existing `docs/` and report artifacts remain untouched.
 
-    test("returns stable response envelopes", async () => {
-      expect(await success({ id: "item-1" }, "req-1").json()).toEqual({
-        ok: true,
-        data: { id: "item-1" },
-        requestId: "req-1",
-      });
-      expect(
-        await failure("VALIDATION_FAILED", "Check the form.", false, "req-2").json(),
-      ).toMatchObject({
-        ok: false,
-        error: { code: "VALIDATION_FAILED", retryable: false },
-      });
-    });
+- [ ] **Step 2: Install the minimum foundation libraries**
 
-Run:
+```bash
+pnpm add zod @supabase/ssr @supabase/supabase-js @tanstack/react-query openai
+pnpm add -D vitest @vitejs/plugin-react jsdom @testing-library/react @testing-library/jest-dom @testing-library/user-event @playwright/test supabase
+```
 
-    pnpm vitest run src/server/env.test.ts src/server/api/respond.test.ts
+Expected: dependencies are locked in `pnpm-lock.yaml`; no vector, image-ingestion, or alternate-browser dependency is added.
 
-Expected: FAIL because the modules do not exist.
+- [ ] **Step 3: Write failing product and provenance tests**
 
-- [ ] **Step 2: Implement exact contracts**
+Create `src/app/page.test.tsx`:
 
-Define:
+```tsx
+import { render, screen } from "@testing-library/react";
+import HomePage from "./page";
 
-    export type ApiSuccess<T> = {
-      ok: true;
-      data: T;
-      requestId: string;
-    };
+test("describes the YouTube-to-reuse loop", () => {
+  render(<HomePage />);
+  expect(screen.getByRole("heading", {
+    name: "Turn Chinese videos into language you can use",
+  })).toBeInTheDocument();
+});
+```
 
-    export type ApiFailure = {
-      ok: false;
-      error: {
-        code: string;
-        message: string;
-        retryable: boolean;
-        fieldErrors?: Record<string, string[]>;
-      };
-      requestId: string;
-    };
+Create `tests/provenance/youtube-digest.test.ts`:
 
-Server environment keys:
+```ts
+import { readFileSync } from "node:fs";
 
-    NEXT_PUBLIC_SUPABASE_URL
-    NEXT_PUBLIC_SUPABASE_ANON_KEY
-    SUPABASE_SERVICE_ROLE_KEY
-    OPENAI_API_KEY
-    OPENAI_MODEL
-    OPENAI_EMBEDDING_MODEL
-    OPENAI_EMBEDDING_DIMENSIONS
-    APP_URL
-
-Set .env.example model defaults to gpt-5.6-terra, text-embedding-3-large, and 1536 embedding dimensions; leave credential values empty.
-
-- [ ] **Step 3: Verify**
+test("pins and attributes the YouTube Digest intake", () => {
+  const upstream = readFileSync("extension/UPSTREAM.md", "utf8");
+  const license = readFileSync("third_party/youtube-digest/LICENSE", "utf8");
+  expect(upstream).toContain("d03e1f61e017b032159ffd1821cac6e7693ce0c7");
+  expect(upstream).toContain("content.js");
+  expect(upstream).toContain("sidepanel.js");
+  expect(license).toContain("MIT License");
+  expect(license).toContain("Copyright (c) 2026 Zara Zhang");
+});
+```
 
 Run:
 
-    pnpm vitest run src/server/env.test.ts src/server/api/respond.test.ts
-    pnpm typecheck
+```bash
+pnpm vitest run src/app/page.test.tsx tests/provenance/youtube-digest.test.ts
+```
 
-Expected: both commands exit 0.
+Expected: FAIL because the product heading and vendored source do not exist.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Add the pinned vendor script**
+
+Create `scripts/vendor-youtube-digest.sh` with this behavior and exact allowlist:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly UPSTREAM_URL="https://github.com/zarazhangrui/youtube-digest.git"
+readonly UPSTREAM_COMMIT="d03e1f61e017b032159ffd1821cac6e7693ce0c7"
+readonly TASK_TMP_DIR="$(mktemp -d /tmp/popcorn-youtube-digest.XXXXXX)"
+trap 'rm -rf "$TASK_TMP_DIR"' EXIT
+
+git clone --quiet "$UPSTREAM_URL" "$TASK_TMP_DIR/repo"
+git -C "$TASK_TMP_DIR/repo" checkout --quiet "$UPSTREAM_COMMIT"
+test "$(git -C "$TASK_TMP_DIR/repo" rev-parse HEAD)" = "$UPSTREAM_COMMIT"
+
+mkdir -p extension/icons extension/prompts extension/tests third_party/youtube-digest
+for file in manifest.json background.js content.js settings.js sidepanel.html sidepanel.css sidepanel.js options.html options.css options.js; do
+  install -m 0644 "$TASK_TMP_DIR/repo/$file" "extension/$file"
+done
+for file in analysis.md explain.md note-cleanup.md translation.md; do
+  install -m 0644 "$TASK_TMP_DIR/repo/prompts/$file" "extension/prompts/$file"
+done
+for file in digest-button.test.js options-language.test.js release.test.js settings.test.js transcript-selection.test.js translation.test.js; do
+  install -m 0644 "$TASK_TMP_DIR/repo/tests/$file" "extension/tests/$file"
+done
+for file in icon16.png icon48.png icon128.png; do
+  install -m 0644 "$TASK_TMP_DIR/repo/icons/$file" "extension/icons/$file"
+done
+install -m 0644 "$TASK_TMP_DIR/repo/LICENSE" third_party/youtube-digest/LICENSE
+```
+
+`extension/UPSTREAM.md` must list every copied path, the source commit, target path, reuse mode, expected Popcorn adaptation, and its owning future task. `THIRD_PARTY_NOTICES.md` must point to the preserved MIT license.
 
 Run:
 
-    git add src/server/env.ts src/server/env.test.ts src/contracts/api.ts src/server/api/respond.ts src/server/api/respond.test.ts .env.example
-    git commit -m "feat: define environment and API contracts"
+```bash
+bash scripts/vendor-youtube-digest.sh
+```
 
-### Task 3: Define shared domain contracts and fixtures
+Expected: only allowlisted upstream files appear; `git rev-parse` verification prevents a floating intake.
+
+- [ ] **Step 5: Implement the minimum page and shared test setup**
+
+Set `src/app/page.tsx` to:
+
+```tsx
+export default function HomePage() {
+  return <main><h1>Turn Chinese videos into language you can use</h1></main>;
+}
+```
+
+Configure Vitest for jsdom, `@/`, and `src/test/setup.ts` importing `@testing-library/jest-dom/vitest`.
+
+- [ ] **Step 6: Verify the foundation intake**
+
+```bash
+pnpm vitest run src/app/page.test.tsx tests/provenance/youtube-digest.test.ts
+pnpm lint
+pnpm typecheck
+pnpm build
+bash -n scripts/vendor-youtube-digest.sh
+```
+
+Expected: every command exits 0; `git diff -- extension/` shows upstream source rather than newly generated equivalents.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add package.json pnpm-lock.yaml tsconfig.json next.config.ts vitest.config.ts playwright.config.ts src .env.example scripts/vendor-youtube-digest.sh extension third_party THIRD_PARTY_NOTICES.md tests/provenance
+git commit -m "build: scaffold Popcorn and vendor YouTube Digest"
+```
+
+### Task 2: Define environment, API, source, knowledge, and learning contracts
 
 **Files:**
 
-- Create: src/contracts/content.ts
-- Create: src/contracts/analysis.ts
-- Create: src/contracts/practice.ts
-- Create: src/contracts/memory.ts
-- Create: src/contracts/index.ts
-- Create: tests/factories/content.ts
-- Create: tests/factories/analysis.ts
-- Create: tests/factories/practice.ts
-- Test: tests/contract/shared-contracts.test.ts
+- Create: `src/server/env.ts`
+- Create: `src/contracts/api.ts`
+- Create: `src/contracts/source.ts`
+- Create: `src/contracts/knowledge.ts`
+- Create: `src/contracts/practice.ts`
+- Create: `src/contracts/memory.ts`
+- Create: `src/contracts/index.ts`
+- Create: `src/server/api/respond.ts`
+- Create: `tests/factories/source.ts`
+- Create: `tests/factories/practice.ts`
+- Test: `tests/contract/shared-contracts.test.ts`
+- Test: `src/server/env.test.ts`
+- Test: `src/server/api/respond.test.ts`
 
 **Interfaces:**
 
-- Produces:
-  - NormalisedContent
-  - Profile
-  - AnalysisResult
-  - CandidateExpression
-  - PracticeTask
-  - EvaluationResult
-  - AttemptRecorded
-  - MasteryState
-  - ReviewTask
+- Consumes: product-spec field names and fixed `en`/`zh-CN` language boundary.
+- Produces: `ApiSuccess<T>`, `ApiFailure`, `VideoSource`, `VideoSnapshot`, `TranscriptSegment`, `SavedItem`, `SavedItemInput`, `GeneratedArtifact`, `KnowledgeJob`, `CandidateExpression`, `PracticeTask`, `EvaluationResult`, `AttemptRecorded`, `MasteryState`, and `ReviewTask`.
 
-- [ ] **Step 1: Write contract tests**
+- [ ] **Step 1: Write failing API and source-contract tests**
 
-Assert these required examples parse:
+Use these required assertions:
 
-    const content = {
-      id: "00000000-0000-4000-8000-000000000001",
-      sourceType: "text",
-      language: "zh-CN",
-      text: "这也太离谱了吧。",
-      contentHash: "sha256:example",
-      sourceUrl: null,
-      storagePath: null,
-    };
+```ts
+expect(SavedItemInputSchema.parse({
+  clientEventId: "00000000-0000-4000-8000-000000000101",
+  youtubeVideoId: "dQw4w9WgXcQ",
+  kind: "subtitle_selection",
+  capturedAt: "2026-08-16T10:00:00.000Z",
+  startSeconds: 42,
+  endSeconds: 48,
+  originalChinese: "这也太离谱了吧。",
+  englishTranslation: "That is way too absurd.",
+  segmentIds: ["seg-42"],
+  startOffset: 0,
+  endOffset: 9,
+  contextBefore: ["你刚才看到了吗？"],
+  contextAfter: ["我完全没想到。"],
+})).toMatchObject({ kind: "subtitle_selection" });
 
-    const analysis = {
-      detectedLanguage: "zh-CN",
-      topic: "reaction",
-      tone: "informal disbelief",
-      difficulty: "B1",
-      expressions: [{
-        expression: "太离谱了",
-        meaning: "That is way too absurd.",
-        function: "strong informal reaction",
-        tone: "informal",
-        evidence: "这也太离谱了吧",
-        confidence: 0.94,
-      }],
-    };
+expect(MasteryStateSchema.options).toEqual(["tried", "reused", "owned"]);
+```
 
-Also assert rejection when expressions is empty, contains four items, confidence exceeds 1, language is not zh-CN, or English explanation fields are empty.
+Also assert rejection of arbitrary URLs, missing exact quote text, more than three candidates, non-English explanations, and `seen` or `understood` mastery.
 
 Run:
 
-    pnpm vitest run tests/contract/shared-contracts.test.ts
+```bash
+pnpm vitest run tests/contract/shared-contracts.test.ts src/server/env.test.ts src/server/api/respond.test.ts
+```
 
 Expected: FAIL because contracts do not exist.
 
-- [ ] **Step 2: Implement Zod schemas and inferred types**
+- [ ] **Step 2: Implement stable API envelopes and errors**
 
-Use strict objects. Define MasteryState exactly as:
+```ts
+export type ApiSuccess<T> = { ok: true; data: T; requestId: string };
+export type ApiFailure = {
+  ok: false;
+  error: {
+    code: "AUTH_REQUIRED" | "SESSION_EXPIRED" | "FORBIDDEN" |
+      "INVALID_YOUTUBE_VIDEO" | "NATIVE_CHINESE_TRANSCRIPT_REQUIRED" |
+      "TRANSCRIPT_UNAVAILABLE" | "SYNC_QUEUE_FULL" |
+      "IDEMPOTENCY_CONFLICT" | "PROVIDER_RATE_LIMITED" |
+      "PROVIDER_UNAVAILABLE" | "PROVIDER_OUTPUT_INVALID" |
+      "JOB_LEASE_CONFLICT" | "JOB_RETRY_EXHAUSTED" |
+      "VALIDATION_FAILED" | "CONFLICT" | "INTERNAL_ERROR";
+    message: string;
+    retryable: boolean;
+    fieldErrors?: Record<string, string[]>;
+  };
+  requestId: string;
+};
+```
 
-    z.enum(["seen", "understood", "tried", "reused", "owned"])
+- [ ] **Step 3: Implement strict Zod domain contracts**
 
-Define Profile exactly as:
+Define exact enums:
 
-    {
-      chineseLevel: "A2" | "B1" | "B2" | "C1";
-      learningGoal: string;
-      nativeLanguage: "en";
-      targetLanguage: "zh-CN";
-    }
+```ts
+export const SavedItemKindSchema = z.enum([
+  "video", "player_moment", "subtitle_row", "subtitle_selection",
+  "key_quote", "ai_explanation",
+]);
+export const SavedItemStatusSchema = z.enum([
+  "saved", "resolving_source", "organizing", "ready", "unsupported", "failed",
+]);
+export const KnowledgeJobStatusSchema = z.enum([
+  "pending", "leased", "succeeded", "retryable_failed", "terminal_failed",
+]);
+export const KnowledgeJobTypeSchema = z.enum([
+  "resolve_snapshot", "generate_overview", "translate_segments",
+  "explain_selection", "analyze_saved_item",
+]);
+export const MasteryStateSchema = z.enum(["tried", "reused", "owned"]);
+```
 
-Define AttemptRecorded exactly as:
+`SavedItemInputSchema` must use a discriminated union so `key_quote` requires `exactQuote`, `ai_explanation` requires `selectedChinese` plus `englishExplanation`, and subtitle selections require stable segment IDs and character offsets.
 
-    {
-      attemptId: uuid;
-      userExpressionId: uuid;
-      taskId: uuid;
-      submittedAt: ISO datetime;
-      assistanceLevel: "none" | "hint" | "model_revision";
-      evaluation: EvaluationResult;
-    }
+`CandidateExpressionSchema` requires Simplified Chinese expression, English meaning, English explanation, tone, communicative function, register, exact evidence text, segment IDs, timestamp range, and confidence `0..1`.
 
-Define EvaluationResult with accuracy, naturalness, and contextualFit objects. Each object has score from 1 through 5 and English feedback.
+- [ ] **Step 4: Define server environment requirements**
 
-- [ ] **Step 3: Add factories with stable UUIDs**
+Require:
 
-Factories accept Partial overrides and return schema-valid defaults. Do not use random data or current time.
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+SUPADATA_API_KEY
+OPENAI_API_KEY
+OPENAI_MODEL
+APP_URL
+EXTENSION_REDIRECT_ORIGIN
+INTERNAL_JOB_SECRET
+```
 
-- [ ] **Step 4: Verify**
+Do not include an embedding model or dimensions. `.env.example` leaves credentials empty and documents that no provider key enters the extension.
 
-Run:
+- [ ] **Step 5: Add deterministic factories and verify**
 
-    pnpm test:contract -- shared-contracts
-    pnpm typecheck
+Factories use fixed UUIDs, ISO dates, YouTube IDs, and Chinese fixtures; they never use randomness or current time.
 
-Expected: all contract tests pass and TypeScript exits 0.
+```bash
+pnpm vitest run tests/contract/shared-contracts.test.ts src/server/env.test.ts src/server/api/respond.test.ts
+pnpm typecheck
+```
 
-- [ ] **Step 5: Commit**
+Expected: all tests pass and TypeScript exits 0.
 
-Run:
+- [ ] **Step 6: Commit**
 
-    git add src/contracts tests/factories tests/contract/shared-contracts.test.ts
-    git commit -m "feat: freeze shared learning contracts"
+```bash
+git add src/contracts src/server/env.ts src/server/env.test.ts src/server/api tests/factories tests/contract/shared-contracts.test.ts .env.example
+git commit -m "feat: freeze YouTube learning contracts"
+```
 
-### Task 4: Create database schema, indexes, and RLS
+### Task 3: Create the database schema, indexes, and RLS
 
 **Files:**
 
-- Create: supabase/config.toml
-- Create: supabase/migrations/202608160001_initial_schema.sql
-- Create: supabase/migrations/202608160002_rls_policies.sql
-- Create: supabase/seed.sql
-- Create: supabase/tests/rls.sql
-- Create: src/types/database.generated.ts
+- Create: `supabase/config.toml`
+- Create: `supabase/migrations/202608160001_schema.sql`
+- Create: `supabase/migrations/202608160002_rls.sql`
+- Create: `supabase/seed.sql`
+- Create: `supabase/tests/rls.sql`
+- Create: `src/types/database.generated.ts`
 
 **Interfaces:**
 
-- Consumes: shared contract field names.
-- Produces tables profiles, content_items, ai_runs, expression_senses, expression_occurrences, user_expressions, practice_tasks, attempts, mastery_events, review_tasks, and expression_relations.
+- Consumes: Task 2 field names and enums.
+- Produces: `profiles`, `video_sources`, `video_snapshots`, `transcript_segments`, `saved_items`, `generated_artifacts`, `knowledge_jobs`, `expression_senses`, `expression_occurrences`, `user_expressions`, `practice_tasks`, `attempts`, `mastery_events`, and `review_tasks`.
 
-- [ ] **Step 1: Initialize Supabase and add failing RLS assertions**
+- [ ] **Step 1: Write failing RLS and constraint assertions**
 
-Run:
-
-    pnpm exec supabase init
-
-Write SQL assertions proving user A cannot select, update, or delete user B rows in profiles, content_items, user_expressions, attempts, and review_tasks.
+Create two deterministic users. Assert user B cannot select, insert, update, or delete user A source, snapshot, segment, save, artifact, job, expression, attempt, or review task. Assert a client cannot update or delete `mastery_events`.
 
 Run:
 
-    pnpm db:reset
-    pnpm db:test
+```bash
+pnpm exec supabase init
+pnpm db:reset
+pnpm db:test
+```
 
 Expected: FAIL because tables and policies do not exist.
 
-- [ ] **Step 2: Implement the schema**
+- [ ] **Step 2: Implement schema invariants**
 
-Requirements:
+The migration must include these exact uniqueness and status rules:
 
-- enable vector extension;
-- UUID primary keys generated by gen_random_uuid();
-- user-owned rows default user_id to auth.uid();
-- profiles enforce native_language = 'en' and target_language = 'zh-CN';
-- user_expressions enforce the five mastery values;
-- ai_runs enforce running, succeeded, or failed;
-- review_tasks enforce pending, completed, or cancelled;
-- unique occurrence and idempotency keys prevent duplicate writes;
-- vector column uses 1536 dimensions, matching OPENAI_EMBEDDING_DIMENSIONS passed by M4;
-- created_at is timestamptz not null default now();
-- state history rows are append-only.
+```sql
+create extension if not exists pg_trgm;
 
-- [ ] **Step 3: Implement RLS**
+create unique index video_sources_user_video_unique
+  on video_sources (user_id, youtube_video_id);
+create unique index saved_items_user_event_unique
+  on saved_items (user_id, client_event_id);
+create unique index video_snapshots_source_hash_unique
+  on video_snapshots (video_source_id, transcript_hash);
+create unique index transcript_segments_snapshot_stable_unique
+  on transcript_segments (snapshot_id, stable_id);
+create unique index generated_artifacts_user_result_unique
+  on generated_artifacts (user_id, artifact_type, result_key);
+create unique index knowledge_jobs_user_dedupe_unique
+  on knowledge_jobs (user_id, job_type, dedupe_key);
 
-Enable RLS on every public table. Use auth.uid() = user_id for user-owned tables. For child records, use exists subqueries through their owned parent when the child does not duplicate user_id. Deny client updates and deletes to mastery_events.
+alter table user_expressions add constraint mastery_state_check
+  check (mastery_state in ('tried', 'reused', 'owned'));
+alter table saved_items add constraint saved_item_status_check
+  check (status in ('saved', 'resolving_source', 'organizing', 'ready', 'unsupported', 'failed'));
+alter table knowledge_jobs add constraint knowledge_job_status_check
+  check (status in ('pending', 'leased', 'succeeded', 'retryable_failed', 'terminal_failed'));
+alter table knowledge_jobs add constraint knowledge_job_type_check
+  check (job_type in ('resolve_snapshot', 'generate_overview', 'translate_segments',
+    'explain_selection', 'analyze_saved_item'));
+```
 
-- [ ] **Step 4: Seed deterministic local users and fixtures**
+Every user-owned table has `user_id uuid not null`, `created_at timestamptz not null default now()`, and appropriate updated timestamps. `transcript_segments` stores ordinal, stable ID, original text, start/end seconds, language, and snapshot ID. `generated_artifacts.result_key` and `knowledge_jobs.dedupe_key` are non-null hashes over the documented source/payload/prompt/model inputs. Raw source and mastery history are append-only from client roles.
 
-Seed two users with stable UUIDs and separate profiles. Seed one Chinese content item for user A and none for user B. Never use production credentials.
+- [ ] **Step 3: Add retrieval and job indexes**
 
-- [ ] **Step 5: Verify and generate types**
+Add indexes for `saved_items(user_id, video_source_id, start_seconds)`, `knowledge_jobs(status, next_attempt_at, lease_expires_at)`, `review_tasks(user_id, due_at, status)`, normalized expression text, and a GIN trigram index over Simplified Chinese expression text. Do not enable `vector`.
 
-Run:
+- [ ] **Step 4: Implement RLS**
 
-    pnpm db:reset
-    pnpm db:test
-    pnpm exec supabase gen types typescript --local > src/types/database.generated.ts
-    pnpm typecheck
+Enable RLS on every public table. Duplicate `user_id` on child records so policies use `(select auth.uid()) = user_id` without deep joins. Apply `to authenticated` and explicit `with check` clauses. Service-role workers are server-only and must still filter every operation by job `user_id`.
 
-Expected: schema resets cleanly, all RLS assertions pass, and generated types compile.
+- [ ] **Step 5: Seed fixtures and generate types**
 
-- [ ] **Step 6: Commit**
+Seed two users, one Chinese YouTube source/snapshot for user A, three timestamped transcript segments, and no data for user B.
 
-Run:
+```bash
+pnpm db:reset
+pnpm db:test
+pnpm exec supabase gen types typescript --local > src/types/database.generated.ts
+pnpm typecheck
+```
 
-    git add supabase src/types/database.generated.ts package.json pnpm-lock.yaml
-    git commit -m "feat: add secure learning data model"
-
-### Task 5: Implement deterministic mastery and queue rules
-
-**Files:**
-
-- Create: src/server/domain/mastery.ts
-- Create: src/server/domain/schedule-review.ts
-- Test: src/server/domain/mastery.test.ts
-- Test: src/server/domain/schedule-review.test.ts
-
-**Interfaces:**
-
-- Produces:
-  - advanceMastery(current, evidence): MasteryState
-  - scheduleReview(input): { dueAt: Date; reason: string }
-
-- [ ] **Step 1: Write mastery transition tests**
-
-Test:
-
-- seen plus explanation_opened becomes understood;
-- understood plus assisted_attempt becomes tried;
-- tried plus successful_independent_transfer becomes reused;
-- reused becomes owned only after two successful independent contexts on separate dates and one due reuse;
-- weak later evidence does not reduce the highest state;
-- client-requested owned is not an accepted evidence type.
-
-Run:
-
-    pnpm vitest run src/server/domain/mastery.test.ts
-
-Expected: FAIL because advanceMastery does not exist.
-
-- [ ] **Step 2: Implement advanceMastery as a pure function**
-
-The function takes current state and an evidence summary. It must not read time, database, or AI output directly.
-
-- [ ] **Step 3: Write scheduling tests**
-
-Use a fixed base time of 2026-08-16T00:00:00.000Z. Assert:
-
-- first tried evidence: due in 1 day;
-- failed or model_revision reuse: due in 1 day;
-- successful independent reuse: due in 7 days;
-- owned expression: due in 30 days.
-
-- [ ] **Step 4: Implement scheduleReview**
-
-Use date-fns-free UTC millisecond arithmetic to keep the rule deterministic.
-
-- [ ] **Step 5: Verify**
-
-Run:
-
-    pnpm vitest run src/server/domain/mastery.test.ts src/server/domain/schedule-review.test.ts
-    pnpm verify
-    pnpm db:test
-
-Expected: all commands exit 0.
+Expected: reset succeeds, RLS assertions pass, and generated types compile.
 
 - [ ] **Step 6: Commit**
 
-Run:
+```bash
+git add supabase src/types/database.generated.ts package.json pnpm-lock.yaml
+git commit -m "feat: add secure YouTube learning schema"
+```
 
-    git add src/server/domain
-    git commit -m "feat: add deterministic mastery and review rules"
-
-### Task 6: Add CI and freeze the baseline
+### Task 4: Implement deterministic mastery, scheduling, and job leasing
 
 **Files:**
 
-- Create: .github/workflows/ci.yml
-- Create: docs/engineering/agent-boundaries.md
-- Modify: package.json
-- Test: all existing checks.
+- Create: `src/server/domain/mastery.ts`
+- Create: `src/server/domain/schedule-review.ts`
+- Create: `src/server/domain/lease-job.ts`
+- Test: `src/server/domain/mastery.test.ts`
+- Test: `src/server/domain/schedule-review.test.ts`
+- Test: `src/server/domain/lease-job.test.ts`
 
 **Interfaces:**
 
-- Produces the frozen baseline consumed by Batch A.
+- Produces: `advanceMastery(current, evidence): MasteryState`, `scheduleReview(input): ReviewSchedule`, `leaseJob(job, now): LeaseDecision`, and `nextJobFailure(job, error, now): KnowledgeJobState`.
 
-- [ ] **Step 1: Add CI jobs**
+- [ ] **Step 1: Write failing mastery tests**
 
-CI runs pnpm install --frozen-lockfile, lint, typecheck, unit and contract tests, Next.js build, Supabase start, database reset, and RLS tests. Cache pnpm only; never cache secrets or local Supabase data.
+Assert:
 
-- [ ] **Step 2: Add Agent ownership rules**
+```ts
+expect(advanceMastery(null, { kind: "valid_original_attempt" })).toBe("tried");
+expect(advanceMastery("tried", { kind: "successful_independent_transfer" })).toBe("reused");
+expect(advanceMastery("reused", {
+  kind: "owned_threshold_met",
+  distinctContexts: 2,
+  distinctUtcDates: 2,
+  includesDuePractice: true,
+})).toBe("owned");
+expect(advanceMastery("reused", { kind: "saved_item_created" })).toBe("reused");
+```
 
-Document the exact file boundaries from the orchestration plan and state that src/contracts, supabase/migrations, package.json, and root configuration are primary-Agent-owned during parallel batches.
+Also prove weak later evidence never lowers the highest state.
 
-- [ ] **Step 3: Run the complete baseline gate**
+- [ ] **Step 2: Implement the pure transition**
 
-Run:
+The function accepts only server-generated evidence union members. It reads no clock, database, client-requested target state, or AI-proposed mastery.
 
-    pnpm install --frozen-lockfile
-    pnpm verify
-    pnpm db:reset
-    pnpm db:test
-    pnpm build
-    git diff --check
+- [ ] **Step 3: Write and implement scheduling tests**
+
+At fixed `2026-08-16T00:00:00.000Z`, assert first `tried` and failed/heavily assisted reuse are due in one day, successful independent reuse in seven days, and `owned` maintenance in thirty days. Implement with UTC millisecond arithmetic.
+
+- [ ] **Step 4: Write and implement job-lease tests**
+
+Prove only `pending`, due `retryable_failed`, or expired `leased` jobs can be leased; a lease expires after a fixed duration; retry uses bounded exponential backoff; the final allowed attempt becomes `terminal_failed`; result keys are deterministic from job type, source hash, saved-item hash, prompt version, and model version.
+
+```bash
+pnpm vitest run src/server/domain/mastery.test.ts src/server/domain/schedule-review.test.ts src/server/domain/lease-job.test.ts
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/server/domain
+git commit -m "feat: add deterministic mastery and job rules"
+```
+
+### Task 5: Add scheduled recovery, CI, and the frozen ownership boundary
+
+**Files:**
+
+- Create: `supabase/migrations/202608160003_cron.sql`
+- Create: `.github/workflows/ci.yml`
+- Create: `docs/engineering/agent-boundaries.md`
+- Create: `docs/engineering/upstream-reuse-policy.md`
+- Modify: `package.json`
+- Test: `tests/provenance/no-llm-wiki-code.test.ts`
+
+**Interfaces:**
+
+- Consumes: Tasks 1-4.
+- Produces: a frozen baseline and a scheduled HTTPS recovery call to the future internal job endpoint.
+
+- [ ] **Step 1: Write the failing license-boundary test**
+
+```ts
+import { readFileSync } from "node:fs";
+
+test("documents LLM Wiki as method-only provenance", () => {
+  const policy = readFileSync("docs/engineering/upstream-reuse-policy.md", "utf8");
+  expect(policy).toContain("723e259309aea5e3850265b631f80224f66dd9f6");
+  expect(policy).toContain("MUST NOT copy GPLv3 implementation code");
+});
+```
+
+Run `pnpm vitest run tests/provenance/no-llm-wiki-code.test.ts`.
+
+Expected: FAIL because the policy does not exist.
+
+- [ ] **Step 2: Add the Cron migration**
+
+Use Supabase Vault-backed secrets and `pg_net` to call `POST /api/internal/jobs/process` every minute. The migration must not embed `INTERNAL_JOB_SECRET`; deployment documentation supplies it through Vault. The internal endpoint is implemented in Batch B and must return quickly after leasing a bounded batch.
+
+- [ ] **Step 3: Freeze ownership and upstream rules**
+
+Document that `src/contracts/**`, `supabase/migrations/**`, `src/types/database.generated.ts`, root config, vendor script, upstream notices, and shared error codes are primary-Agent-only during parallel batches. Require every extension task to name source repo, pin, source file/function, target file, adaptation, license action, and reused test.
+
+- [ ] **Step 4: Add CI gates**
+
+CI runs install, lint, typecheck, unit/contract/provenance tests, web build, Supabase reset, RLS tests, vendor-script syntax, `git diff --check`, and an extension static check. It does not call live providers.
+
+- [ ] **Step 5: Run the complete freeze gate**
+
+```bash
+pnpm install --frozen-lockfile
+pnpm verify
+pnpm db:reset
+pnpm db:test
+pnpm build
+bash -n scripts/vendor-youtube-digest.sh
+git diff --check
+```
 
 Expected: every command exits 0.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
-Run:
+```bash
+git add supabase/migrations/202608160003_cron.sql .github/workflows/ci.yml docs/engineering package.json pnpm-lock.yaml tests/provenance
+git commit -m "ci: freeze YouTube foundation contracts"
+```
 
-    git add .github/workflows/ci.yml docs/engineering/agent-boundaries.md package.json pnpm-lock.yaml
-    git commit -m "ci: freeze foundation verification gate"
+## Foundation Exit Gate
+
+Do not start Batch A until all of the following are recorded in the execution ledger:
+
+- the pinned YouTube Digest files exist and provenance tests pass;
+- no LLM Wiki code was copied;
+- shared schemas expose exact save payloads and only three mastery states;
+- database uniqueness, append-only history, RLS, and job indexes pass from a clean reset;
+- mastery, scheduling, and lease rules pass with fixed time;
+- CI, build, and provenance gates are green;
+- migrations and shared contracts are frozen for feature agents.

@@ -1,366 +1,371 @@
-# Popcorn Multi-Agent Execution Runbook
+# Popcorn YouTube Learning Execution Runbook
 
-This runbook tells a primary Codex Agent how to execute the Popcorn plans without relying on conversation memory. It is an execution protocol, not an instruction to start work automatically.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to execute this runbook one task at a time. Use `superpowers:test-driven-development` for implementation tasks and `superpowers:verification-before-completion` before every completion claim.
 
-## 1. Canonical Inputs
+**Goal:** Execute the approved Chrome-extension-plus-web Popcorn plan without relying on chat memory, regenerating available upstream code, widening the first release, or interrupting YouTube playback during saves.
 
-The primary Agent must read these files before implementation:
+**Architecture:** A Chrome extension adapts the pinned YouTube Digest acquisition and Side Panel experience for Chinese source videos and sends small, idempotent saves to the Popcorn backend. The web app stores revisioned learning-material snapshots, performs durable knowledge jobs, applies adapted LLM Wiki organization methods, and supports confirmation, reuse, practice, lexical retrieval, and basic progress.
 
-1. docs/superpowers/specs/2026-08-16-popcorn-desktop-web-design.md
-2. docs/superpowers/plans/2026-08-16-popcorn-agent-orchestration.md
-3. docs/superpowers/plans/2026-08-16-popcorn-foundation-contracts.md
-4. docs/superpowers/plans/2026-08-16-popcorn-batch-a-platform-capabilities.md
-5. docs/superpowers/plans/2026-08-16-popcorn-batch-b-learning-loop.md
-6. docs/superpowers/plans/2026-08-16-popcorn-batch-c-progress-chinese.md
-7. docs/superpowers/plans/2026-08-16-popcorn-delivery-demo.md
+**Tech Stack:** TypeScript, Chrome Manifest V3, React/Vite extension UI, Next.js web app, Supabase Postgres/Auth/RLS/Cron, Zod, Vitest, Playwright, `pg_trgm`, server-side LLM and transcript providers.
 
-Conflict priority:
+---
+
+## 1. Canonical inputs and conflict order
+
+Read these files completely before implementation:
+
+1. `docs/superpowers/specs/2026-08-16-popcorn-desktop-web-design.md`
+2. `docs/superpowers/plans/2026-08-16-popcorn-foundation-contracts.md`
+3. `docs/superpowers/plans/2026-08-16-popcorn-batch-a-platform-capabilities.md`
+4. `docs/superpowers/plans/2026-08-16-popcorn-batch-b-learning-loop.md`
+5. `docs/superpowers/plans/2026-08-16-popcorn-batch-c-progress-chinese.md`
+6. `docs/superpowers/plans/2026-08-16-popcorn-delivery-demo.md`
+7. `docs/superpowers/plans/2026-08-16-popcorn-agent-orchestration.md`
+8. This runbook.
+
+Resolve conflicts in this order:
 
 1. The user's latest explicit instruction.
-2. The approved design.
-3. The module implementation plan.
-4. The orchestration plan.
-5. An Agent's interpretation.
+2. The approved product design.
+3. The task's module plan.
+4. The orchestration plan and this runbook.
+5. An implementer's interpretation.
 
-If levels 1 through 3 conflict, stop and ask the user instead of guessing.
+If levels 1–3 disagree, stop and present the exact conflict. Do not silently choose.
 
-## 2. Copy-Paste Instruction for the Primary Agent
+## 2. Frozen first-release boundary
 
-Copy this block into a new Codex task when implementation should begin:
+The release has one acquisition source: the currently watched YouTube video. The product remains Popcorn: English-speaking learners acquire and reuse Mandarin from native-Chinese videos.
 
-    Execute the Popcorn desktop web development plans in this repository.
+The save operation stores a **learning-material snapshot**, never the video file. A snapshot can contain:
 
-    Read first:
-    - docs/superpowers/specs/2026-08-16-popcorn-desktop-web-design.md
-    - docs/superpowers/plans/2026-08-16-popcorn-execution-runbook.md
-    - docs/superpowers/plans/2026-08-16-popcorn-agent-orchestration.md
-    - all five module plans linked by the orchestration plan
+- stable video identity and display metadata;
+- native Chinese transcript lines and timestamps;
+- overview, chapters, and key quotes;
+- English translations that already exist when the user saves;
+- a player moment, subtitle line or selection, quote, or AI explanation;
+- source locators and a snapshot revision.
 
-    Use:
-    - superpowers:using-git-worktrees before implementation
-    - superpowers:test-driven-development for every implementation task
-    - superpowers:dispatching-parallel-agents only for independent workstreams explicitly listed in the runbook
-    - superpowers:requesting-code-review at every task gate and for final review
-    - superpowers:verification-before-completion before every completion claim
-    - superpowers:finishing-a-development-branch after the full acceptance suite passes
+Saving is background work. It must not pause playback, navigate the tab, open the web app, wait for AI generation, or require a modal. A brief acknowledgement is allowed. The user reviews saved content later on the Popcorn website.
 
-    Execution rules:
-    1. Do not work directly on main.
-    2. Do not start Batch A until the entire foundation plan passes.
-    3. Use one isolated worktree per parallel workstream.
-    4. Use a fresh implementation Agent per numbered task. The worktree persists; conversation context does not.
-    5. Never let two active Agents edit the same file.
-    6. Shared contracts, migrations, package.json, root configuration, and integration routes are primary-Agent-owned.
-    7. Generate a task brief for each numbered task.
-    8. Require every Agent to commit its task, write a durable handoff report, and return DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, or BLOCKED.
-    9. Review spec compliance and code quality before dispatching the next task in that workstream.
-    10. Update docs/engineering/execution-ledger.md after every approved task and commit a checkpoint after every integration gate.
-    11. Resume from the ledger and Git history after interruption; never repeat a reviewed task.
-    12. Continue until blocked, a real plan conflict requires my decision, or the complete plan is verified.
+The first release excludes generic URL, pasted text, image, screenshot, document, and audio inputs; video-file storage; `pgvector`; semantic/vector retrieval; chat-with-library; advanced analytics; export; social features; and additional mastery states. Those are post-product add-ons.
 
-    Start with a read-only pre-flight audit. Report plan conflicts as one batched question before changing files. If clean, create an isolated implementation worktree and begin Foundation Task 1.
+`saved` is a storage condition, not mastery. The only mastery states are:
 
-## 3. Operating Model
+```text
+tried -> reused -> owned
+```
 
-The primary Agent owns the integration branch, shared interfaces, migrations, worktrees, briefs, reviews, ledger, integration, and full-suite verification.
+## 3. Mandatory upstream reuse ledger
 
-An implementation Agent owns exactly one numbered task. It receives:
+Every implementation brief must name an upstream repository, immutable ref, source path, symbol or behavior, and action: `reuse`, `adapt`, or `method only`. “Inspired by” is not sufficient.
 
-- one task brief;
-- worktree path and branch;
-- baseline commit;
-- consumed interfaces;
-- allowed and forbidden paths;
-- durable report path;
-- required tests and status contract.
+### 3.1 YouTube acquisition and watching experience
 
-A reviewer receives:
+- Repository: `https://github.com/zarazhangrui/youtube-digest.git`
+- Immutable ref: `d03e1f61e017b032159ffd1821cac6e7693ce0c7`
+- License: MIT; preserve required copyright and license notices for copied/adapted code.
+- Intake location: `vendor/youtube-digest/`
+- Allowed import is restricted by the allowlist and provenance test defined in Foundation Task 1.
 
-- the same task brief;
-- the handoff report;
-- a baseline-to-head review package;
-- approved global constraints;
-- the requirement to return spec-compliance and code-quality verdicts.
+Required reuse targets are already enumerated in Batch A. At minimum, briefs must point to the pinned implementations for:
 
-### Worktree safety pre-flight
+- YouTube video identity and watch-page lifecycle;
+- background transcript fetch/poll behavior;
+- Side Panel application and transcript navigation;
+- transcript row interaction and time seeking;
+- overview, chapters, quotes, and translation rendering;
+- keyboard/player save-adjacent behavior that is being adapted;
+- extension build and packaging scripts.
 
-Before creating the first implementation worktree:
+Do not rebuild these behaviors from a blank component when an allowed upstream implementation exists. Adapt source Chinese to English translation, Popcorn auth, server-owned providers, and background cloud save.
 
-1. Detect whether the current checkout is already a linked worktree.
-2. Prefer a native Codex worktree mechanism when one is available.
-3. For manual Git worktrees, use the project-local .worktrees directory.
-4. Run git check-ignore -q .worktrees.
-5. If it is not ignored, add only .worktrees/ to .gitignore, commit that safety change, and then create worktrees.
-6. Never copy the repository's existing untracked presentation/report files into Agent worktrees as task context.
+### 3.2 Knowledge organization and review
 
-## 4. Durable State
+- Repository: `https://github.com/nashsu/llm_wiki.git`
+- Release: `v0.6.9`
+- Immutable ref: `723e259309aea5e3850265b631f80224f66dd9f6`
+- License: GPLv3.
+- Use mode: **method only**. Do not copy, translate, or derive implementation code, tests, prompts, UI components, or assets into Popcorn.
 
-Chat is not the system of record.
+Adapt only the plan-documented ideas: raw source to structured knowledge to learning evidence, source traceability, staged analysis, durable jobs, and lexical retrieval. Popcorn independently implements these ideas for video snapshots and expression learning. Retrieval and spaced practice remain separate subsystems.
 
-### 4.1 Git commits
+### 3.3 Provenance stop condition
 
-Every implementation and accepted fix is committed on its workstream branch. A task without a commit is incomplete.
+Before implementing a task that touches acquisition, Side Panel UX, transcript behavior, or knowledge processing:
 
-### 4.2 Execution ledger
+1. Search the pinned upstream tree using the exact path/symbol listed in the task plan.
+2. Record the source path, ref, license mode, and planned adaptation in the task handoff.
+3. If a referenced path or symbol is absent at the pinned ref, stop that task and report the mismatch.
+4. If the desired file is outside the YouTube Digest allowlist, request a deliberate allowlist change with license review.
+5. If proposed LLM Wiki reuse would copy GPL-covered expression, stop and implement the documented method independently.
 
-Before Foundation Task 1, create docs/engineering/execution-ledger.md:
+## 4. Copy-paste instruction for the implementation controller
 
-    # Popcorn Execution Ledger
+```text
+Execute the approved Popcorn YouTube learning plans in this repository.
 
-    ## Current Position
-    - Stage: foundation
-    - Next task: foundation task 1
-    - Integration branch: feat/popcorn-desktop-web
-    - Last verified commit: record the actual SHA here
+Read the product design, all five module plans, agent orchestration plan, and execution runbook in full. Use superpowers:using-git-worktrees before implementation, superpowers:executing-plans to execute tasks, superpowers:test-driven-development for every feature or fix, superpowers:requesting-code-review at integration gates, and superpowers:verification-before-completion before completion claims.
 
-    ## Completed Tasks
-    | Plan | Task | Branch | Base | Head | Review | Verification |
-    |---|---:|---|---|---|---|---|
+Do not work directly on main. Begin with a read-only preflight and create an isolated feature worktree. Execute Foundation Tasks 1–5 sequentially. Then follow the exact dependency schedule in the orchestration plan. Shared contracts, migrations, root configuration, lockfiles, and integration routes remain controller-owned.
 
-    ## Open Concerns
-    | ID | Severity | Owner | Description | Required action |
-    |---|---|---|---|---|
+For every task, create a durable brief that includes exact upstream repository, immutable ref, source path, function/component/behavior, and reuse mode. Reuse or adapt allowed YouTube Digest code instead of regenerating it. Use LLM Wiki v0.6.9 only as a method reference and never copy GPLv3 code, tests, prompts, UI, or assets.
 
-    ## Contract Changes
-    | ID | Requested by | Decision | Contract commit | Consumers notified |
-    |---|---|---|---|---|
+Keep the first release restricted to the currently watched YouTube video. Save learning-material snapshots in the background from video, player moment, subtitle row/selection, key quote, and AI explanation. Do not pause playback, open the web app, call providers in the save request, or store the video file. Keep mastery exactly tried -> reused -> owned. Do not add pgvector or deferred inputs.
 
-Replace “record the actual SHA here” before the first ledger commit. After every clean review, append an actual base/head row and commit the ledger.
+Use one fresh implementation context per numbered task when delegation is available. Require RED/GREEN test evidence, a commit, a handoff report, and review before integration. Update the execution ledger after each accepted task. Resume from Git, the ledger, checkpoints, and handoffs rather than conversation history. Continue until the release acceptance suite passes or an external dependency or genuine specification conflict blocks progress.
+```
 
-### 4.3 Handoff reports
+## 5. Read-only preflight
 
-Each task commits:
+Run from the repository root:
 
-    docs/engineering/handoffs/<plan-slug>/task-<number>.md
+```bash
+git status --short
+git branch --show-current
+git log -5 --oneline
+git worktree list
+rg --files -g 'AGENTS.md' -g 'package.json' -g 'pnpm-lock.yaml' -g 'supabase/**' -g 'apps/**'
+```
 
-Required structure:
+Then:
 
-    # Task Handoff
-    - Status:
-    - Plan and task:
-    - Worktree:
-    - Branch:
-    - Baseline SHA:
+1. Read every applicable `AGENTS.md`.
+2. Record existing user changes; never overwrite or absorb unrelated work.
+3. Confirm both immutable upstream refs in the plans.
+4. Confirm the product and plan files agree on save kinds, job kinds, mastery states, and exclusions.
+5. Report all real conflicts in one batch. If none exist, create the feature worktree.
 
-    ## Implemented
-    ## Interfaces consumed
-    ## Interfaces produced
-    ## Files changed
-    ## TDD evidence
-    ### RED
-    ### GREEN
-    ## Broader verification
-    ## Contract or migration changes requested
-    ## Risks and follow-up
+Use `superpowers:using-git-worktrees`. If manual worktrees are required, verify that `.worktrees/` is ignored before creating one. Use a `codex/`-prefixed branch unless the user gives a different branch name.
 
-Reports are an explicit exception to feature path ownership. They contain no secrets, raw user data, full provider responses, or copied chat history.
+## 6. Durable execution state
 
-The report does not contain its own final commit SHA because that value does not exist until after the report is committed. The Agent returns the created SHA; the primary Agent verifies it and records it in the ledger.
+Chat is not the system of record. Before Foundation Task 1, create `docs/engineering/execution-ledger.md` with real values:
 
-### 4.4 Integration checkpoints
+```markdown
+# Popcorn Execution Ledger
 
-At each gate, create and commit:
+## Current position
+- Stage: foundation
+- Next task: Foundation Task 1
+- Integration branch: codex/popcorn-youtube-learning
+- Last verified commit: <actual SHA>
 
-    docs/engineering/checkpoints/gate-a.md
-    docs/engineering/checkpoints/gate-b.md
-    docs/engineering/checkpoints/gate-c.md
-    docs/engineering/checkpoints/release.md
+## Completed tasks
+| Plan | Task | Branch | Base | Head | Review | Verification |
+|---|---:|---|---|---|---|---|
 
-Each records baseline SHA, workstream heads, cherry-pick order, conflicts, contract changes, verification commands, results, and next permitted stage.
+## Open concerns
+| ID | Severity | Owner | Description | Required action |
+|---|---|---|---|---|
 
-## 5. Task-Brief Generation
+## Contract changes
+| ID | Requested by | Decision | Contract commit | Consumers notified |
+|---|---|---|---|---|
+```
 
-Use:
+Replace `<actual SHA>` before committing. After each accepted task, append its actual base, head, review result, and verification command.
 
-    brief_tool="/Users/liangjing/.codex/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/task-brief"
-    mkdir -p .superpowers/sdd/briefs
-    "$brief_tool" PLAN_FILE TASK_NUMBER ".superpowers/sdd/briefs/PLAN_SLUG-task-TASK_NUMBER.md"
+Each numbered task writes and commits:
 
-Replace PLAN_FILE, TASK_NUMBER, and PLAN_SLUG with real values before running.
+```text
+docs/engineering/handoffs/<plan-slug>/task-<number>.md
+```
 
-The plans contain 40 extractable numbered tasks:
+Use this exact report structure:
 
-- Foundation: 1–6.
-- Batch A: 1–9.
-- Batch B: 1–7.
-- Batch C: 1–9.
-- Delivery: 1–9.
+```markdown
+# Task Handoff
+- Status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
+- Plan and task:
+- Worktree and branch:
+- Baseline SHA:
+- Commit SHA:
 
-## 6. Implementation Agent Prompt
+## Implemented
+## Upstream provenance used
+## Interfaces consumed and produced
+## Files changed
+## TDD evidence
+### RED
+### GREEN
+## Broader verification
+## Contract or migration changes requested
+## Risks and follow-up
+```
 
-The controller fills every bracket with an actual value:
+Never put secrets, raw user data, provider credentials, full provider responses, or copied chat history in the ledger or handoff.
 
-    You are implementing one Popcorn task in an isolated worktree.
+At each integration gate create one checkpoint:
 
-    Read this first; it is your complete requirement:
-    [absolute task brief path]
+- `docs/engineering/checkpoints/foundation.md`
+- `docs/engineering/checkpoints/gate-a.md`
+- `docs/engineering/checkpoints/gate-b.md`
+- `docs/engineering/checkpoints/gate-c.md`
+- `docs/engineering/checkpoints/release.md`
 
-    Context:
-    - Product: English desktop web app for native English speakers learning Mandarin Chinese.
-    - Interface and AI explanations: English.
-    - Learning content and learner output: Simplified Chinese.
-    - Baseline commit: [actual SHA]
-    - Worktree: [absolute path]
-    - Branch: [actual branch]
+Each checkpoint records real SHAs, integration order, conflicts, contract decisions, commands, results, and the next permitted stage.
 
-    Allowed files:
-    [exact task file list]
-    docs/engineering/handoffs/[plan slug]/task-[number].md
+## 7. Task brief contract
 
-    Forbidden unless this is a primary-owned task:
-    - src/contracts/**
-    - supabase/migrations/**
-    - package.json and lockfile
-    - root configuration
-    - another active workstream's files
+Every task brief must contain:
 
-    Requirements:
-    1. Ask before starting if the brief conflicts with code or frozen contracts.
-    2. Follow TDD and capture real RED and GREEN evidence.
-    3. Implement only this numbered task.
-    4. Run focused and broader verification from the brief.
-    5. Self-review.
-    6. Commit code and handoff report.
-    7. Return only status, commit SHA/subject, one-line test summary, concerns, and report path.
+- plan file and task number;
+- baseline commit and worktree;
+- exact allowed and forbidden paths;
+- interfaces consumed and produced;
+- exact test commands and expected first failure;
+- upstream repository and immutable ref;
+- exact source file plus function/component/behavior;
+- action: `reuse`, `adapt`, or `method only`;
+- license treatment;
+- acceptance criteria and exclusions.
 
-    Valid statuses: DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED.
-    Do not edit plan checkboxes; the primary Agent owns progress.
+The implementer prompt must say:
 
-## 7. Review Gate
+```text
+Implement exactly this numbered task in the assigned worktree. Read the complete brief first. Ask before editing if the brief conflicts with frozen contracts or the pinned upstream source. Follow TDD and capture actual RED and GREEN output. Do not edit shared contracts, migrations, lockfiles, root configuration, or another stream's files unless the brief explicitly assigns them. Do not regenerate an allowed YouTube Digest behavior. Do not copy GPLv3 LLM Wiki expression. Commit the implementation and handoff, then return status, commit SHA, test summary, concerns, and handoff path.
+```
 
-For every returned implementation:
+## 8. Exact execution schedule
 
-1. Confirm status and read the report.
-2. Verify the commit exists.
-3. Verify changed paths are allowed.
-4. Generate a review package from the recorded baseline, never HEAD~1:
+The authoritative task counts are:
 
-       review_tool="/Users/liangjing/.codex/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package"
-       "$review_tool" BASE_SHA HEAD_SHA
-
-5. Dispatch a fresh reviewer with brief, report, review package, and global constraints.
-6. Require Spec compliance: PASS/FAIL and Code quality: APPROVED/findings.
-7. Send Critical or Important findings to a fix Agent.
-8. Require new test evidence and re-review.
-9. Only after both verdicts pass, update and commit the ledger.
-
-## 8. Exact Parallel Schedule
+- Foundation: Tasks 1–5.
+- Batch A: Tasks 1–7.
+- Batch B: Tasks 1–6.
+- Batch C: Tasks 1–6.
+- Delivery: Tasks 1–6.
 
 ### Foundation
 
-Run tasks 1–6 sequentially. No feature Agents run.
+Run Tasks 1–5 sequentially. Freeze contracts only after all foundation tests, provenance checks, migrations, RLS tests, and CI pass.
 
 ### Batch A
 
-From the Foundation checkpoint:
+After the foundation checkpoint:
 
-- Identity stream: tasks 1 then 2.
-- Content stream: tasks 3 then 4 then 5.
-- AI stream: tasks 6 then 7 then 8.
+- Task 1 establishes extension linking.
+- Tasks 2 and 3 may proceed concurrently after Task 1 if they edit disjoint files.
+- Task 4 follows frozen server contracts and may run alongside Task 3.
+- Task 5 requires Tasks 3 and 4.
+- Task 6 requires Task 4 and owns the durable queue.
+- Task 7 runs only after Tasks 1–6 pass review.
 
-The three streams may run concurrently, using one fresh Agent per task. Task 9 is primary integration after tasks 1–8 pass review.
+Gate A must prove authenticated link, native-Chinese acquisition, reused/adapted Side Panel UX, all save entry points, idempotency, queue survival across service-worker restart, and no playback interruption.
 
 ### Batch B
 
-From Gate A:
+After Gate A:
 
-- Practice stream: tasks 1 then 2.
-- Memory stream: tasks 3 then 4.
-- Desktop stream: task 5.
+- Tasks 1 and 2 may proceed concurrently on disjoint job-processing and library UI paths.
+- Task 4 may proceed in the same wave against frozen confirmed-candidate fixtures because its practice files do not overlap Tasks 1–2.
+- Task 3 requires candidate output from Task 1 and source display from Task 2.
+- Task 5 requires Task 4 and owns atomic card/mastery/practice creation.
+- Task 5 also requires Task 3 so the integrated transaction uses real selected-candidate evidence rather than fixtures.
+- Task 6 is the sequential integration gate.
 
-Tasks 6 and 7 are sequential primary integration after tasks 1–5 pass review.
+Gate B must prove snapshot to knowledge candidate to learner reuse to due practice, with source traceability throughout.
 
 ### Batch C
 
-Primary Agent completes migration task 1 first. Then:
+After Gate B:
 
-- Progress stream: tasks 2 then 3.
-- Relations stream: tasks 4 then 5.
-- Chinese quality stream: tasks 6 then 7 then 8.
+- Tasks 1, 2, and 3 may proceed concurrently only if migrations/contracts are already controller-owned and file paths are disjoint.
+- Task 4 follows the source ownership contracts.
+- Task 5 may proceed alongside Task 4 on disjoint recovery/accessibility paths.
+- Task 6 is the sequential integration gate.
 
-Task 9 is primary integration after tasks 2–8 pass review.
+Gate C must prove lexical Chinese retrieval, three-state evidence advancement, basic progress, deletion isolation, retry/recovery behavior, and keyboard/accessibility behavior.
 
 ### Delivery
 
-Run tasks 1–9 sequentially. Parallel investigation is allowed for independent failures, but deployments and migration state remain primary-owned.
+Run Tasks 1–6 sequentially. Do not deploy until packaging/license audit, deterministic demo data, observability, production RLS/Cron/auth configuration, and the complete local acceptance suite pass. Fixture-based CI is mandatory; real-service verification is a separate release check and must never expose credentials.
 
-## 9. Resume Instruction
+## 9. Review and integration gate
 
-If execution is interrupted, copy:
+For each task:
 
-    Resume the Popcorn desktop web implementation from durable state.
+1. Read the handoff and verify the commit exists.
+2. Diff from the recorded baseline, not `HEAD~1`.
+3. Confirm changed paths match ownership.
+4. Confirm the provenance section names exact upstream paths and actions.
+5. Re-run focused tests and one relevant broader suite.
+6. Review specification compliance before code quality.
+7. Send Critical or Important findings back for a tested fix.
+8. Re-review the complete baseline-to-head diff.
+9. Integrate only after both reviews pass.
+10. Update and commit the ledger and applicable checkpoint.
 
-    Read:
-    - docs/superpowers/plans/2026-08-16-popcorn-execution-runbook.md
-    - docs/engineering/execution-ledger.md
-    - the latest file under docs/engineering/checkpoints/
-    - git log --oneline --decorate --all
-    - git worktree list
+A controller-owned contract change pauses all consumers. Add or update contract tests, commit the shared change, record the new baseline, rebase affected streams, rerun their focused tests, regenerate stale briefs, and resume only when all consumers name the same contract commit.
 
-    Treat reviewed ledger tasks as complete. Verify every recorded head SHA exists. Resume at the first unreviewed task. Do not re-run completed tasks. If ledger and Git disagree, report the exact mismatch before changing code.
+## 10. Risk controls
 
-## 10. Simulated End-to-End Handoff
+### Upstream regeneration
 
-No implementation is performed in this simulation.
+The provenance allowlist test fails if acquisition/UI code appears without a source mapping. Reviewers compare new behavior with the pinned YouTube Digest implementation and reject blank rewrites.
 
-| Step | Durable input | Durable output | Residual loss risk |
-|---|---|---|---|
-| Start | Design and plans | Integration branch and ledger | Low |
-| Foundation task | Brief and baseline SHA | Commit, report, review | Low |
-| Foundation gate | Six reviewed tasks | Frozen-contract checkpoint | Low |
-| Batch A | Frozen SHA and three worktrees | Reviewed stream heads | Low |
-| Gate A | Named heads and tests | Integrated checkpoint | Low |
-| Batch B | Gate A and frozen events | Practice, memory, desktop heads | Low |
-| Gate B | Reviewed diffs | Persistent text-loop checkpoint | Low |
-| Batch C | Gate B and pgvector migration | Progress, relations, Chinese QA | Low |
-| Gate C | Reviewed heads and full tests | Pre-delivery checkpoint | Low |
-| Delivery | Gate C | Deployment and acceptance record | Medium until credentials exist |
-| Resume | Ledger, checkpoints, Git, reports | Exact next task | Low |
+### GPL contamination
 
-## 11. Risks Found and Controls
+No LLM Wiki code, tests, prompts, UI, naming-specific structure, or assets enter the tree. Handoffs cite only the method being independently implemented. The delivery license audit searches for copied headers and unexpected source similarity.
 
-### Non-numeric task names
+### Manifest V3 service-worker lifetime
 
-The standard task-brief helper only extracts integer task headings. Batch A/B/C plans were renumbered. A dry run extracted all 40 tasks successfully.
+Never rely on module globals, long timers, or one uninterrupted worker lifetime. Persist queue entries and retry metadata in `chrome.storage.local`, keep payloads bounded under the planned quota, and test worker termination/restart between enqueue and delivery.
 
-### Shared checkout conflicts
+### Save-path latency
 
-Parallel Agents share the filesystem unless isolated. Every stream must use a separate worktree. Without worktrees, parallel implementation must not start.
+Save endpoints validate, persist, enqueue, and return. They do not fetch transcripts, translate, summarize, or call an LLM/provider synchronously. Generated content already visible in the extension may be included in the snapshot.
 
-### Chat-only progress
+### Idempotency and revision drift
 
-Conversation context can compact. Git commits, committed reports, the ledger, and checkpoints carry state.
+Every client event has `clientEventId`; the database uniqueness rule uses the authenticated user and client event. Repeated delivery returns the same logical result. A new snapshot revision is created only when content materially changes; saved items retain their source revision.
 
-### Unverified success reports
+### Wrong-account queue replay
 
-DONE alone is insufficient. The controller checks commit, paths, report, diff package, review verdicts, and test evidence.
+Queue entries include the Popcorn user identity that created them. On unlink, logout, or account switch, do not send one user's queued content as another user. Keep it quarantined for the original account or allow explicit local discard.
 
-### Contract drift
+### Native-language fallback
 
-Feature Agents request contract changes in reports. Only the primary Agent edits frozen contracts or migrations and records the decision.
+Providers may return another language when Chinese is unavailable. Validate the actual transcript language and show a recoverable unsupported/no-Chinese state instead of silently saving a wrong-language transcript.
 
-Contract-change protocol:
+### Deletion and jobs
 
-1. Pause every workstream that consumes the affected contract.
-2. Primary Agent decides the exact change and adds or updates contract tests.
-3. Primary Agent commits the shared change and records the new baseline in the ledger.
-4. Rebase each affected workstream branch onto the new baseline before further edits.
-5. Re-run its focused baseline tests.
-6. Regenerate task briefs if signatures or exact values changed.
-7. Resume only after all affected branches report the same contract commit.
+Source deletion removes the user's dependent snapshots/items/candidates/cards/evidence according to the plan, without touching another user's data. Pending/running jobs re-check source ownership before writing and end safely when the source was deleted.
 
-### Stale parallel branches
+### Secrets and external state
 
-Each batch starts from a checkpoint SHA and integrates one reviewed stream at a time, with verification after each.
+Provider and service keys stay server-side and out of logs, fixtures, extension storage, handoffs, and commits. Missing production credentials or provider access can block real-service verification, but cannot justify weakening local fixture tests.
 
-### Deleted scratch files
+## 11. Verification commands by gate
 
-Briefs and review packages are reproducible. Reports, ledger, and checkpoints are committed.
+Use the exact commands declared by each task plan. At minimum, from the implementation root:
 
-### External credentials
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm test:e2e
+pnpm build
+git diff --check
+```
 
-Missing Supabase, OpenAI, Vercel, or demo credentials is a legitimate scoped BLOCKED state. Agents must not invent or expose credentials.
+Also run the plan-specific provenance, migration/RLS, extension, queue-restart, job-leasing, retrieval, deletion, packaging, and real-service smoke commands. Record exit codes and concise output in checkpoints. A skipped required check is not a pass; record it as blocked with the missing dependency.
 
-## 12. Assessment
+## 12. Resume protocol
 
-With this protocol, Agent handoff does not depend on chat memory. Remaining risk is external state or a user decision that changes a frozen contract; both must be recorded as blockers rather than guessed around.
+After interruption, execute:
+
+```text
+Resume the Popcorn YouTube learning implementation from durable state. Read the execution runbook, execution ledger, latest checkpoint, Git history, and worktree list. Verify every recorded head SHA exists. Treat only reviewed ledger rows as complete. Resume at the first unreviewed task. Do not repeat accepted work. If Git, ledger, or checkpoint state disagree, report the exact mismatch before editing.
+```
+
+Then inspect:
+
+```bash
+git status --short
+git log --oneline --decorate --all -20
+git worktree list
+```
+
+The valid stop conditions are: the full release acceptance suite and real-service release checks pass; an external credential/service dependency blocks the next scoped step; or a genuine specification conflict requires the user. Difficulty, context compaction, or an idle worker is not a completion condition.

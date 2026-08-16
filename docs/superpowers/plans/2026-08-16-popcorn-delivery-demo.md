@@ -1,363 +1,271 @@
-# Popcorn Delivery and Demo Implementation Plan
+# Popcorn Chrome Extension and Web Delivery Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Complete screenshot and URL flows, export/deletion, production deployment, seeded demo data, cached demo AI results, and final end-to-end acceptance.
+**Goal:** Package, deploy, seed, observe, and verify the complete YouTube-to-owned Popcorn product through a repeatable live demonstration.
 
-**Architecture:** Delivery work is sequential because migrations, seed data, provider caches, production configuration, and browser acceptance share state. The deployed application uses Vercel and Supabase with environment-separated configuration.
+**Architecture:** Vercel hosts the authenticated web/API application; Supabase provides Auth, PostgreSQL, RLS, Cron, and durable job state; a packaged Manifest V3 extension links to the deployed origin. CI uses fixed fixtures while the final checklist includes explicit real-provider smoke tests.
 
-**Tech Stack:** Next.js, Supabase, OpenAI API, Playwright, Vercel.
+**Tech Stack:** Chrome extension packaging, Next.js/Vercel, Supabase, Playwright persistent Chromium, Vitest, server-only Supadata/AI providers.
 
 ## Global Constraints
 
-- Never put a production key, demo password, or service-role key in Git.
-- Local, preview, and production Supabase projects remain separate.
-- Demo cache entries are versioned by content hash, prompt version, and model.
-- Account deletion requires explicit confirmation and removes user-owned storage and database data.
-- Deployment is not complete until the live desktop acceptance path succeeds.
+- Batch A, B, and C exit gates must be green.
+- The packaged extension must retain YouTube Digest MIT attribution and the exact upstream commit record.
+- No LLM Wiki GPLv3 implementation code enters the package.
+- Provider terms and private transcript-snapshot permission must be reviewed and recorded before production readiness.
+- CI never depends on live YouTube, Supadata, or AI availability.
+- The live demo must still show a real extension save entering authenticated cloud data.
+- Other input sources remain absent.
 
----
-
-### Task 1: Integrate screenshot analysis
+### Task 1: Package and audit the extension distribution
 
 **Files:**
 
-- Create: src/app/(app)/import/image-import.tsx
-- Create: src/app/api/v1/content/[contentId]/image-analysis/route.ts
-- Test: tests/integration/content-analysis/image-analysis.test.ts
-- Test: tests/e2e/image-learning-loop.spec.ts
+- Create: `scripts/package-extension.sh`
+- Create: `scripts/check-extension-release.sh`
+- Create: `docs/operations/extension-install.md`
+- Create: `docs/operations/upstream-provenance.md`
+- Modify: `extension/manifest.json`
+- Test: `tests/release/extension-package.test.ts`
 
 **Interfaces:**
 
-- Consumes private image NormalisedContent and AiProvider.analyse().
-- Produces the same AnalysisResult and practice flow as text import.
+- Consumes: completed `extension/`, stable public manifest key, Popcorn production/preview origins.
+- Produces: deterministic `dist/popcorn-extension.zip` and SHA256 checksum.
 
-- [ ] **Step 1: Write failing integration test**
+**Upstream reuse:** Adapt YouTube Digest `scripts/package-extension.sh`, `scripts/check-release.sh`, `manifest.json`, and `tests/release.test.js` rather than writing an unrelated packaging flow. Preserve its MIT license in the distribution.
 
-Upload a fixture screenshot containing “你方便的时候发给我就行”. Assert the provider receives signed image input only on the server and the browser receives structured analysis without a storage service-role token.
+- [ ] **Step 1: Write the failing package audit**
 
-- [ ] **Step 2: Implement server image analysis**
+Assert the archive contains manifest, service worker, Side Panel, options/auth, prompts, icons, MIT license, and provenance; rejects source maps, secrets, tests, retired API-key fields, direct Supadata/DeepSeek hosts, or `llm_wiki` code.
 
-Resolve ownership, generate a short-lived signed URL or server-fetched image bytes, call the provider, persist run/cache status, and return AnalysisResult.
+- [ ] **Step 2: Adapt upstream package/check scripts**
 
-- [ ] **Step 3: Add E2E path**
+Use a clean temporary staging directory, an explicit allowlist, deterministic file ordering where supported, and `shasum -a 256`. `check-extension-release.sh` verifies minimum Chrome 116, permissions, host allowlist, stable key, CSP, and absence of secrets.
 
-Upload fixture, select Chinese expression, submit a response, and verify Vault persistence.
+- [ ] **Step 3: Document install/reload**
+
+Describe unpacked installation for assessment, exact folder/zip, reload after updates, sign-in, supported page, and how to confirm Chinese transcript and cloud save. Do not require users to enter provider keys.
 
 - [ ] **Step 4: Verify and commit**
 
-Run:
+```bash
+bash scripts/package-extension.sh
+bash scripts/check-extension-release.sh dist/popcorn-extension.zip
+pnpm vitest run tests/release/extension-package.test.ts
+git add scripts docs/operations extension/manifest.json tests/release
+git commit -m "build: package the Popcorn Chrome extension"
+```
 
-    pnpm test:integration -- image-analysis
-    pnpm test:e2e -- image-learning-loop
-    pnpm typecheck
-    git add src/app tests/integration/content-analysis tests/e2e/image-learning-loop.spec.ts
-    git commit -m "feat: complete screenshot learning loop"
-
-### Task 2: Integrate public URL analysis
-
-**Files:**
-
-- Create: src/app/(app)/import/url-import.tsx
-- Test: tests/integration/content-analysis/url-analysis.test.ts
-- Test: tests/e2e/url-learning-loop.spec.ts
-
-**Interfaces:**
-
-- Consumes safe URL NormalisedContent.
-- Produces the same AnalysisResult and practice flow as text import.
-
-- [ ] **Step 1: Write failing tests with a controlled fixture server**
-
-Cover successful Chinese HTML, redirect to private address, timeout, oversized response, unsupported content type, and page without Chinese text.
-
-- [ ] **Step 2: Implement form integration**
-
-Use English labels Paste a public URL and Import. Display copyright/sensitive-content guidance and safe error codes.
-
-- [ ] **Step 3: Verify and commit**
-
-Run:
-
-    pnpm test:integration -- url-analysis
-    pnpm test:e2e -- url-learning-loop
-    pnpm typecheck
-    git add src/app/\(app\)/import tests/integration/content-analysis tests/e2e/url-learning-loop.spec.ts
-    git commit -m "feat: complete URL learning loop"
-
-### Task 3: Export learner memory
+### Task 2: Seed the demo account, known video, and cached jobs
 
 **Files:**
 
-- Create: src/server/domain/export-memory.ts
-- Create: src/app/api/v1/account/export/route.ts
-- Create: src/features/profile/export-memory-button.tsx
-- Test: src/server/domain/export-memory.test.ts
-- Test: tests/integration/account/export.test.ts
+- Create: `scripts/seed-demo-account.ts`
+- Create: `scripts/seed-demo-youtube.ts`
+- Create: `tests/fixtures/demo/youtube-video.ts`
+- Create: `tests/fixtures/demo/transcript.zh-CN.json`
+- Create: `tests/fixtures/demo/generated-artifacts.json`
+- Create: `tests/integration/demo/demo-seed.test.ts`
+- Modify: `package.json`
 
 **Interfaces:**
 
-- Produces version 1 JSON and Markdown exports containing profile learning settings, expressions, occurrences, attempts, mastery events, and review history.
+- Produces: one demo user with one existing video snapshot, saved moments, `tried/reused/owned` examples, one due task, and cached results for a known public video.
 
-- [ ] **Step 1: Write failing export tests**
+- [ ] **Step 1: Write the failing seed test**
 
-Assert stable field order, UTF-8 Chinese preservation, English explanations, ISO dates, version marker, no provider token usage, no signed storage URLs, and no other user's data.
+Assert stable UUIDs, exact video ID/hash, ordered segments, source-grounded quotes/candidates, all three mastery states, one due task, and idempotent rerun.
 
-- [ ] **Step 2: Implement pure serializers**
+- [ ] **Step 2: Implement deterministic fixtures**
 
-Use explicit selected fields, not database row spreading. Markdown includes one section per Chinese expression and source metadata without reproducing an oversized full article.
+Store short necessary transcript fixture excerpts, timestamps, expected English translations, overview, candidates, evaluation, and prompt/model versions. Record source URL and fixture acquisition date; do not store the video file.
 
-- [ ] **Step 3: Implement authenticated route and button**
+- [ ] **Step 3: Implement idempotent seed scripts**
 
-GET /api/v1/account/export?format=json or markdown returns an attachment. UI copy is Download JSON and Download Markdown.
+Require explicit target environment, refuse production unless `--allow-production-demo-seed` is supplied, and never print passwords, tokens, full private transcripts, or provider responses.
 
 - [ ] **Step 4: Verify and commit**
 
-Run:
+```bash
+pnpm vitest run tests/integration/demo/demo-seed.test.ts
+pnpm demo:seed -- --environment local
+pnpm demo:seed -- --environment local
+git add scripts tests/fixtures/demo tests/integration/demo package.json
+git commit -m "feat: seed the YouTube learning demonstration"
+```
 
-    pnpm vitest run src/server/domain/export-memory.test.ts
-    pnpm test:integration -- export
-    pnpm typecheck
-    git add src/server/domain/export-memory.ts src/app/api/v1/account/export src/features/profile tests/integration/account
-    git commit -m "feat: export learner expression memory"
-
-### Task 4: Delete account data
+### Task 3: Add minimal job observability and recovery operations
 
 **Files:**
 
-- Create: src/server/domain/delete-account.ts
-- Create: src/app/api/v1/account/route.ts
-- Create: src/features/profile/delete-account-dialog.tsx
-- Test: tests/integration/account/delete-account.test.ts
-- Test: src/features/profile/delete-account-dialog.test.tsx
+- Create: `src/server/logging/logger.ts`
+- Create: `src/app/api/internal/jobs/status/route.ts`
+- Create: `docs/operations/job-recovery.md`
+- Create: `docs/operations/backup-restore.md`
+- Test: `tests/integration/jobs/status.test.ts`
 
 **Interfaces:**
 
-- DELETE /api/v1/account requires { confirmation: "DELETE MY ACCOUNT" }.
+- Produces: authenticated aggregate job counts/oldest age for operators, request IDs, and documented retry/recovery. This is operational support, not an Expression Health Check or learner-facing product feature.
 
-- [ ] **Step 1: Write failing deletion tests**
+- [ ] **Step 1: Write failing safe-output tests**
 
-Assert wrong confirmation is rejected, all owned database rows are removed, storage objects are removed, auth user deletion occurs last, partial storage failure reports retryable failure before auth deletion, and user B is untouched.
+Assert the internal status route requires the job secret and reports aggregate counts only. It exposes no key, model prompt, user ID, URL, transcript, saved text, learner response, or full provider error. Do not add a public health dashboard or learner-facing health score.
 
-- [ ] **Step 2: Implement service-role-only server operation**
+- [ ] **Step 2: Implement structured redacted logging**
 
-The browser never receives the service-role client. Log request ID and safe counts, not deleted content.
+Allow request ID, job type/status, duration, provider category, retry count, and hashed identifiers. Explicitly redact authorization, cookies, provider bodies, transcript text, saved text, and learner responses.
 
-- [ ] **Step 3: Implement confirmation dialog**
+- [ ] **Step 3: Document recovery**
 
-English warning explains permanent deletion. Require exact typed phrase and disable destructive button until matched.
+Include failed-job inspection, retry by exact ID/user scope, lease expiry, Cron verification, cache invalidation by version, database backup, restore rehearsal, and extension pending-queue diagnosis.
 
 - [ ] **Step 4: Verify and commit**
 
-Run:
+```bash
+pnpm vitest run tests/integration/jobs/status.test.ts
+git add src/server/logging src/app/api/internal/jobs/status docs/operations tests/integration/jobs/status.test.ts
+git commit -m "feat: observe and recover knowledge jobs safely"
+```
 
-    pnpm test:integration -- delete-account
-    pnpm vitest run src/features/profile/delete-account-dialog.test.tsx
-    pnpm typecheck
-    git add src/server/domain/delete-account.ts src/app/api/v1/account src/features/profile tests/integration/account
-    git commit -m "feat: add verified account deletion"
-
-### Task 5: Seed demo account and cache
+### Task 4: Configure production auth, RLS, Cron, and provider boundaries
 
 **Files:**
 
-- Create: scripts/seed-demo-account.ts
-- Create: scripts/seed-demo-cache.ts
-- Create: tests/fixtures/demo/demo-data.ts
-- Create: tests/integration/demo/demo-seed.test.ts
-- Modify: package.json
+- Create: `docs/operations/deployment.md`
+- Create: `docs/operations/provider-terms-review.md`
+- Modify: `.env.example`
+- Modify: `extension/manifest.json`
+- Create: `vercel.json` only if a measured duration/runtime setting is required
+- Test: `tests/contract/deployment-config.test.ts`
 
 **Interfaces:**
 
-- Produces repeatable demo data with existing Vault, progress history, and one due transfer task.
+- Produces: preview/production configuration matrix and a completed provider snapshot-permission gate.
 
-- [ ] **Step 1: Write idempotent seed test**
+- [ ] **Step 1: Write failing deployment checks**
 
-Run the seed twice and assert identical logical records, no duplicate mastery events, one pending due task, and at least one reused expression.
+Assert preview and production use different Supabase projects, auth redirect origins include the stable Chromium extension origin, service-role/provider/job secrets are absent from `NEXT_PUBLIC_*`, Cron secret comes from Vault, and extension host permissions contain only YouTube plus approved Popcorn origins.
 
-- [ ] **Step 2: Implement demo account seed**
+- [ ] **Step 2: Document exact deployment order**
 
-Read DEMO_USER_EMAIL and DEMO_USER_PASSWORD only from environment. Create profile B1 with goal “Understand and respond to everyday Chinese online.”
+Apply migrations, verify RLS, set Vault/Cron, configure Supabase Auth redirects, set Vercel server variables, deploy web, package extension with production origin, seed demo, and run smoke checks. Rollback reverses application deployment without rolling back append-only learning evidence blindly.
 
-- [ ] **Step 3: Implement demo cache seed**
+- [ ] **Step 3: Complete provider-terms gate**
 
-Use known inputs:
-
-- 这也太离谱了吧。
-- 你方便的时候发给我就行。
-- 这事儿说白了就是钱的问题。
-
-Store cache entries through the same run/cache service used in production, keyed by active model and prompt version.
+Record current provider terms URL/date, native-caption storage permission, retention, deletion obligations, private-use boundary, and responsible reviewer. If private full transcript snapshots are not permitted, mark production deployment blocked; do not silently change to clip-only storage.
 
 - [ ] **Step 4: Verify and commit**
 
-Run:
+```bash
+pnpm vitest run tests/contract/deployment-config.test.ts
+git diff --check
+git add docs/operations .env.example extension/manifest.json vercel.json tests/contract/deployment-config.test.ts
+git commit -m "docs: define secure Popcorn deployment"
+```
 
-    pnpm test:integration -- demo-seed
-    pnpm demo:seed
-    pnpm demo:seed
-    pnpm test:integration -- demo-seed
-    git add scripts tests/fixtures/demo tests/integration/demo package.json pnpm-lock.yaml
-    git commit -m "feat: add repeatable demo data"
-
-### Task 6: Add production observability and safe health check
+### Task 5: Build the complete local acceptance suite
 
 **Files:**
 
-- Create: src/server/logging/logger.ts
-- Create: src/app/api/health/route.ts
-- Create: tests/integration/health/health.test.ts
-- Modify: src/server/api/respond.ts
+- Create: `tests/e2e/demo-acceptance.spec.ts`
+- Create: `tests/e2e/extension/live-save-fixture.spec.ts`
+- Create: `docs/operations/demo-checklist.md`
+- Modify: `playwright.config.ts`
 
 **Interfaces:**
 
-- GET /api/health returns application status, database reachability, and build revision without secrets.
+- Produces: one repeatable demo covering extension acquisition, cloud capture, Saved organization, first practice, due reuse, and Progress.
 
-- [ ] **Step 1: Write failing health tests**
+- [ ] **Step 1: Write the complete fixture-backed scenario**
 
-Assert 200 when database is reachable, 503 when unavailable, requestId always present, and response excludes keys, URLs with credentials, model prompts, and user content.
+Use persistent Chrome with unpacked extension. Sign in, open the known YouTube fixture, show Chinese/English/bilingual transcript, Overview, save from player and subtitle, verify no playback interruption, open web, inspect grouped saves/evidence, complete Use It Now, verify `tried`, complete due Practice, and verify Progress.
 
-- [ ] **Step 2: Implement structured logger**
+- [ ] **Step 2: Add outage proof**
 
-Log timestamp, level, requestId, route, safe error code, duration, AI run ID, and build revision. Redact email, raw content, API keys, cookies, and Authorization.
+Force transcript and AI providers unavailable after cached fixture setup. The known video still renders cached results; a new raw save remains durable and visibly pending/failed without corrupting mastery.
 
-- [ ] **Step 3: Verify and commit**
+- [ ] **Step 3: Write the presenter checklist**
 
-Run:
+Include extension loaded/enabled, exact build checksum, demo login available without exposing credentials, known video available, provider-cache status, due task present, backup path, fallback narration, and post-demo data cleanup.
 
-    pnpm test:integration -- health
-    pnpm typecheck
-    git add src/server/logging src/app/api/health src/server/api/respond.ts tests/integration/health
-    git commit -m "feat: add safe production health checks"
+- [ ] **Step 4: Run full local acceptance**
 
-### Task 7: Configure preview and production environments
+```bash
+pnpm install --frozen-lockfile
+pnpm verify
+pnpm db:reset
+pnpm db:test
+pnpm build
+node --test extension/tests/*.test.js
+bash scripts/package-extension.sh
+bash scripts/check-extension-release.sh dist/popcorn-extension.zip
+pnpm playwright test tests/e2e/demo-acceptance.spec.ts --project=chromium-extension
+pnpm test:provenance
+git diff --check
+```
+
+Expected: every command exits 0.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/e2e docs/operations/demo-checklist.md playwright.config.ts
+git commit -m "test: add complete Popcorn demo acceptance"
+```
+
+### Task 6: Deploy and perform real-service verification
 
 **Files:**
 
-- Create: docs/operations/deployment.md
-- Create: docs/operations/backup-restore.md
-- Create: vercel.json only if a concrete platform setting is required
-- Modify: .env.example
+- Modify: `docs/operations/deployment.md`
+- Modify: `docs/operations/demo-checklist.md`
+- Create: `docs/operations/release-report.md`
 
 **Interfaces:**
 
-- Produces documented local, preview, and production environment boundaries.
+- Consumes: Tasks 1-5 and approved provider-terms review.
+- Produces: deployed web URL, packaged extension checksum, migration version, and manual smoke evidence.
 
-- [ ] **Step 1: Document exact environment variables**
+- [ ] **Step 1: Deploy preview and run smoke checks**
 
-List public Supabase URL/anon key, server service-role key, OpenAI key/model/embedding model, app URL, demo credentials, and build revision. Mark which Vercel environment receives each value.
+Verify auth redirect, extension linking, native Chinese transcript, one translation batch, Overview, exact save, web Saved record, job completion, RLS isolation, and authenticated aggregate job status.
 
-- [ ] **Step 2: Document Supabase deployment**
+- [ ] **Step 2: Deploy production and re-run the same checks**
 
-Commands:
+Use one known public video plus one different public Chinese video. Do not claim support from fixture-only tests.
 
-    pnpm exec supabase link --project-ref "$SUPABASE_PROJECT_REF"
-    pnpm exec supabase migration list --linked
-    pnpm exec supabase db push --linked
+- [ ] **Step 3: Record release evidence**
 
-Require a separate preview project before production push.
+Report URLs, commit, extension SHA256, migration versions, test commands/results, real videos tested, provider result categories, known limitations, rollback reference, and explicit absence of other input sources.
 
-- [ ] **Step 3: Document backup and restore rehearsal**
+- [ ] **Step 4: Final verification**
 
-Record schema dump, data backup, storage inventory, restore to a non-production project, and post-restore RLS tests. No production deletion command belongs in an automated script.
+```bash
+pnpm verify
+pnpm db:test
+pnpm build
+bash scripts/check-extension-release.sh dist/popcorn-extension.zip
+git diff --check
+```
 
-- [ ] **Step 4: Verify docs and commit**
+Expected: all commands exit 0 and manual smoke checklist has no unchecked required item.
 
-Run:
+- [ ] **Step 5: Commit**
 
-    rg -n "OPENAI_API_KEY|SUPABASE_SERVICE_ROLE_KEY|DEMO_USER_PASSWORD" .env.example docs/operations
-    git diff --check
-    git add docs/operations .env.example vercel.json
-    git commit -m "docs: add deployment and recovery runbook"
+```bash
+git add docs/operations/deployment.md docs/operations/demo-checklist.md docs/operations/release-report.md
+git commit -m "docs: record Popcorn release verification"
+```
 
-If vercel.json is not required and does not exist, omit it from git add.
+## Delivery Exit Gate
 
-### Task 8: Full local acceptance suite
-
-**Files:**
-
-- Create: tests/e2e/demo-acceptance.spec.ts
-- Create: docs/operations/demo-checklist.md
-
-**Interfaces:**
-
-- Proves final user-visible path from a clean local database.
-
-- [ ] **Step 1: Write the final acceptance test**
-
-The test:
-
-1. signs into the seeded account;
-2. shows existing Vault and Progress;
-3. imports new Chinese text;
-4. receives tone and expression analysis;
-5. writes a genuine Chinese response;
-6. sees English feedback;
-7. verifies automatic Vault and mastery evidence update;
-8. opens a due task;
-9. submits transfer evidence;
-10. signs out and back in;
-11. confirms all state persists.
-
-- [ ] **Step 2: Run clean local verification**
-
-Run:
-
-    pnpm install --frozen-lockfile
-    pnpm db:reset
-    pnpm db:test
-    pnpm verify
-    pnpm build
-    pnpm test:e2e
-
-Expected: every command exits 0 with zero skipped required tests.
-
-- [ ] **Step 3: Add demo checklist**
-
-Include credentials availability, seeded data, due task, known cached inputs, browser viewport, network, provider status, backup, and a tested retry path.
-
-- [ ] **Step 4: Commit**
-
-Run:
-
-    git add tests/e2e/demo-acceptance.spec.ts docs/operations/demo-checklist.md
-    git commit -m "test: add complete demo acceptance path"
-
-### Task 9: Deploy and verify the live application
-
-**Files:**
-
-- No code change unless live verification exposes a tested defect.
-
-- [ ] **Step 1: Deploy preview**
-
-Use the Vercel project connected to the feature branch and preview Supabase project. Apply preview migrations before testing.
-
-- [ ] **Step 2: Run preview smoke tests**
-
-Run:
-
-    PLAYWRIGHT_BASE_URL="$PREVIEW_URL" pnpm test:e2e -- demo-acceptance
-
-Expected: PASS against preview.
-
-- [ ] **Step 3: Deploy production sequentially**
-
-Verify production migration list, push reviewed migrations, deploy application, seed demo account/cache, then run health check.
-
-- [ ] **Step 4: Run production acceptance**
-
-Run:
-
-    PLAYWRIGHT_BASE_URL="$PRODUCTION_URL" pnpm test:e2e -- demo-acceptance
-
-Expected: PASS against production.
-
-- [ ] **Step 5: Record release**
-
-Run:
-
-    git tag -a popcorn-web-v1 -m "Popcorn desktop web v1"
-    git status --short --branch
-
-Expected: clean tracked worktree on the release commit. Existing intentionally untracked project artifacts may remain listed and must not be deleted.
+- Web deployment, auth redirects, RLS, Cron, and provider keys are environment-separated.
+- Provider snapshot terms review is complete and compatible.
+- Packaged extension passes allowlist, permissions, secrets, attribution, and provenance checks.
+- Seed scripts are deterministic and idempotent.
+- Fixture-backed full acceptance and real-provider manual smoke tests both pass.
+- The known-video cached path survives provider outage without losing raw saves.
+- Release report includes exact commit, extension checksum, migrations, tests, limitations, and rollback.

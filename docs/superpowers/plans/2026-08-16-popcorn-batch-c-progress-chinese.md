@@ -1,362 +1,276 @@
-# Popcorn Parallel Batch C Progress and Chinese Quality Implementation Plan
+# Popcorn Batch C Retrieval, Progress, and Resilience Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add evidence-based Progress, Chinese semantic relations, and regression-tested Chinese/English AI quality without destabilising the core loop.
+**Goal:** Complete reliable Chinese expression retrieval, independent reuse, basic evidence-based Progress, explicit deletion, and cross-surface resilience without expanding first-release scope.
 
-**Architecture:** Progress reads append-only evidence, relations use pgvector plus communicative-function filters, and Chinese quality is enforced through versioned fixtures and prompts. Each parallel Agent owns separate files.
+**Architecture:** PostgreSQL exact/substring/trigram retrieval replaces the previous pgvector plan. Progress reads append-only attempts and mastery events; deletion separates raw learning sources from retained evidence; extension and web share clear recovery states.
 
-**Tech Stack:** PostgreSQL, pgvector, Next.js, OpenAI embeddings, Vitest, Playwright.
+**Tech Stack:** PostgreSQL/pg_trgm, Next.js, Supabase RLS, React, Vitest, Playwright, Chrome extension tests.
 
 ## Global Constraints
 
-- Activity volume and demonstrated mastery are displayed separately.
-- pgvector suggestions never merge records automatically.
-- English explanations must cite the exact Chinese evidence span.
-- Traditional characters, regional usage, ambiguity, and slang produce caveats rather than silent normalisation.
-- Shared migrations are created by the primary Agent before Agent B begins.
+- Batch B exit gate must be green.
+- No pgvector, embeddings, graph, semantic recommendation, Expression Health Check, or advanced analytics.
+- Chinese search uses normalized Simplified Chinese, substring/trigram matching, and explicit metadata filters.
+- AI can generate practice content but cannot choose mastery or due dates.
+- Progress reports practice evidence, not save volume as achievement.
+- Deleting a source never silently deletes attempts or mastery history.
+- All extension behavior continues from the pinned YouTube Digest adaptation; do not create a replacement extension UI.
 
----
-
-### Task 1: Add pgvector relation schema
-
-**Agent:** Primary Agent
+### Task 1: Implement first-release Chinese expression retrieval
 
 **Files:**
 
-- Create: supabase/migrations/202608160003_expression_vectors.sql
-- Modify: src/types/database.generated.ts through regeneration
-- Test: supabase/tests/relations.sql
+- Create: `src/features/vault/search-schema.ts`
+- Create: `src/server/repositories/expression-search-repository.ts`
+- Create: `src/features/vault/vault-search.tsx`
+- Modify: `src/app/api/v1/vault/route.ts`
+- Test: `src/server/repositories/expression-search-repository.test.ts`
+- Test: `src/features/vault/vault-search.test.tsx`
 
 **Interfaces:**
 
-- Produces match_expression_senses(query_embedding, match_threshold, match_count, language_code).
+- Consumes: normalized expression text, English meaning, function, register, video source, mastery, and date.
+- Produces: `searchExpressions(userId, query): ExpressionSearchResult[]` ordered by exact match, prefix/substring, trigram similarity, then recency.
 
-- [ ] **Step 1: Add failing SQL tests**
+**LLM Wiki method adaptation:** Implement staged retrieval in relational form only: structured filters first, lexical match second, source-overlap presentation third. Do not copy LLM Wiki search, graph, LanceDB, chunk, or ranking code.
 
-Assert the function excludes another language code, excludes the same expression ID, orders by cosine similarity descending, and never returns another user's private occurrence data.
+- [ ] **Step 1: Write failing Chinese retrieval tests**
 
-- [ ] **Step 2: Implement vector column and function**
+Cover exact `太离谱了`, substring `离谱`, typo-near trigram, English meaning `absurd`, communicative function `reaction`, video filter, user isolation, and empty query. Prove another user's closer match never appears.
 
-Use vector(1536), matching OPENAI_EMBEDDING_DIMENSIONS passed by M4. Keep expression_senses language-scoped and relations advisory.
+- [ ] **Step 2: Implement normalized lexical queries**
 
-- [ ] **Step 3: Verify and commit**
+Normalize whitespace and punctuation without changing meaningful Chinese characters. Use equality and `ILIKE` before `similarity`; bind parameters; require `user_id` in every query; cap results and return match reason.
 
-Run:
+- [ ] **Step 3: Implement accessible search UI**
 
-    pnpm db:reset
-    pnpm db:test
-    pnpm exec supabase gen types typescript --local > src/types/database.generated.ts
-    pnpm typecheck
-    git add supabase src/types/database.generated.ts
-    git commit -m "feat: add expression similarity schema"
+Debounce only the browser request, not repository correctness. Expose text, meaning, source count, mastery, and match reason. Keyboard navigation and clear-filter behavior are required.
 
-### Task 2: Progress aggregation
+- [ ] **Step 4: Verify and commit**
 
-**Agent:** Batch C Agent A
+```bash
+pnpm vitest run src/server/repositories/expression-search-repository.test.ts src/features/vault/vault-search.test.tsx
+pnpm db:test
+git add src/features/vault src/server/repositories/expression-search-repository.ts src/app/api/v1/vault
+git commit -m "feat: add bounded Chinese expression search"
+```
+
+### Task 2: Implement due Practice and evidence-driven mastery advancement
 
 **Files:**
 
-- Create: src/server/repositories/progress-repository.ts
-- Create: src/features/progress/schema.ts
-- Create: src/app/api/v1/progress/route.ts
-- Test: tests/integration/progress/progress-summary.test.ts
+- Create: `src/server/domain/create-transfer-task.ts`
+- Create: `src/server/domain/complete-due-practice.ts`
+- Modify: `src/features/practice/due-practice.tsx`
+- Modify: `src/app/api/v1/practice/due/route.ts`
+- Create: `src/app/api/v1/practice/due/[reviewTaskId]/route.ts`
+- Test: `tests/integration/practice/due-transfer.test.ts`
+- Test: `src/server/domain/complete-due-practice.test.ts`
 
 **Interfaces:**
 
-- Produces ProgressSummary:
-  - periodStart and periodEnd
-  - attemptsCompleted
-  - dueTasksCompleted
-  - independentReuseCount
-  - masteryDistribution
-  - recentTransitions
+- Consumes: due review task, expression knowledge, prior contexts, learner response, assistance level, evaluation.
+- Produces: new-context task, attempt, mastery event, and rescheduled review.
+
+- [ ] **Step 1: Write failing transfer tests**
+
+Assert a due task differs meaningfully from the original saved context, withholds a complete answer, records assistance, advances `tried -> reused` only after successful independent evidence, and advances `reused -> owned` only with two contexts on separate UTC dates including a due task.
+
+- [ ] **Step 2: Implement context guardrails**
+
+Pass prior context summaries to AI, validate the new task is not a copy, and fall back to a deterministic fixture when provider output is invalid. AI output cannot contain mastery or due fields.
+
+- [ ] **Step 3: Implement atomic completion**
+
+Lock the due task, reject stale/double completion, store attempt/evaluation, call pure mastery/schedule rules, append evidence, and create the next review in one transaction.
+
+- [ ] **Step 4: Verify and commit**
+
+```bash
+pnpm vitest run tests/integration/practice/due-transfer.test.ts src/server/domain/complete-due-practice.test.ts
+pnpm db:test
+git add src/server/domain src/features/practice src/app/api/v1/practice/due tests/integration/practice
+git commit -m "feat: advance mastery through due Practice"
+```
+
+### Task 3: Build basic evidence-based Progress
+
+**Files:**
+
+- Create: `src/server/repositories/progress-repository.ts`
+- Create: `src/features/progress/schema.ts`
+- Create: `src/features/progress/progress-dashboard.tsx`
+- Create: `src/app/api/v1/progress/route.ts`
+- Create: `src/app/(app)/progress/page.tsx`
+- Test: `tests/integration/progress/progress-summary.test.ts`
+- Test: `src/features/progress/progress-dashboard.test.tsx`
+
+**Interfaces:**
+
+- Produces: weekly attempt count, due completion count, independent reuse count, due Practice count, and `tried/reused/owned` distribution.
 
 - [ ] **Step 1: Write failing aggregation tests**
 
-Seed assisted attempts, independent attempts, due-task completions, and mastery transitions around a fixed UTC week boundary. Assert each metric and ensure the same attempt is counted once.
+Use fixed UTC boundaries. Assert saves and explanation views do not increase practice metrics; assisted attempts count as attempts but not independent reuse; highest mastery and recent performance remain distinct; user A cannot affect user B totals.
 
-- [ ] **Step 2: Implement repository query**
+- [ ] **Step 2: Implement bounded aggregation**
 
-Compute from persisted attempts, review_tasks, and mastery_events. Do not cache a browser-computed total or count failed AI runs as learning activity.
+Derive all values from attempts, review tasks, user expressions, and append-only mastery events. Do not materialize unverifiable client counters.
 
-- [ ] **Step 3: Implement GET route**
+- [ ] **Step 3: Implement the minimal dashboard**
 
-Accept ISO date from and to query parameters with a maximum 93-day range. Default to the current UTC week.
-
-- [ ] **Step 4: Verify and commit**
-
-Run:
-
-    pnpm test:integration -- progress-summary
-    pnpm typecheck
-    git add src/server/repositories/progress-repository.ts src/features/progress/schema.ts src/app/api/v1/progress tests/integration/progress
-    git commit -m "feat: add evidence-based progress summary"
-
-### Task 3: Progress and Expression Health pages
-
-**Agent:** Batch C Agent A
-
-**Files:**
-
-- Create: src/features/progress/progress-dashboard.tsx
-- Create: src/features/progress/progress-dashboard.test.tsx
-- Create: src/features/progress/expression-health.tsx
-- Create: src/app/(app)/progress/page.tsx
-- Test: tests/e2e/progress.spec.ts
-
-**Interfaces:**
-
-- Consumes ProgressSummary and Vault records.
-- Produces an English-language Progress page.
-
-- [ ] **Step 1: Write failing dashboard tests**
-
-Assert headings This week, Independent reuse, Mastery evidence, and Expressions needing attention. Assert activity counts are not labelled mastery.
-
-- [ ] **Step 2: Implement dashboard**
-
-Use accessible HTML lists and compact visual bars rather than a chart dependency. Show seen/understood/tried/reused/owned counts and recent transitions with Chinese expressions.
-
-- [ ] **Step 3: Implement health rules**
-
-Categories:
-
-- Seen but not tried after 7 days.
-- Tried but not reused after 14 days.
-- Failed due task.
-- One independent context away from owned.
+Show four summary values and the three-state distribution. Do not add streaks, health scores, leaderboards, graphs requiring a new visualization library, or saved-item counts as success.
 
 - [ ] **Step 4: Verify and commit**
 
-Run:
+```bash
+pnpm vitest run tests/integration/progress/progress-summary.test.ts src/features/progress/progress-dashboard.test.tsx
+git add src/server/repositories/progress-repository.ts src/features/progress src/app/api/v1/progress src/app/'(app)'/progress tests/integration/progress
+git commit -m "feat: show evidence-based learning progress"
+```
 
-    pnpm vitest run src/features/progress
-    pnpm test:e2e -- progress
-    pnpm typecheck
-    git add src/features/progress src/app/\(app\)/progress tests/e2e/progress.spec.ts
-    git commit -m "feat: add progress and expression health"
-
-### Task 4: Embeddings and duplicate suggestions
-
-**Agent:** Batch C Agent B
+### Task 4: Implement source deletion and account deletion safely
 
 **Files:**
 
-- Create: src/server/repositories/relation-repository.ts
-- Create: src/features/relations/schema.ts
-- Create: src/features/relations/find-relations.ts
-- Create: src/app/api/v1/vault/[userExpressionId]/relations/route.ts
-- Test: tests/integration/relations/duplicate-suggestions.test.ts
+- Create: `src/server/domain/plan-source-deletion.ts`
+- Create: `src/server/domain/delete-source.ts`
+- Create: `src/server/domain/delete-account.ts`
+- Create: `src/features/saved/delete-source-dialog.tsx`
+- Create: `src/features/profile/delete-account-dialog.tsx`
+- Create: `src/app/api/v1/saved/[videoSourceId]/delete-preview/route.ts`
+- Create: `src/app/api/v1/saved/[videoSourceId]/route.ts`
+- Create: `src/app/api/v1/account/route.ts`
+- Test: `tests/integration/deletion/source-deletion.test.ts`
+- Test: `tests/integration/deletion/account-deletion.test.ts`
 
 **Interfaces:**
 
-- Consumes AiProvider.embedChinese().
-- Produces findRelatedExpressions(userId, userExpressionId): Promise<RelationSuggestion[]>.
-- RelationSuggestion is { userExpressionId: string; expression: string; meaning: string; relationshipReason: string; similarity: number }.
+- Produces: `planSourceDeletion(userId, sourceId): DeletionImpact` and explicit deletion modes `remove_unpracticed_source` or `remove_source_keep_evidence`.
 
-- [ ] **Step 1: Write failing relation tests**
+- [ ] **Step 1: Write failing deletion-impact tests**
 
-Use deterministic vectors. Assert exact duplicates rank first, function mismatch lowers ranking, source expression is excluded, another user cannot access suggestions, and no record is merged automatically.
+Assert unpracticed source deletion removes derived candidates/artifacts. Practiced source deletion reports affected expressions and, by default, removes source body/occurrences while retaining attempts/mastery with `source_deleted`. Cross-user deletion and ambiguous mode are rejected.
 
-- [ ] **Step 2: Implement embedding text**
+- [ ] **Step 2: Implement preview-before-delete**
 
-Canonical embedding input contains Chinese expression, English meaning, communicative function, tone, and one Chinese context example in a labelled stable order.
+The dialog names the video, saved-item count, and affected learned expressions. It never uses a generic confirmation for practiced evidence.
 
-- [ ] **Step 3: Implement repository and route**
+- [ ] **Step 3: Implement transactional deletion modes**
 
-Persist embedding model/version. Return similarity and reason fields. Require explicit primary-Agent-owned merge work for any future merge feature; first release only displays suggestions.
+Delete only user-scoped rows. Preserve append-only learning evidence under the keep-evidence mode. Account deletion removes all user-owned source, generated knowledge, attempts, mastery, reviews, profile, and extension-link records.
 
 - [ ] **Step 4: Verify and commit**
 
-Run:
+```bash
+pnpm vitest run tests/integration/deletion src/features/saved/delete-source-dialog.test.tsx src/features/profile/delete-account-dialog.test.tsx
+pnpm db:test
+git add src/server/domain src/features/saved src/features/profile src/app/api/v1/saved src/app/api/v1/account tests/integration/deletion
+git commit -m "feat: delete sources without losing evidence silently"
+```
 
-    pnpm test:integration -- duplicate-suggestions
-    pnpm typecheck
-    git add src/server/repositories/relation-repository.ts src/features/relations src/app/api/v1/vault tests/integration/relations
-    git commit -m "feat: add Chinese expression relations"
-
-### Task 5: Related-expression presentation
-
-**Agent:** Batch C Agent B
+### Task 5: Harden extension and web recovery/accessibility states
 
 **Files:**
 
-- Create: src/features/relations/related-expressions.tsx
-- Create: src/features/relations/related-expressions.test.tsx
-- Modify: src/features/vault/expression-card.tsx
+- Modify: `extension/sidepanel.html`
+- Modify: `extension/sidepanel.css`
+- Modify: `extension/sidepanel.js`
+- Modify: `extension/options.html`
+- Modify: `extension/options.js`
+- Create: `src/components/states/loading-state.tsx`
+- Create: `src/components/states/empty-state.tsx`
+- Create: `src/components/states/error-state.tsx`
+- Create: `src/components/ui/chinese-text.tsx`
+- Test: `extension/tests/recovery-accessibility.test.js`
+- Test: `tests/accessibility/web-states.test.tsx`
 
 **Interfaces:**
 
-- Consumes RelationSuggestion[].
-- Produces presentational Related expressions section.
+- Consumes: explicit unsupported, saved, retrying, sign-in-required, organizing, ready, and failed states.
+- Produces: keyboard-accessible recovery actions without blocking video playback.
 
-- [ ] **Step 1: Write failing presentation tests**
+**Upstream reuse:** Adapt YouTube Digest loading/error/translation retry UI, notes filter accessibility, keyboard behavior, focus handling, and safe markup styles from `sidepanel.*`, `options.*`, and `tests/release.test.js`. Do not replace the Side Panel.
 
-Assert Chinese expression, English meaning, relationship reason, and confidence band. Do not display a Merge button.
+- [ ] **Step 1: Write failing accessibility/recovery tests**
 
-- [ ] **Step 2: Implement component**
+Cover keyboard activation, focus return after explanation modal, reduced motion, visible focus, aria-live save feedback, unsupported native-Chinese message, session-expired pending count, retry action, and long mixed Chinese/English text.
 
-Use High, Medium, and Low confidence labels; do not expose raw vector values as a learning score.
+- [ ] **Step 2: Adapt extension states**
 
-- [ ] **Step 3: Verify and commit**
+Preserve original video controls and transcript position during recoverable failures. A sign-in-required save remains queued. A provider failure shows raw saved content and a web recovery link.
 
-Run:
+- [ ] **Step 3: Implement shared web states**
 
-    pnpm vitest run src/features/relations
-    pnpm typecheck
-    git add src/features/relations src/features/vault/expression-card.tsx
-    git commit -m "feat: show related Chinese expressions"
-
-### Task 6: Chinese analysis regression set
-
-**Agent:** Batch C Agent C
-
-**Files:**
-
-- Create: tests/fixtures/chinese/analysis-cases.ts
-- Create: tests/contract/ai/chinese-analysis.test.ts
-- Modify: src/server/ai/prompts/scan-extract.v1.ts only if a failing fixture proves a defect
-
-**Interfaces:**
-
-- Produces versioned Chinese analysis cases consumed by provider evaluation.
-
-- [ ] **Step 1: Add concrete fixtures**
-
-Include:
-
-- 这也太离谱了吧。 — strong informal reaction.
-- 这事儿说白了就是钱的问题。 — conversational framing phrase.
-- 你方便的时候发给我就行。 — polite low-pressure request.
-- 我不是很赞同这个说法。 — softened disagreement.
-- 绝绝子 — dated online slang requiring a caveat.
-- 这个方案挺好的。 — 挺 must not be explained as physical standing.
-- 他把书看完了。 — 把 construction must not be extracted as a reusable social expression by default.
-- 妳好 — Traditional character should be preserved and flagged, not silently rewritten.
-
-- [ ] **Step 2: Write schema and semantic assertions**
-
-Assert exact evidence spans, English explanation presence, no hallucinated Chinese phrase, maximum three expressions, and caveats for slang or regional/script variants.
-
-- [ ] **Step 3: Run tests against FakeAiProvider and configured live-eval mode**
-
-Run:
-
-    pnpm test:contract -- chinese-analysis
-
-Expected: deterministic fixture-mode tests pass. Live API evaluation is opt-in through RUN_LIVE_AI_EVALS=1 and is not required in normal CI.
-
-- [ ] **Step 4: Commit**
-
-Run:
-
-    git add tests/fixtures/chinese tests/contract/ai/chinese-analysis.test.ts src/server/ai/prompts/scan-extract.v1.ts
-    git commit -m "test: add Chinese analysis regression set"
-
-### Task 7: Chinese response evaluation regression set
-
-**Agent:** Batch C Agent C
-
-**Files:**
-
-- Create: tests/fixtures/chinese/evaluation-cases.ts
-- Create: tests/contract/ai/chinese-evaluation.test.ts
-- Create: src/features/chinese/explanation-guard.ts
-- Test: src/features/chinese/explanation-guard.test.ts
-- Modify: src/server/ai/prompts/evaluate.v1.ts only if a fixture proves a defect
-
-**Interfaces:**
-
-- Produces assertEnglishExplanation(EvaluationResult): void.
-
-- [ ] **Step 1: Add evaluation cases**
-
-Cover correct natural use, grammatically correct but contextually rude use, understandable but unnatural word order, wrong register, English-only learner response, and copied full model answer.
-
-- [ ] **Step 2: Assert three separate dimensions**
-
-Every result has independent accuracy, naturalness, and contextual-fit scores and English feedback. The evaluator must not claim a dialect or register is universally wrong when it is context-dependent.
-
-- [ ] **Step 3: Implement explanation guard**
-
-Reject empty feedback, feedback dominated by unexplained Chinese, or missing dimension labels before persistence.
+Use one component set across Home, Saved, Practice, Vault, and Progress. Error copy includes recovery and request ID but no provider internals.
 
 - [ ] **Step 4: Verify and commit**
 
-Run:
+```bash
+node --test extension/tests/recovery-accessibility.test.js extension/tests/release.test.js
+pnpm vitest run tests/accessibility/web-states.test.tsx
+git add extension src/components tests/accessibility
+git commit -m "feat: harden learning recovery and accessibility"
+```
 
-    pnpm test:contract -- chinese-evaluation
-    pnpm vitest run src/features/chinese
-    pnpm typecheck
-    git add tests/fixtures/chinese tests/contract/ai/chinese-evaluation.test.ts src/features/chinese src/server/ai/prompts/evaluate.v1.ts
-    git commit -m "test: add Chinese evaluation regression set"
-
-### Task 8: Mixed-script desktop rendering
-
-**Agent:** Batch C Agent C
+### Task 6: Run the full mastery, deletion, and resilience gate
 
 **Files:**
 
-- Create: tests/e2e/chinese-rendering.spec.ts
-- Modify: src/styles/tokens.css if rendering evidence requires a fix
+- Create: `tests/e2e/returning-learner.spec.ts`
+- Create: `tests/e2e/source-deletion.spec.ts`
+- Create: `tests/e2e/extension/offline-recovery.spec.ts`
+- Modify: `docs/engineering/execution-ledger.md`
 
 **Interfaces:**
 
-- Verifies supported browser rendering, not domain behaviour.
+- Consumes: Tasks 1-5 and all prior batches.
+- Produces: proof of `tried -> reused -> owned`, bounded retrieval, explicit deletion, and offline recovery.
 
-- [ ] **Step 1: Add browser cases**
+- [ ] **Step 1: Add returning-learner scenario**
 
-Test Simplified Chinese, preserved Traditional characters, Chinese punctuation, long English explanation, pinyin with tone marks, and mixed Chinese/English lines at 1024x768 and 1440x900.
+Complete two independent contexts on separate fixture dates, including a due Practice task; assert deterministic transitions and Progress changes while save count remains irrelevant.
 
-- [ ] **Step 2: Use visual and semantic assertions**
+- [ ] **Step 2: Add deletion scenario**
 
-Assert no horizontal document overflow, Chinese spans have lang zh-CN, English explanation retains lang en, focused controls remain visible, and critical text is not clipped.
+Delete an unpracticed source, then delete a practiced source with keep-evidence mode; assert exact UI preview and resulting records.
 
-- [ ] **Step 3: Verify and commit**
+- [ ] **Step 3: Add extension recovery scenario**
 
-Run:
+Save offline, terminate/reload the worker, expire auth, sign in again, and verify the original owner/event syncs once without pausing playback.
 
-    pnpm test:e2e -- chinese-rendering
-    pnpm typecheck
-    git add tests/e2e/chinese-rendering.spec.ts src/styles/tokens.css
-    git commit -m "test: verify Chinese desktop rendering"
+- [ ] **Step 4: Run the Batch C gate**
 
-### Task 9: Primary-Agent integration gate
-
-**Agent:** Primary Agent
-
-**Files:**
-
-- Test: all Batch C checks.
-
-- [ ] **Step 1: Run database and focused suites**
-
-Run:
-
-    pnpm db:reset
-    pnpm db:test
-    pnpm test:integration -- progress-summary duplicate-suggestions
-    pnpm test:contract -- chinese-analysis chinese-evaluation
-    pnpm test:e2e -- progress chinese-rendering
+```bash
+node --test extension/tests/*.test.js
+pnpm vitest run src/server/repositories/expression-search-repository.test.ts tests/integration/practice tests/integration/progress tests/integration/deletion tests/accessibility
+pnpm playwright test tests/e2e/returning-learner.spec.ts tests/e2e/source-deletion.spec.ts
+pnpm playwright test tests/e2e/extension/offline-recovery.spec.ts --project=chromium-extension
+pnpm lint
+pnpm typecheck
+pnpm build
+pnpm db:test
+pnpm test:provenance
+git diff --check
+```
 
 Expected: all commands exit 0.
 
-- [ ] **Step 2: Run full verification**
+- [ ] **Step 5: Commit**
 
-Run:
+```bash
+git add tests/e2e docs/engineering/execution-ledger.md
+git commit -m "test: prove retrieval mastery and resilience"
+```
 
-    pnpm verify
-    pnpm build
-    git diff --check
+## Batch C Exit Gate
 
-Expected: all commands exit 0.
-
-- [ ] **Step 3: Commit integration-only adjustments**
-
-Run:
-
-    git add src tests supabase
-    git commit -m "feat: integrate progress and Chinese quality"
-
-Skip the commit only when git diff --quiet confirms no integration changes.
+- Chinese search works without vector infrastructure and remains user-scoped.
+- Due Practice alone can advance `reused` and `owned` under fixed rules.
+- Progress excludes save volume from evidence metrics.
+- Source deletion previews and preserves/deletes evidence exactly as selected.
+- Extension and web accessibility/recovery tests pass.
+- Offline, worker restart, expired auth, and retry preserve owner/event identity.
+- Full Batch C, RLS, build, provenance, browser, and extension gates pass.

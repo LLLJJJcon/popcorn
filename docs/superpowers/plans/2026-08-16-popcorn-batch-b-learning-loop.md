@@ -1,309 +1,308 @@
-# Popcorn Parallel Batch B Learning Loop Implementation Plan
+# Popcorn Batch B Saved Knowledge and Learning Loop Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the learner-first response workflow, persistent Expression Vault and Active Queue, and coherent desktop states, then integrate them into one evidence-producing loop.
+**Goal:** Turn durable YouTube saves into source-grounded knowledge, learner-first practice, Expression Cards, and deterministic future Practice.
 
-**Architecture:** Practice emits a frozen AttemptRecorded event. Memory consumes the event through primary-Agent-owned orchestration. Desktop components remain presentational and cannot alter mastery or queue behaviour.
+**Architecture:** A durable server job pipeline resolves snapshots and generated artifacts without changing raw saves. The web organizes saves by video; only a learner-selected expression followed by a valid attempt creates knowledge and mastery evidence.
 
-**Tech Stack:** Next.js, React, TanStack Query, Zod, Supabase, Vitest, Testing Library, Playwright.
+**Tech Stack:** Next.js App Router, Supabase PostgreSQL/RLS/Cron, OpenAI server adapter, Zod, TanStack Query, Vitest, Testing Library, Playwright.
 
 ## Global Constraints
 
-- The learner submits Chinese before seeing a complete model answer.
-- Feedback labels and explanations are English.
-- AI scores do not directly advance mastery; deterministic domain rules consume recorded evidence.
-- Attempt, mastery event, user expression, and queue task writes are idempotent.
-- Shared contracts, migrations, and root configuration remain read-only to parallel Agents.
+- Batch A exit gate must be green.
+- Raw `saved_items` are durable before any provider operation.
+- Generated artifacts are versioned by source hash, saved-item hash, prompt version, and model version.
+- `nashsu/llm_wiki@v0.6.9`, peeled commit `723e259309aea5e3850265b631f80224f66dd9f6`, contributes method ideas only; no GPLv3 code may be copied.
+- The adapted method is Raw Source -> Structured Knowledge -> Learning Evidence.
+- Candidate analysis returns one to three expressions from saved evidence, never a whole-video Vault import.
+- Vault creation requires a valid original learner attempt.
+- Mastery and due dates are deterministic; AI cannot set either.
+- Web navigation is `Home`, `Saved`, `Practice`, `Vault`, `Progress`.
 
----
+## Method Provenance
 
-### Task 1: Create and submit a practice task
+| LLM Wiki reference at `723e259309aea5e3850265b631f80224f66dd9f6` | Popcorn adaptation | Prohibited implementation |
+|---|---|---|
+| `llm-wiki.md`, three-layer Raw Sources/Wiki/Schema pattern | `video_snapshots`, `transcript_segments`, and exact `saved_items` remain immutable. | Markdown/Obsidian filesystem source layer |
+| `README.md`, “Two-Step Chain-of-Thought Ingest” | analyze a saved item, then update expression knowledge only after practice | Copying ingest source, prompts, or desktop runtime |
+| `README.md`, “Source traceability” | expression occurrence links to saved item, transcript segment, and timestamp | `sources[]`/`[[wikilink]]` implementation |
+| `README.md`, “SHA256 incremental cache” and “Persistent ingest queue” | versioned artifact/result keys and leased durable jobs | queue code, filesystem cache, or LanceDB/vector pipeline |
+| `README.md`, “Review System (Async Human-in-the-Loop)” | ambiguous merges remain user-confirmed candidates | Review components, action code, or prompts |
 
-**Agent:** Batch B Agent A
+### Task 1: Extend and harden the durable knowledge-job processor
 
 **Files:**
 
-- Create: src/features/practice/practice-session.tsx
-- Create: src/features/practice/practice-session.test.tsx
-- Create: src/features/practice/api.ts
-- Create: src/app/api/v1/practice/tasks/route.ts
-- Create: src/server/repositories/attempt-repository.ts
-- Test: tests/integration/practice/create-task.test.ts
+- Create: `src/server/jobs/job-types.ts`
+- Modify: `src/server/jobs/process-jobs.ts`
+- Modify: `src/server/jobs/handlers/resolve-snapshot.ts`
+- Modify: `src/server/jobs/handlers/generate-overview.ts`
+- Create: `src/server/jobs/handlers/analyze-saved-item.ts`
+- Create: `src/server/jobs/provider-cache.ts`
+- Modify: `src/app/api/internal/jobs/process/route.ts`
+- Test: `tests/integration/jobs/process-jobs.test.ts`
+- Test: `tests/integration/jobs/recovery.test.ts`
 
 **Interfaces:**
 
-- Consumes: CandidateExpression, PracticeTask, requireUser(), AiProvider.activate().
-- Produces POST /api/v1/practice/tasks with { contentId, expression, intent }.
+- Consumes: frozen `KnowledgeJob`, lease rules, transcript/AI adapters, and the Batch A processor/handlers.
+- Produces: hardened `processJobBatch({limit, now}): JobBatchResult`, deterministic provider caching, and the added `analyze_saved_item` handler while preserving Batch A's snapshot/overview/translation/explanation handlers.
 
-- [ ] **Step 1: Write failing UI test**
+**Upstream reuse:** Retain and harden the Batch A adaptation of YouTube Digest `background.js:pollTranscriptJob` in `resolve-snapshot.ts`; preserve completed/failed/queued/active handling and job-expiry awareness. Reuse timestamp validation ideas from `background.js:validateAndFixTimestamps` in generated-artifact validation. Do not copy any LLM Wiki implementation.
 
-Assert the page shows Chinese expression, English meaning, English task instruction, a Chinese response field, and Submit response. Assert no model answer appears before submission.
+- [ ] **Step 1: Write failing lease/recovery integration tests**
 
-- [ ] **Step 2: Implement task creation route**
+Prove the processor leases a bounded batch, scopes every operation to the job user, recovers an expired lease, does not double-apply a result, marks retryable provider errors with backoff, and leaves raw saves untouched after terminal failure.
 
-Validate content ownership and expression evidence, call activate(), persist practice_tasks, and return PracticeTask.
+- [ ] **Step 2: Implement the authenticated internal endpoint**
 
-- [ ] **Step 3: Implement session form**
+Require `Authorization: Bearer <INTERNAL_JOB_SECRET>`, reject public sessions, lease at most five jobs, and return counts rather than full transcript/provider bodies.
 
-Require 1 through 5000 characters. Keep the draft after retryable failure. Set an idempotency key when the task opens.
+- [ ] **Step 3: Harden snapshot resolution and artifact idempotency**
+
+Re-test the Batch A fetch/poll path under concurrent duplicate jobs; validate actual language, compute transcript hash, keep one immutable snapshot revision, insert stable segments idempotently, and attach unresolved saved moments by timestamp. Mark unsupported sources without deleting saves. Add deterministic cache/result keys to every existing handler.
+
+- [ ] **Step 4: Implement saved-item analysis**
+
+Saved-item analysis produces one to three candidate expressions with exact segment evidence. Keep the existing Overview contract of complete chapters and three to five timestamp-grounded quotes. Store all schema-valid artifacts under deterministic result keys.
+
+- [ ] **Step 5: Verify and commit**
+
+```bash
+pnpm vitest run tests/integration/jobs/process-jobs.test.ts tests/integration/jobs/recovery.test.ts
+pnpm typecheck
+pnpm db:test
+git add src/server/jobs src/app/api/internal/jobs/process tests/integration/jobs
+git commit -m "feat: process durable knowledge jobs"
+```
+
+### Task 2: Build Home and the video-grouped Saved library
+
+**Files:**
+
+- Create: `src/features/home/next-action.tsx`
+- Create: `src/features/saved/api.ts`
+- Create: `src/features/saved/video-card.tsx`
+- Create: `src/features/saved/saved-timeline.tsx`
+- Create: `src/features/saved/processing-state.tsx`
+- Create: `src/app/(app)/home/page.tsx`
+- Create: `src/app/(app)/saved/page.tsx`
+- Create: `src/app/(app)/saved/[videoSourceId]/page.tsx`
+- Create: `src/app/api/v1/saved/route.ts`
+- Create: `src/app/api/v1/saved/[videoSourceId]/route.ts`
+- Test: `src/features/saved/saved-timeline.test.tsx`
+- Test: `tests/integration/saved/video-library.test.ts`
+
+**Interfaces:**
+
+- Consumes: video source, latest snapshot, saved items, generated artifacts, and candidate artifacts.
+- Produces: `SavedVideoSummary`, `SavedVideoDetail`, and one Home next action.
+
+- [ ] **Step 1: Write failing grouping and progressive-state tests**
+
+Assert seven moments from one video produce one card; timeline ordering uses timestamp then capture time; raw text stays visible during `organizing` or `failed`; unsupported state explains native Simplified Chinese requirement; Home prefers due Practice over unsorted saves.
+
+- [ ] **Step 2: Implement user-scoped Saved queries**
+
+Return no full transcript in list responses. Detail returns metadata, bounded transcript evidence for saved items, overview/chapters/quotes, generated translations already stored, candidates, and processing errors safe for users.
+
+- [ ] **Step 3: Implement pages and one-action hierarchy**
+
+Home shows one primary CTA. Saved list groups by video. Detail renders timestamp order, links back to canonical YouTube time, permits ignoring/deleting/practicing individual saves, and never forces processing all saves.
 
 - [ ] **Step 4: Verify and commit**
 
-Run:
+```bash
+pnpm vitest run src/features/saved/saved-timeline.test.tsx tests/integration/saved/video-library.test.ts
+pnpm typecheck
+git add src/features/home src/features/saved src/app/'(app)'/home src/app/'(app)'/saved src/app/api/v1/saved tests/integration/saved
+git commit -m "feat: add the Saved video library"
+```
 
-    pnpm vitest run src/features/practice/practice-session.test.tsx
-    pnpm test:integration -- create-task
-    pnpm typecheck
-    git add src/features/practice src/app/api/v1/practice src/server/repositories/attempt-repository.ts tests/integration/practice
-    git commit -m "feat: add learner-first practice task"
-
-### Task 2: Evaluate, revise, and record attempts
-
-**Agent:** Batch B Agent A
+### Task 3: Confirm candidate knowledge with source traceability
 
 **Files:**
 
-- Create: src/features/practice/evaluation-panel.tsx
-- Create: src/features/practice/evaluation-panel.test.tsx
-- Create: src/app/api/v1/practice/attempts/route.ts
-- Create: src/app/api/v1/practice/attempts/[attemptId]/revisions/route.ts
-- Test: tests/integration/practice/attempts.test.ts
+- Create: `src/features/saved/candidate-expression.tsx`
+- Create: `src/features/saved/candidate-list.tsx`
+- Create: `src/server/domain/confirm-candidate.ts`
+- Create: `src/server/repositories/expression-repository.ts`
+- Create: `src/app/api/v1/saved-items/[savedItemId]/candidates/route.ts`
+- Test: `src/features/saved/candidate-list.test.tsx`
+- Test: `tests/integration/knowledge/source-traceability.test.ts`
 
 **Interfaces:**
 
-- Consumes: EvaluationResult and AiProvider.evaluate().
-- Produces: AttemptRecorded after a durable attempt insert.
+- Consumes: schema-valid candidate artifact tied to saved item and segments.
+- Produces: a selected candidate payload for immediate practice; it does not yet create `user_expressions`.
 
-- [ ] **Step 1: Write failing evaluation tests**
+- [ ] **Step 1: Write failing evidence and ambiguity tests**
 
-Assert separate Accuracy, Naturalness, and Context fit sections, each with 1–5 score and English feedback. Assert the learner's Chinese is preserved beside feedback.
+Assert every candidate shows exact Chinese, English meaning, tone, function, source text, timestamp, and video link. Two candidates with uncertain semantic identity remain distinct. Selecting one creates a practice draft only; no Vault or mastery row appears.
 
-- [ ] **Step 2: Write attempt integration tests**
+- [ ] **Step 2: Implement candidate presentation**
 
-Test first submission, exact idempotent retry, changed revision creating a child attempt, user B access denial, and provider failure creating no attempt.
+Show at most three candidates and one `Use It Now` action per candidate. Confidence is not shown as false precision; low-confidence candidates display `Needs your confirmation`.
 
-- [ ] **Step 3: Implement routes and panel**
+- [ ] **Step 3: Implement source-grounded confirmation**
 
-Evaluate first, then insert once with idempotencyKey. A revision references parent_attempt_id and uses a new idempotency key.
+Validate candidate artifact ownership and version. Return exact evidence IDs with the practice draft. Do not ask AI to decide duplicate identity at this step.
 
 - [ ] **Step 4: Verify and commit**
 
-Run:
+```bash
+pnpm vitest run src/features/saved/candidate-list.test.tsx tests/integration/knowledge/source-traceability.test.ts
+git add src/features/saved src/server/domain/confirm-candidate.ts src/server/repositories/expression-repository.ts src/app/api/v1/saved-items tests/integration/knowledge
+git commit -m "feat: confirm source-grounded expression candidates"
+```
 
-    pnpm vitest run src/features/practice
-    pnpm test:integration -- attempts
-    pnpm typecheck
-    git add src/features/practice src/app/api/v1/practice tests/integration/practice
-    git commit -m "feat: add evaluated practice attempts"
-
-### Task 3: Create persistent Expression Cards
-
-**Agent:** Batch B Agent B
+### Task 4: Implement Use It Now evaluation and revision
 
 **Files:**
 
-- Create: src/features/vault/expression-card.tsx
-- Create: src/features/vault/schema.ts
-- Create: src/features/vault/vault-list.tsx
-- Create: src/features/vault/vault-list.test.tsx
-- Create: src/server/repositories/expression-repository.ts
-- Create: src/app/api/v1/vault/route.ts
-- Create: src/app/api/v1/vault/[userExpressionId]/route.ts
-- Test: tests/integration/memory/expression-memory.test.ts
+- Create: `src/features/practice/practice-session.tsx`
+- Create: `src/features/practice/evaluation-panel.tsx`
+- Create: `src/features/practice/api.ts`
+- Create: `src/server/ai/prompts/activate.v1.ts`
+- Create: `src/server/ai/prompts/evaluate.v1.ts`
+- Create: `src/server/domain/create-practice-task.ts`
+- Create: `src/server/repositories/attempt-repository.ts`
+- Create: `src/app/(app)/practice/[taskId]/page.tsx`
+- Create: `src/app/api/v1/practice/tasks/route.ts`
+- Create: `src/app/api/v1/practice/attempts/route.ts`
+- Create: `src/app/api/v1/practice/attempts/[attemptId]/revisions/route.ts`
+- Test: `src/features/practice/practice-session.test.tsx`
+- Test: `tests/integration/practice/attempts.test.ts`
 
 **Interfaces:**
 
-- Consumes: AttemptRecorded fixture and CandidateExpression.
-- Produces:
-  - UserExpression = { id, expression, meaning, tone, function, masteryState, occurrences, attempts }
-  - rememberAttempt(userId, event): Promise<UserExpression>
-  - listUserExpressions(userId, filters): Promise<UserExpression[]>
+- Consumes: confirmed candidate, learner profile, exact occurrence evidence.
+- Produces: `PracticeTask`, schema-valid `EvaluationResult`, attempts, revisions, and `AttemptRecorded` event.
 
-- [ ] **Step 1: Write failing memory tests**
+**Upstream reuse:** Adapt timestamp/source-grounding and structured-output discipline from YouTube Digest `prompts/explain.md` and `prompts/note-cleanup.md`; do not copy its English-note-cleanup goal. Prompts must explain Mandarin in English and never supply a complete answer before the first submission.
 
-Assert first attempt creates one expression sense, occurrence, user expression, and mastery event. Exact event retry creates no duplicates. A later occurrence attaches to the same user expression while preserving both sources.
+- [ ] **Step 1: Write failing learner-first tests**
 
-- [ ] **Step 2: Implement repository transaction**
+Assert the task includes the expression and goal but no model answer; empty/English-only responses fail validation; evaluation has separate 1-5 accuracy, naturalness, and contextual-fit scores with English feedback; revision preserves attempt history.
 
-Use unique user/expression identity and event idempotency. Never accept masteryState from the browser.
+- [ ] **Step 2: Implement task activation**
 
-- [ ] **Step 3: Write and implement Vault tests**
+Generate a bounded Chinese response situation appropriate to profile level and candidate function. Persist task context before showing it.
 
-English controls: Search expressions, Mastery state, and Sort. Chinese expression remains visually primary. Detail shows source, English explanation, tone, function, state evidence, and attempts.
+- [ ] **Step 3: Implement evaluation and revision**
+
+Schema-validate output, persist provider run metadata, allow bounded retry, keep learner text after recoverable failure, and never create mastery evidence for a failed/invalid provider result.
 
 - [ ] **Step 4: Verify and commit**
 
-Run:
+```bash
+pnpm vitest run src/features/practice/practice-session.test.tsx tests/integration/practice/attempts.test.ts
+pnpm typecheck
+git add src/features/practice src/server/ai/prompts src/server/domain/create-practice-task.ts src/server/repositories/attempt-repository.ts src/app/'(app)'/practice src/app/api/v1/practice tests/integration/practice
+git commit -m "feat: add learner-first Chinese practice"
+```
 
-    pnpm vitest run src/features/vault
-    pnpm test:integration -- expression-memory
-    pnpm typecheck
-    git add src/features/vault src/server/repositories/expression-repository.ts src/app/api/v1/vault tests/integration/memory
-    git commit -m "feat: add persistent Expression Vault"
-
-### Task 4: Build Active Queue and reuse tasks
-
-**Agent:** Batch B Agent B
+### Task 5: Atomically create Expression Cards, mastery, and due Practice
 
 **Files:**
 
-- Create: src/features/queue/queue-list.tsx
-- Create: src/features/queue/reuse-task.tsx
-- Create: src/features/queue/queue-list.test.tsx
-- Create: src/server/repositories/review-task-repository.ts
-- Create: src/app/api/v1/queue/route.ts
-- Create: src/app/api/v1/queue/[reviewTaskId]/route.ts
-- Test: tests/integration/memory/active-queue.test.ts
+- Create: `src/server/domain/record-valid-attempt.ts`
+- Create: `src/server/repositories/review-task-repository.ts`
+- Create: `src/features/vault/expression-card.tsx`
+- Create: `src/features/vault/vault-list.tsx`
+- Create: `src/features/practice/due-practice.tsx`
+- Create: `src/app/(app)/vault/page.tsx`
+- Create: `src/app/(app)/practice/page.tsx`
+- Create: `src/app/api/v1/vault/route.ts`
+- Create: `src/app/api/v1/vault/[userExpressionId]/route.ts`
+- Create: `src/app/api/v1/practice/due/route.ts`
+- Test: `tests/integration/learning-loop/record-valid-attempt.test.ts`
+- Test: `tests/integration/memory/vault-practice.test.ts`
 
 **Interfaces:**
 
-- Consumes: scheduleReview() and PracticeTask.
-- Produces:
-  - scheduleFromEvidence(userId, event): Promise<ReviewTask>
-  - listDueTasks(userId, now): Promise<ReviewTask[]>
+- Consumes: valid `AttemptRecorded`, selected candidate, occurrence evidence, mastery/schedule pure functions.
+- Produces: expression sense, occurrence, user expression at `tried`, mastery event, and one due review task in one transaction.
 
-- [ ] **Step 1: Write failing scheduling integration tests**
+- [ ] **Step 1: Write failing atomicity tests**
 
-Use fixed timestamps. Assert first tried evidence creates one due task; failed assisted reuse replaces no history but schedules an earlier pending task; successful independent reuse completes the current task and schedules the next.
+Assert a save alone produces none of these records. A valid first attempt creates all records exactly once. Replaying an attempt event is idempotent. A failure rolls back the entire learning-evidence transaction without deleting the attempt draft.
 
-- [ ] **Step 2: Implement repository**
+- [ ] **Step 2: Implement normalized expression lookup**
 
-Use unique source_mastery_event_id. Queries return only pending tasks ordered by dueAt ascending.
+Use exact normalized Simplified Chinese first, then trigram suggestions for user confirmation; do not silently merge uncertain senses. Attach every occurrence to saved item, transcript segment, and timestamp.
 
-- [ ] **Step 3: Implement queue UI**
+- [ ] **Step 3: Implement transactional evidence recording**
 
-English labels Due now, Upcoming, Practice in a new context, and Completed. Show the Chinese target expression but no complete model response.
+Only the server calls `advanceMastery` and `scheduleReview`. The client cannot submit a target mastery state or due date.
 
-- [ ] **Step 4: Verify and commit**
+- [ ] **Step 4: Implement Vault and user-facing Practice**
 
-Run:
+Vault shows learned expressions, original occurrences, meanings, tone, function, attempt history, and current mastery. Practice shows due tasks and uses that label instead of Queue.
 
-    pnpm vitest run src/features/queue
-    pnpm test:integration -- active-queue
-    pnpm typecheck
-    git add src/features/queue src/server/repositories/review-task-repository.ts src/app/api/v1/queue tests/integration/memory
-    git commit -m "feat: add Active Expression Queue"
+- [ ] **Step 5: Verify and commit**
 
-### Task 5: Shared desktop states and accessibility
+```bash
+pnpm vitest run tests/integration/learning-loop/record-valid-attempt.test.ts tests/integration/memory/vault-practice.test.ts
+pnpm db:test
+git add src/server/domain/record-valid-attempt.ts src/server/repositories src/features/vault src/features/practice src/app/'(app)'/vault src/app/'(app)'/practice src/app/api/v1/vault src/app/api/v1/practice/due tests/integration
+git commit -m "feat: record expression mastery atomically"
+```
 
-**Agent:** Batch B Agent C
+### Task 6: Prove the complete Saved-to-Practice loop
 
 **Files:**
 
-- Create: src/components/states/loading-state.tsx
-- Create: src/components/states/empty-state.tsx
-- Create: src/components/states/error-state.tsx
-- Create: src/components/states/unsupported-width.tsx
-- Create: src/components/ui/chinese-text.tsx
-- Create: src/styles/tokens.css
-- Test: tests/accessibility/states.test.tsx
-- Test: tests/accessibility/chinese-text.test.tsx
+- Create: `tests/e2e/saved-learning-loop.spec.ts`
+- Create: `tests/contract/ai/saved-analysis.test.ts`
+- Modify: `src/app/(app)/layout.tsx`
+- Modify: `docs/engineering/execution-ledger.md`
 
 **Interfaces:**
 
-- Produces presentational components with props only; no repository or domain imports.
+- Consumes: Tasks 1-5.
+- Produces: `saved item -> organized candidate -> original response -> evaluation -> tried -> due Practice` integration gate.
 
-- [ ] **Step 1: Write failing accessibility tests**
+- [ ] **Step 1: Add the failing browser scenario**
 
-Assert status roles for loading, alert role and retry button for retryable error, meaningful empty-state heading, keyboard focus on new errors, and lang="zh-CN" on Chinese text spans.
+Sign in with seeded user, open Home, follow recent-save CTA, open one video, inspect exact evidence, select one candidate, submit an original response, revise it, verify Vault `tried`, and verify one due Practice task. Assert ignored saves remain untouched.
 
-- [ ] **Step 2: Implement components**
+- [ ] **Step 2: Add AI regression fixtures**
 
-All component copy is English. ChineseText accepts children and optional pinyin but does not automatically transliterate or translate.
+Cover informal reaction, polite request, disagreement, online slang, register ambiguity, malformed output, and evidence text not present in saved context. A candidate with invented evidence must fail schema/domain validation.
 
-- [ ] **Step 3: Add desktop tokens**
+- [ ] **Step 3: Run the Batch B gate**
 
-Define readable Chinese font fallbacks, 1024-pixel minimum layout, focus ring, reduced motion, and contrast-safe semantic colours. Do not add mobile breakpoints or bottom navigation.
-
-- [ ] **Step 4: Verify and commit**
-
-Run:
-
-    pnpm vitest run tests/accessibility
-    pnpm typecheck
-    git add src/components src/styles tests/accessibility
-    git commit -m "feat: add accessible desktop states"
-
-### Task 6: Connect AttemptRecorded to memory atomically
-
-**Agent:** Primary Agent
-
-**Files:**
-
-- Create: src/server/domain/record-attempt.ts
-- Modify: src/app/api/v1/practice/attempts/route.ts
-- Test: tests/integration/learning-loop/record-attempt.test.ts
-
-**Interfaces:**
-
-- Produces recordAttempt(input): Promise<{ attempt: AttemptRecorded; userExpression: UserExpression; reviewTask: ReviewTask }>.
-
-- [ ] **Step 1: Write failing transaction tests**
-
-Assert one request creates attempt, mastery event, user expression, and review task. Force each repository operation to fail in turn and assert no partial committed state. Retry the same idempotency key and assert identical IDs.
-
-- [ ] **Step 2: Implement one server-controlled transaction**
-
-Do not emit an eventually consistent background event. Execute the full database transaction synchronously for the first release.
-
-- [ ] **Step 3: Verify**
-
-Run:
-
-    pnpm test:integration -- record-attempt
-    pnpm db:test
-    pnpm typecheck
+```bash
+pnpm vitest run tests/integration/jobs tests/integration/saved tests/integration/knowledge tests/integration/practice tests/integration/learning-loop tests/integration/memory
+pnpm vitest run tests/contract/ai/saved-analysis.test.ts
+pnpm playwright test tests/e2e/saved-learning-loop.spec.ts
+pnpm lint
+pnpm typecheck
+pnpm build
+pnpm db:test
+git diff --check
+```
 
 Expected: all commands exit 0.
 
 - [ ] **Step 4: Commit**
 
-Run:
+```bash
+git add tests/e2e/saved-learning-loop.spec.ts tests/contract/ai/saved-analysis.test.ts src/app/'(app)'/layout.tsx docs/engineering/execution-ledger.md
+git commit -m "test: prove Saved-to-Practice learning loop"
+```
 
-    git add src/server/domain/record-attempt.ts src/app/api/v1/practice/attempts/route.ts tests/integration/learning-loop
-    git commit -m "feat: connect attempts to expression memory"
+## Batch B Exit Gate
 
-### Task 7: Complete the text learning-loop page
+Do not start Batch C until:
 
-**Agent:** Primary Agent
-
-**Files:**
-
-- Create: src/app/(app)/import/page.tsx
-- Create: src/app/(app)/practice/[taskId]/page.tsx
-- Create: src/app/(app)/vault/page.tsx
-- Create: src/app/(app)/queue/page.tsx
-- Create: tests/e2e/text-learning-loop.spec.ts
-
-**Interfaces:**
-
-- Consumes all Batch A/B routes.
-- Produces one navigable desktop loop.
-
-- [ ] **Step 1: Write failing E2E test**
-
-The seeded user signs in, imports “这也太离谱了吧。”, analyses it, selects 太离谱了, writes “这个价格也太离谱了。”, sees three feedback dimensions, revises if needed, opens Vault, and sees a due Queue item.
-
-- [ ] **Step 2: Compose pages**
-
-Use TanStack Query for server state and English user-visible copy. Keep retryable form input. Use role/name locators rather than CSS selectors.
-
-- [ ] **Step 3: Verify complete loop**
-
-Run:
-
-    pnpm db:reset
-    pnpm test:e2e -- text-learning-loop
-    pnpm test:integration -- learning-loop
-    pnpm verify
-    pnpm build
-
-Expected: all commands exit 0.
-
-- [ ] **Step 4: Commit**
-
-Run:
-
-    git add src/app/\(app\) tests/e2e/text-learning-loop.spec.ts
-    git commit -m "feat: deliver persistent text learning loop"
+- durable jobs recover after lease expiry and never mutate raw saves;
+- one video groups all saves and raw material remains visible during failures;
+- every candidate is grounded in exact source evidence;
+- selection alone creates no Vault or mastery row;
+- original response, evaluation, revision, and attempt persistence work;
+- one valid attempt atomically creates expression knowledge, `tried`, and due Practice;
+- LLM Wiki provenance remains method-only with no copied GPLv3 code;
+- complete integration, browser, RLS, build, and AI fixture gates pass.
