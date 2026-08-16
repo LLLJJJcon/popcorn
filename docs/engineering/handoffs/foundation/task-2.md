@@ -142,3 +142,31 @@ Fresh verification exited 0 for `CI=true pnpm vitest run tests/contract/shared-c
 Changed only `src/contracts/source.ts`, `src/contracts/practice.ts`, `tests/factories/source.ts`, `tests/factories/practice.ts`, `tests/contract/shared-contracts.test.ts`, and this append-only handoff. No root config, dependency, lockfile, environment, extension, vendor, migration, plan/spec, ledger, save-kind, or unrelated contract changed.
 
 Risk: the renamed snapshot flag and bilingual practice roles intentionally break callers still constructing the legacy shapes. The thumbnail contract intentionally freezes one YouTube CDN host, one path, and `hqdefault.jpg`; future thumbnail formats require a controller-approved contract change rather than accepting client-provided alternatives.
+
+## Review fixes, round 6
+
+### RED
+
+The first focused RED cycle, `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts`, exited 1 with 10 expected failures and 87 passing tests. The frozen schemas rejected owned/timestamped `VideoSnapshot`, `TranscriptSegment`, `PracticeTask`, `AttemptRecorded`, and `ReviewTask` fixtures; `PracticeTask` still accepted a missing owner; the shared `Sha256HashSchema` export was absent; and transcript segment language plus immutable child timestamps were not part of the strict shapes.
+
+After ownership, timestamps, language, and shared hash reuse were GREEN at 97/97, the lifecycle RED cycle exited 1 with 22 expected failures and 103 passing tests. All 15 impossible knowledge-job state combinations were accepted, both contradictory practice kind/due-date combinations were accepted, `independentUse: true` accepted both assisted levels, and review status was absent and therefore not required.
+
+### GREEN
+
+`VideoSnapshot`, `TranscriptSegment`, `PracticeTask`, `AttemptRecorded`, and `ReviewTask` now require UUID `userId`. Immutable persisted `VideoSnapshot`, `TranscriptSegment`, and `AttemptRecorded` rows also require `createdAt`; their existing captured/submitted timestamps remain distinct. `TranscriptSegment` requires literal `language: zh-CN`. Deterministic fixtures and tests round-trip all raw values and reject missing or malformed ownership, missing immutable timestamps, and missing/wrong segment language.
+
+The exported non-transforming `Sha256HashSchema` requires exactly 64 lowercase hexadecimal characters and is reused by `VideoSnapshot.transcriptHash`, `GeneratedArtifact.resultKey`, and `KnowledgeJob.dedupeKey`. Tests reject invalid characters, uppercase, short, long, and null values while preserving the exact valid hash.
+
+`KnowledgeJobSchema` is now a strict status-discriminated union. Pending and succeeded jobs require null scheduling, lease, and error state; leased jobs require only a non-null lease expiry; retryable failures require a non-null next attempt and nonblank error with no lease; terminal failures require only a nonblank error. All five statuses/types, common ownership and timestamps, maximum attempt count, and dedupe hash remain frozen. Tests cover every valid state and impossible null/non-null/error combination, including blank failure codes.
+
+`PracticeTaskSchema` is now kind-discriminated: `use_it_now` requires `dueAt: null`, while `due_practice` requires an offset datetime. `EvaluationResultSchema` rejects independent use unless assistance is `none` while retaining assisted non-independent results. Exported `ReviewTaskStatusSchema` freezes `pending|completed|cancelled`, and strict review tasks require one of those states while preserving only `tried|reused|owned` mastery.
+
+The stricter union inference initially made `CI=true pnpm typecheck` fail because deterministic fixture builders intentionally create invalid discriminant/state combinations for rejection tests. The production schemas were not weakened; the test builders now return explicit raw candidate shapes with union discriminants and nullable state fields. Typecheck and lint then exited 0.
+
+Fresh verification exited 0 for `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts src/server/env.test.ts src/server/api/respond.test.ts` (3 files, 136 tests), `CI=true pnpm vitest run tests/contract` (1 file, 128 tests), `CI=true pnpm typecheck`, `CI=true pnpm lint` with no warnings, and `git diff --check`.
+
+### Files and risk
+
+Changed only `src/contracts/source.ts`, `src/contracts/knowledge.ts`, `src/contracts/practice.ts`, `src/contracts/memory.ts`, `tests/factories/source.ts`, `tests/factories/practice.ts`, `tests/contract/shared-contracts.test.ts`, and this append-only handoff. No root config, dependency, lockfile, environment, extension, vendor, migration, plan/spec, ledger, save kind, or unrelated contract changed.
+
+Risk: all newly required owner/timestamp/language/status fields and the state-discriminated job/practice shapes intentionally reject legacy persisted DTOs. Downstream Task 3 and Batch B consumers must construct exactly one valid state variant rather than rely on nullable combinations.

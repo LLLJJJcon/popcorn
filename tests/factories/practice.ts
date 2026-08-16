@@ -1,10 +1,30 @@
 import type {
+  AttemptRecorded,
   CandidateExpression,
   EvaluationResult,
   GeneratedArtifact,
   KnowledgeJob,
   PracticeTask,
+  ReviewTask,
 } from "@/contracts";
+
+type PracticeTaskFixture = Omit<
+  Extract<PracticeTask, { kind: "use_it_now" }>,
+  "kind" | "dueAt"
+> & {
+  kind: PracticeTask["kind"];
+  dueAt: string | null;
+};
+
+type KnowledgeJobFixture = Omit<
+  Extract<KnowledgeJob, { status: "pending" }>,
+  "status" | "nextAttemptAt" | "leaseExpiresAt" | "lastErrorCode"
+> & {
+  status: KnowledgeJob["status"];
+  nextAttemptAt: string | null;
+  leaseExpiresAt: string | null;
+  lastErrorCode: string | null;
+};
 
 export function makeCandidateExpression(
   overrides: Partial<CandidateExpression> = {},
@@ -25,9 +45,12 @@ export function makeCandidateExpression(
   };
 }
 
-export function makePracticeTask(overrides: Partial<PracticeTask> = {}): PracticeTask {
+export function makePracticeTask(
+  overrides: Partial<PracticeTaskFixture> = {},
+): PracticeTaskFixture {
   return {
     id: "00000000-0000-4000-8000-000000000201",
+    userId: "00000000-0000-4000-8000-000000000002",
     userExpressionId: "00000000-0000-4000-8000-000000000202",
     kind: "use_it_now",
     nativeLanguage: "en",
@@ -65,6 +88,38 @@ export function makeEvaluationResult(
   };
 }
 
+export function makeAttemptRecorded(
+  overrides: Partial<AttemptRecorded> = {},
+): AttemptRecorded {
+  return {
+    id: "00000000-0000-4000-8000-000000000203",
+    userId: "00000000-0000-4000-8000-000000000002",
+    practiceTaskId: "00000000-0000-4000-8000-000000000201",
+    userExpressionId: "00000000-0000-4000-8000-000000000202",
+    responseChinese: "这也太离谱了吧。",
+    evaluation: makeEvaluationResult(),
+    submittedAt: "2026-08-16T10:01:00.000Z",
+    createdAt: "2026-08-16T10:01:01.000Z",
+    ...overrides,
+  };
+}
+
+export function makeReviewTask(overrides: Partial<ReviewTask> = {}): ReviewTask {
+  return {
+    id: "00000000-0000-4000-8000-000000000204",
+    userId: "00000000-0000-4000-8000-000000000002",
+    userExpressionId: "00000000-0000-4000-8000-000000000202",
+    masteryState: "tried",
+    status: "pending",
+    dueAt: "2026-08-17T10:00:00.000Z",
+    intervalDays: 1,
+    consecutiveSuccesses: 0,
+    createdAt: "2026-08-16T10:00:00.000Z",
+    updatedAt: "2026-08-16T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
 export function makeGeneratedArtifact(
   overrides: Partial<GeneratedArtifact> = {},
 ): GeneratedArtifact {
@@ -85,7 +140,9 @@ export function makeGeneratedArtifact(
   };
 }
 
-export function makeKnowledgeJob(overrides: Partial<KnowledgeJob> = {}): KnowledgeJob {
+export function makeKnowledgeJob(
+  overrides: Partial<KnowledgeJobFixture> = {},
+): KnowledgeJobFixture {
   return {
     id: "00000000-0000-4000-8000-000000000302",
     userId: "00000000-0000-4000-8000-000000000002",
@@ -95,7 +152,7 @@ export function makeKnowledgeJob(overrides: Partial<KnowledgeJob> = {}): Knowled
     status: "pending",
     dedupeKey: "b".repeat(64),
     attemptCount: 0,
-    nextAttemptAt: "2026-08-16T10:00:00.000Z",
+    nextAttemptAt: null,
     leaseExpiresAt: null,
     lastErrorCode: null,
     createdAt: "2026-08-16T10:00:00.000Z",

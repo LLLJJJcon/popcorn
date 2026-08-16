@@ -1,6 +1,7 @@
 import {
   ApiFailureSchema,
   ApiErrorCodeSchema,
+  AttemptRecordedSchema,
   CanonicalYouTubeUrlSchema,
   CandidateExpressionListSchema,
   CandidateExpressionSchema,
@@ -8,10 +9,12 @@ import {
   EvaluationResultSchema,
   GeneratedArtifactSchema,
   KnowledgeJobSchema,
+  KnowledgeJobStatusSchema,
   KnowledgeJobTypeSchema,
   MasteryStateSchema,
   NativeLanguageSchema,
   PracticeTaskSchema,
+  ReviewTaskSchema,
   SavedItemSchema,
   SavedItemInputSchema,
   TargetLanguageSchema,
@@ -20,16 +23,20 @@ import {
   VideoSourceSchema,
 } from "@/contracts";
 import {
+  makeAttemptRecorded,
   makeCandidateExpression,
   makeEvaluationResult,
   makeGeneratedArtifact,
   makeKnowledgeJob,
   makePracticeTask,
+  makeReviewTask,
 } from "../factories/practice";
 import {
   makeSavedItemInput,
   makeSavedVideoItem,
+  makeTranscriptSegment,
   makeVideoSavedItemInput,
+  makeVideoSnapshot,
   makeVideoSource,
 } from "../factories/source";
 
@@ -210,6 +217,7 @@ describe("shared contracts", () => {
   it("preserves video snapshot title and channel byte-for-byte", () => {
     const snapshot = {
       id: "00000000-0000-4000-8000-000000000011",
+      userId: "00000000-0000-4000-8000-000000000002",
       sourceId: "00000000-0000-4000-8000-000000000001",
       title: " \t中文访谈\n",
       channel: "  中文频道  ",
@@ -217,11 +225,77 @@ describe("shared contracts", () => {
       durationSeconds: 213,
       description: "一段中文访谈。",
       transcriptLanguage: "zh-CN",
-      transcriptHash: "hash-1",
+      transcriptHash: "c".repeat(64),
       capturedAt: "2026-08-16T10:00:00.000Z",
+      createdAt: "2026-08-16T10:00:01.000Z",
     };
 
     expect(VideoSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+  });
+
+  it.each([
+    ["video snapshot", VideoSnapshotSchema, makeVideoSnapshot()],
+    ["transcript segment", TranscriptSegmentSchema, makeTranscriptSegment()],
+    ["practice task", PracticeTaskSchema, makePracticeTask()],
+    ["attempt", AttemptRecordedSchema, makeAttemptRecorded()],
+    ["review task", ReviewTaskSchema, makeReviewTask()],
+  ])("round-trips the owned persisted %s", (_label, schema, value) => {
+    expect(schema.parse(value)).toEqual(value);
+  });
+
+  it.each([
+    ["video snapshot", VideoSnapshotSchema, makeVideoSnapshot()],
+    ["transcript segment", TranscriptSegmentSchema, makeTranscriptSegment()],
+    ["practice task", PracticeTaskSchema, makePracticeTask()],
+    ["attempt", AttemptRecordedSchema, makeAttemptRecorded()],
+    ["review task", ReviewTaskSchema, makeReviewTask()],
+  ])("requires a valid userId on the %s", (_label, schema, value) => {
+    const missingOwner = { ...value };
+    Reflect.deleteProperty(missingOwner, "userId");
+
+    expect(schema.safeParse(missingOwner).success).toBe(false);
+    expect(schema.safeParse({ ...value, userId: "not-a-uuid" }).success).toBe(false);
+  });
+
+  it.each([
+    ["video snapshot", VideoSnapshotSchema, makeVideoSnapshot()],
+    ["transcript segment", TranscriptSegmentSchema, makeTranscriptSegment()],
+    ["attempt", AttemptRecordedSchema, makeAttemptRecorded()],
+  ])("requires createdAt on the immutable persisted %s", (_label, schema, value) => {
+    const missingCreatedAt = { ...value };
+    Reflect.deleteProperty(missingCreatedAt, "createdAt");
+
+    expect(schema.safeParse(missingCreatedAt).success).toBe(false);
+  });
+
+  it("exports and preserves the shared lowercase SHA-256 hash contract", async () => {
+    const contracts = await import("@/contracts");
+    const schema = Reflect.get(contracts, "Sha256HashSchema") as
+      | { parse: (value: string) => string }
+      | undefined;
+    const hash = "c".repeat(64);
+
+    expect(schema).toBeDefined();
+    expect(schema?.parse(hash)).toBe(hash);
+  });
+
+  it.each(["g".repeat(64), "A".repeat(64), "a".repeat(63), "a".repeat(65)])(
+    "rejects malformed transcript hash %s",
+    (transcriptHash) => {
+      expect(
+        VideoSnapshotSchema.safeParse(makeVideoSnapshot({ transcriptHash })).success,
+      ).toBe(false);
+    },
+  );
+
+  it("requires the exact target language on transcript segments", () => {
+    const missingLanguage = { ...makeTranscriptSegment() };
+    Reflect.deleteProperty(missingLanguage, "language");
+
+    expect(TranscriptSegmentSchema.safeParse(missingLanguage).success).toBe(false);
+    expect(
+      TranscriptSegmentSchema.safeParse({ ...makeTranscriptSegment(), language: "en" }).success,
+    ).toBe(false);
   });
 
   it("preserves video save title and channel byte-for-byte", () => {
@@ -256,6 +330,7 @@ describe("shared contracts", () => {
     const thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg";
     const snapshot = {
       id: "00000000-0000-4000-8000-000000000011",
+      userId: "00000000-0000-4000-8000-000000000002",
       sourceId: "00000000-0000-4000-8000-000000000001",
       title: "中文访谈",
       channel: "中文频道",
@@ -263,8 +338,9 @@ describe("shared contracts", () => {
       durationSeconds: 213,
       description: "一段中文访谈。",
       transcriptLanguage: "zh-CN",
-      transcriptHash: "hash-1",
+      transcriptHash: "c".repeat(64),
       capturedAt: "2026-08-16T10:00:00.000Z",
+      createdAt: "2026-08-16T10:00:01.000Z",
     };
     const save = {
       ...baseSave,
@@ -298,6 +374,7 @@ describe("shared contracts", () => {
   ])("rejects a %s thumbnail URL", (_label, thumbnailUrl) => {
     const snapshot = {
       id: "00000000-0000-4000-8000-000000000011",
+      userId: "00000000-0000-4000-8000-000000000002",
       sourceId: "00000000-0000-4000-8000-000000000001",
       title: "中文访谈",
       channel: "中文频道",
@@ -305,8 +382,9 @@ describe("shared contracts", () => {
       durationSeconds: 213,
       description: "一段中文访谈。",
       transcriptLanguage: "zh-CN",
-      transcriptHash: "hash-1",
+      transcriptHash: "c".repeat(64),
       capturedAt: "2026-08-16T10:00:00.000Z",
+      createdAt: "2026-08-16T10:00:01.000Z",
     };
 
     expect(
@@ -334,6 +412,27 @@ describe("shared contracts", () => {
     });
 
     expect(PracticeTaskSchema.parse(task)).toEqual(task);
+  });
+
+  it("round-trips both valid practice task lifecycle states", () => {
+    const useItNow = makePracticeTask();
+    const duePractice = makePracticeTask({
+      kind: "due_practice",
+      dueAt: "2026-08-17T10:00:00.000Z",
+    });
+
+    expect(PracticeTaskSchema.parse(useItNow)).toEqual(useItNow);
+    expect(PracticeTaskSchema.parse(duePractice)).toEqual(duePractice);
+  });
+
+  it.each([
+    [
+      "use_it_now with dueAt",
+      makePracticeTask({ kind: "use_it_now", dueAt: "2026-08-17T10:00:00.000Z" }),
+    ],
+    ["due_practice without dueAt", makePracticeTask({ kind: "due_practice", dueAt: null })],
+  ])("rejects impossible practice lifecycle: %s", (_label, task) => {
+    expect(PracticeTaskSchema.safeParse(task).success).toBe(false);
   });
 
   it.each(["promptChinese", "instructionsEnglish", "goalEnglish"] as const)(
@@ -388,6 +487,29 @@ describe("shared contracts", () => {
 
     expect(EvaluationResultSchema.parse(evaluation)).toEqual(evaluation);
   });
+
+  it.each(["hint", "model_answer"] as const)(
+    "rejects independent use with %s assistance",
+    (assistanceLevel) => {
+      expect(
+        EvaluationResultSchema.safeParse(
+          makeEvaluationResult({ independentUse: true, assistanceLevel }),
+        ).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(["hint", "model_answer"] as const)(
+    "allows %s assistance when use is not independent",
+    (assistanceLevel) => {
+      const evaluation = makeEvaluationResult({
+        independentUse: false,
+        assistanceLevel,
+      });
+
+      expect(EvaluationResultSchema.parse(evaluation)).toEqual(evaluation);
+    },
+  );
 
   it.each(["accuracy", "naturalness", "contextualFit"] as const)(
     "requires the %s evaluation dimension",
@@ -493,6 +615,7 @@ describe("shared contracts", () => {
     expect(
       VideoSnapshotSchema.safeParse({
         id: "00000000-0000-4000-8000-000000000011",
+        userId: "00000000-0000-4000-8000-000000000002",
         sourceId: "00000000-0000-4000-8000-000000000001",
         title: overlongTitle,
         channel: "中文频道",
@@ -500,8 +623,9 @@ describe("shared contracts", () => {
         durationSeconds: 213,
         description: "一段中文访谈。",
         transcriptLanguage: "zh-CN",
-        transcriptHash: "hash-1",
+        transcriptHash: "c".repeat(64),
         capturedAt: "2026-08-16T10:00:00.000Z",
+        createdAt: "2026-08-16T10:00:01.000Z",
       }).success,
     ).toBe(false);
     expect(
@@ -549,6 +673,117 @@ describe("shared contracts", () => {
     const job = makeKnowledgeJob();
 
     expect(KnowledgeJobSchema.parse(job)).toEqual(job);
+  });
+
+  it.each([
+    ["pending", makeKnowledgeJob()],
+    [
+      "leased",
+      makeKnowledgeJob({
+        status: "leased",
+        leaseExpiresAt: "2026-08-16T10:05:00.000Z",
+      }),
+    ],
+    [
+      "retryable_failed",
+      makeKnowledgeJob({
+        status: "retryable_failed",
+        nextAttemptAt: "2026-08-16T10:05:00.000Z",
+        lastErrorCode: "PROVIDER_UNAVAILABLE",
+      }),
+    ],
+    ["succeeded", makeKnowledgeJob({ status: "succeeded" })],
+    [
+      "terminal_failed",
+      makeKnowledgeJob({
+        status: "terminal_failed",
+        lastErrorCode: "JOB_RETRY_EXHAUSTED",
+      }),
+    ],
+  ])("round-trips the valid %s knowledge-job state", (_status, job) => {
+    expect(KnowledgeJobSchema.parse(job)).toEqual(job);
+  });
+
+  it.each([
+    ["pending with next attempt", makeKnowledgeJob({ nextAttemptAt: "2026-08-16T10:05:00.000Z" })],
+    ["pending with lease", makeKnowledgeJob({ leaseExpiresAt: "2026-08-16T10:05:00.000Z" })],
+    ["pending with error", makeKnowledgeJob({ lastErrorCode: "PROVIDER_UNAVAILABLE" })],
+    ["leased without lease", makeKnowledgeJob({ status: "leased", leaseExpiresAt: null })],
+    [
+      "leased with next attempt",
+      makeKnowledgeJob({
+        status: "leased",
+        leaseExpiresAt: "2026-08-16T10:05:00.000Z",
+        nextAttemptAt: "2026-08-16T10:06:00.000Z",
+      }),
+    ],
+    [
+      "leased with error",
+      makeKnowledgeJob({
+        status: "leased",
+        leaseExpiresAt: "2026-08-16T10:05:00.000Z",
+        lastErrorCode: "PROVIDER_UNAVAILABLE",
+      }),
+    ],
+    [
+      "retryable failure without next attempt",
+      makeKnowledgeJob({
+        status: "retryable_failed",
+        nextAttemptAt: null,
+        lastErrorCode: "PROVIDER_UNAVAILABLE",
+      }),
+    ],
+    [
+      "retryable failure without error",
+      makeKnowledgeJob({
+        status: "retryable_failed",
+        nextAttemptAt: "2026-08-16T10:05:00.000Z",
+        lastErrorCode: null,
+      }),
+    ],
+    [
+      "retryable failure with lease",
+      makeKnowledgeJob({
+        status: "retryable_failed",
+        nextAttemptAt: "2026-08-16T10:05:00.000Z",
+        leaseExpiresAt: "2026-08-16T10:06:00.000Z",
+        lastErrorCode: "PROVIDER_UNAVAILABLE",
+      }),
+    ],
+    [
+      "retryable failure with blank error",
+      makeKnowledgeJob({
+        status: "retryable_failed",
+        nextAttemptAt: "2026-08-16T10:05:00.000Z",
+        lastErrorCode: "   ",
+      }),
+    ],
+    ["succeeded with next attempt", makeKnowledgeJob({ status: "succeeded", nextAttemptAt: "2026-08-16T10:05:00.000Z" })],
+    ["succeeded with lease", makeKnowledgeJob({ status: "succeeded", leaseExpiresAt: "2026-08-16T10:05:00.000Z" })],
+    ["succeeded with error", makeKnowledgeJob({ status: "succeeded", lastErrorCode: "PROVIDER_UNAVAILABLE" })],
+    ["terminal failure without error", makeKnowledgeJob({ status: "terminal_failed", lastErrorCode: null })],
+    [
+      "terminal failure with next attempt",
+      makeKnowledgeJob({
+        status: "terminal_failed",
+        nextAttemptAt: "2026-08-16T10:05:00.000Z",
+        lastErrorCode: "JOB_RETRY_EXHAUSTED",
+      }),
+    ],
+    [
+      "terminal failure with lease",
+      makeKnowledgeJob({
+        status: "terminal_failed",
+        leaseExpiresAt: "2026-08-16T10:05:00.000Z",
+        lastErrorCode: "JOB_RETRY_EXHAUSTED",
+      }),
+    ],
+    [
+      "terminal failure with blank error",
+      makeKnowledgeJob({ status: "terminal_failed", lastErrorCode: "   " }),
+    ],
+  ])("rejects impossible knowledge-job state: %s", (_label, job) => {
+    expect(KnowledgeJobSchema.safeParse(job).success).toBe(false);
   });
 
   it("requires artifact ownership and its deterministic SHA-256 result key", () => {
@@ -685,11 +920,14 @@ describe("shared contracts", () => {
     expect(() =>
       TranscriptSegmentSchema.parse({
         id: "seg-42",
+        userId: "00000000-0000-4000-8000-000000000002",
         snapshotId: "00000000-0000-4000-8000-000000000003",
+        language: "zh-CN",
         position: 42,
         startSeconds: 48,
         endSeconds: 42,
         originalChinese: "这也太离谱了吧。",
+        createdAt: "2026-08-16T10:00:02.000Z",
       }),
     ).toThrow();
   });
@@ -764,6 +1002,29 @@ describe("shared contracts", () => {
     ).toBe(false);
   });
 
+  it("exports and freezes the review-task lifecycle", async () => {
+    const contracts = await import("@/contracts");
+    const schema = Reflect.get(contracts, "ReviewTaskStatusSchema") as
+      | { options: string[] }
+      | undefined;
+
+    expect(schema?.options).toEqual(["pending", "completed", "cancelled"]);
+    expect(ReviewTaskSchema.parse(makeReviewTask())).toEqual(makeReviewTask());
+  });
+
+  it("requires a strict valid review-task status", () => {
+    const missingStatus = { ...makeReviewTask() };
+    Reflect.deleteProperty(missingStatus, "status");
+
+    expect(ReviewTaskSchema.safeParse(missingStatus).success).toBe(false);
+    expect(
+      ReviewTaskSchema.safeParse({ ...makeReviewTask(), status: "active" }).success,
+    ).toBe(false);
+    expect(
+      ReviewTaskSchema.safeParse({ ...makeReviewTask(), extra: true }).success,
+    ).toBe(false);
+  });
+
   it("freezes job, mastery, and API error taxonomies", () => {
     expect(KnowledgeJobTypeSchema.options).toEqual([
       "resolve_snapshot",
@@ -771,6 +1032,13 @@ describe("shared contracts", () => {
       "translate_segments",
       "explain_selection",
       "analyze_saved_item",
+    ]);
+    expect(KnowledgeJobStatusSchema.options).toEqual([
+      "pending",
+      "leased",
+      "succeeded",
+      "retryable_failed",
+      "terminal_failed",
     ]);
     expect(MasteryStateSchema.options).toEqual(["tried", "reused", "owned"]);
     expect(MasteryStateSchema.safeParse("seen").success).toBe(false);
@@ -800,12 +1068,16 @@ describe("shared contracts", () => {
 
   it("provides deterministic source and practice factories", () => {
     expect(makeVideoSource()).toEqual(makeVideoSource());
+    expect(makeVideoSnapshot()).toEqual(makeVideoSnapshot());
+    expect(makeTranscriptSegment()).toEqual(makeTranscriptSegment());
     expect(makeSavedItemInput()).toEqual(makeSavedItemInput());
     expect(makeVideoSavedItemInput()).toEqual(makeVideoSavedItemInput());
     expect(makeSavedVideoItem()).toEqual(makeSavedVideoItem());
     expect(makeCandidateExpression()).toEqual(makeCandidateExpression());
     expect(makePracticeTask()).toEqual(makePracticeTask());
     expect(makeEvaluationResult()).toEqual(makeEvaluationResult());
+    expect(makeAttemptRecorded()).toEqual(makeAttemptRecorded());
+    expect(makeReviewTask()).toEqual(makeReviewTask());
     expect(makeGeneratedArtifact()).toEqual(makeGeneratedArtifact());
     expect(makeKnowledgeJob()).toEqual(makeKnowledgeJob());
   });

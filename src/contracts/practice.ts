@@ -11,10 +11,10 @@ const IsoDateTimeSchema = z.string().datetime({ offset: true });
 
 export const PracticeTaskKindSchema = z.enum(["use_it_now", "due_practice"]);
 
-export const PracticeTaskSchema = z.strictObject({
+const practiceTaskBase = {
   id: z.string().uuid(),
+  userId: z.string().uuid(),
   userExpressionId: z.string().uuid(),
-  kind: PracticeTaskKindSchema,
   nativeLanguage: NativeLanguageSchema,
   targetLanguage: TargetLanguageSchema,
   targetExpression: TargetChineseTextSchema.max(200),
@@ -22,8 +22,20 @@ export const PracticeTaskSchema = z.strictObject({
   instructionsEnglish: EnglishTextSchema.max(1_000),
   goalEnglish: EnglishTextSchema.max(1_000),
   createdAt: IsoDateTimeSchema,
-  dueAt: IsoDateTimeSchema.nullable(),
-});
+};
+
+export const PracticeTaskSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    ...practiceTaskBase,
+    kind: z.literal("use_it_now"),
+    dueAt: z.null(),
+  }),
+  z.strictObject({
+    ...practiceTaskBase,
+    kind: z.literal("due_practice"),
+    dueAt: IsoDateTimeSchema,
+  }),
+]);
 
 export const AssistanceLevelSchema = z.enum(["none", "hint", "model_answer"]);
 
@@ -32,22 +44,29 @@ const EvaluationDimensionSchema = z.strictObject({
   englishFeedback: EnglishTextSchema.max(2_000),
 });
 
-export const EvaluationResultSchema = z.strictObject({
-  passed: z.boolean(),
-  accuracy: EvaluationDimensionSchema,
-  naturalness: EvaluationDimensionSchema,
-  contextualFit: EvaluationDimensionSchema,
-  independentUse: z.boolean(),
-  assistanceLevel: AssistanceLevelSchema,
-});
+export const EvaluationResultSchema = z
+  .strictObject({
+    passed: z.boolean(),
+    accuracy: EvaluationDimensionSchema,
+    naturalness: EvaluationDimensionSchema,
+    contextualFit: EvaluationDimensionSchema,
+    independentUse: z.boolean(),
+    assistanceLevel: AssistanceLevelSchema,
+  })
+  .refine((evaluation) => !evaluation.independentUse || evaluation.assistanceLevel === "none", {
+    path: ["independentUse"],
+    message: "Independent use requires assistanceLevel none",
+  });
 
 export const AttemptRecordedSchema = z.strictObject({
   id: z.string().uuid(),
+  userId: z.string().uuid(),
   practiceTaskId: z.string().uuid(),
   userExpressionId: z.string().uuid(),
   responseChinese: TargetChineseTextSchema.max(5_000),
   evaluation: EvaluationResultSchema,
   submittedAt: IsoDateTimeSchema,
+  createdAt: IsoDateTimeSchema,
 });
 
 export type PracticeTaskKind = z.infer<typeof PracticeTaskKindSchema>;

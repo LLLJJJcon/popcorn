@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   EnglishTextSchema,
   NativeLanguageSchema,
+  Sha256HashSchema,
   StableSegmentIdSchema,
   TargetChineseTextSchema,
   TargetLanguageSchema,
@@ -13,9 +14,6 @@ const NonblankStringSchema = z
   .string()
   .min(1)
   .refine((value) => value.trim().length > 0, "Expected a nonblank string");
-const Sha256KeySchema = z
-  .string()
-  .regex(/^[a-f0-9]{64}$/, "Expected a lowercase 64-hex SHA-256 key");
 
 export const GeneratedArtifactTypeSchema = z.enum([
   "overview",
@@ -37,7 +35,7 @@ export const GeneratedArtifactSchema = z.strictObject({
   content: z.record(z.string(), z.unknown()),
   promptVersion: NonblankStringSchema.max(100),
   model: NonblankStringSchema.max(100),
-  resultKey: Sha256KeySchema,
+  resultKey: Sha256HashSchema,
   createdAt: IsoDateTimeSchema,
 });
 
@@ -57,21 +55,55 @@ export const KnowledgeJobTypeSchema = z.enum([
   "analyze_saved_item",
 ]);
 
-export const KnowledgeJobSchema = z.strictObject({
+const knowledgeJobBase = {
   id: z.string().uuid(),
   userId: z.string().uuid(),
   sourceId: z.string().uuid(),
   savedItemId: z.string().uuid().nullable(),
   type: KnowledgeJobTypeSchema,
-  status: KnowledgeJobStatusSchema,
-  dedupeKey: Sha256KeySchema,
+  dedupeKey: Sha256HashSchema,
   attemptCount: z.number().int().min(0).max(20),
-  nextAttemptAt: IsoDateTimeSchema.nullable(),
-  leaseExpiresAt: IsoDateTimeSchema.nullable(),
-  lastErrorCode: NonblankStringSchema.max(100).nullable(),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
-});
+};
+
+export const KnowledgeJobSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    ...knowledgeJobBase,
+    status: z.literal("pending"),
+    nextAttemptAt: z.null(),
+    leaseExpiresAt: z.null(),
+    lastErrorCode: z.null(),
+  }),
+  z.strictObject({
+    ...knowledgeJobBase,
+    status: z.literal("leased"),
+    nextAttemptAt: z.null(),
+    leaseExpiresAt: IsoDateTimeSchema,
+    lastErrorCode: z.null(),
+  }),
+  z.strictObject({
+    ...knowledgeJobBase,
+    status: z.literal("retryable_failed"),
+    nextAttemptAt: IsoDateTimeSchema,
+    leaseExpiresAt: z.null(),
+    lastErrorCode: NonblankStringSchema.max(100),
+  }),
+  z.strictObject({
+    ...knowledgeJobBase,
+    status: z.literal("succeeded"),
+    nextAttemptAt: z.null(),
+    leaseExpiresAt: z.null(),
+    lastErrorCode: z.null(),
+  }),
+  z.strictObject({
+    ...knowledgeJobBase,
+    status: z.literal("terminal_failed"),
+    nextAttemptAt: z.null(),
+    leaseExpiresAt: z.null(),
+    lastErrorCode: NonblankStringSchema.max(100),
+  }),
+]);
 
 export const CandidateExpressionSchema = z
   .strictObject({

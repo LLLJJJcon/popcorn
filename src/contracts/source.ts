@@ -79,6 +79,9 @@ export const EnglishTextSchema = z
   .max(10_000)
   .refine((value) => value.trim().length > 0, "Expected nonblank English text")
   .refine(isBasicLatinAsciiProse, "Expected Basic Latin/ASCII English prose");
+export const Sha256HashSchema = z
+  .string()
+  .regex(/^[a-f0-9]{64}$/, "Expected a lowercase 64-hex SHA-256 hash");
 const youtubeThumbnailUrlPattern =
   /^https:\/\/i\.ytimg\.com\/vi\/([A-Za-z0-9_-]{11})\/hqdefault\.jpg$/;
 export const YouTubeThumbnailUrlSchema = z
@@ -112,6 +115,7 @@ export const VideoSourceSchema = z
 
 export const VideoSnapshotSchema = z.strictObject({
   id: z.string().uuid(),
+  userId: z.string().uuid(),
   sourceId: z.string().uuid(),
   title: NonblankStringSchema.max(300),
   channel: NonblankStringSchema.max(200),
@@ -119,19 +123,23 @@ export const VideoSnapshotSchema = z.strictObject({
   durationSeconds: SecondSchema,
   description: z.string().max(5_000),
   transcriptLanguage: TargetLanguageSchema,
-  transcriptHash: NonblankStringSchema.max(200),
+  transcriptHash: Sha256HashSchema,
   capturedAt: IsoDateTimeSchema,
+  createdAt: IsoDateTimeSchema,
 });
 
 export const TranscriptSegmentSchema = z
   .strictObject({
     id: StableSegmentIdSchema,
+    userId: z.string().uuid(),
     snapshotId: z.string().uuid(),
+    language: TargetLanguageSchema,
     position: z.number().int().min(0).max(100_000),
     startSeconds: SecondSchema,
     endSeconds: SecondSchema,
     originalChinese: TargetChineseTextSchema,
     englishTranslation: EnglishTextSchema.optional(),
+    createdAt: IsoDateTimeSchema,
   })
   .refine((segment) => segment.endSeconds >= segment.startSeconds, {
     path: ["endSeconds"],
