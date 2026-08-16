@@ -74,3 +74,29 @@ Temporarily reversed the two `.gitignore` rules to `!.env.example` followed by `
 ### GREEN
 
 Restored the safe `.gitignore` order to `.env*` followed by `!.env.example`. `CI=true pnpm test:provenance` exited 0: 1 test file passed and 3 tests passed. The regression now invokes `git check-ignore --quiet --no-index`, so the tracked `.env.example` is evaluated against the actual ignore-rule order.
+
+## Integration build fix
+
+### Root cause
+
+Under Next 16.3.1, `CI=true pnpm build` consistently failed while Turbopack processed `src/app/globals.css`: its PostCSS worker attempted `creating new process -> binding to a port` and received `Operation not permitted`. Retrying with sandbox escalation produced the same failure. With the identical source and dependencies, `CI=true pnpm exec next build --webpack` compiled, typechecked, and generated `/` and `/_not-found` successfully. The default Turbopack worker transport is therefore incompatible with this required execution environment.
+
+### RED
+
+Added the focused `uses webpack for the portable production build` provenance assertion, which reads `package.json`. Before the script change, `CI=true pnpm test:provenance` exited 1: the new assertion expected `next build --webpack` but received `next build` (3 other tests passed).
+
+### GREEN
+
+Changed only `package.json` so `build` is exactly `next build --webpack`. `CI=true pnpm test:provenance` then exited 0: 1 file passed and 4 tests passed.
+
+### Verification
+
+All commands exited 0 with fresh output: `CI=true pnpm test:provenance` (1 file, 4 tests); `CI=true pnpm build` (Webpack compiled, typechecked, and generated `/` and `/_not-found`); `CI=true pnpm lint`; `CI=true pnpm typecheck`; and `git diff --check`.
+
+### Changed files
+
+Updated `package.json`, `tests/provenance/youtube-digest.test.ts`, and this append-only handoff. No dependency, lockfile, or configuration-file changes were made.
+
+### Risk
+
+The production build intentionally uses Webpack instead of Next 16's default Turbopack, trading the default build engine for a portable build that does not rely on the prohibited port-binding worker transport. No other unresolved risks are known.

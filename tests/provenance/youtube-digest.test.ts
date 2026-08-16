@@ -47,3 +47,9 @@ test("marks the vendored provider and export behaviors as downstream adaptation 
     "Batch A Task 3 removes export behavior from `extension/sidepanel.js`; it is out of first-release scope.",
   );
 });
+
+test("uses webpack for the portable production build", () => {
+  const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+
+  expect(packageJson.scripts.build).toBe("next build --webpack");
+});
