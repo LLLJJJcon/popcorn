@@ -1,4 +1,18 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+
+function isIgnored(path: string): boolean {
+  const result = spawnSync("git", ["check-ignore", "--quiet", path], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  return result.status === 0;
+}
 
 test("pins and attributes the YouTube Digest intake", () => {
   const upstream = readFileSync("extension/UPSTREAM.md", "utf8");
@@ -11,10 +25,9 @@ test("pins and attributes the YouTube Digest intake", () => {
 });
 
 test("keeps local environment files out of source control while allowing the template", () => {
-  const gitignore = readFileSync(".gitignore", "utf8").split(/\r?\n/);
-
-  expect(gitignore).toContain(".env*");
-  expect(gitignore).toContain("!.env.example");
+  expect(isIgnored(".env")).toBe(true);
+  expect(isIgnored(".env.local")).toBe(true);
+  expect(isIgnored(".env.example")).toBe(false);
 });
 
 test("marks the vendored provider and export behaviors as downstream adaptation work", () => {
@@ -26,6 +39,9 @@ test("marks the vendored provider and export behaviors as downstream adaptation 
   );
   expect(upstream).toContain(
     "Batch A Tasks 1 and 3 remove client provider-key storage and direct provider hosts from `extension/background.js` and its supporting settings/options files.",
+  );
+  expect(upstream).toContain(
+    "Batch A Task 1 removes Supadata and DeepSeek direct Provider host permissions from `extension/manifest.json`, retaining only approved YouTube plus Popcorn API/auth hosts.",
   );
   expect(upstream).toContain(
     "Batch A Task 3 removes export behavior from `extension/sidepanel.js`; it is out of first-release scope.",

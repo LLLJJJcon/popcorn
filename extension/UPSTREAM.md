@@ -8,6 +8,7 @@ This intake is non-shippable until adapted.
 
 - Batch A Task 3 replaces extension Provider calls in `extension/background.js` with Popcorn server/durable job APIs.
 - Batch A Tasks 1 and 3 remove client provider-key storage and direct provider hosts from `extension/background.js` and its supporting settings/options files.
+- Batch A Task 1 removes Supadata and DeepSeek direct Provider host permissions from `extension/manifest.json`, retaining only approved YouTube plus Popcorn API/auth hosts.
 - Batch A Task 3 removes export behavior from `extension/sidepanel.js`; it is out of first-release scope.
 
 | Upstream source | Popcorn target | Reuse mode | Expected adaptation | Owning future task |

@@ -50,3 +50,17 @@ Updated `.gitignore` to ignore `.env*` while explicitly allowing `!.env.example`
 ### Risks
 
 The worktree's pre-existing package-link layer could not resolve `@testing-library/jest-dom/vitest` for the normal Vitest config. After `pnpm fetch --frozen-lockfile --offline` recreated `node_modules` but reported a missing offline tarball, `pnpm install --frozen-lockfile` did not restore project-level package links or `.bin` entries. The focused test was therefore run with the read-only, already-installed Vitest binary from `/private/tmp/popcorn-desktop-web` and a temporary Node-only config; no tracked dependency or lockfile was changed. The required `pnpm test:provenance` command remains blocked locally by this environment issue and should be re-run from a hydrated install.
+
+## Review fixes, round 2
+
+### RED
+
+`CI=true pnpm test:provenance` exited 1 before the provenance-map update: 1 test file failed, with 1 failed and 2 passed tests. The new assertion expected `Batch A Task 1 removes Supadata and DeepSeek direct Provider host permissions from \`extension/manifest.json\`, retaining only approved YouTube plus Popcorn API/auth hosts.` but `extension/UPSTREAM.md` did not yet contain that ownership record. The strengthened `.gitignore` regression checks ran through `git check-ignore` and passed against the current safe ordering: `.env` and `.env.local` were ignored while `.env.example` was not ignored.
+
+### GREEN
+
+`CI=true pnpm test:provenance` exited 0 after the minimal provenance-map update: 1 test file passed, 3 tests passed. `git diff --check` also exited 0.
+
+### Changed files
+
+Updated `tests/provenance/youtube-digest.test.ts` to assert effective Git ignore behavior with `git check-ignore` and to require the manifest-host ownership record. Updated `extension/UPSTREAM.md` to assign Batch A Task 1 the Supadata/DeepSeek manifest-host removal while retaining only approved YouTube and Popcorn API/auth hosts. Appended this review-fix evidence; `.gitignore` and all vendored extension bytes remain unchanged.
