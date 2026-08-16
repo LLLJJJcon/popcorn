@@ -1,6 +1,7 @@
 import {
   ApiFailureSchema,
   ApiErrorCodeSchema,
+  CanonicalYouTubeUrlSchema,
   CandidateExpressionListSchema,
   CandidateExpressionSchema,
   EvaluationResultSchema,
@@ -23,6 +24,22 @@ const baseSave = {
 };
 
 describe("shared contracts", () => {
+  it("returns the single canonical YouTube watch URL unchanged", () => {
+    const canonicalUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
+    expect(CanonicalYouTubeUrlSchema.parse(canonicalUrl)).toBe(canonicalUrl);
+  });
+
+  it.each([
+    " https://www.youtube.com/watch?v=dQw4w9WgXcQ ",
+    "https://www.youtube.com/foo/../watch?v=dQw4w9WgXcQ",
+    "https://WWW.YOUTUBE.COM/watch?v=dQw4w9WgXcQ",
+    "https://www.youtube.com:443/watch?v=dQw4w9WgXcQ",
+    "https://www.youtube.com/watch?v=dQw4w9WgXc%51",
+  ])("rejects a raw YouTube URL that only normalizes to canonical form: %s", (url) => {
+    expect(CanonicalYouTubeUrlSchema.safeParse(url).success).toBe(false);
+  });
+
   it("accepts every exact YouTube save payload", () => {
     const saves = [
       {

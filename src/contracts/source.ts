@@ -9,21 +9,37 @@ export const YouTubeVideoIdSchema = z
 
 export const CanonicalYouTubeUrlSchema = z
   .string()
-  .url()
   .max(200)
   .refine((value) => {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      url.hostname === "www.youtube.com" &&
-      url.pathname === "/watch" &&
-      url.username === "" &&
-      url.password === "" &&
-      url.port === "" &&
-      url.hash === "" &&
-      url.searchParams.size === 1 &&
-      YouTubeVideoIdSchema.safeParse(url.searchParams.get("v")).success
-    );
+    try {
+      const url = new URL(value);
+      return (
+        url.protocol === "https:" &&
+        url.hostname === "www.youtube.com" &&
+        url.pathname === "/watch" &&
+        url.username === "" &&
+        url.password === "" &&
+        url.port === "" &&
+        url.hash === "" &&
+        url.searchParams.size === 1 &&
+        YouTubeVideoIdSchema.safeParse(url.searchParams.get("v")).success
+      );
+    } catch {
+      return false;
+    }
+  }, "Expected a canonical https://www.youtube.com/watch?v=... URL")
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      const videoId = url.searchParams.get("v");
+
+      return (
+        YouTubeVideoIdSchema.safeParse(videoId).success &&
+        value === `https://www.youtube.com/watch?v=${videoId}`
+      );
+    } catch {
+      return false;
+    }
   }, "Expected a canonical https://www.youtube.com/watch?v=... URL");
 
 const IsoDateTimeSchema = z.string().datetime({ offset: true });

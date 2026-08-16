@@ -80,3 +80,19 @@ Fresh `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts src/serve
 An audit with `rg -n '\\.trim\\(\\)' src/contracts` found 7 remaining calls, all inside boolean refinements; none transforms parsed output. Changed files are `src/contracts/api.ts`, `source.ts`, `practice.ts`, `knowledge.ts`, `tests/contract/shared-contracts.test.ts`, and this append-only handoff. No environment parsing, factory, identifier, enum, language, URL, ID, range, or maximum-length policy was broadened or relaxed.
 
 Risk: callers that relied on silent trimming of former public string fields now receive their submitted raw whitespace or a raw-length validation error. This is deliberate contract preservation; upstream callers that want normalization must do so before validation.
+
+## Review fixes, round 3
+
+### RED
+
+Before production changes, `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts` exited 1: the five new raw URL cases all incorrectly passed (`32 tests | 5 failed`, with 27 existing tests passing). The cases were surrounding whitespace, a `/foo/../watch` path, uppercase host, explicit default `:443` port, and a percent-encoded final video-ID character. The exact canonical URL round-trip assertion already passed.
+
+### GREEN
+
+`CanonicalYouTubeUrlSchema` now keeps the raw Zod string available for validation, retains the existing parsed URL structural checks, and then compares that raw string to the single serialization built from the validated video ID: `https://www.youtube.com/watch?v=<id>`. The initial implementation kept `.url()` but left one padded-input failure because that Zod check normalizes before later refinements; replacing it with non-mutating `new URL` parsing plus the existing structural checks made the raw comparison enforceable. No URL value is transformed or returned normalized.
+
+The direct GREEN contract run `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts` exited 0 (1 file, 32 tests). Fresh required verification also exited 0: `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts src/server/env.test.ts src/server/api/respond.test.ts` (3 files, 40 tests); `CI=true pnpm vitest run tests/contract` (1 file, 32 tests); `CI=true pnpm typecheck`; `CI=true pnpm lint`; and `git diff --check`.
+
+### Files and risk
+
+Changed only `src/contracts/source.ts`, `tests/contract/shared-contracts.test.ts`, and this append-only handoff. All existing ID, query, fragment, protocol, path, host, port, credentials, and cross-field identity checks remain in place. Risk: the strict raw-serialization comparison deliberately rejects browser-equivalent but differently written URLs; this is the required canonical boundary and means callers must submit the single exact URL form.
