@@ -53,3 +53,11 @@ test("uses webpack for the portable production build", () => {
 
   expect(packageJson.scripts.build).toBe("next build --webpack");
 });
+
+test("runs the contract suite from the canonical root directory", () => {
+  const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+
+  expect(packageJson.scripts["test:contract"]).toBe(
+    "vitest run tests/contract",
+  );
+});

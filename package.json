@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "pnpm test:unit && pnpm test:contract && pnpm test:integration",
     "test:unit": "vitest run src --passWithNoTests",
-    "test:contract": "vitest run tests/contracts --passWithNoTests",
+    "test:contract": "vitest run tests/contract",
     "test:integration": "vitest run tests/integration --passWithNoTests",
     "test:provenance": "vitest run tests/provenance --passWithNoTests",
     "test:e2e": "playwright test --pass-with-no-tests",
