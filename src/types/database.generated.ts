@@ -114,11 +114,12 @@ export type Database = {
           evidence_text: string
           expression_sense_id: string
           id: string
-          saved_item_id: string | null
+          saved_item_id: string
           segment_ids: string[]
           snapshot_id: string
           start_seconds: number
           user_id: string
+          video_source_id: string
         }
         Insert: {
           confidence: number
@@ -127,11 +128,12 @@ export type Database = {
           evidence_text: string
           expression_sense_id: string
           id?: string
-          saved_item_id?: string | null
+          saved_item_id: string
           segment_ids: string[]
           snapshot_id: string
           start_seconds: number
           user_id: string
+          video_source_id: string
         }
         Update: {
           confidence?: number
@@ -140,32 +142,50 @@ export type Database = {
           evidence_text?: string
           expression_sense_id?: string
           id?: string
-          saved_item_id?: string | null
+          saved_item_id?: string
           segment_ids?: string[]
           snapshot_id?: string
           start_seconds?: number
           user_id?: string
+          video_source_id?: string
         }
         Relationships: [
           {
             foreignKeyName: "expression_occurrence_save_owner_fk"
-            columns: ["saved_item_id", "user_id"]
+            columns: [
+              "saved_item_id",
+              "user_id",
+              "video_source_id",
+              "snapshot_id",
+            ]
             isOneToOne: false
             referencedRelation: "saved_items"
-            referencedColumns: ["id", "user_id"]
+            referencedColumns: [
+              "id",
+              "user_id",
+              "video_source_id",
+              "snapshot_id",
+            ]
           },
           {
             foreignKeyName: "expression_occurrence_sense_owner_fk"
-            columns: ["expression_sense_id", "user_id"]
+            columns: ["expression_sense_id", "user_id", "video_source_id"]
             isOneToOne: false
             referencedRelation: "expression_senses"
-            referencedColumns: ["id", "user_id"]
+            referencedColumns: ["id", "user_id", "video_source_id"]
           },
           {
             foreignKeyName: "expression_occurrence_snapshot_owner_fk"
-            columns: ["snapshot_id", "user_id"]
+            columns: ["snapshot_id", "user_id", "video_source_id"]
             isOneToOne: false
             referencedRelation: "video_snapshots"
+            referencedColumns: ["id", "user_id", "video_source_id"]
+          },
+          {
+            foreignKeyName: "expression_occurrence_source_owner_fk"
+            columns: ["video_source_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "video_sources"
             referencedColumns: ["id", "user_id"]
           },
         ]
@@ -580,10 +600,10 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "saved_item_snapshot_owner_fk"
-            columns: ["snapshot_id", "user_id"]
+            columns: ["snapshot_id", "user_id", "video_source_id"]
             isOneToOne: false
             referencedRelation: "video_snapshots"
-            referencedColumns: ["id", "user_id"]
+            referencedColumns: ["id", "user_id", "video_source_id"]
           },
           {
             foreignKeyName: "saved_item_source_owner_fk"

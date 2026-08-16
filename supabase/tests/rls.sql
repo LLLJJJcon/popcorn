@@ -69,7 +69,7 @@ insert into transcript_segments (
 values
   ('30000000-0000-4000-8000-000000000001', :'user_a', '20000000-0000-4000-8000-000000000001',
    'seg-a-1', 0, '今天我们来学中文。', 0, 4, 'zh-CN'),
-  ('30000000-0000-4000-8000-000000000002', :'user_b', '20000000-0000-4000-8000-000000000002',
+  ('3b000000-0000-4000-8000-000000000002', :'user_b', '20000000-0000-4000-8000-000000000002',
    'seg-b-1', 0, '这是另一条字幕。', 0, 4, 'zh-CN')
 on conflict (id) do nothing;
 
@@ -125,14 +125,16 @@ values
 on conflict (id) do nothing;
 
 insert into expression_occurrences (
-  id, user_id, expression_sense_id, snapshot_id, saved_item_id, evidence_text,
+  id, user_id, video_source_id, expression_sense_id, snapshot_id, saved_item_id, evidence_text,
   segment_ids, start_seconds, end_seconds, confidence
 )
 values
-  ('71000000-0000-4000-8000-000000000001', :'user_a', '70000000-0000-4000-8000-000000000001',
+  ('71000000-0000-4000-8000-000000000001', :'user_a', '10000000-0000-4000-8000-000000000001',
+   '70000000-0000-4000-8000-000000000001',
    '20000000-0000-4000-8000-000000000001', '40000000-0000-4000-8000-000000000001',
    '这也太离谱了吧。', array['seg-a-1'], 0, 4, 0.95),
-  ('71000000-0000-4000-8000-000000000002', :'user_b', '70000000-0000-4000-8000-000000000002',
+  ('71000000-0000-4000-8000-000000000002', :'user_b', '10000000-0000-4000-8000-000000000002',
+   '70000000-0000-4000-8000-000000000002',
    '20000000-0000-4000-8000-000000000002', '40000000-0000-4000-8000-000000000002',
    '我完全没想到。', array['seg-b-1'], 0, 4, 0.9)
 on conflict (id) do nothing;
@@ -391,18 +393,20 @@ from (
 ) as variants(row_id,event_id,variant,indexed_start,variant_payload);
 
 select pg_temp.rejects_state_clean(
-  $$insert into expression_occurrences (id,user_id,expression_sense_id,snapshot_id,evidence_text,
+  $$insert into expression_occurrences (id,user_id,video_source_id,expression_sense_id,snapshot_id,saved_item_id,evidence_text,
       segment_ids,start_seconds,end_seconds,confidence)
     values ('71e00000-0000-4000-8000-000000000001','00000000-0000-4000-8000-00000000a001',
-      '70000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',
       '无效稳定标识','{" padded "}',0,1,0.5)$$,
   '23514', 'occurrence segment IDs reject surrounding whitespace');
 
 select pg_temp.rejects_state_clean(
-  $$insert into expression_occurrences (id,user_id,expression_sense_id,snapshot_id,evidence_text,
+  $$insert into expression_occurrences (id,user_id,video_source_id,expression_sense_id,snapshot_id,saved_item_id,evidence_text,
       segment_ids,start_seconds,end_seconds,confidence)
     values ('71e00000-0000-4000-8000-000000000002','00000000-0000-4000-8000-00000000a001',
-      '70000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',
       '无效稳定标识',array[null]::text[],0,1,0.5)$$,
   '23514', 'occurrence segment IDs reject null elements');
 
@@ -597,26 +601,29 @@ select pg_temp.throws_state(
   '23503', 'artifact cannot reference another owner source');
 
 select pg_temp.throws_state(
-  $$insert into expression_occurrences (id,user_id,expression_sense_id,snapshot_id,evidence_text,
+  $$insert into expression_occurrences (id,user_id,video_source_id,expression_sense_id,snapshot_id,saved_item_id,evidence_text,
       segment_ids,start_seconds,end_seconds,confidence)
     values ('71f00000-0000-4000-8000-000000000001','00000000-0000-4000-8000-00000000a001',
-      '70000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000002',
+      '20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',
       '错误归属',array['seg-a-1'],0,1,0.5)$$,
   '23503', 'occurrence cannot reference another owner sense');
 
 select pg_temp.throws_state(
-  $$insert into expression_occurrences (id,user_id,expression_sense_id,snapshot_id,evidence_text,
+  $$insert into expression_occurrences (id,user_id,video_source_id,expression_sense_id,snapshot_id,saved_item_id,evidence_text,
       segment_ids,start_seconds,end_seconds,confidence)
     values ('71f00000-0000-4000-8000-000000000002','00000000-0000-4000-8000-00000000a001',
-      '70000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000002',
+      '10000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000002','40000000-0000-4000-8000-000000000001',
       '错误归属',array['seg-a-1'],0,1,0.5)$$,
-  '23503', 'occurrence cannot reference another owner snapshot');
+  '23514', 'occurrence cannot reference another owner snapshot or its segment evidence');
 
 select pg_temp.throws_state(
-  $$insert into expression_occurrences (id,user_id,expression_sense_id,snapshot_id,saved_item_id,evidence_text,
+  $$insert into expression_occurrences (id,user_id,video_source_id,expression_sense_id,snapshot_id,saved_item_id,evidence_text,
       segment_ids,start_seconds,end_seconds,confidence)
     values ('71f00000-0000-4000-8000-000000000003','00000000-0000-4000-8000-00000000a001',
-      '70000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000001',
       '40000000-0000-4000-8000-000000000002','错误归属',array['seg-a-1'],0,1,0.5)$$,
   '23503', 'occurrence cannot reference another owner save');
 
@@ -758,24 +765,6 @@ select extensions.lives_ok(
       'aqz-KE-bpKQ','player_moment','saved',now(),1,'{"capturedSecond":1}')$$,
   'user A can append an owned raw save');
 
-select extensions.lives_ok(
-  $$insert into generated_artifacts (id,user_id,video_source_id,artifact_type,native_language,target_language,
-      content,prompt_version,model,result_key)
-    values ('5a000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-00000000a001',
-      '10000000-0000-4000-8000-000000000001','chapters','en','zh-CN','{}','v1','m',repeat('3',64))$$,
-  'user A can insert an owned mutable artifact');
-
-select extensions.lives_ok(
-  $$insert into mastery_events (id,user_id,user_expression_id,prior_state,new_state,evidence_kind,occurred_at)
-    values ('aa000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-00000000a001',
-      '72000000-0000-4000-8000-000000000001','tried','reused','successful_independent_transfer',now())$$,
-  'user A can append owned mastery evidence');
-
-select extensions.results_eq(
-  $$update review_tasks set status = 'completed' where id = 'b0000000-0000-4000-8000-000000000001' returning id$$,
-  $$values ('b0000000-0000-4000-8000-000000000001'::uuid)$$,
-  'user A can update an owned mutable row');
-
 select extensions.results_eq(
   $$update profiles set updated_at = now() where user_id = '00000000-0000-4000-8000-00000000a001' returning user_id$$,
   $$values ('00000000-0000-4000-8000-00000000a001'::uuid)$$,
@@ -785,174 +774,190 @@ select extensions.results_eq(
   $$values ('00000000-0000-4000-8000-00000000a001'::uuid)$$,
   'user A can delete the owned profile');
 select extensions.lives_ok(
-  $$insert into profiles (user_id) values ('00000000-0000-4000-8000-00000000a001')$$,
+  $$insert into profiles (user_id,created_at,updated_at)
+    values ('00000000-0000-4000-8000-00000000a001','2026-08-16 09:00:00+00','2026-08-16 09:00:00+00')$$,
   'user A can restore the owned profile');
 
-select extensions.lives_ok(
-  $$insert into knowledge_jobs (id,user_id,video_source_id,job_type,status,dedupe_key)
-    values ('6a000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-00000000a001',
-      '10000000-0000-4000-8000-000000000001','generate_overview','pending',repeat('9',64))$$,
-  'user A can insert an owned knowledge job');
-select extensions.results_eq(
-  $$update knowledge_jobs set updated_at = now() where id = '6a000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('6a000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can update an owned knowledge job');
-select extensions.results_eq(
-  $$delete from knowledge_jobs where id = '6a000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('6a000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can delete an owned knowledge job');
-
-select extensions.lives_ok(
-  $$insert into expression_senses (id,user_id,video_source_id,expression_text,normalized_expression_text,
-      english_meaning,english_explanation,tone,communicative_function,register)
-    values ('7a000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-00000000a001',
-      '10000000-0000-4000-8000-000000000001','真不错','真不错','quite good',
-      'Used to give positive feedback.','positive','giving praise','neutral')$$,
-  'user A can insert an owned expression sense');
-select extensions.results_eq(
-  $$update expression_senses set updated_at = now() where id = '7a000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('7a000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can update an owned expression sense');
-select extensions.results_eq(
-  $$delete from expression_senses where id = '7a000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('7a000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can delete an owned expression sense');
-
-select extensions.lives_ok(
-  $$insert into expression_occurrences (id,user_id,expression_sense_id,snapshot_id,evidence_text,
-      segment_ids,start_seconds,end_seconds,confidence)
-    values ('7a000000-0000-4000-8000-000000000020','00000000-0000-4000-8000-00000000a001',
-      '70000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001',
-      '这也太离谱了。',array['seg-a-1'],0,1,0.8)$$,
-  'user A can insert an owned expression occurrence');
-select extensions.results_eq(
-  $$update expression_occurrences set confidence = 0.9 where id = '7a000000-0000-4000-8000-000000000020' returning id$$,
-  $$values ('7a000000-0000-4000-8000-000000000020'::uuid)$$,
-  'user A can update an owned expression occurrence');
-select extensions.results_eq(
-  $$delete from expression_occurrences where id = '7a000000-0000-4000-8000-000000000020' returning id$$,
-  $$values ('7a000000-0000-4000-8000-000000000020'::uuid)$$,
-  'user A can delete an owned expression occurrence');
-
-select extensions.lives_ok(
-  $$insert into expression_senses (id,user_id,video_source_id,expression_text,normalized_expression_text,
-      english_meaning,english_explanation,tone,communicative_function,register)
-    values ('7a000000-0000-4000-8000-000000000030','00000000-0000-4000-8000-00000000a001',
-      '10000000-0000-4000-8000-000000000001','没问题','没问题','no problem',
-      'Used to reassure someone.','reassuring','giving reassurance','neutral')$$,
-  'user A can insert the parent for a user-expression policy check');
-select extensions.lives_ok(
-  $$insert into user_expressions (id,user_id,expression_sense_id,mastery_state)
-    values ('7a000000-0000-4000-8000-000000000031','00000000-0000-4000-8000-00000000a001',
-      '7a000000-0000-4000-8000-000000000030','tried')$$,
-  'user A can insert an owned user expression');
-select extensions.results_eq(
-  $$update user_expressions set updated_at = now() where id = '7a000000-0000-4000-8000-000000000031' returning id$$,
-  $$values ('7a000000-0000-4000-8000-000000000031'::uuid)$$,
-  'user A can update an owned user expression');
-select extensions.results_eq(
-  $$delete from user_expressions where id = '7a000000-0000-4000-8000-000000000031' returning id$$,
-  $$values ('7a000000-0000-4000-8000-000000000031'::uuid)$$,
-  'user A can delete an owned user expression');
-delete from expression_senses where id = '7a000000-0000-4000-8000-000000000030';
-
-select extensions.lives_ok(
-  $$insert into practice_tasks (id,user_id,user_expression_id,kind,native_language,target_language,
-      target_expression,prompt_chinese,instructions_english,goal_english)
-    values ('8a000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-00000000a001',
-      '72000000-0000-4000-8000-000000000001','use_it_now','en','zh-CN','太离谱了',
-      '请造句。','Write a sentence.','Use the phrase.')$$,
-  'user A can insert an owned practice task');
-select extensions.results_eq(
-  $$update practice_tasks set goal_english = 'Use the phrase independently.' where id = '8a000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('8a000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can update an owned practice task');
-select extensions.results_eq(
-  $$delete from practice_tasks where id = '8a000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('8a000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can delete an owned practice task');
-
-select extensions.lives_ok(
-  $$insert into attempts (id,user_id,practice_task_id,user_expression_id,response_chinese,passed,
-      accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,
-      contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at)
-    values ('9a000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-00000000a001',
-      '80000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000001',
-      '这个想法太离谱了。',true,5,'Good.',5,'Good.',5,'Good.',true,'none',now())$$,
-  'user A can insert an owned attempt');
-select extensions.results_eq(
-  $$update attempts set accuracy_feedback_english = 'Still accurate.' where id = '9a000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('9a000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can update an owned attempt');
-select extensions.results_eq(
-  $$delete from attempts where id = '9a000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('9a000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can delete an owned attempt');
-
-select extensions.lives_ok(
-  $$insert into review_tasks (id,user_id,user_expression_id,mastery_state,status,due_at,interval_days,consecutive_successes)
-    values ('ba000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-00000000a001',
-      '72000000-0000-4000-8000-000000000001','tried','pending',now(),1,0)$$,
-  'user A can insert an owned review task');
-select extensions.results_eq(
-  $$update review_tasks set status = 'completed' where id = 'ba000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('ba000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can update an owned review task');
-select extensions.results_eq(
-  $$delete from review_tasks where id = 'ba000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('ba000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can delete an owned review task');
-
-select extensions.results_eq(
-  $$update generated_artifacts set content = '{"updated":true}' where id = '5a000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('5a000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can update an owned artifact');
-select extensions.results_eq(
-  $$delete from generated_artifacts where id = '5a000000-0000-4000-8000-000000000010' returning id$$,
-  $$values ('5a000000-0000-4000-8000-000000000010'::uuid)$$,
-  'user A can delete an owned artifact');
-
--- Raw source/evidence and mastery history are append-only even for their owner.
-select extensions.results_eq(
-  $$update video_sources set canonical_url = canonical_url where id = '10000000-0000-4000-8000-000000000001' returning id$$,
-  $$select null::uuid where false$$,
+-- Raw source/evidence are append-only; mastery history is server-controlled.
+select pg_temp.rejects_state_clean(
+  $$update video_sources set canonical_url = canonical_url where id = '10000000-0000-4000-8000-000000000001'$$,
+  '42501',
   'client cannot update raw video source rows');
-select extensions.results_eq(
-  $$delete from video_sources where id = '10000000-0000-4000-8000-000000000001' returning id$$,
-  $$select null::uuid where false$$,
+select pg_temp.rejects_state_clean(
+  $$delete from video_sources where id = '10000000-0000-4000-8000-000000000001'$$,
+  '42501',
   'client cannot delete raw video source rows');
-select extensions.results_eq(
-  $$update video_snapshots set title = title where id = '20000000-0000-4000-8000-000000000001' returning id$$,
-  $$select null::uuid where false$$,
+select pg_temp.rejects_state_clean(
+  $$update video_snapshots set title = title where id = '20000000-0000-4000-8000-000000000001'$$,
+  '42501',
   'client cannot update raw snapshots');
-select extensions.results_eq(
-  $$delete from video_snapshots where id = '20000000-0000-4000-8000-000000000001' returning id$$,
-  $$select null::uuid where false$$,
+select pg_temp.rejects_state_clean(
+  $$delete from video_snapshots where id = '20000000-0000-4000-8000-000000000001'$$,
+  '42501',
   'client cannot delete raw snapshots');
-select extensions.results_eq(
-  $$update transcript_segments set original_chinese = original_chinese where id = '30000000-0000-4000-8000-000000000001' returning id$$,
-  $$select null::uuid where false$$,
+select pg_temp.rejects_state_clean(
+  $$update transcript_segments set original_chinese = original_chinese where id = '30000000-0000-4000-8000-000000000001'$$,
+  '42501',
   'client cannot mutate immutable transcript evidence');
-select extensions.results_eq(
-  $$delete from transcript_segments where id = '30000000-0000-4000-8000-000000000001' returning id$$,
-  $$select null::uuid where false$$,
+select pg_temp.rejects_state_clean(
+  $$delete from transcript_segments where id = '30000000-0000-4000-8000-000000000001'$$,
+  '42501',
   'client cannot delete immutable transcript evidence');
-select extensions.results_eq(
-  $$update saved_items set status = status where id = '40000000-0000-4000-8000-000000000001' returning id$$,
-  $$select null::uuid where false$$,
+select pg_temp.rejects_state_clean(
+  $$update saved_items set status = status where id = '40000000-0000-4000-8000-000000000001'$$,
+  '42501',
   'client cannot update raw learner saves');
-select extensions.results_eq(
-  $$delete from saved_items where id = '40000000-0000-4000-8000-000000000001' returning id$$,
-  $$select null::uuid where false$$,
+select pg_temp.rejects_state_clean(
+  $$delete from saved_items where id = '40000000-0000-4000-8000-000000000001'$$,
+  '42501',
   'client cannot delete raw learner saves');
-select extensions.results_eq(
-  $$update mastery_events set evidence_kind = evidence_kind where id = 'a0000000-0000-4000-8000-000000000001' returning id$$,
-  $$select null::uuid where false$$,
+select pg_temp.rejects_state_clean(
+  $$update mastery_events set evidence_kind = evidence_kind where id = 'a0000000-0000-4000-8000-000000000001'$$,
+  '42501',
   'client cannot update mastery history');
-select extensions.results_eq(
-  $$delete from mastery_events where id = 'a0000000-0000-4000-8000-000000000001' returning id$$,
-  $$select null::uuid where false$$,
+select pg_temp.rejects_state_clean(
+  $$delete from mastery_events where id = 'a0000000-0000-4000-8000-000000000001'$$,
+  '42501',
   'client cannot delete mastery history');
+
+create or replace function pg_temp.assert_server_controlled_dml(table_name text, insert_statement text)
+returns setof text language plpgsql as $$
+begin
+  return next pg_temp.rejects_state_clean(
+    insert_statement, '42501', 'learner cannot insert server-controlled ' || table_name);
+  return next pg_temp.rejects_state_clean(
+    format('update public.%I set created_at = created_at', table_name),
+    '42501', 'learner cannot update server-controlled ' || table_name);
+  return next pg_temp.rejects_state_clean(
+    format('delete from public.%I', table_name),
+    '42501', 'learner cannot delete server-controlled ' || table_name);
+end
+$$;
+
+select pg_temp.assert_server_controlled_dml(table_name, insert_statement)
+from (
+  values
+    ('generated_artifacts', $$insert into generated_artifacts
+      (id,user_id,video_source_id,artifact_type,native_language,target_language,content,prompt_version,model,result_key)
+      values ('5a000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-00000000a001',
+        '10000000-0000-4000-8000-000000000001','overview','en','zh-CN','{}','v','m',repeat('4',64))$$),
+    ('knowledge_jobs', $$insert into knowledge_jobs
+      (id,user_id,video_source_id,job_type,status,dedupe_key)
+      values ('6a000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-00000000a001',
+        '10000000-0000-4000-8000-000000000001','generate_overview','pending',repeat('5',64))$$),
+    ('expression_senses', $$insert into expression_senses
+      (id,user_id,video_source_id,expression_text,normalized_expression_text,english_meaning,
+       english_explanation,tone,communicative_function,register)
+      values ('7a000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-00000000a001',
+        '10000000-0000-4000-8000-000000000001','很好','很好','very good','Used for praise.',
+        'positive','giving praise','neutral')$$),
+    ('expression_occurrences', $$insert into expression_occurrences
+      (id,user_id,video_source_id,expression_sense_id,snapshot_id,saved_item_id,evidence_text,
+       segment_ids,start_seconds,end_seconds,confidence)
+      values ('7b000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-00000000a001',
+        '10000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000001',
+        '20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',
+        '这也太离谱了吧。',array['seg-a-1'],0,1,0.9)$$),
+    ('user_expressions', $$insert into user_expressions (id,user_id,expression_sense_id,mastery_state)
+      values ('7c000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-00000000a001',
+        '70000000-0000-4000-8000-000000000001','tried')$$),
+    ('practice_tasks', $$insert into practice_tasks
+      (id,user_id,user_expression_id,kind,native_language,target_language,target_expression,prompt_chinese,
+       instructions_english,goal_english)
+      values ('8a000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-00000000a001',
+        '72000000-0000-4000-8000-000000000001','use_it_now','en','zh-CN','太离谱了',
+        '请造句。','Write a sentence.','Use the phrase.')$$),
+    ('attempts', $$insert into attempts
+      (id,user_id,practice_task_id,user_expression_id,response_chinese,passed,accuracy_score,
+       accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,
+       contextual_fit_feedback_english,independent_use,assistance_level,submitted_at)
+      values ('9a000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-00000000a001',
+        '80000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000001',
+        '这太离谱了。',true,5,'Good.',5,'Good.',5,'Good.',true,'none',now())$$),
+    ('mastery_events', $$insert into mastery_events
+      (id,user_id,user_expression_id,prior_state,new_state,evidence_kind,occurred_at)
+      values ('aa000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-00000000a001',
+        '72000000-0000-4000-8000-000000000001','tried','reused','server_evidence',now())$$),
+    ('review_tasks', $$insert into review_tasks
+      (id,user_id,user_expression_id,mastery_state,status,due_at,interval_days,consecutive_successes)
+      values ('ba000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-00000000a001',
+        '72000000-0000-4000-8000-000000000001','tried','pending',now(),1,0)$$)
+) as server_tables(table_name, insert_statement);
+
+select extensions.is(
+  (select count(*)::integer from pg_policies
+   where schemaname = 'public'
+     and tablename = any(array['generated_artifacts','knowledge_jobs','expression_senses',
+       'expression_occurrences','user_expressions','practice_tasks','attempts','mastery_events','review_tasks'])
+     and cmd <> 'SELECT'),
+  0,
+  'server-controlled tables expose no authenticated DML policies');
+
+select extensions.is(
+  (select count(*)::integer from information_schema.role_table_grants
+   where table_schema = 'public' and grantee = 'authenticated'
+     and table_name = any(array['generated_artifacts','knowledge_jobs','expression_senses',
+       'expression_occurrences','user_expressions','practice_tasks','attempts','mastery_events','review_tasks'])
+     and privilege_type <> 'SELECT'),
+  0,
+  'server-controlled tables grant authenticated learners SELECT only');
+
+select extensions.set_eq(
+  $$select table_name || ':' || privilege_type
+    from information_schema.role_table_grants
+    where table_schema = 'public' and grantee = 'authenticated'
+      and table_name = any(array['profiles','video_sources','video_snapshots','transcript_segments','saved_items',
+        'generated_artifacts','knowledge_jobs','expression_senses','expression_occurrences','user_expressions',
+        'practice_tasks','attempts','mastery_events','review_tasks'])$$,
+  $$values
+    ('profiles:SELECT'),('profiles:INSERT'),('profiles:UPDATE'),('profiles:DELETE'),
+    ('video_sources:SELECT'),('video_sources:INSERT'),
+    ('video_snapshots:SELECT'),('video_snapshots:INSERT'),
+    ('transcript_segments:SELECT'),('transcript_segments:INSERT'),
+    ('saved_items:SELECT'),('saved_items:INSERT'),
+    ('generated_artifacts:SELECT'),('knowledge_jobs:SELECT'),('expression_senses:SELECT'),
+    ('expression_occurrences:SELECT'),('user_expressions:SELECT'),('practice_tasks:SELECT'),
+    ('attempts:SELECT'),('mastery_events:SELECT'),('review_tasks:SELECT')$$,
+  'authenticated grants exactly match profile, raw append, and server-read boundaries');
+
+select extensions.is(
+  (select count(*)::integer from information_schema.role_table_grants
+   where table_schema = 'public' and grantee = 'anon'
+     and table_name = any(array['profiles','video_sources','video_snapshots','transcript_segments','saved_items',
+       'generated_artifacts','knowledge_jobs','expression_senses','expression_occurrences','user_expressions',
+       'practice_tasks','attempts','mastery_events','review_tasks'])),
+  0,
+  'anonymous clients have no application-table grants');
+
+select extensions.is(
+  (select count(*)::integer from pg_policies
+   where schemaname = 'public'
+     and tablename = any(array['profiles','video_sources','video_snapshots','transcript_segments','saved_items',
+       'generated_artifacts','knowledge_jobs','expression_senses','expression_occurrences','user_expressions',
+       'practice_tasks','attempts','mastery_events','review_tasks'])),
+  21,
+  'policy catalog contains only four profile, eight raw, and nine server-select policies');
+
+select extensions.ok(
+  exists (
+    select 1 from pg_trigger
+    where tgrelid = 'public.expression_occurrences'::regclass
+      and tgname = 'expression_occurrence_segments_validate' and not tgisinternal
+  ),
+  'occurrence segment traceability trigger exists');
+
+select extensions.ok(
+  (select not p.prosecdef and p.proconfig @> array['search_path=pg_catalog']
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'private' and p.proname = 'validate_expression_occurrence_segments'),
+  'occurrence validator is security-invoker with a fixed pg_catalog search path');
+
+select extensions.is(
+  (select has_function_privilege('public', p.oid, 'execute')
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'private' and p.proname = 'validate_expression_occurrence_segments'),
+  false,
+  'public execute is revoked from the occurrence trigger function');
 
 reset role;
 
@@ -989,15 +994,23 @@ create or replace function pg_temp.assert_cross_owner_mutations(table_name text,
 returns setof text language plpgsql as $$
 declare affected bigint;
 begin
-  execute format('update public.%I set created_at = created_at where user_id = %L', table_name,
-    '00000000-0000-4000-8000-00000000a001');
-  get diagnostics affected = row_count;
-  return next extensions.is(affected, 0::bigint, 'user B cannot update user A ' || table_name);
+  begin
+    execute format('update public.%I set created_at = created_at where user_id = %L', table_name,
+      '00000000-0000-4000-8000-00000000a001');
+    get diagnostics affected = row_count;
+    return next extensions.is(affected, 0::bigint, 'user B cannot update user A ' || table_name);
+  exception when insufficient_privilege then
+    return next extensions.pass('user B cannot update user A ' || table_name);
+  end;
 
-  execute format('delete from public.%I where user_id = %L', table_name,
-    '00000000-0000-4000-8000-00000000a001');
-  get diagnostics affected = row_count;
-  return next extensions.is(affected, 0::bigint, 'user B cannot delete user A ' || table_name);
+  begin
+    execute format('delete from public.%I where user_id = %L', table_name,
+      '00000000-0000-4000-8000-00000000a001');
+    get diagnostics affected = row_count;
+    return next extensions.is(affected, 0::bigint, 'user B cannot delete user A ' || table_name);
+  exception when insufficient_privilege then
+    return next extensions.pass('user B cannot delete user A ' || table_name);
+  end;
 
   begin
     execute clone_statement;
@@ -1041,10 +1054,11 @@ from (
       ('7b000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-00000000a001',
        '10000000-0000-4000-8000-000000000001','真棒','真棒','great','Used to praise something.',
        'positive','giving praise','informal')$$),
-  ('expression_occurrences', $$insert into expression_occurrences (id,user_id,expression_sense_id,snapshot_id,
-      evidence_text,segment_ids,start_seconds,end_seconds,confidence) values
+  ('expression_occurrences', $$insert into expression_occurrences (id,user_id,video_source_id,expression_sense_id,
+      snapshot_id,saved_item_id,evidence_text,segment_ids,start_seconds,end_seconds,confidence) values
       ('7c000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-00000000a001',
-       '70000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001',
+       '10000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000001',
+       '20000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',
        '这个真棒。',array['seg-a-1'],0,1,0.8)$$),
   ('user_expressions', $$insert into user_expressions (id,user_id,expression_sense_id,mastery_state) values
       ('7d000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-00000000a001',
@@ -1070,6 +1084,218 @@ from (
 ) as cases(table_name, clone_statement);
 
 reset role;
+
+-- Review regressions: server-controlled rows are readable by their owner but
+-- never client-writable, even when the forged row carries the caller's user_id.
+set local role authenticated;
+select set_config('request.jwt.claim.sub', :'user_a', true);
+
+select pg_temp.rejects_state_clean(
+  $$insert into generated_artifacts (id,user_id,video_source_id,artifact_type,native_language,target_language,
+      content,prompt_version,model,result_key)
+    values ('5e000000-0000-4000-8000-000000000301','00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000001','overview','en','zh-CN','{"forged":true}',
+      'forged','forged',repeat('1',64))$$,
+  '42501', 'learner cannot forge a generated artifact');
+select pg_temp.rejects_state_clean(
+  $$delete from knowledge_jobs where id = '60000000-0000-4000-8000-000000000001'$$,
+  '42501', 'learner cannot delete a server job');
+select pg_temp.rejects_state_clean(
+  $$insert into mastery_events (id,user_id,user_expression_id,prior_state,new_state,evidence_kind,occurred_at)
+    values ('ae000000-0000-4000-8000-000000000301','00000000-0000-4000-8000-00000000a001',
+      '72000000-0000-4000-8000-000000000001','tried','owned','forged',now())$$,
+  '42501', 'learner cannot forge mastery history');
+select pg_temp.rejects_state_clean(
+  $$update attempts set passed = false where id = '90000000-0000-4000-8000-000000000001'$$,
+  '42501', 'learner cannot rewrite a server evaluation');
+select pg_temp.rejects_state_clean(
+  $$delete from review_tasks where id = 'b0000000-0000-4000-8000-000000000001'$$,
+  '42501', 'learner cannot delete a server schedule');
+
+reset role;
+
+-- Same-owner source linkage must still be relationally consistent.
+select pg_temp.rejects_state_clean(
+  $$insert into saved_items (id,user_id,video_source_id,snapshot_id,client_event_id,youtube_video_id,kind,status,
+      captured_at,start_seconds,payload)
+    values ('4e000000-0000-4000-8000-000000000301','00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000001','2a000000-0000-4000-8000-000000000010',
+      '4e000000-0000-4000-8000-000000000302','dQw4w9WgXcQ','player_moment','saved',now(),1,
+      '{"capturedSecond":1}')$$,
+  '23503', 'save snapshot must belong to the same source as the save');
+
+insert into saved_items (
+  id,user_id,video_source_id,snapshot_id,client_event_id,youtube_video_id,kind,status,captured_at,start_seconds,payload
+) values (
+  '4c000000-0000-4000-8000-000000000301','00000000-0000-4000-8000-00000000a001',
+  '1a000000-0000-4000-8000-000000000010','2a000000-0000-4000-8000-000000000010',
+  '4c000000-0000-4000-8000-000000000302','aqz-KE-bpKQ','player_moment','saved',now(),1,
+  '{"capturedSecond":1}'
+);
+
+select pg_temp.rejects_state_clean(
+  $$insert into expression_occurrences (id,user_id,video_source_id,expression_sense_id,snapshot_id,saved_item_id,evidence_text,
+      segment_ids,start_seconds,end_seconds,confidence)
+    values ('71e00000-0000-4000-8000-000000000301','00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000001',
+      '2a000000-0000-4000-8000-000000000010',
+      '4c000000-0000-4000-8000-000000000301','错误来源',array['seg-positive'],0,1,0.5)$$,
+  '23503', 'occurrence sense, snapshot, and save must share one source');
+select pg_temp.rejects_state_clean(
+  $$insert into expression_occurrences (id,user_id,video_source_id,expression_sense_id,snapshot_id,saved_item_id,evidence_text,
+      segment_ids,start_seconds,end_seconds,confidence)
+    values ('71e00000-0000-4000-8000-000000000302','00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000001',
+      '40000000-0000-4000-8000-000000000001','不存在的字幕',array['missing-segment'],0,1,0.5)$$,
+  '23514', 'occurrence rejects nonexistent segment IDs');
+select pg_temp.rejects_state_clean(
+  $$insert into expression_occurrences (id,user_id,video_source_id,expression_sense_id,snapshot_id,saved_item_id,evidence_text,
+      segment_ids,start_seconds,end_seconds,confidence)
+    values ('71e00000-0000-4000-8000-000000000303','00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000001','70000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000001',
+      '40000000-0000-4000-8000-000000000001','重复字幕',array['seg-a-1','seg-a-1'],0,1,0.5)$$,
+  '23514', 'occurrence rejects duplicate segment IDs');
+
+-- Frozen language validators apply to every relational text family.
+select pg_temp.rejects_state_clean(
+  $$update transcript_segments set original_chinese = 'Latin only'
+    where id = '30000000-0000-4000-8000-000000000001'$$,
+  '23514', 'transcript original requires Chinese text');
+select pg_temp.rejects_state_clean(
+  $$update transcript_segments set original_chinese = '⿰'
+    where id = '30000000-0000-4000-8000-000000000001'$$,
+  '23514', 'CJK construction symbols do not count as Script Han');
+select pg_temp.rejects_state_clean(
+  $$update transcript_segments set english_translation = '中文翻译'
+    where id = '30000000-0000-4000-8000-000000000001'$$,
+  '23514', 'transcript translation requires Basic Latin English');
+select pg_temp.rejects_state_clean(
+  $$update expression_senses set expression_text = 'Latin only'
+    where id = '70000000-0000-4000-8000-000000000001'$$,
+  '23514', 'expression text requires Chinese');
+select pg_temp.rejects_state_clean(
+  $$update expression_senses set english_meaning = '12345'
+    where id = '70000000-0000-4000-8000-000000000001'$$,
+  '23514', 'expression English fields require an ASCII letter');
+select pg_temp.rejects_state_clean(
+  $$update expression_occurrences set evidence_text = 'Latin evidence'
+    where id = '71000000-0000-4000-8000-000000000001'$$,
+  '23514', 'occurrence evidence requires Chinese');
+select pg_temp.rejects_state_clean(
+  $$update expression_occurrences set evidence_text = '㇀'
+    where id = '71000000-0000-4000-8000-000000000001'$$,
+  '23514', 'CJK stroke symbols do not count as Script Han');
+select pg_temp.rejects_state_clean(
+  $$update practice_tasks set prompt_chinese = 'Latin prompt'
+    where id = '80000000-0000-4000-8000-000000000001'$$,
+  '23514', 'practice prompt requires Chinese');
+select pg_temp.rejects_state_clean(
+  $$update practice_tasks set instructions_english = '中文说明'
+    where id = '80000000-0000-4000-8000-000000000001'$$,
+  '23514', 'practice instructions require Basic Latin English');
+select pg_temp.rejects_state_clean(
+  $$update attempts set response_chinese = 'Latin response'
+    where id = '90000000-0000-4000-8000-000000000001'$$,
+  '23514', 'attempt response requires Chinese');
+select pg_temp.rejects_state_clean(
+  $$update attempts set accuracy_feedback_english = '12345'
+    where id = '90000000-0000-4000-8000-000000000001'$$,
+  '23514', 'attempt feedback requires English letters');
+
+select extensions.is(
+  (select original_chinese from transcript_segments where id = '30000000-0000-4000-8000-000000000001'),
+  '今天我们来学中文。',
+  'exact seeded transcript text is preserved');
+select extensions.is(
+  (select evidence_text from expression_occurrences where id = '71000000-0000-4000-8000-000000000001'),
+  '这也太离谱了吧。',
+  'exact occurrence evidence is preserved');
+select extensions.is(
+  (select expression_text || '|' || normalized_expression_text || '|' || english_meaning
+   from expression_senses where id = '70000000-0000-4000-8000-000000000001'),
+  '太离谱了|太离谱了|too absurd',
+  'exact expression source and English meaning are preserved');
+select extensions.is(
+  (select target_expression || '|' || prompt_chinese || '|' || instructions_english || '|' || goal_english
+   from practice_tasks where id = '80000000-0000-4000-8000-000000000001'),
+  '太离谱了|请用这个表达造句。|Write one original Chinese sentence.|Use the expression in a fitting new context.',
+  'exact bilingual practice strings are preserved');
+select extensions.is(
+  (select response_chinese || '|' || accuracy_feedback_english || '|' || naturalness_feedback_english || '|' || contextual_fit_feedback_english
+   from attempts where id = '90000000-0000-4000-8000-000000000001'),
+  '这个结果也太离谱了吧。|Accurate use.|Natural phrasing.|Fits the context.',
+  'exact attempt and dimensional feedback strings are preserved');
+
+-- Seed values must be reproducible across resets and seed replays.
+select extensions.is(
+  (select encrypted_password from auth.users where id = :'user_a'),
+  '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.',
+  'seeded password hash is a fixed non-secret literal');
+select extensions.is(
+  (select created_at from auth.users where id = :'user_a'),
+  '2026-08-16 09:00:00+00'::timestamptz,
+  'user A seed timestamp is exact');
+select extensions.is(
+  (select created_at from profiles where user_id = :'user_b'),
+  '2026-08-16 09:01:00+00'::timestamptz,
+  'user B profile timestamp is exact');
+select extensions.is(
+  (select created_at from video_sources where id = '10000000-0000-4000-8000-000000000001'),
+  '2026-08-16 10:00:00+00'::timestamptz,
+  'seeded source timestamp is exact');
+select extensions.is(
+  (select created_at from transcript_segments where id = '30000000-0000-4000-8000-000000000003'),
+  '2026-08-16 10:00:03+00'::timestamptz,
+  'seeded final segment timestamp is exact');
+
+select extensions.results_eq(
+  $$select id, encrypted_password::text, email_confirmed_at, created_at, updated_at
+    from auth.users
+    where id in ('00000000-0000-4000-8000-00000000a001','00000000-0000-4000-8000-00000000b002')
+    order by id$$,
+  $$values
+    ('00000000-0000-4000-8000-00000000a001'::uuid,
+     '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.',
+     '2026-08-16 09:00:00+00'::timestamptz,'2026-08-16 09:00:00+00'::timestamptz,
+     '2026-08-16 09:00:00+00'::timestamptz),
+    ('00000000-0000-4000-8000-00000000b002'::uuid,
+     '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.',
+     '2026-08-16 09:01:00+00'::timestamptz,'2026-08-16 09:01:00+00'::timestamptz,
+     '2026-08-16 09:01:00+00'::timestamptz)$$,
+  'both seeded auth identities have exact hashes and timestamps');
+
+select extensions.results_eq(
+  $$select user_id, created_at, updated_at from profiles
+    where user_id in ('00000000-0000-4000-8000-00000000a001','00000000-0000-4000-8000-00000000b002')
+    order by user_id$$,
+  $$values
+    ('00000000-0000-4000-8000-00000000a001'::uuid,'2026-08-16 09:00:00+00'::timestamptz,
+     '2026-08-16 09:00:00+00'::timestamptz),
+    ('00000000-0000-4000-8000-00000000b002'::uuid,'2026-08-16 09:01:00+00'::timestamptz,
+     '2026-08-16 09:01:00+00'::timestamptz)$$,
+  'both seeded profiles have exact timestamps');
+
+select extensions.results_eq(
+  $$select id, transcript_hash, captured_at, created_at from video_snapshots
+    where id = '20000000-0000-4000-8000-000000000001'$$,
+  $$values ('20000000-0000-4000-8000-000000000001'::uuid, repeat('a',64),
+    '2026-08-16 10:00:00+00'::timestamptz,'2026-08-16 10:00:00+00'::timestamptz)$$,
+  'seeded snapshot ID, hash, captured time, and creation time are exact');
+
+select extensions.results_eq(
+  $$select id, stable_id, original_chinese, created_at from transcript_segments
+    where id in ('30000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',
+      '30000000-0000-4000-8000-000000000003') order by id$$,
+  $$values
+    ('30000000-0000-4000-8000-000000000001'::uuid,'seg-a-1','今天我们来学中文。',
+      '2026-08-16 10:00:01+00'::timestamptz),
+    ('30000000-0000-4000-8000-000000000002'::uuid,'seg-a-2','这个表达在口语里很常见。',
+      '2026-08-16 10:00:02+00'::timestamptz),
+    ('30000000-0000-4000-8000-000000000003'::uuid,'seg-a-3','请你试着用它造一个新句子。',
+      '2026-08-16 10:00:03+00'::timestamptz)$$,
+  'all seeded transcript IDs, raw strings, and timestamps are exact');
 
 select extensions.finish();
 rollback;

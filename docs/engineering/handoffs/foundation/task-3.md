@@ -114,3 +114,67 @@ exit 0
 - `updated_at` columns are explicit application/worker responsibilities in this foundation migration; no generic update trigger was introduced.
 - Delete behavior is intentionally restrictive. A future account-erasure workflow must perform an explicit, audited dependency-order deletion rather than relying on cascades.
 - Task 4 may consume the generated types and leasing columns, but Task 4 domain code, Cron, and worker behavior were not started here.
+
+## Corrective review follow-up
+
+This review pass is a new commit on top of baseline `781b595f55c1fe1bc7485c6e7bf96ece247c6282`. It remains within the Foundation Task 3 schema, RLS, seed, pgTAP, generated-type, and handoff files; no Task 4 application or worker code was started.
+
+### Independent RED/GREEN evidence
+
+The review concerns were first reproduced against the baseline implementation:
+
+```text
+$ node_modules/.bin/supabase test db
+exit 1
+Files=1, Tests=196
+23 failed
+```
+
+The 23 RED assertions covered five authenticated server-state forgery/rewrite/delete paths, four missing occurrence traceability/segment checks, nine missing relational-language checks, and five nondeterministic seed hash/timestamp checks.
+
+After the corrective implementation, the focused schema/RLS suite reached 198/198. Two intermediate failures were then diagnosed and corrected: a test fixture segment UUID collided with the deterministic seed, and PostgreSQL default table privileges still exposed 27 authenticated server-table DML grants despite the RLS policy restrictions. The migration now explicitly revokes those grants. Additional grant-matrix and exact seed assertions expanded the final suite:
+
+```text
+$ node_modules/.bin/supabase test db
+exit 0
+Files=1, Tests=211
+All tests successful.
+Result: PASS
+```
+
+### Corrected security and traceability decisions
+
+- Authenticated learners have CRUD only on `profiles`; SELECT/INSERT only on raw learner-owned `video_sources`, `video_snapshots`, `transcript_segments`, and `saved_items`; and SELECT only on the nine server-controlled tables. Explicit table grants and RLS policies enforce both layers.
+- `saved_items` now links to a snapshot under the same user and source through a composite foreign key.
+- Every expression occurrence has non-null source and saved-item links. Composite foreign keys require its source, sense, snapshot, and saved item to agree on user/source/snapshot identity.
+- An invoker-security trigger with a fixed `pg_catalog` search path rejects duplicate stable segment IDs and IDs not present in the occurrence's own snapshot. PUBLIC execute is revoked.
+- Frozen relational language checks now cover transcript, expression sense, occurrence evidence, practice-task, and attempt fields. Tests also prove exact source strings survive unchanged.
+- The seed uses a fixed, known non-secret bcrypt fixture hash and exact timestamps for both auth/profile users and all source, snapshot, and segment rows. It contains no runtime hash or clock generation.
+
+The service-role boundary remains intentional: server workers bypass RLS and therefore must always supply and scope by explicit `user_id`. Delete behavior remains `RESTRICT`; an account-erasure flow still requires an explicit audited dependency order.
+
+Generated types were regenerated from the corrected local database with the same mechanical command documented above; only the CLI-added final blank line was removed.
+
+### Final independent audit correction
+
+The final read-only audit found that the first SQL Chinese detector used overly broad CJK ranges and therefore did not exactly match Task 2's frozen ECMAScript `\p{Script=Han}` contract. Focused pgTAP regressions proved that U+2FF0 `⿰` and U+31C0 `㇀` were incorrectly accepted:
+
+```text
+$ node_modules/.bin/supabase test db
+exit 1
+Files=1, Tests=213
+2 failed (assertions 190 and 195)
+```
+
+The SQL detector now uses the exact contiguous code-point intervals derived locally from the repository runtime's `\p{Script=Han}` regex. After a clean reset, both non-Han symbol regressions and the full suite pass:
+
+```text
+$ node_modules/.bin/supabase db reset
+exit 0
+
+$ node_modules/.bin/supabase test db
+exit 0
+Files=1, Tests=213
+All tests successful.
+Result: PASS
+```

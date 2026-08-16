@@ -40,16 +40,26 @@ begin
 
   for character_index in 1..char_length(value) loop
     code_point := ascii(substr(value, character_index, 1));
-    if code_point between x'2e80'::integer and x'2fff'::integer
+    if code_point between x'2e80'::integer and x'2e99'::integer
+      or code_point between x'2e9b'::integer and x'2ef3'::integer
+      or code_point between x'2f00'::integer and x'2fd5'::integer
       or code_point in (x'3005'::integer, x'3007'::integer)
       or code_point between x'3021'::integer and x'3029'::integer
       or code_point between x'3038'::integer and x'303b'::integer
-      or code_point between x'31c0'::integer and x'31ef'::integer
       or code_point between x'3400'::integer and x'4dbf'::integer
       or code_point between x'4e00'::integer and x'9fff'::integer
-      or code_point between x'f900'::integer and x'faFF'::integer
-      or code_point between x'20000'::integer and x'2fa1f'::integer
-      or code_point between x'30000'::integer and x'323af'::integer then
+      or code_point between x'f900'::integer and x'fa6d'::integer
+      or code_point between x'fa70'::integer and x'fad9'::integer
+      or code_point between x'16fe2'::integer and x'16fe3'::integer
+      or code_point between x'16ff0'::integer and x'16ff6'::integer
+      or code_point between x'20000'::integer and x'2a6df'::integer
+      or code_point between x'2a700'::integer and x'2b81d'::integer
+      or code_point between x'2b820'::integer and x'2cead'::integer
+      or code_point between x'2ceb0'::integer and x'2ebe0'::integer
+      or code_point between x'2ebf0'::integer and x'2ee5d'::integer
+      or code_point between x'2f800'::integer and x'2fa1d'::integer
+      or code_point between x'30000'::integer and x'3134a'::integer
+      or code_point between x'31350'::integer and x'33479'::integer then
       return true;
     end if;
   end loop;
@@ -340,6 +350,7 @@ create table public.video_snapshots (
   captured_at timestamptz not null,
   created_at timestamptz not null default now(),
   constraint video_snapshot_owner_key unique (id, user_id),
+  constraint video_snapshot_owner_source_key unique (id, user_id, video_source_id),
   constraint video_snapshot_source_owner_fk foreign key (video_source_id, user_id)
     references public.video_sources(id, user_id) on delete restrict,
   constraint video_snapshot_text_check check (
@@ -378,8 +389,8 @@ create table public.transcript_segments (
   ),
   constraint transcript_segment_position_check check (position between 0 and 100000),
   constraint transcript_segment_text_check check (
-    length(btrim(original_chinese)) between 1 and 10000
-    and (english_translation is null or length(btrim(english_translation)) between 1 and 10000)
+    private.is_target_chinese(original_chinese, 10000)
+    and (english_translation is null or private.is_basic_latin_english(english_translation, 10000))
   ),
   constraint transcript_segment_time_check check (
     start_seconds between 0 and 604800
@@ -407,10 +418,11 @@ create table public.saved_items (
   updated_at timestamptz not null default now(),
   constraint saved_item_owner_key unique (id, user_id),
   constraint saved_item_owner_source_key unique (id, user_id, video_source_id),
+  constraint saved_item_owner_source_snapshot_key unique (id, user_id, video_source_id, snapshot_id),
   constraint saved_item_source_owner_fk foreign key (video_source_id, user_id, youtube_video_id)
     references public.video_sources(id, user_id, youtube_video_id) on delete restrict,
-  constraint saved_item_snapshot_owner_fk foreign key (snapshot_id, user_id)
-    references public.video_snapshots(id, user_id) on delete restrict,
+  constraint saved_item_snapshot_owner_fk foreign key (snapshot_id, user_id, video_source_id)
+    references public.video_snapshots(id, user_id, video_source_id) on delete restrict,
   constraint saved_item_kind_check check (kind in (
     'video', 'player_moment', 'subtitle_row', 'subtitle_selection', 'key_quote', 'ai_explanation'
   )),
@@ -520,18 +532,19 @@ create table public.expression_senses (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint expression_sense_owner_key unique (id, user_id),
+  constraint expression_sense_owner_source_key unique (id, user_id, video_source_id),
   constraint expression_sense_source_owner_fk foreign key (video_source_id, user_id)
     references public.video_sources(id, user_id) on delete restrict,
   constraint expression_sense_save_owner_fk foreign key (saved_item_id, user_id, video_source_id)
     references public.saved_items(id, user_id, video_source_id) on delete restrict,
   constraint expression_sense_text_check check (
-    length(btrim(expression_text)) between 1 and 200
-    and length(btrim(normalized_expression_text)) between 1 and 200
-    and length(btrim(english_meaning)) between 1 and 500
-    and length(btrim(english_explanation)) between 1 and 2000
-    and length(btrim(tone)) between 1 and 200
-    and length(btrim(communicative_function)) between 1 and 300
-    and length(btrim(register)) between 1 and 200
+    private.is_target_chinese(expression_text, 200)
+    and private.is_target_chinese(normalized_expression_text, 200)
+    and private.is_basic_latin_english(english_meaning, 500)
+    and private.is_basic_latin_english(english_explanation, 2000)
+    and private.is_basic_latin_english(tone, 200)
+    and private.is_basic_latin_english(communicative_function, 300)
+    and private.is_basic_latin_english(register, 200)
   )
 );
 
@@ -543,9 +556,10 @@ create index expression_senses_expression_trgm_idx
 create table public.expression_occurrences (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete restrict,
+  video_source_id uuid not null,
   expression_sense_id uuid not null,
   snapshot_id uuid not null,
-  saved_item_id uuid,
+  saved_item_id uuid not null,
   evidence_text text not null,
   segment_ids text[] not null,
   start_seconds numeric not null,
@@ -553,19 +567,64 @@ create table public.expression_occurrences (
   confidence numeric not null,
   created_at timestamptz not null default now(),
   constraint expression_occurrence_owner_key unique (id, user_id),
-  constraint expression_occurrence_sense_owner_fk foreign key (expression_sense_id, user_id)
-    references public.expression_senses(id, user_id) on delete restrict,
-  constraint expression_occurrence_snapshot_owner_fk foreign key (snapshot_id, user_id)
-    references public.video_snapshots(id, user_id) on delete restrict,
-  constraint expression_occurrence_save_owner_fk foreign key (saved_item_id, user_id)
-    references public.saved_items(id, user_id) on delete restrict,
-  constraint expression_occurrence_evidence_check check (length(btrim(evidence_text)) between 1 and 2000),
+  constraint expression_occurrence_source_owner_fk foreign key (video_source_id, user_id)
+    references public.video_sources(id, user_id) on delete restrict,
+  constraint expression_occurrence_sense_owner_fk foreign key (expression_sense_id, user_id, video_source_id)
+    references public.expression_senses(id, user_id, video_source_id) on delete restrict,
+  constraint expression_occurrence_snapshot_owner_fk foreign key (snapshot_id, user_id, video_source_id)
+    references public.video_snapshots(id, user_id, video_source_id) on delete restrict,
+  constraint expression_occurrence_save_owner_fk foreign key (saved_item_id, user_id, video_source_id, snapshot_id)
+    references public.saved_items(id, user_id, video_source_id, snapshot_id) on delete restrict,
+  constraint expression_occurrence_evidence_check check (private.is_target_chinese(evidence_text, 2000)),
   constraint expression_occurrence_segments_check check (private.are_valid_stable_segment_ids(segment_ids)),
   constraint expression_occurrence_time_check check (
     start_seconds between 0 and 604800 and end_seconds between start_seconds and 604800
   ),
   constraint expression_occurrence_confidence_check check (confidence between 0 and 1)
 );
+
+create function private.validate_expression_occurrence_segments()
+returns trigger
+language plpgsql
+security invoker
+set search_path = pg_catalog
+as $$
+begin
+  if cardinality(new.segment_ids) <> (
+    select count(distinct supplied.stable_id)::integer
+    from unnest(new.segment_ids) as supplied(stable_id)
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'expression occurrence segment_ids must not contain duplicates';
+  end if;
+
+  if exists (
+    select 1
+    from unnest(new.segment_ids) as supplied(stable_id)
+    where not exists (
+      select 1
+      from public.transcript_segments as segment
+      where segment.user_id = new.user_id
+        and segment.snapshot_id = new.snapshot_id
+        and segment.stable_id = supplied.stable_id
+    )
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'expression occurrence segment_ids must exist in the owned snapshot';
+  end if;
+
+  return new;
+end
+$$;
+
+revoke all on function private.validate_expression_occurrence_segments() from public;
+
+create trigger expression_occurrence_segments_validate
+before insert or update of user_id, snapshot_id, segment_ids
+on public.expression_occurrences
+for each row execute function private.validate_expression_occurrence_segments();
 
 create table public.user_expressions (
   id uuid primary key default gen_random_uuid(),
@@ -601,10 +660,10 @@ create table public.practice_tasks (
   constraint practice_task_kind_check check (kind in ('use_it_now', 'due_practice')),
   constraint practice_task_language_check check (native_language = 'en' and target_language = 'zh-CN'),
   constraint practice_task_text_check check (
-    length(btrim(target_expression)) between 1 and 200
-    and length(btrim(prompt_chinese)) between 1 and 2000
-    and length(btrim(instructions_english)) between 1 and 1000
-    and length(btrim(goal_english)) between 1 and 1000
+    private.is_target_chinese(target_expression, 200)
+    and private.is_target_chinese(prompt_chinese, 2000)
+    and private.is_basic_latin_english(instructions_english, 1000)
+    and private.is_basic_latin_english(goal_english, 1000)
   ),
   constraint practice_task_due_check check (
     (kind = 'use_it_now' and due_at is null) or (kind = 'due_practice' and due_at is not null)
@@ -634,15 +693,15 @@ create table public.attempts (
     references public.practice_tasks(id, user_id, user_expression_id) on delete restrict,
   constraint attempt_expression_owner_fk foreign key (user_expression_id, user_id)
     references public.user_expressions(id, user_id) on delete restrict,
-  constraint attempt_response_check check (length(btrim(response_chinese)) between 1 and 5000),
+  constraint attempt_response_check check (private.is_target_chinese(response_chinese, 5000)),
   constraint attempt_score_check check (
     accuracy_score between 1 and 5 and naturalness_score between 1 and 5
     and contextual_fit_score between 1 and 5
   ),
   constraint attempt_feedback_check check (
-    length(btrim(accuracy_feedback_english)) between 1 and 2000
-    and length(btrim(naturalness_feedback_english)) between 1 and 2000
-    and length(btrim(contextual_fit_feedback_english)) between 1 and 2000
+    private.is_basic_latin_english(accuracy_feedback_english, 2000)
+    and private.is_basic_latin_english(naturalness_feedback_english, 2000)
+    and private.is_basic_latin_english(contextual_fit_feedback_english, 2000)
   ),
   constraint attempt_assistance_check check (assistance_level in ('none', 'hint', 'model_answer')),
   constraint attempt_independent_check check (not independent_use or assistance_level = 'none')
