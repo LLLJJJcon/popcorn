@@ -20,6 +20,7 @@ const JOB_TYPES = new Set<KnowledgeJobType>([
 ]);
 
 type LeasedJob = Extract<KnowledgeJob, { status: "leased" }>;
+type TerminalFailedJob = Extract<KnowledgeJob, { status: "terminal_failed" }>;
 export type FailedJob = Extract<
   KnowledgeJob,
   { status: "retryable_failed" | "terminal_failed" }
@@ -27,6 +28,7 @@ export type FailedJob = Extract<
 
 export type LeaseDecision =
   | { readonly kind: "leased"; readonly job: LeasedJob }
+  | { readonly kind: "exhausted"; readonly job: TerminalFailedJob }
   | {
       readonly kind: "not_eligible";
       readonly job: KnowledgeJob;
@@ -94,7 +96,17 @@ export function leaseJob(job: KnowledgeJob, now: string): LeaseDecision {
 
   assertOperationalAttemptCount(job.attemptCount, 0);
   if (job.attemptCount === MAX_JOB_ATTEMPTS) {
-    throw new RangeError(`attempt count cannot exceed ${MAX_JOB_ATTEMPTS}`);
+    return {
+      kind: "exhausted",
+      job: {
+        ...job,
+        status: "terminal_failed",
+        nextAttemptAt: null,
+        leaseExpiresAt: null,
+        lastErrorCode: "JOB_RETRY_EXHAUSTED",
+        updatedAt: now,
+      },
+    };
   }
 
   return {
@@ -129,17 +141,13 @@ export function retryDelayMs(completedAttemptCount: number): number {
 }
 
 function normalizeErrorCategory(error: string): string {
-  const normalized = error.trim();
-  if (
-    normalized.length === 0 ||
-    [...normalized].length > ERROR_CATEGORY_MAX_LENGTH
-  ) {
+  if (error.trim().length === 0 || error.length > ERROR_CATEGORY_MAX_LENGTH) {
     throw new RangeError(
       `error category must contain 1 to ${ERROR_CATEGORY_MAX_LENGTH} characters`,
     );
   }
 
-  return normalized;
+  return error;
 }
 
 export function nextJobFailure(
@@ -183,7 +191,7 @@ function assertHash(value: string, field: string): void {
 }
 
 function assertVersion(value: string, field: string): void {
-  if (value.trim().length === 0 || [...value].length > 100) {
+  if (value.trim().length === 0 || value.length > 100) {
     throw new TypeError(`${field} must contain 1 to 100 characters`);
   }
 }

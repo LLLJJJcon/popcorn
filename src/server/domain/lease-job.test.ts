@@ -115,10 +115,56 @@ describe("leaseJob", () => {
     },
   );
 
-  test("rejects an attempt that would exceed the operational maximum", () => {
-    expect(() => leaseJob(job({ attemptCount: 5 }), NOW)).toThrow(
-      /attempt count/i,
-    );
+  test.each([
+    job({ attemptCount: MAX_JOB_ATTEMPTS }),
+    job({
+      status: "retryable_failed",
+      attemptCount: MAX_JOB_ATTEMPTS,
+      nextAttemptAt: NOW,
+      lastErrorCode: "PROVIDER_UNAVAILABLE",
+    }),
+    job({
+      status: "leased",
+      attemptCount: MAX_JOB_ATTEMPTS,
+      leaseExpiresAt: NOW,
+    }),
+    job({
+      status: "leased",
+      attemptCount: MAX_JOB_ATTEMPTS,
+      leaseExpiresAt: "2026-08-15T23:59:59.999Z",
+    }),
+  ])("terminalizes otherwise-eligible jobs at the attempt limit", (input) => {
+    const before = structuredClone(input);
+
+    expect(leaseJob(input, NOW)).toEqual({
+      kind: "exhausted",
+      job: {
+        ...input,
+        status: "terminal_failed",
+        nextAttemptAt: null,
+        leaseExpiresAt: null,
+        lastErrorCode: "JOB_RETRY_EXHAUSTED",
+        updatedAt: NOW,
+      },
+    });
+    expect(input).toEqual(before);
+  });
+
+  test("keeps an active fifth lease ineligible until it expires", () => {
+    const input = job({
+      status: "leased",
+      attemptCount: MAX_JOB_ATTEMPTS,
+      leaseExpiresAt: "2026-08-16T00:00:00.001Z",
+    });
+    const before = structuredClone(input);
+    const decision = leaseJob(input, NOW);
+
+    expect(decision).toEqual({
+      kind: "not_eligible",
+      job: input,
+      reason: "active_lease",
+    });
+    expect(input).toEqual(before);
   });
 });
 
@@ -200,6 +246,60 @@ describe("nextJobFailure", () => {
     },
   );
 
+  test("accepts exactly 100 UTF-16 units and preserves surrounding whitespace", () => {
+    const error = `  ${"E".repeat(96)}  `;
+    const failed = nextJobFailure(
+      job({
+        status: "leased",
+        attemptCount: 1,
+        leaseExpiresAt: "2026-08-16T00:05:00.000Z",
+      }),
+      error,
+      NOW,
+    );
+
+    expect(error.length).toBe(100);
+    expect(failed.lastErrorCode).toBe(error);
+  });
+
+  test("uses UTF-16 units for astral error-category boundaries", () => {
+    const astral = "😀";
+    const fifty = astral.repeat(50);
+    const fiftyOne = astral.repeat(51);
+    const input = job({
+      status: "leased",
+      attemptCount: 1,
+      leaseExpiresAt: "2026-08-16T00:05:00.000Z",
+    });
+
+    expect(fifty.length).toBe(100);
+    expect(
+      nextJobFailure(input, fifty, NOW).lastErrorCode,
+    ).toBe(fifty);
+    expect(fiftyOne.length).toBe(102);
+    expect(() => nextJobFailure(input, fiftyOne, NOW)).toThrow(
+      /error category/i,
+    );
+  });
+
+  test("rejects a nonblank error whose original UTF-16 length exceeds 100", () => {
+    const error = `${" ".repeat(100)}X`;
+
+    expect(error.trim()).toBe("X");
+    expect(error.length).toBe(101);
+    expect(() =>
+      nextJobFailure(
+        job({
+          status: "leased",
+          attemptCount: 1,
+          leaseExpiresAt: "2026-08-16T00:05:00.000Z",
+        }),
+        error,
+        NOW,
+      ),
+    ).toThrow(/error category/i);
+  });
+
   test("rejects leased attempt underflow and overflow", () => {
     const invalidUnderflow = {
       ...job({ status: "leased", attemptCount: 1, leaseExpiresAt: NOW }),
@@ -261,4 +361,51 @@ describe("createJobResultKey", () => {
       createJobResultKey({ ...input, promptVersion: "a", modelVersion: "bc" }),
     );
   });
+
+  test.each(["promptVersion", "modelVersion"] as const)(
+    "uses UTF-16 units for the %s boundary",
+    (field) => {
+      const exactlyOneHundred = "😀".repeat(50);
+      const oneHundredTwo = "😀".repeat(51);
+
+      expect(exactlyOneHundred.length).toBe(100);
+      expect(() =>
+        createJobResultKey({ ...input, [field]: exactlyOneHundred }),
+      ).not.toThrow();
+      expect(oneHundredTwo.length).toBe(102);
+      expect(() =>
+        createJobResultKey({ ...input, [field]: oneHundredTwo }),
+      ).toThrow(new RegExp(field, "i"));
+    },
+  );
+
+  test.each(["promptVersion", "modelVersion"] as const)(
+    "accepts exactly 100 ASCII units and rejects 101 for %s",
+    (field) => {
+      expect(() =>
+        createJobResultKey({ ...input, [field]: "x".repeat(100) }),
+      ).not.toThrow();
+      expect(() =>
+        createJobResultKey({ ...input, [field]: "x".repeat(101) }),
+      ).toThrow(new RegExp(field, "i"));
+    },
+  );
+
+  test.each(["promptVersion", "modelVersion"] as const)(
+    "checks nonblank after trimming but length before trimming for %s",
+    (field) => {
+      const withinLimit = `  ${"v".repeat(96)}  `;
+      const overLimit = `${" ".repeat(100)}X`;
+
+      expect(withinLimit.length).toBe(100);
+      expect(createJobResultKey({ ...input, [field]: withinLimit })).not.toBe(
+        createJobResultKey({ ...input, [field]: withinLimit.trim() }),
+      );
+      expect(overLimit.trim()).toBe("X");
+      expect(overLimit.length).toBe(101);
+      expect(() => createJobResultKey({ ...input, [field]: overLimit })).toThrow(
+        new RegExp(field, "i"),
+      );
+    },
+  );
 });

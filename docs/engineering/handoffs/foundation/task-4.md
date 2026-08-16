@@ -99,3 +99,62 @@ None. Frozen contracts, migrations, generated database types, root configuration
 - If a fifth lease expires after worker termination, the processor must classify that exhausted job rather than attempting a sixth lease.
 - Review scheduling deliberately requires a canonical millisecond UTC `Z` clock from the server. Database timestamps used only for eligibility remain governed by the frozen contract.
 - Immediately after the commit, the implementer runs `git status --short` and reports the clean result with the actual commit SHA to the controller.
+
+## Independent review corrective follow-up
+
+This corrective iteration is based on Task 4 commit `0b4cd13e9a578ec5d3622666d92d25fd368ec29e` and addresses two Important findings without changing any frozen contract, migration, generated type, root configuration, package, lockfile, upstream file, or later-task file.
+
+### Durable final-lease recovery
+
+`LeaseDecision` now has an explicit `exhausted` branch containing a schema-compatible `terminal_failed` job. An otherwise-eligible pending, due-retry, or expired-lease job already at `MAX_JOB_ATTEMPTS` is terminalized with:
+
+- the stable `JOB_RETRY_EXHAUSTED` error category;
+- `nextAttemptAt: null` and `leaseExpiresAt: null`;
+- the injected `updatedAt` clock;
+- unchanged identity and `attemptCount`;
+- no input mutation and no sixth lease.
+
+An active fifth lease remains `not_eligible` until its expiry boundary. Equality and past-expiry are both exhausted deterministically, so worker termination cannot strand a final lease in a throw/retry loop.
+
+### Frozen UTF-16 string semantics
+
+Error categories, `promptVersion`, and `modelVersion` now apply the frozen Zod semantics to the original JavaScript string:
+
+- `.trim()` is used only to prove the original value is nonblank;
+- the original string's UTF-16 `.length` must be at most 100;
+- accepted values, including leading/trailing whitespace, remain byte-for-byte unchanged in the failure state or result-key serialization.
+
+Regression coverage includes 100 versus 101 UTF-16 units, 50 versus 51 astral characters, a 101-unit value consisting of 100 spaces plus `X`, and accepted 100-unit spaced values preserved exactly.
+
+### Corrective RED/GREEN evidence
+
+Tests were changed before production code. Against `0b4cd13e9a578ec5d3622666d92d25fd368ec29e`:
+
+```text
+$ pnpm vitest run src/server/domain/mastery.test.ts src/server/domain/schedule-review.test.ts src/server/domain/lease-job.test.ts
+exit 1
+Test Files 1 failed | 2 passed (3)
+Tests 9 failed | 56 passed (65)
+```
+
+The nine expected failures were four otherwise-eligible max-attempt jobs throwing instead of terminalizing, one whitespace-preservation failure, two over-limit error-category failures, and two astral prompt/model version boundary failures.
+
+After the minimal corrective implementation:
+
+```text
+$ pnpm vitest run src/server/domain/mastery.test.ts src/server/domain/schedule-review.test.ts src/server/domain/lease-job.test.ts
+exit 0
+Test Files 3 passed (3)
+Tests 65 passed (65)
+
+$ CI=true pnpm typecheck
+exit 0; tsc --noEmit
+
+$ CI=true pnpm test:contract
+exit 0; Test Files 1 passed (1); Tests 128 passed (128)
+
+$ CI=true pnpm test:unit
+exit 0; Test Files 6 passed (6); Tests 74 passed (74)
+```
+
+The remaining integration responsibility is unchanged: a worker receiving `kind: "exhausted"` must persist the supplied terminal state atomically under the job's explicit `userId` scope.
