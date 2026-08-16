@@ -313,6 +313,41 @@ export type Database = {
           },
         ]
       }
+      knowledge_job_internal: {
+        Row: {
+          created_at: string
+          input: Json
+          knowledge_job_id: string
+          result: Json | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          input?: Json
+          knowledge_job_id: string
+          result?: Json | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          input?: Json
+          knowledge_job_id?: string
+          result?: Json | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_job_internal_owner_fk"
+            columns: ["knowledge_job_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_jobs"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
       knowledge_jobs: {
         Row: {
           attempt_count: number
@@ -784,7 +819,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      capture_saved_item: {
+        Args: {
+          p_captured_at: string
+          p_client_event_id: string
+          p_kind: string
+          p_payload: Json
+          p_start_seconds: number
+          p_youtube_video_id: string
+        }
+        Returns: {
+          saved_item_id: string
+          status: string
+          video_source_id: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

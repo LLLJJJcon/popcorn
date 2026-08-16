@@ -17,6 +17,7 @@ from (
     ('saved_items'),
     ('generated_artifacts'),
     ('knowledge_jobs'),
+    ('knowledge_job_internal'),
     ('expression_senses'),
     ('expression_occurrences'),
     ('user_expressions'),
@@ -199,9 +200,9 @@ select extensions.is(
   (select count(*)::integer from pg_class c join pg_namespace n on n.oid = c.relnamespace
    where n.nspname = 'public' and c.relkind = 'r'
      and c.relname = any(array['profiles','video_sources','video_snapshots','transcript_segments',
-       'saved_items','generated_artifacts','knowledge_jobs','expression_senses','expression_occurrences',
+       'saved_items','generated_artifacts','knowledge_jobs','knowledge_job_internal','expression_senses','expression_occurrences',
        'user_expressions','practice_tasks','attempts','mastery_events','review_tasks']) and c.relrowsecurity),
-  14,
+  15,
   'RLS is enabled on every public application table'
 );
 
@@ -209,10 +210,10 @@ select extensions.is(
   (select count(*)::integer from information_schema.columns
    where table_schema = 'public'
      and table_name = any(array['profiles','video_sources','video_snapshots','transcript_segments',
-       'saved_items','generated_artifacts','knowledge_jobs','expression_senses','expression_occurrences',
+       'saved_items','generated_artifacts','knowledge_jobs','knowledge_job_internal','expression_senses','expression_occurrences',
        'user_expressions','practice_tasks','attempts','mastery_events','review_tasks'])
      and column_name = 'user_id' and is_nullable = 'NO'),
-  14,
+  15,
   'every public application table has a direct non-null user_id'
 );
 
@@ -220,10 +221,10 @@ select extensions.is(
   (select count(*)::integer from information_schema.columns
    where table_schema = 'public'
      and table_name = any(array['profiles','video_sources','video_snapshots','transcript_segments',
-       'saved_items','generated_artifacts','knowledge_jobs','expression_senses','expression_occurrences',
+       'saved_items','generated_artifacts','knowledge_jobs','knowledge_job_internal','expression_senses','expression_occurrences',
        'user_expressions','practice_tasks','attempts','mastery_events','review_tasks'])
      and column_name = 'created_at' and is_nullable = 'NO' and column_default like '%now()%'),
-  14,
+  15,
   'every public application table has a non-null created_at default'
 );
 
@@ -1313,6 +1314,249 @@ select extensions.results_eq(
     ('30000000-0000-4000-8000-000000000003'::uuid,'seg-a-3','请你试着用它造一个新句子。',
       '2026-08-16 10:00:03+00'::timestamptz)$$,
   'all seeded transcript IDs, raw strings, and timestamps are exact');
+
+-- Batch A capture contract: clients get one atomic idempotent entrypoint while
+-- provider coordination remains service-role-only durable state.
+select extensions.ok(
+  (select c.relrowsecurity
+   from pg_class c join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public' and c.relname = 'knowledge_job_internal'),
+  'internal job metadata has RLS enabled');
+
+select extensions.is(
+  (select count(*)::integer from pg_policies
+   where schemaname = 'public' and tablename = 'knowledge_job_internal'),
+  0,
+  'internal job metadata has no client policies');
+
+select extensions.is(
+  (select count(*)::integer from information_schema.role_table_grants
+   where table_schema = 'public' and table_name = 'knowledge_job_internal'
+     and grantee in ('anon', 'authenticated')),
+  0,
+  'internal job metadata grants nothing to direct clients');
+
+select extensions.set_eq(
+  $$select privilege_type from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'knowledge_job_internal'
+      and grantee = 'service_role'$$,
+  $$values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')$$,
+  'service role has explicit CRUD on internal job metadata');
+
+select extensions.is(
+  (select count(*)::integer from information_schema.role_table_grants
+   where table_schema = 'public' and grantee = 'service_role'
+     and table_name = any(array['profiles','video_sources','video_snapshots','transcript_segments',
+       'saved_items','generated_artifacts','knowledge_jobs','knowledge_job_internal','expression_senses',
+       'expression_occurrences','user_expressions','practice_tasks','attempts','mastery_events','review_tasks'])
+     and privilege_type = any(array['SELECT','INSERT','UPDATE','DELETE'])),
+  60,
+  'service role has explicit CRUD on every owner-bearing application table');
+
+select extensions.is(
+  (select count(*)::integer from information_schema.role_table_grants
+   where table_schema = 'public' and grantee = 'service_role'
+     and table_name = any(array['profiles','video_sources','video_snapshots','transcript_segments',
+       'saved_items','generated_artifacts','knowledge_jobs','knowledge_job_internal','expression_senses',
+       'expression_occurrences','user_expressions','practice_tasks','attempts','mastery_events','review_tasks'])
+     and privilege_type <> all(array['SELECT','INSERT','UPDATE','DELETE'])),
+  0,
+  'service role receives no schema-management or trigger privileges');
+
+select extensions.ok(
+  (select p.prosecdef and p.proconfig @> array['search_path=pg_catalog']
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'capture_saved_item'),
+  'capture RPC is security-definer with a fixed pg_catalog search path');
+
+select extensions.is(
+  (select count(*)::integer from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'capture_saved_item'),
+  1,
+  'capture RPC has exactly one public overload');
+
+select extensions.ok(
+  has_function_privilege('authenticated',
+    'public.capture_saved_item(text,uuid,text,timestamp with time zone,numeric,jsonb)', 'execute')
+  and not has_function_privilege('anon',
+    'public.capture_saved_item(text,uuid,text,timestamp with time zone,numeric,jsonb)', 'execute')
+  and not has_function_privilege('public',
+    'public.capture_saved_item(text,uuid,text,timestamp with time zone,numeric,jsonb)', 'execute'),
+  'only authenticated clients can execute the capture RPC');
+
+create temporary table capture_results (
+  label text primary key,
+  video_source_id uuid not null,
+  saved_item_id uuid not null,
+  status text not null
+);
+grant select, insert on table capture_results to authenticated, service_role;
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', :'user_a', true);
+
+insert into capture_results
+select 'first', result.*
+from public.capture_saved_item(
+  'abc123XYZ00',
+  'ca000000-0000-4000-8000-000000000001',
+  'player_moment',
+  '2026-08-17 01:02:03+00',
+  42,
+  '{"capturedSecond":42}'::jsonb
+) as result;
+
+select extensions.is(
+  (select status from capture_results where label = 'first'),
+  'saved',
+  'capture returns the saved status immediately');
+
+select extensions.results_eq(
+  $$select s.user_id, s.youtube_video_id, s.canonical_url, i.kind, i.status,
+      i.captured_at, i.start_seconds, i.payload
+    from capture_results r
+    join public.video_sources s on s.id = r.video_source_id
+    join public.saved_items i on i.id = r.saved_item_id
+    where r.label = 'first'$$,
+  $$values (
+    '00000000-0000-4000-8000-00000000a001'::uuid,
+    'abc123XYZ00'::text,
+    'https://www.youtube.com/watch?v=abc123XYZ00'::text,
+    'player_moment'::text,
+    'saved'::text,
+    '2026-08-17 01:02:03+00'::timestamptz,
+    42::numeric,
+    '{"capturedSecond":42}'::jsonb
+  )$$,
+  'capture derives owner/canonical URL and persists the exact raw save');
+
+select extensions.results_eq(
+  $$select j.user_id, j.video_source_id, j.saved_item_id, j.job_type, j.status,
+      length(j.dedupe_key), j.dedupe_key ~ '^[a-f0-9]{64}$'
+    from capture_results r
+    join public.knowledge_jobs j on j.saved_item_id = r.saved_item_id
+    where r.label = 'first'$$,
+  $$select '00000000-0000-4000-8000-00000000a001'::uuid,
+      r.video_source_id, r.saved_item_id, 'resolve_snapshot'::text, 'pending'::text,
+      64, true
+    from capture_results r where r.label = 'first'$$,
+  'capture enqueues one directly owned pending resolution job with lowercase SHA-256');
+
+insert into capture_results
+select 'replay', result.*
+from public.capture_saved_item(
+  'abc123XYZ00',
+  'ca000000-0000-4000-8000-000000000001',
+  'player_moment',
+  '2026-08-17 01:02:03+00',
+  99,
+  '{"capturedSecond":99}'::jsonb
+) as result;
+
+select extensions.results_eq(
+  $$select replay.video_source_id = first.video_source_id,
+      replay.saved_item_id = first.saved_item_id,
+      (select payload from public.saved_items where id = first.saved_item_id),
+      (select count(*) from public.knowledge_jobs where saved_item_id = first.saved_item_id)
+    from capture_results first cross join capture_results replay
+    where first.label = 'first' and replay.label = 'replay'$$,
+  $$values (true, true, '{"capturedSecond":42}'::jsonb, 1::bigint)$$,
+  'same client event replays original IDs/payload and creates no second job');
+
+insert into capture_results
+select 'same-time-new-event', result.*
+from public.capture_saved_item(
+  'abc123XYZ00',
+  'ca000000-0000-4000-8000-000000000002',
+  'player_moment',
+  '2026-08-17 01:02:03+00',
+  42,
+  '{"capturedSecond":42}'::jsonb
+) as result;
+
+select extensions.ok(
+  (select a.saved_item_id <> b.saved_item_id and a.video_source_id = b.video_source_id
+   from capture_results a cross join capture_results b
+   where a.label = 'first' and b.label = 'same-time-new-event'),
+  'same timestamp with a new event ID is a distinct save on the same source');
+
+select extensions.is(
+  (select count(*) from public.knowledge_jobs j
+   join capture_results r on r.saved_item_id = j.saved_item_id
+   where r.label in ('first', 'same-time-new-event')),
+  2::bigint,
+  'each distinct raw save has exactly one resolution job');
+
+reset role;
+set local role service_role;
+
+select extensions.lives_ok(
+  $$insert into public.knowledge_job_internal (knowledge_job_id, user_id, input, result)
+    select j.id, j.user_id, '{"providerJobId":"private-123"}'::jsonb,
+      '{"providerStatus":"pending"}'::jsonb
+    from public.knowledge_jobs j
+    join capture_results r on r.saved_item_id = j.saved_item_id
+    where r.label = 'first'$$,
+  'service role persists private provider job state');
+
+select extensions.results_eq(
+  $$select m.input, m.result from public.knowledge_job_internal m
+    join public.knowledge_jobs j on j.id = m.knowledge_job_id
+    join capture_results r on r.saved_item_id = j.saved_item_id
+    where r.label = 'first'$$,
+  $$values ('{"providerJobId":"private-123"}'::jsonb,
+      '{"providerStatus":"pending"}'::jsonb)$$,
+  'private provider state preserves exact JSON objects');
+
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', :'user_a', true);
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.knowledge_job_internal$$,
+  '42501',
+  'authenticated owner cannot read private provider state directly');
+
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', :'user_b', true);
+
+insert into capture_results
+select 'user-b-same-event', result.*
+from public.capture_saved_item(
+  'abc123XYZ00',
+  'ca000000-0000-4000-8000-000000000001',
+  'player_moment',
+  '2026-08-17 01:02:03+00',
+  42,
+  '{"capturedSecond":42}'::jsonb
+) as result;
+
+select extensions.ok(
+  (select b.video_source_id <> a.video_source_id and b.saved_item_id <> a.saved_item_id
+   from capture_results a cross join capture_results b
+   where a.label = 'first' and b.label = 'user-b-same-event'),
+  'the same event ID under another user creates separately owned rows');
+
+select extensions.is(
+  (select count(*) from public.saved_items i
+   join capture_results r on r.saved_item_id = i.id
+   where r.label = 'user-b-same-event' and i.user_id = :'user_b'),
+  1::bigint,
+  'capture derives user B ownership from auth.uid');
+
+reset role;
+set local role anon;
+select set_config('request.jwt.claim.sub', '', true);
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.capture_saved_item(
+      'abc123XYZ00', 'ca000000-0000-4000-8000-000000000009', 'player_moment',
+      '2026-08-17 01:02:03+00', 42, '{"capturedSecond":42}'::jsonb)$$,
+  '42501',
+  'anonymous callers cannot execute capture');
+
+reset role;
 
 select extensions.finish();
 rollback;
