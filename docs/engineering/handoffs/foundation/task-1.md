@@ -64,3 +64,13 @@ The worktree's pre-existing package-link layer could not resolve `@testing-libra
 ### Changed files
 
 Updated `tests/provenance/youtube-digest.test.ts` to assert effective Git ignore behavior with `git check-ignore` and to require the manifest-host ownership record. Updated `extension/UPSTREAM.md` to assign Batch A Task 1 the Supadata/DeepSeek manifest-host removal while retaining only approved YouTube and Popcorn API/auth hosts. Appended this review-fix evidence; `.gitignore` and all vendored extension bytes remain unchanged.
+
+## Review fixes, round 3
+
+### RED
+
+Temporarily reversed the two `.gitignore` rules to `!.env.example` followed by `.env*` without committing that mutation. `CI=true pnpm test:provenance` exited 1: 1 test file failed, with 1 failed and 2 passed tests. The expected failure was `tests/provenance/youtube-digest.test.ts > keeps local environment files out of source control while allowing the template`, where `expect(isIgnored(".env.example")).toBe(false)` received `true`.
+
+### GREEN
+
+Restored the safe `.gitignore` order to `.env*` followed by `!.env.example`. `CI=true pnpm test:provenance` exited 0: 1 test file passed and 3 tests passed. The regression now invokes `git check-ignore --quiet --no-index`, so the tracked `.env.example` is evaluated against the actual ignore-rule order.

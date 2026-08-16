@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 function isIgnored(path: string): boolean {
-  const result = spawnSync("git", ["check-ignore", "--quiet", path], {
+  const result = spawnSync("git", ["check-ignore", "--quiet", "--no-index", path], {
     cwd: process.cwd(),
     encoding: "utf8",
   });
