@@ -1,0 +1,59 @@
+name: Foundation CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: true
+      POPCORN_PROVIDER_MODE: fixtures
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11.19.0"
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify web, contracts, and fixture-backed tests
+        run: pnpm verify
+
+      - name: Verify the pinned extension release surface
+        run: pnpm test:extension
+
+      - name: Start local Supabase
+        run: node_modules/.bin/supabase start
+
+      - name: Apply clean migrations and seed
+        run: pnpm db:reset
+
+      - name: Run database pgTAP tests
+        run: pnpm db:test
+
+      - name: Check the pinned vendor script syntax
+        run: bash -n scripts/vendor-youtube-digest.sh
+
+      - name: Check patch whitespace
+        run: git diff --check
+
+      - name: Stop local Supabase
+        if: ${{ always() }}
+        run: node_modules/.bin/supabase stop --no-backup

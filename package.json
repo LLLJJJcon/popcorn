@@ -13,6 +13,7 @@
     "test:contract": "vitest run tests/contract",
     "test:integration": "vitest run tests/integration --passWithNoTests",
     "test:provenance": "vitest run tests/provenance --passWithNoTests",
+    "test:extension": "node --test --test-name-pattern='^(?:notes filters preserve selected contrast and expose pressed state|runtime has no source-file credential dependency or retired model|retired Remix and reader files are absent|published prompt files contain runtime sections)$' extension/tests/release.test.js",
     "test:e2e": "playwright test --pass-with-no-tests",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:provenance && pnpm build",
     "db:reset": "supabase db reset",
