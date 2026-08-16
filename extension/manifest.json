@@ -1,43 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "YouTube Digest",
+  "name": "Popcorn",
   "version": "1.1.5",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwCqbcBXdGdia3oJvACtGMBap22g36NWOq+NVdPSIAJtMhu76C1MY0jh+thRWP9PXlmbFLBWiiXNELws4dDfl69fQVqE6zBd914tWY4doEXhFWker+yq2DfexhuLSb57PcdBW2rK1xXRDVt9BO22FTwjlDmOop+TccRwVdJHu772CH1vnRaDWb+FnMkGd8Ep1iKhqhPpWxeG2tJSZALWIwbNV9qqJ8/fTnTftXePahN6ggq0uNtX/SIdDALg9rRwuG0KJzBLtodmHf0fuZy+JfLJ4bxUQxUFhjtLX5S28jE/XZtrwH/8gtZ8L43gDQ5MZHVRjr1YCoCeLlagEQLmHfQIDAQAB",
   "minimum_chrome_version": "116",
-  "description": "Turn YouTube videos into learning resources with transcripts, bilingual translation, AI overviews, and notes.",
-  "permissions": ["sidePanel", "storage", "tabs", "scripting"],
+  "description": "Save useful Chinese YouTube moments to your Popcorn account.",
+  "permissions": ["sidePanel", "storage", "tabs", "scripting", "identity", "alarms"],
   "host_permissions": [
     "https://www.youtube.com/*",
-    "https://api.supadata.ai/*",
-    "https://api.deepseek.com/*"
+    "https://app.popcorn.local/*",
+    "https://project.supabase.co/*"
   ],
   "action": {
-    "default_title": "Open YouTube Digest",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
-    }
+    "default_title": "Open Popcorn",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
   },
-  "side_panel": {
-    "default_path": "sidepanel.html"
-  },
-  "background": {
-    "service_worker": "background.js"
-  },
-  "options_ui": {
-    "page": "options.html",
-    "open_in_tab": true
-  },
-  "content_scripts": [
-    {
-      "matches": ["https://www.youtube.com/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ],
-  "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  }
+  "side_panel": { "default_path": "sidepanel.html" },
+  "background": { "service_worker": "background.js" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "content_scripts": [{ "matches": ["https://www.youtube.com/*"], "js": ["content.js"], "run_at": "document_idle" }],
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
 }
