@@ -1159,6 +1159,23 @@ select pg_temp.rejects_state_clean(
   '23514', 'occurrence rejects duplicate segment IDs');
 
 -- Frozen language validators apply to every relational text family.
+select extensions.results_eq(
+  $$update expression_senses
+      set expression_text = repeat(U&'\+020000', 100)
+      where id = '70000000-0000-4000-8000-000000000001'
+      returning length(expression_text)$$,
+  $$values (100)$$,
+  'expression text accepts supplementary Han at exactly 200 UTF-16 code units');
+update expression_senses
+set expression_text = '太离谱了'
+where id = '70000000-0000-4000-8000-000000000001';
+
+select pg_temp.rejects_state_clean(
+  $$update expression_senses
+      set expression_text = repeat(U&'\+020000', 101)
+      where id = '70000000-0000-4000-8000-000000000001'$$,
+  '23514', 'expression text rejects supplementary Han above 200 UTF-16 code units');
+
 select pg_temp.rejects_state_clean(
   $$update transcript_segments set original_chinese = 'Latin only'
     where id = '30000000-0000-4000-8000-000000000001'$$,

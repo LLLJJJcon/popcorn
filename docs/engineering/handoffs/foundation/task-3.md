@@ -178,3 +178,33 @@ Files=1, Tests=213
 All tests successful.
 Result: PASS
 ```
+
+### UTF-16 length-boundary review correction
+
+This corrective iteration is based on commit `416a72fcb70015f7f30e293c69559cad45a86fb7`. The frozen Task 2 Zod limits count JavaScript UTF-16 code units, while PostgreSQL `length(text)` counts Unicode code points. Consequently, supplementary Han characters were undercounted by the SQL validator.
+
+Focused relational pgTAP assertions first proved that 100 copies of U+20000 (exactly 200 UTF-16 code units) were accepted and that 101 copies (202 UTF-16 code units) were incorrectly accepted:
+
+```text
+$ node_modules/.bin/supabase test db
+exit 1
+Files=1, Tests=215
+Failed test 190: expression text rejects supplementary Han above 200 UTF-16 code units
+Failed 1/215 subtests
+Result: FAIL
+```
+
+`private.is_target_chinese` now scans the entire value, counts BMP code points as one UTF-16 unit and supplementary code points as two, rejects the value once it exceeds the supplied maximum, and independently tracks whether the value contains a character in the exact frozen `Script=Han` intervals. Existing nonblank behavior and the separate ASCII-English validator are unchanged.
+
+```text
+$ node_modules/.bin/supabase db reset
+exit 0
+
+$ node_modules/.bin/supabase test db
+exit 0
+Files=1, Tests=215
+All tests successful.
+Result: PASS
+```
+
+The change affects validator behavior only and does not change any database row, relationship, or enum shape, so generated TypeScript types were intentionally not regenerated in this iteration.

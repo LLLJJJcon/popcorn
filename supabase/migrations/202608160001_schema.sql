@@ -33,13 +33,20 @@ as $$
 declare
   character_index integer;
   code_point integer;
+  utf16_length integer := 0;
+  has_han boolean := false;
 begin
-  if value is null or length(btrim(value)) = 0 or length(value) > maximum_length then
+  if value is null or length(btrim(value)) = 0 then
     return false;
   end if;
 
   for character_index in 1..char_length(value) loop
     code_point := ascii(substr(value, character_index, 1));
+    utf16_length := utf16_length + case when code_point > x'ffff'::integer then 2 else 1 end;
+    if utf16_length > maximum_length then
+      return false;
+    end if;
+
     if code_point between x'2e80'::integer and x'2e99'::integer
       or code_point between x'2e9b'::integer and x'2ef3'::integer
       or code_point between x'2f00'::integer and x'2fd5'::integer
@@ -60,10 +67,10 @@ begin
       or code_point between x'2f800'::integer and x'2fa1d'::integer
       or code_point between x'30000'::integer and x'3134a'::integer
       or code_point between x'31350'::integer and x'33479'::integer then
-      return true;
+      has_han := true;
     end if;
   end loop;
-  return false;
+  return has_han;
 end
 $$;
 
