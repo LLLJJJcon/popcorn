@@ -109,6 +109,75 @@ describe("shared contracts", () => {
     ).toMatchObject({ kind: "subtitle_selection" });
   });
 
+  it("preserves subtitle-selection text and context byte-for-byte", () => {
+    const save = {
+      ...baseSave,
+      kind: "subtitle_selection" as const,
+      originalChinese: " \t这也太离谱了吧。\n",
+      englishTranslation: "  That is way too absurd.  ",
+      segmentIds: ["seg-42"],
+      startSeconds: 42,
+      endSeconds: 48,
+      startOffset: 0,
+      endOffset: 9,
+      contextBefore: [" \n你刚才看到了吗？\t"],
+      contextAfter: ["  我完全没想到。  "],
+    };
+
+    expect(SavedItemInputSchema.parse(save)).toEqual(save);
+  });
+
+  it("preserves a key quote byte-for-byte", () => {
+    const save = {
+      ...baseSave,
+      kind: "key_quote" as const,
+      exactQuote: " \t这也太离谱了吧。\n",
+      quoteSeconds: 42,
+      segmentIds: ["seg-42"],
+    };
+
+    expect(SavedItemInputSchema.parse(save)).toEqual(save);
+  });
+
+  it("preserves an AI explanation's selected text and explanation byte-for-byte", () => {
+    const save = {
+      ...baseSave,
+      kind: "ai_explanation" as const,
+      selectedChinese: " \t太离谱了\n",
+      englishExplanation: "  A colloquial way to say something is unreasonable.  ",
+      segmentIds: ["seg-42"],
+      startSeconds: 42,
+      endSeconds: 48,
+      contextBefore: [" \n你刚才看到了吗？\t"],
+      contextAfter: ["  我完全没想到。  "],
+    };
+
+    expect(SavedItemInputSchema.parse(save)).toEqual(save);
+  });
+
+  it("preserves candidate evidence and its English explanation byte-for-byte", () => {
+    const candidate = makeCandidateExpression({
+      evidenceText: " \t这也太离谱了吧。\n",
+      englishExplanation: "  An emphatic reaction to something unreasonable.  ",
+    });
+
+    expect(CandidateExpressionSchema.parse(candidate)).toEqual(candidate);
+  });
+
+  it("rejects segment identifiers with surrounding whitespace", () => {
+    expect(() =>
+      SavedItemInputSchema.parse({
+        ...makeSavedItemInput(),
+        segmentIds: [" seg-42 "],
+      }),
+    ).toThrow();
+    expect(() =>
+      CandidateExpressionSchema.parse(
+        makeCandidateExpression({ segmentIds: [" seg-42 "] }),
+      ),
+    ).toThrow();
+  });
+
   it("rejects arbitrary URLs and deferred input kinds", () => {
     expect(() =>
       SavedItemInputSchema.parse({

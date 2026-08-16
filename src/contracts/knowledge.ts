@@ -1,21 +1,14 @@
 import { z } from "zod";
 
 import {
+  EnglishTextSchema,
   NativeLanguageSchema,
+  StableSegmentIdSchema,
   TargetChineseTextSchema,
   TargetLanguageSchema,
 } from "./source";
 
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
-const EnglishTextSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(5_000)
-  .refine(
-    (value) => /[A-Za-z]/.test(value) && !/\p{Script=Han}/u.test(value),
-    "Expected English text",
-  );
 
 export const GeneratedArtifactTypeSchema = z.enum([
   "overview",
@@ -79,7 +72,7 @@ export const CandidateExpressionSchema = z
     communicativeFunction: EnglishTextSchema.max(300),
     register: EnglishTextSchema.max(200),
     evidenceText: TargetChineseTextSchema.max(2_000),
-    segmentIds: z.array(z.string().trim().min(1).max(200)).min(1).max(32),
+    segmentIds: z.array(StableSegmentIdSchema).min(1).max(32),
     startSeconds: z.number().finite().min(0).max(604_800),
     endSeconds: z.number().finite().min(0).max(604_800),
     confidence: z.number().finite().min(0).max(1),

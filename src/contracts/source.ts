@@ -29,18 +29,25 @@ export const CanonicalYouTubeUrlSchema = z
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
 const SecondSchema = z.number().finite().min(0).max(604_800);
 const OffsetSchema = z.number().int().min(0).max(100_000);
-const StableSegmentIdSchema = z.string().trim().min(1).max(200);
+export const StableSegmentIdSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine(
+    (value) => value.trim().length > 0 && value.trim() === value,
+    "Expected a nonblank segment ID without surrounding whitespace",
+  );
 export const TargetChineseTextSchema = z
   .string()
-  .trim()
   .min(1)
   .max(10_000)
+  .refine((value) => value.trim().length > 0, "Expected nonblank Chinese text")
   .refine((value) => /\p{Script=Han}/u.test(value), "Expected Chinese text");
-const EnglishTextSchema = z
+export const EnglishTextSchema = z
   .string()
-  .trim()
   .min(1)
   .max(10_000)
+  .refine((value) => value.trim().length > 0, "Expected nonblank English text")
   .refine(
     (value) => /[A-Za-z]/.test(value) && !/\p{Script=Han}/u.test(value),
     "Expected English text",

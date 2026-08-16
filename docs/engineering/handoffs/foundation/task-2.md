@@ -46,3 +46,19 @@ Controller-owned root config follow-up: baseline `package.json` maps `test:contr
 ## Risks and follow-up
 
 No unresolved Task 2 implementation risk. By controller decision, Task 2 enforces non-empty Han text and the literal `zh-CN` contract discriminator; it does not pretend a partial character denylist can prove orthography. Exhaustive returned-language and Simplified-Chinese content verification remains mandatory at the already-specified later transcript/provider boundary, and this decision does not permit provider fallback languages. Provider credentials remain server-only and empty in `.env.example`.
+
+## Review fixes
+
+Addressed the Important review finding that shared exact-content schemas transformed input with `.trim()`, severing text and identifier traceability from unchanged offsets and source references.
+
+### RED
+
+Before production changes, `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts` exited 1 with 5 expected failures (15 passed): subtitle-selection text/context, `key_quote.exactQuote`, AI selected text/explanation/context, and candidate `evidenceText`/English explanation were returned without their surrounding whitespace; whitespace-padded segment IDs were accepted after normalization.
+
+### GREEN
+
+`src/contracts/source.ts` now retains original values while refining Chinese and English text to be nonblank via `value.trim().length > 0`; it also rejects, rather than normalizes, segment IDs with surrounding whitespace. `src/contracts/knowledge.ts` reuses those non-transforming shared schemas for candidate English text and segment IDs. `tests/contract/shared-contracts.test.ts` adds byte-for-byte round-trip coverage for representative `subtitle_selection`, `key_quote`, `ai_explanation`, and candidate evidence/explanation payloads, plus rejection coverage for padded identifiers.
+
+Fresh verification exited 0: focused Task 2 command `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts src/server/env.test.ts src/server/api/respond.test.ts` (3 files, 28 tests); direct `CI=true pnpm vitest run tests/contract` (1 file, 20 tests); `CI=true pnpm typecheck`; `CI=true pnpm lint`; and `git diff --check`.
+
+Risk: text-length limits now apply to the preserved raw value rather than its formerly normalized value; this is intentional so the contract does not mutate source-grounded content. Language, bounds, offsets, and discriminants otherwise remain unchanged.
