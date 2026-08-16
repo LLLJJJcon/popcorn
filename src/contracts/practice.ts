@@ -9,9 +9,9 @@ import {
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
 const EnglishTextSchema = z
   .string()
-  .trim()
   .min(1)
   .max(5_000)
+  .refine((value) => value.trim().length > 0, "Expected nonblank English text")
   .refine(
     (value) => /[A-Za-z]/.test(value) && !/\p{Script=Han}/u.test(value),
     "Expected English text",

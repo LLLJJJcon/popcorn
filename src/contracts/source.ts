@@ -29,6 +29,10 @@ export const CanonicalYouTubeUrlSchema = z
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
 const SecondSchema = z.number().finite().min(0).max(604_800);
 const OffsetSchema = z.number().int().min(0).max(100_000);
+const NonblankStringSchema = z
+  .string()
+  .min(1)
+  .refine((value) => value.trim().length > 0, "Expected a nonblank string");
 export const StableSegmentIdSchema = z
   .string()
   .min(1)
@@ -75,13 +79,13 @@ export const VideoSourceSchema = z
 export const VideoSnapshotSchema = z.strictObject({
   id: z.string().uuid(),
   sourceId: z.string().uuid(),
-  title: z.string().trim().min(1).max(300),
-  channel: z.string().trim().min(1).max(200),
+  title: NonblankStringSchema.max(300),
+  channel: NonblankStringSchema.max(200),
   thumbnailUrl: z.string().url().max(2_048),
   durationSeconds: SecondSchema,
   description: z.string().max(5_000),
   transcriptLanguage: TargetLanguageSchema,
-  transcriptHash: z.string().trim().min(1).max(200),
+  transcriptHash: NonblankStringSchema.max(200),
   capturedAt: IsoDateTimeSchema,
 });
 
@@ -128,8 +132,8 @@ const saveVariants = {
   video: {
     kind: z.literal("video"),
     canonicalUrl: CanonicalYouTubeUrlSchema,
-    title: z.string().trim().min(1).max(300),
-    channel: z.string().trim().min(1).max(200),
+    title: NonblankStringSchema.max(300),
+    channel: NonblankStringSchema.max(200),
     thumbnailUrl: z.string().url().max(2_048),
     durationSeconds: SecondSchema,
     description: z.string().max(5_000),

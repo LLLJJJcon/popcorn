@@ -9,6 +9,10 @@ import {
 } from "./source";
 
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
+const NonblankStringSchema = z
+  .string()
+  .min(1)
+  .refine((value) => value.trim().length > 0, "Expected a nonblank string");
 
 export const GeneratedArtifactTypeSchema = z.enum([
   "overview",
@@ -27,8 +31,8 @@ export const GeneratedArtifactSchema = z.strictObject({
   nativeLanguage: NativeLanguageSchema,
   targetLanguage: TargetLanguageSchema,
   content: z.record(z.string(), z.unknown()),
-  promptVersion: z.string().trim().min(1).max(100),
-  model: z.string().trim().min(1).max(100),
+  promptVersion: NonblankStringSchema.max(100),
+  model: NonblankStringSchema.max(100),
   createdAt: IsoDateTimeSchema,
 });
 
@@ -58,7 +62,7 @@ export const KnowledgeJobSchema = z.strictObject({
   attemptCount: z.number().int().min(0).max(20),
   nextAttemptAt: IsoDateTimeSchema.nullable(),
   leaseExpiresAt: IsoDateTimeSchema.nullable(),
-  lastErrorCode: z.string().trim().min(1).max(100).nullable(),
+  lastErrorCode: NonblankStringSchema.max(100).nullable(),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
 });

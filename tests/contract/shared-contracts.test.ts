@@ -1,13 +1,16 @@
 import {
+  ApiFailureSchema,
   ApiErrorCodeSchema,
   CandidateExpressionListSchema,
   CandidateExpressionSchema,
+  EvaluationResultSchema,
   KnowledgeJobTypeSchema,
   MasteryStateSchema,
   PracticeTaskSchema,
   SavedItemInputSchema,
   TargetLanguageSchema,
   TranscriptSegmentSchema,
+  VideoSnapshotSchema,
   VideoSourceSchema,
 } from "@/contracts";
 import { makeCandidateExpression, makePracticeTask } from "../factories/practice";
@@ -153,6 +156,110 @@ describe("shared contracts", () => {
     };
 
     expect(SavedItemInputSchema.parse(save)).toEqual(save);
+  });
+
+  it("preserves video snapshot title and channel byte-for-byte", () => {
+    const snapshot = {
+      id: "00000000-0000-4000-8000-000000000011",
+      sourceId: "00000000-0000-4000-8000-000000000001",
+      title: " \t中文访谈\n",
+      channel: "  中文频道  ",
+      thumbnailUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+      durationSeconds: 213,
+      description: "一段中文访谈。",
+      transcriptLanguage: "zh-CN",
+      transcriptHash: "hash-1",
+      capturedAt: "2026-08-16T10:00:00.000Z",
+    };
+
+    expect(VideoSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+  });
+
+  it("preserves video save title and channel byte-for-byte", () => {
+    const save = {
+      ...baseSave,
+      kind: "video" as const,
+      canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: " \t中文访谈\n",
+      channel: "  中文频道  ",
+      thumbnailUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+      durationSeconds: 213,
+      description: "一段中文访谈。",
+      currentTimeSeconds: 42,
+      requestNativeTranscript: true as const,
+    };
+
+    expect(SavedItemInputSchema.parse(save)).toEqual(save);
+  });
+
+  it("preserves practice prompt and context byte-for-byte", () => {
+    const task = makePracticeTask({
+      promptEnglish: " \tReact to a friend.\n",
+      contextEnglish: "  You are chatting informally.  ",
+    });
+
+    expect(PracticeTaskSchema.parse(task)).toEqual(task);
+  });
+
+  it("preserves evaluation feedback byte-for-byte", () => {
+    const evaluation = {
+      passed: true,
+      score: 0.98,
+      englishFeedback: " \tThat sounded natural.\n",
+      independentUse: true,
+      assistanceLevel: "none" as const,
+    };
+
+    expect(EvaluationResultSchema.parse(evaluation)).toEqual(evaluation);
+  });
+
+  it("preserves API failure messages byte-for-byte", () => {
+    const failure = {
+      ok: false as const,
+      error: {
+        code: "SYNC_RETRYING" as const,
+        message: " \tThe save is queued for another attempt.\n",
+        retryable: true,
+      },
+      requestId: "request-2",
+    };
+
+    expect(ApiFailureSchema.parse(failure)).toEqual(failure);
+  });
+
+  it("rejects raw values that exceed public text limits despite surrounding whitespace", () => {
+    const overlongTitle = ` ${"中".repeat(300)} `;
+    const overlongPrompt = ` ${"A".repeat(1_000)} `;
+    const overlongMessage = ` ${"A".repeat(500)} `;
+
+    expect(
+      VideoSnapshotSchema.safeParse({
+        id: "00000000-0000-4000-8000-000000000011",
+        sourceId: "00000000-0000-4000-8000-000000000001",
+        title: overlongTitle,
+        channel: "中文频道",
+        thumbnailUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+        durationSeconds: 213,
+        description: "一段中文访谈。",
+        transcriptLanguage: "zh-CN",
+        transcriptHash: "hash-1",
+        capturedAt: "2026-08-16T10:00:00.000Z",
+      }).success,
+    ).toBe(false);
+    expect(
+      PracticeTaskSchema.safeParse(makePracticeTask({ promptEnglish: overlongPrompt })).success,
+    ).toBe(false);
+    expect(
+      ApiFailureSchema.safeParse({
+        ok: false,
+        error: {
+          code: "SYNC_RETRYING",
+          message: overlongMessage,
+          retryable: true,
+        },
+        requestId: "request-2",
+      }).success,
+    ).toBe(false);
   });
 
   it("preserves candidate evidence and its English explanation byte-for-byte", () => {

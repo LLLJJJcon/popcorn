@@ -62,3 +62,21 @@ Before production changes, `CI=true pnpm vitest run tests/contract/shared-contra
 Fresh verification exited 0: focused Task 2 command `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts src/server/env.test.ts src/server/api/respond.test.ts` (3 files, 28 tests); direct `CI=true pnpm vitest run tests/contract` (1 file, 20 tests); `CI=true pnpm typecheck`; `CI=true pnpm lint`; and `git diff --check`.
 
 Risk: text-length limits now apply to the preserved raw value rather than its formerly normalized value; this is intentional so the contract does not mutate source-grounded content. Language, bounds, offsets, and discriminants otherwise remain unchanged.
+
+## Review fixes, round 2
+
+### RED
+
+Before changing production schemas, `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts src/server/env.test.ts src/server/api/respond.test.ts` exited 1. The added contract coverage produced 5 expected failures (28 tests still passed): `VideoSnapshot.title`/`channel`, `PracticeTask.promptEnglish`/`contextEnglish`, `EvaluationResult.englishFeedback`, and `ApiFailure.error.message` were trimmed instead of round-tripping byte-for-byte; a raw value over the declared title, prompt, or API-message limit was accepted when trimming made it fit.
+
+### GREEN
+
+Replaced every transforming `.trim()` contract schema in `src/contracts/api.ts`, `source.ts`, `practice.ts`, and `knowledge.ts` with raw-value `.min()`/`.max()` validation plus non-mutating nonblank refinements. `StableSegmentIdSchema` remains the intentional whitespace-rejecting identifier validation. `tests/contract/shared-contracts.test.ts` now covers representative video title/channel, practice prompt/context/evaluation feedback, API failure message round trips, and raw-length rejection at the video, practice, and API limits.
+
+Fresh `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts src/server/env.test.ts src/server/api/respond.test.ts` exited 0 (3 files, 34 tests). Direct `CI=true pnpm vitest run tests/contract` exited 0 (1 file, 26 tests); `CI=true pnpm typecheck`, `CI=true pnpm lint`, and `git diff --check` also exited 0. Completion review added distinct `SavedItemInputSchema` video-title/channel round-trip coverage; the review's proposed removal of this required append-only handoff was rejected because the task protocol mandates it.
+
+### Audit, files, and risks
+
+An audit with `rg -n '\\.trim\\(\\)' src/contracts` found 7 remaining calls, all inside boolean refinements; none transforms parsed output. Changed files are `src/contracts/api.ts`, `source.ts`, `practice.ts`, `knowledge.ts`, `tests/contract/shared-contracts.test.ts`, and this append-only handoff. No environment parsing, factory, identifier, enum, language, URL, ID, range, or maximum-length policy was broadened or relaxed.
+
+Risk: callers that relied on silent trimming of former public string fields now receive their submitted raw whitespace or a raw-length validation error. This is deliberate contract preservation; upstream callers that want normalization must do so before validation.
