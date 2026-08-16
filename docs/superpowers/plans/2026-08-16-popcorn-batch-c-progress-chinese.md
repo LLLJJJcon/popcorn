@@ -18,7 +18,7 @@
 
 ---
 
-### Task P0: Add pgvector relation schema
+### Task 1: Add pgvector relation schema
 
 **Agent:** Primary Agent
 
@@ -51,7 +51,7 @@ Run:
     git add supabase src/types/database.generated.ts
     git commit -m "feat: add expression similarity schema"
 
-### Task A1: Progress aggregation
+### Task 2: Progress aggregation
 
 **Agent:** Batch C Agent A
 
@@ -93,7 +93,7 @@ Run:
     git add src/server/repositories/progress-repository.ts src/features/progress/schema.ts src/app/api/v1/progress tests/integration/progress
     git commit -m "feat: add evidence-based progress summary"
 
-### Task A2: Progress and Expression Health pages
+### Task 3: Progress and Expression Health pages
 
 **Agent:** Batch C Agent A
 
@@ -137,7 +137,7 @@ Run:
     git add src/features/progress src/app/\(app\)/progress tests/e2e/progress.spec.ts
     git commit -m "feat: add progress and expression health"
 
-### Task B1: Embeddings and duplicate suggestions
+### Task 4: Embeddings and duplicate suggestions
 
 **Agent:** Batch C Agent B
 
@@ -176,7 +176,7 @@ Run:
     git add src/server/repositories/relation-repository.ts src/features/relations src/app/api/v1/vault tests/integration/relations
     git commit -m "feat: add Chinese expression relations"
 
-### Task B2: Related-expression presentation
+### Task 5: Related-expression presentation
 
 **Agent:** Batch C Agent B
 
@@ -208,7 +208,7 @@ Run:
     git add src/features/relations src/features/vault/expression-card.tsx
     git commit -m "feat: show related Chinese expressions"
 
-### Task C1: Chinese analysis regression set
+### Task 6: Chinese analysis regression set
 
 **Agent:** Batch C Agent C
 
@@ -254,7 +254,7 @@ Run:
     git add tests/fixtures/chinese tests/contract/ai/chinese-analysis.test.ts src/server/ai/prompts/scan-extract.v1.ts
     git commit -m "test: add Chinese analysis regression set"
 
-### Task C2: Chinese response evaluation regression set
+### Task 7: Chinese response evaluation regression set
 
 **Agent:** Batch C Agent C
 
@@ -292,7 +292,7 @@ Run:
     git add tests/fixtures/chinese tests/contract/ai/chinese-evaluation.test.ts src/features/chinese src/server/ai/prompts/evaluate.v1.ts
     git commit -m "test: add Chinese evaluation regression set"
 
-### Task C3: Mixed-script desktop rendering
+### Task 8: Mixed-script desktop rendering
 
 **Agent:** Batch C Agent C
 
@@ -322,7 +322,7 @@ Run:
     git add tests/e2e/chinese-rendering.spec.ts src/styles/tokens.css
     git commit -m "test: verify Chinese desktop rendering"
 
-### Task I-C: Primary-Agent integration gate
+### Task 9: Primary-Agent integration gate
 
 **Agent:** Primary Agent
 

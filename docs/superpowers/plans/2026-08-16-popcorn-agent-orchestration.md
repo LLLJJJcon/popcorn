@@ -22,6 +22,7 @@
 - Follow TDD: failing focused test, observed failure, minimal implementation, focused pass, broader pass, commit.
 - Shared contracts, migrations, root configuration, and integration routes are owned by the primary Agent.
 - Each parallel implementation Agent works in an isolated Git worktree and named branch; parallel Agents never share one writable checkout.
+- The primary Agent maintains committed handoff reports, docs/engineering/execution-ledger.md, and integration checkpoints; chat messages are not the progress record.
 
 ---
 
@@ -37,6 +38,8 @@
    docs/superpowers/plans/2026-08-16-popcorn-batch-c-progress-chinese.md
 5. Delivery:
    docs/superpowers/plans/2026-08-16-popcorn-delivery-demo.md
+6. Execution and recovery runbook:
+   docs/superpowers/plans/2026-08-16-popcorn-execution-runbook.md
 
 ## Dependency Graph
 

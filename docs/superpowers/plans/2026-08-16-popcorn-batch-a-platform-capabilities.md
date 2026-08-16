@@ -19,7 +19,7 @@
 
 ---
 
-### Task A1: Authentication and protected routing
+### Task 1: Authentication and protected routing
 
 **Agent:** Batch A Agent A
 
@@ -82,7 +82,7 @@ Run:
     git add src/features/auth src/app/\(auth\) src/app/\(app\)/layout.tsx src/proxy.ts tests/e2e/auth-profile.spec.ts
     git commit -m "feat: add authenticated desktop shell"
 
-### Task A2: Learner profile and navigation
+### Task 2: Learner profile and navigation
 
 **Agent:** Batch A Agent A
 
@@ -139,7 +139,7 @@ Run:
     git add src/features/profile src/app/\(app\)/profile src/app/\(app\)/app-shell.tsx
     git commit -m "feat: add Chinese learner profile"
 
-### Task B1: Text normalisation and persistence
+### Task 3: Text normalisation and persistence
 
 **Agent:** Batch A Agent B
 
@@ -191,7 +191,7 @@ Run:
     git add src/features/content src/server/repositories/content-repository.ts src/app/api/v1/content tests/integration/content
     git commit -m "feat: add Chinese text ingestion"
 
-### Task B2: Safe public URL ingestion
+### Task 4: Safe public URL ingestion
 
 **Agent:** Batch A Agent B
 
@@ -241,7 +241,7 @@ Run:
     git add src/features/content src/app/api/v1/content/url tests/integration/content
     git commit -m "feat: add safe public URL ingestion"
 
-### Task B3: Screenshot upload and signed access
+### Task 5: Screenshot upload and signed access
 
 **Agent:** Batch A Agent B
 
@@ -279,7 +279,7 @@ Run:
     git add src/features/content src/app/api/v1/content/image tests/integration/content
     git commit -m "feat: add private screenshot ingestion"
 
-### Task C1: OpenAI provider adapter and model configuration
+### Task 6: OpenAI provider adapter and model configuration
 
 **Agent:** Batch A Agent C
 
@@ -320,7 +320,7 @@ Run:
     git add src/server/ai tests/contract/ai
     git commit -m "feat: add typed OpenAI provider adapter"
 
-### Task C2: Versioned prompts and structured analysis
+### Task 7: Versioned prompts and structured analysis
 
 **Agent:** Batch A Agent C
 
@@ -368,7 +368,7 @@ Run:
     git add src/server/ai src/features/analysis tests/contract/ai
     git commit -m "feat: add structured Chinese analysis"
 
-### Task C3: AI run persistence, cache, and bounded retry
+### Task 8: AI run persistence, cache, and bounded retry
 
 **Agent:** Batch A Agent C
 
@@ -412,7 +412,7 @@ Run:
     git add src/server/ai src/server/repositories/ai-run-repository.ts tests/integration/ai
     git commit -m "feat: add versioned AI result cache"
 
-### Task I-A: Primary-Agent integration gate
+### Task 9: Primary-Agent integration gate
 
 **Agent:** Primary Agent
 

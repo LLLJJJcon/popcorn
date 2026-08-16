@@ -18,7 +18,7 @@
 
 ---
 
-### Task A1: Create and submit a practice task
+### Task 1: Create and submit a practice task
 
 **Agent:** Batch B Agent A
 
@@ -58,7 +58,7 @@ Run:
     git add src/features/practice src/app/api/v1/practice src/server/repositories/attempt-repository.ts tests/integration/practice
     git commit -m "feat: add learner-first practice task"
 
-### Task A2: Evaluate, revise, and record attempts
+### Task 2: Evaluate, revise, and record attempts
 
 **Agent:** Batch B Agent A
 
@@ -97,7 +97,7 @@ Run:
     git add src/features/practice src/app/api/v1/practice tests/integration/practice
     git commit -m "feat: add evaluated practice attempts"
 
-### Task B1: Create persistent Expression Cards
+### Task 3: Create persistent Expression Cards
 
 **Agent:** Batch B Agent B
 
@@ -142,7 +142,7 @@ Run:
     git add src/features/vault src/server/repositories/expression-repository.ts src/app/api/v1/vault tests/integration/memory
     git commit -m "feat: add persistent Expression Vault"
 
-### Task B2: Build Active Queue and reuse tasks
+### Task 4: Build Active Queue and reuse tasks
 
 **Agent:** Batch B Agent B
 
@@ -185,7 +185,7 @@ Run:
     git add src/features/queue src/server/repositories/review-task-repository.ts src/app/api/v1/queue tests/integration/memory
     git commit -m "feat: add Active Expression Queue"
 
-### Task C1: Shared desktop states and accessibility
+### Task 5: Shared desktop states and accessibility
 
 **Agent:** Batch B Agent C
 
@@ -225,7 +225,7 @@ Run:
     git add src/components src/styles tests/accessibility
     git commit -m "feat: add accessible desktop states"
 
-### Task I-B1: Connect AttemptRecorded to memory atomically
+### Task 6: Connect AttemptRecorded to memory atomically
 
 **Agent:** Primary Agent
 
@@ -264,7 +264,7 @@ Run:
     git add src/server/domain/record-attempt.ts src/app/api/v1/practice/attempts/route.ts tests/integration/learning-loop
     git commit -m "feat: connect attempts to expression memory"
 
-### Task I-B2: Complete the text learning-loop page
+### Task 7: Complete the text learning-loop page
 
 **Agent:** Primary Agent
 
