@@ -2,12 +2,12 @@
 
 ## Current position
 
-- Stage: foundation
-- Next task: Foundation Task 5
+- Stage: batch-a
+- Next task: Batch A wave 1 — Tasks 1, 2, and 4
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `0c8aa90495f1a2d11fc9a2d86e3d4453222043b4`
+- Last verified commit: `c790118dc89297af965dee8048a2722a98bee802`
 
 ## Preflight
 
@@ -28,6 +28,7 @@
 | Foundation | 2 | `codex/popcorn-foundation-2` plus controller root-gate branch | `b1739e0e229e48a54f0cbb8eae96fc236c8b00bd` | `f75cd8be49d4a3de8fe0335183b971737ff9f000`; root gate `e4a069d4779a85bf6d8e3f3b9e56a10a4183bb7b` | PASS; complete baseline review approved with no Critical, Important, or Minor issues after six independent TDD fix/re-review rounds; root gate independently approved | Integrated through `3e99b29218a2a4555d6c07f3671cc47e5f02a434`; `CI=true pnpm verify` passed; root contract 128/128; focused Task 2 136/136; unit 9/9; provenance 5/5; production build and `git diff --check` passed |
 | Foundation | 3 | `codex/popcorn-foundation-3` | `fdd29126ce745a7b77f06446b6af2e8f65c154b8` | `4626aef76829204ed89b662df6a59e6d5be62e7a` | PASS; fresh full-diff acceptance review approved with no Critical, Important, or Minor issues after security/traceability, exact Han-range, and UTF-16 boundary TDD corrections | Integrated through `2c67f80addbd548320759ccd1ead68f427b4b13c`; clean local reset applied both migrations and deterministic seed; pgTAP 215/215; `CI=true pnpm verify` passed with unit 9/9, contract 128/128, provenance 5/5, and production build; generated types matched the live database except the documented CLI trailing blank line; `git diff --check` passed |
 | Foundation | 4 | `codex/popcorn-foundation-4` | `0beb551beb0645f288ae221919eea67be1bcacc9` | `0b32e4dbbcb28578b334b46f8e6bbe2a54e2cd6b` | PASS; fresh full-diff review approved with no Critical, Important, or Minor issues after TDD corrections for exhausted fifth leases, exact UTF-16 string boundaries, and lossless lone-surrogate result-key identity | Integrated through `0c8aa90495f1a2d11fc9a2d86e3d4453222043b4`; focused domain 67/67; `CI=true pnpm verify` passed with unit 76/76, contract 128/128, provenance 5/5, and production build; pgTAP 215/215; `git diff --check` and worktree status clean |
+| Foundation | 5 | `codex/popcorn-foundation-5` | `04817e98e565f7e0c12f5d1916f96ff87edcbf9e` | `9447bb05232d268ecc934b2ff3364500da6c3a32` | PASS; fresh full-diff review approved with no Critical, Important, or Minor issues after the LLM Wiki method-only allowlist was corrected to the complete approved eight-method design; Cron/CI/static/ownership boundaries approved | Integrated through `c790118dc89297af965dee8048a2722a98bee802`; frozen install; unit 76/76; contract 128/128; provenance 11/11; extension static 4/4; production build; clean migrations 001–003; pgTAP 215/215; Cron catalog exactly one active every-minute runtime-Vault job; absent Vault secrets produced zero pg_net requests; e2e no-spec gate, vendor syntax, diff, and worktree status passed |
 
 ## Open concerns
 
@@ -38,6 +39,7 @@
 | DB-001 | Implementation boundary | Foundation Task 4 and later server workers | Service-role workers bypass RLS; the database cannot enforce tenant scoping for that role. `updated_at` is also an explicit application/worker responsibility. | Every worker read and mutation must include the job `user_id`; leasing/state transitions must set `updated_at` deterministically and receive focused tests. |
 | DELETE-001 | Deferred workflow | Batch C / Delivery | Foundation foreign keys intentionally use restrictive deletion rather than broad cascades. | Implement and test an explicit audited dependency-order account/source deletion workflow before release acceptance. |
 | HASH-001 | Frozen implementation boundary | Batch A/B job and artifact producers | Task 4 result keys use tagged, length-framed binary UTF-16LE values so every accepted JavaScript code-unit sequence remains distinct. Reconstructing a UTF-8 or ad-hoc concatenation elsewhere can create cache divergence or collisions. | All producers and cache lookups must call the frozen `createJobResultKey`; do not duplicate its serialization format. |
+| CI-001 | External execution | Controller / Delivery | The GitHub workflow is locally inspected and every command passed, but the hosted workflow cannot run until the branch is pushed or opened as a PR. | Run and record hosted CI before release integration; do not replace local fixture gates with live Providers. |
 
 ## Contract changes
 
@@ -45,6 +47,7 @@
 |---|---|---|---|---|
 | CONTRACT-001 | Controller; confirmed by user 2026-08-17 | Canonical design governs: include `UNSUPPORTED_YOUTUBE_PAGE`, `TRANSCRIPT_EMPTY`, and `SYNC_RETRYING` in the frozen `ApiFailure.code` union in addition to the Task 2 snippet. | `e7c67615d091fa00663c9cab504bec0c1c7eb448` | Foundation Task 2 and all later API consumers inherit the frozen 19-code union |
 | CONTRACT-002 | Controller review resolution 2026-08-17 | Freeze only deterministic language checks in shared schemas: literal `en`/`zh-CN`, Han presence for target text, and exact-preserved Basic-Latin/ASCII prose for English fields. Exhaustive semantic language and Simplified-Chinese validation belongs at Provider/transcript boundaries without adding a lockfile dependency here. | `e7c67615d091fa00663c9cab504bec0c1c7eb448` | Batch A transcript/AI adapters and Batch B Provider validators must enforce the deferred checks recorded as `LANG-001` |
+| FOUNDATION-FREEZE-001 | Controller after Foundation Tasks 1–5 review and exit gate | Freeze Foundation contracts, migrations 001–003, generated database types, deterministic mastery/scheduling/leasing/result-key rules, upstream/license policy, and ownership boundaries for all feature agents. Contract changes now require a controller-owned proposal and complete dependent re-verification. | `c790118dc89297af965dee8048a2722a98bee802` | Batch A Tasks 1–7, then all Batch B/C/Delivery consumers |
 
 ## File ownership
 
@@ -54,5 +57,5 @@
 
 ## Next dispatch
 
-- Foundation Task 5: add Vault-backed scheduled recovery, fixture-only CI gates, the no-GPL provenance test, and frozen agent/file ownership and upstream-reuse policies, then run the complete Foundation exit gate.
-- Execution is sequential through Foundation Task 5; no Batch A feature stream starts before the Foundation exit gate is recorded.
+- Batch A wave 1: dispatch Task 1 (extension/web authentication), Task 2 (native Chinese transcript resolution), and Task 4 (server AI artifacts/prompts) in three distinct worktrees with disjoint file ownership against frozen commit `c790118dc89297af965dee8048a2722a98bee802`.
+- Task 3 waits for Tasks 1 and 2. Tasks 5 and 6 wait for their declared upstream tasks and must be sequenced if their resolved file allowlists overlap. The controller owns Task 7 integration gate.
