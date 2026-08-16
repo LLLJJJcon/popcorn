@@ -3,11 +3,11 @@
 ## Current position
 
 - Stage: foundation
-- Next task: Foundation Task 1
+- Next task: Foundation Task 2
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `cc515558c899472dccb8e2fe6d21ef861970109b`
+- Last verified commit: `e21ba63d8c754aeb2a6ff92338b6eed59821a759`
 
 ## Preflight
 
@@ -24,6 +24,7 @@
 
 | Plan | Task | Branch | Base | Head | Review | Verification |
 |---|---:|---|---|---|---|---|
+| Foundation | 1 | `codex/popcorn-foundation-1` | `abb4a271a7bbe9d04ad3ace12615e853b8c50e85` | `8294e6bc11778e6e8ff90814cf2f5e0bd32aca38` | PASS; spec compliant and quality approved after independent fix/re-review loops | Integrated through `e21ba63d8c754aeb2a6ff92338b6eed59821a759`; `CI=true pnpm verify` passed; focused page/provenance 5/5; vendor syntax and `git diff --check` passed |
 
 ## Open concerns
 
@@ -44,5 +45,5 @@
 
 ## Next dispatch
 
-- Foundation Task 1: scaffold the web baseline and reproducible pinned YouTube Digest intake.
+- Foundation Task 2: define environment, API, source, knowledge, practice, and mastery contracts.
 - Execution is sequential through Foundation Task 5; no Batch A feature stream starts before the Foundation exit gate is recorded.
