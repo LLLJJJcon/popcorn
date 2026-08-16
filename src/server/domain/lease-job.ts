@@ -196,12 +196,23 @@ function assertVersion(value: string, field: string): void {
   }
 }
 
-function encodeComponent(name: string, value: string | null): string {
-  if (value === null) {
-    return `${Buffer.byteLength(name, "utf8")}:${name}:N;`;
-  }
+function encodeLength(value: number): Buffer {
+  const encoded = Buffer.allocUnsafe(4);
+  encoded.writeUInt32LE(value, 0);
+  return encoded;
+}
 
-  return `${Buffer.byteLength(name, "utf8")}:${name}:S${Buffer.byteLength(value, "utf8")}:${value};`;
+function encodeComponent(name: string, value: string | null): Buffer {
+  const nameBytes = Buffer.from(name, "utf8");
+  const valueBytes = value === null ? Buffer.alloc(0) : Buffer.from(value, "utf16le");
+
+  return Buffer.concat([
+    encodeLength(nameBytes.length),
+    nameBytes,
+    Buffer.from([value === null ? 0 : 1]),
+    encodeLength(valueBytes.length),
+    valueBytes,
+  ]);
 }
 
 export function createJobResultKey(input: JobResultKeyInput): string {
@@ -215,14 +226,14 @@ export function createJobResultKey(input: JobResultKeyInput): string {
   assertVersion(input.promptVersion, "promptVersion");
   assertVersion(input.modelVersion, "modelVersion");
 
-  const canonical = [
+  const canonical = Buffer.concat([
     encodeComponent("schema", "popcorn-job-result-key-v1"),
     encodeComponent("jobType", input.jobType),
     encodeComponent("sourceHash", input.sourceHash),
     encodeComponent("savedItemHash", input.savedItemHash),
     encodeComponent("promptVersion", input.promptVersion),
     encodeComponent("modelVersion", input.modelVersion),
-  ].join("");
+  ]);
 
-  return createHash("sha256").update(canonical, "utf8").digest("hex");
+  return createHash("sha256").update(canonical).digest("hex");
 }

@@ -408,4 +408,17 @@ describe("createJobResultKey", () => {
       );
     },
   );
+
+  test.each(["promptVersion", "modelVersion"] as const)(
+    "preserves distinct UTF-16 code units in %s result keys",
+    (field) => {
+      const keys = ["\uD800", "\uDC00", "\uFFFD"].map((value) =>
+        createJobResultKey({ ...input, [field]: value }),
+      );
+
+      expect(new Set(keys).size).toBe(3);
+      expect(keys).toEqual(keys.map((key) => key.toLowerCase()));
+      expect(keys.every((key) => /^[0-9a-f]{64}$/.test(key))).toBe(true);
+    },
+  );
 });

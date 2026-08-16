@@ -158,3 +158,56 @@ exit 0; Test Files 6 passed (6); Tests 74 passed (74)
 ```
 
 The remaining integration responsibility is unchanged: a worker receiving `kind: "exhausted"` must persist the supplied terminal state atomically under the job's explicit `userId` scope.
+
+## Lossless UTF-16 result-key corrective follow-up
+
+This corrective iteration is based on `5f500ecadc6d0f7069999c2bc56eca01016a3aec`. Review demonstrated that Node's UTF-8 string encoding replaces a lone high surrogate, lone low surrogate, and literal U+FFFD with the same UTF-8 replacement bytes. The prior string-framed canonical form therefore produced identical SHA-256 keys for three distinct accepted JavaScript strings.
+
+### Corrective RED/GREEN evidence
+
+Regression tests were added before changing serialization. Against `5f500ecadc6d0f7069999c2bc56eca01016a3aec`:
+
+```text
+$ pnpm vitest run src/server/domain/mastery.test.ts src/server/domain/schedule-review.test.ts src/server/domain/lease-job.test.ts
+exit 1
+Test Files 1 failed | 2 passed (3)
+Tests 2 failed | 65 passed (67)
+```
+
+Both failures were exact result-key collisions: the three `promptVersion` values and the same three `modelVersion` values each produced a key set of size 1 instead of 3.
+
+After the lossless binary framing implementation:
+
+```text
+$ pnpm vitest run src/server/domain/mastery.test.ts src/server/domain/schedule-review.test.ts src/server/domain/lease-job.test.ts
+exit 0
+Test Files 3 passed (3)
+Tests 67 passed (67)
+
+$ CI=true pnpm typecheck
+exit 0; tsc --noEmit
+
+$ CI=true pnpm test:contract
+exit 0; Test Files 1 passed (1); Tests 128 passed (128)
+
+$ CI=true pnpm test:unit
+exit 0; Test Files 6 passed (6); Tests 76 passed (76)
+```
+
+Existing null, component-change, cross-field, ambiguous-boundary, stability, and lowercase 64-hex assertions remain green.
+
+### Canonical binary format
+
+Every ordered component is encoded as one deterministic frame:
+
+```text
+uint32le name_byte_length
+UTF-8 field-name bytes
+uint8 value_kind                # 0 = null, 1 = string
+uint32le value_byte_length      # zero for null
+UTF-16LE original value bytes   # absent for null
+```
+
+Frames are concatenated in the fixed order `schema`, `jobType`, `sourceHash`, `savedItemHash`, `promptVersion`, `modelVersion` and hashed as binary with SHA-256. The explicit kind marker distinguishes null from an empty string, both name and value lengths prevent component-boundary ambiguity, fixed little-endian lengths make the byte stream process-independent, and UTF-16LE preserves every original JavaScript code unit without Unicode normalization or replacement.
+
+This changes every result-key digest from the pre-freeze Task 4 implementation because the canonical serialization format changed. No production provider results exist at Foundation time; all future producers and cache lookups must consume this single `createJobResultKey` implementation rather than reconstructing its byte format independently.
