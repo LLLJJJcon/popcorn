@@ -31,6 +31,7 @@
 | ID | Severity | Owner | Description | Required action |
 |---|---|---|---|---|
 | ENV-001 | External | Controller | Production credentials, provider terms approval, and deployment access may be required only after local acceptance. | Defer until Delivery Task 6; do not weaken fixture-backed checks. |
+| CONTRACT-001 | Blocking | User/Controller | The canonical design lists `UNSUPPORTED_YOUTUBE_PAGE`, `TRANSCRIPT_EMPTY`, and `SYNC_RETRYING`, but Foundation Task 2's explicit `ApiFailure.code` union omits them. | Decide whether the design's complete error taxonomy or the narrower Task 2 code snippet governs the frozen shared contract. |
 
 ## Contract changes
 
