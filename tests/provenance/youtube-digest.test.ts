@@ -9,3 +9,25 @@ test("pins and attributes the YouTube Digest intake", () => {
   expect(license).toContain("MIT License");
   expect(license).toContain("Copyright (c) 2026 Zara Zhang");
 });
+
+test("keeps local environment files out of source control while allowing the template", () => {
+  const gitignore = readFileSync(".gitignore", "utf8").split(/\r?\n/);
+
+  expect(gitignore).toContain(".env*");
+  expect(gitignore).toContain("!.env.example");
+});
+
+test("marks the vendored provider and export behaviors as downstream adaptation work", () => {
+  const upstream = readFileSync("extension/UPSTREAM.md", "utf8");
+
+  expect(upstream).toContain("This intake is non-shippable until adapted.");
+  expect(upstream).toContain(
+    "Batch A Task 3 replaces extension Provider calls in `extension/background.js` with Popcorn server/durable job APIs.",
+  );
+  expect(upstream).toContain(
+    "Batch A Tasks 1 and 3 remove client provider-key storage and direct provider hosts from `extension/background.js` and its supporting settings/options files.",
+  );
+  expect(upstream).toContain(
+    "Batch A Task 3 removes export behavior from `extension/sidepanel.js`; it is out of first-release scope.",
+  );
+});

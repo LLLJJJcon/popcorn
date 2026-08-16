@@ -3,4 +3,5 @@ node_modules/
 out/
 test-results/
 *.tsbuildinfo
-.env*.local
+.env*
+!.env.example

@@ -4,6 +4,12 @@ This directory is a verbatim allowlisted intake from [zarazhangrui/youtube-diges
 
 Reuse mode: copied exactly by `scripts/vendor-youtube-digest.sh`; no extension behavior has been regenerated or adapted in Foundation Task 1. Expected Popcorn adaptation and the owning later task are recorded per path below.
 
+This intake is non-shippable until adapted.
+
+- Batch A Task 3 replaces extension Provider calls in `extension/background.js` with Popcorn server/durable job APIs.
+- Batch A Tasks 1 and 3 remove client provider-key storage and direct provider hosts from `extension/background.js` and its supporting settings/options files.
+- Batch A Task 3 removes export behavior from `extension/sidepanel.js`; it is out of first-release scope.
+
 | Upstream source | Popcorn target | Reuse mode | Expected adaptation | Owning future task |
 | --- | --- | --- | --- | --- |
 | `manifest.json` | `extension/manifest.json` | Exact copy | Configure Popcorn extension linking | Batch A Task 1 |

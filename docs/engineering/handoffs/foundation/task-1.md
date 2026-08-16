@@ -32,3 +32,21 @@ None.
 
 ## Risks and follow-up
 No unresolved implementation risks. The vendored source is intentionally excluded from application lint because it is exact upstream reuse; its mapped future adaptation owners are documented in `extension/UPSTREAM.md`. `pnpm-workspace.yaml` explicitly permits the required `unrs-resolver` postinstall so the locked test tooling runs reproducibly.
+
+## Review fixes
+
+### RED
+
+`/private/tmp/popcorn-desktop-web/node_modules/.bin/vitest run tests/provenance/youtube-digest.test.ts --config /private/tmp/popcorn-provenance-vitest.config.mjs` exited 1 before the review fixes: 3 tests ran, with 2 failures. The environment assertion reported `expected [ 'node_modules/', '.next/', …(5) ] to include '.env*'`; the adaptation-map assertion reported that `extension/UPSTREAM.md` did not contain `This intake is non-shippable until adapted.`
+
+### GREEN
+
+`/private/tmp/popcorn-desktop-web/node_modules/.bin/vitest run tests/provenance/youtube-digest.test.ts --config /private/tmp/popcorn-provenance-vitest.config.mjs` exited 0 after the fixes: 1 file passed and 3 tests passed.
+
+### Changed files
+
+Updated `.gitignore` to ignore `.env*` while explicitly allowing `!.env.example`; updated `extension/UPSTREAM.md` to mark the intake non-shippable and assign provider-call, provider-key/direct-host, and export removals to the required Batch A tasks; extended `tests/provenance/youtube-digest.test.ts` with regression assertions; appended this handoff section.
+
+### Risks
+
+The worktree's pre-existing package-link layer could not resolve `@testing-library/jest-dom/vitest` for the normal Vitest config. After `pnpm fetch --frozen-lockfile --offline` recreated `node_modules` but reported a missing offline tarball, `pnpm install --frozen-lockfile` did not restore project-level package links or `.bin` entries. The focused test was therefore run with the read-only, already-installed Vitest binary from `/private/tmp/popcorn-desktop-web` and a temporary Node-only config; no tracked dependency or lockfile was changed. The required `pnpm test:provenance` command remains blocked locally by this environment issue and should be re-run from a hydrated install.
