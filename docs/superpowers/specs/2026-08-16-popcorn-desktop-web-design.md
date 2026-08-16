@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-16
 
-**Status:** Approved for implementation planning
+**Status:** Revised after user review; pending final approval
 
 **Product:** Popcorn Language
 
@@ -10,13 +10,13 @@
 
 ## 1. Objective
 
-Build a deployable desktop web application that helps intermediate language learners turn useful expressions from authentic content into expressions they can reuse independently.
+Build a deployable English-language desktop web application that helps native English speakers learning Mandarin Chinese turn useful expressions from authentic Chinese content into expressions they can reuse independently.
 
 The delivered product must demonstrate one persistent learning loop:
 
 1. A learner signs in and imports authentic content.
-2. The system analyses the content and identifies one to three useful expressions.
-3. The learner writes a personal response using a selected expression.
+2. The system analyses the Chinese content and identifies one to three useful Chinese expressions.
+3. The learner writes a personal response in Chinese using a selected expression.
 4. The system evaluates accuracy, naturalness, and contextual fit.
 5. The attempt and expression are saved to the learner's cloud memory.
 6. The expression returns later in a new context.
@@ -29,15 +29,17 @@ The application must be a working full-stack product with authenticated cloud pe
 ### 2.1 Included
 
 - Desktop web application built with Next.js and TypeScript.
+- English interface copy, navigation, instructions, system messages, and AI explanations.
+- Mandarin Chinese learning content and learner output, using Simplified Chinese characters in the first release.
 - Supabase authentication, PostgreSQL, Storage, Row Level Security, and pgvector.
-- Learner profile with native language, target language, approximate level, and learning goal.
+- Learner profile with approximate Chinese level and learning goal; the first release fixes the native language to English and target language to Mandarin Chinese.
 - Import through pasted text, public URL, and image or screenshot upload.
 - Deterministic AI pipeline for content scanning, expression extraction, task activation, and response evaluation.
 - Expression Vault with persistent Expression Cards and attempt history.
 - Behavioural mastery states: `seen`, `understood`, `tried`, `reused`, and `owned`.
 - Active Queue and due reuse tasks.
 - Progress page with weekly activity, mastery distribution, and transfer evidence.
-- English as the primary target-language flow and Japanese as the second target-language flow, using the same language-independent data model and AI contracts. Chinese may be selected as the learner's explanation language.
+- English explanations of Chinese meaning, tone, communicative function, grammar, and contextual fit.
 - Semantic duplicate detection and related-expression retrieval using pgvector.
 - JSON and Markdown export of learner-owned expression data.
 - Automated unit, contract, integration, security, and browser-level tests.
@@ -51,6 +53,8 @@ The application must be a working full-stack product with authenticated cloud pe
 - URL ingestion that bypasses paywalls, authentication, robots restrictions, or technical access controls.
 - Large-scale crawling or redistribution of copyrighted content.
 - A full beginner curriculum, live classes, social community, or marketplace.
+- Japanese or another selectable target-language flow.
+- Chinese-language interface localisation.
 - Open-ended autonomous agents that decide product workflow.
 - Microservices, FastAPI, Redis, background worker infrastructure, or a separate vector database.
 
@@ -68,7 +72,7 @@ The application must be a working full-stack product with authenticated cloud pe
 3. **One to three expressions per item.** The system prioritises quality and relevance over exhaustive extraction.
 4. **Memory compounds across sessions.** Saved expressions, attempts, and due tasks must be recoverable after sign-out and on another computer.
 5. **AI is bounded by contracts.** Every model response is schema-validated, versioned, and recoverable.
-6. **Language is data, not hard-coded UI logic.** The same workflow supports more than one target language.
+6. **Chinese is the learning target.** Interface guidance and explanations are in English; authentic input, extracted expressions, practice prompts, and learner output are in Mandarin Chinese.
 7. **Demo stability is a product requirement.** Known inputs may use versioned cached AI results when the provider is unavailable.
 
 ## 4. Architecture
@@ -172,6 +176,7 @@ Domain packages may not depend on React components or Route Handler request obje
 - Sign-up, sign-in, sign-out, password reset, and session restoration.
 - Protected routes and server-side user resolution.
 - Learner profile editing.
+- Fixed English-native and Mandarin-Chinese-target language context, plus editable Chinese level and learning goal.
 - Desktop navigation for Home, Import, Vault, Queue, and Progress.
 - First-run onboarding and profile completion gate.
 - Account export and deletion entry points.
@@ -251,9 +256,9 @@ Domain packages may not depend on React components or Route Handler request obje
 
 **Dependencies:** M1 memory contracts and transition rules, M4 embeddings, and M5 attempt events.
 
-## M7. Progress, Semantic Relations, and Multiple Languages
+## M7. Progress, Semantic Relations, and Chinese Learning Quality
 
-**Purpose:** Make accumulated capability visible and prove that the model is language-independent.
+**Purpose:** Make accumulated Chinese capability visible and ensure semantic features respect Chinese expression boundaries, tone, register, and context.
 
 **Responsibilities:**
 
@@ -262,10 +267,11 @@ Domain packages may not depend on React components or Route Handler request obje
 - Transfer evidence shown separately from simple activity volume.
 - pgvector duplicate suggestions and related expressions by communicative function.
 - Expression Health Check for stalled expressions.
-- Switching between English and Japanese target-language profiles without mixing their queues or progress.
-- Localised AI inputs and outputs based on native and target language fields.
+- Chinese expression normalisation that preserves meaningful character, word, phrase, and regional distinctions.
+- English explanations that remain grounded in the original Chinese evidence span.
+- Mandarin Chinese fixtures covering informal speech, online language, polite requests, disagreement, reactions, and common ambiguity.
 
-**Produces:** A trustworthy Progress page, semantic expression relationships, and an end-to-end Japanese demonstration alongside the primary English flow.
+**Produces:** A trustworthy Progress page, useful semantic relationships between Chinese expressions, and an end-to-end Chinese learning demonstration for English-speaking learners.
 
 **Dependencies:** M6 durable evidence and queues, M4 embeddings, and M2 profile language settings.
 
@@ -293,7 +299,7 @@ Domain packages may not depend on React components or Route Handler request obje
 **Responsibilities:**
 
 - Contract and migration compatibility checks.
-- Full integration of content, AI, attempts, memory, queue, progress, and language switching.
+- Full integration of Chinese content, AI, attempts, memory, queue, and progress.
 - End-to-end browser scenarios and cross-user isolation tests.
 - Vercel deployment and production Supabase configuration.
 - Seeded demo account with existing Vault, progress history, and a due transfer task.
@@ -358,7 +364,7 @@ Transitions are monotonic in the first release. A weak later attempt creates new
 
 ### 8.2 Due reuse task
 
-1. M6 queries due review tasks for the signed-in learner and active target language.
+1. M6 queries due Chinese review tasks for the signed-in learner.
 2. The learner opens a task containing a new context but not a complete answer.
 3. M5 records and evaluates the independent response.
 4. M6 applies deterministic transition rules and reschedules if needed.
@@ -400,7 +406,7 @@ Transitions are monotonic in the first release. A weak later attempt creates new
 - Mastery transitions and queue scheduling.
 - Content normalisation, hashing, limits, and URL allowlist behaviour.
 - API and AI Zod schemas.
-- Progress aggregation and language isolation.
+- Progress aggregation and Chinese expression normalisation.
 - Cache keys, retry policy, and idempotency.
 
 ### 10.2 Contract tests
@@ -425,13 +431,13 @@ Transitions are monotonic in the first release. A weak later attempt creates new
 - Analysis, selection, response, feedback, and revision.
 - Vault persistence after sign-out and sign-in.
 - Due task completion and progress update.
-- Target-language switching without state leakage.
+- English interface guidance with Chinese content, expression, and response rendering.
 - Export and account deletion confirmation.
 - Supported desktop viewports and keyboard-only critical path.
 
 ### 10.5 AI evaluation fixtures
 
-A small version-controlled fixture set covers representative target languages, tone differences, ambiguity, slang, weak learner responses, and unsafe or malformed model output. Prompt changes must pass schema, regression, and human-readable snapshot review before integration.
+A small version-controlled fixture set covers Mandarin Chinese tone and register differences, ambiguity, online slang, regional caveats, weak learner responses, and unsafe or malformed model output. Expected explanations are written in English. Prompt changes must pass schema, regression, and human-readable snapshot review before integration.
 
 ## 11. Multi-Agent Development Design
 
@@ -502,7 +508,7 @@ After the core evidence loop is stable:
 
 - **Agent A:** M7 Progress aggregation and Expression Health Check.
 - **Agent B:** M7 pgvector deduplication and related-expression retrieval.
-- **Agent C:** M7 second-target-language flow plus browser scenarios for language isolation.
+- **Agent C:** M7 Chinese-language quality fixtures, English-explanation checks, and browser scenarios for mixed-script rendering.
 - **Primary Agent:** Runs the complete suite, reviews query cost and data isolation, and integrates the three M7 submodules.
 
 The M7 submodules use separate service, query, and test files. Shared migrations are created sequentially by the primary Agent before this batch begins.
@@ -526,7 +532,7 @@ src/features/vault/              M6 owner
 src/features/queue/              M6 owner
 src/features/progress/           M7 progress owner
 src/features/relations/          M7 semantic owner
-src/features/languages/          M7 multilingual owner
+src/features/chinese/            M7 Chinese-language quality owner
 src/components/ui/               M0/M8 owner; reviewed shared changes only
 src/server/api/                  Primary Agent owns shared routing conventions
 src/server/ai/                   M4 owner
@@ -549,7 +555,7 @@ The desktop web product is complete when all of the following are true:
 5. A successful attempt creates a persistent Expression Card, mastery evidence, and a due task without duplicate records.
 6. A later reuse attempt in a new context can advance mastery according to deterministic rules.
 7. Vault, Queue, and Progress are derived from authenticated persistent data rather than browser-only state.
-8. Japanese completes the same core loop as English without mixing language-specific records; Chinese explanations are selected from the learner profile rather than hard-coded into the workflow.
+8. The interface, instructions, and AI explanations are in English while authentic content, extracted expressions, practice prompts, and learner responses are correctly rendered and evaluated in Simplified Chinese.
 9. RLS tests prove cross-user isolation for every user-owned data group.
 10. AI failures are visible, retryable where safe, and do not corrupt mastery state.
 11. The seeded demo account contains history, progress, and a due transfer task.
