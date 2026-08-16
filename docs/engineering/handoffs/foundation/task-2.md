@@ -120,3 +120,25 @@ Changed only `src/contracts/source.ts`, `src/contracts/practice.ts`, `src/contra
 #### Final verification addendum
 
 Final coverage also asserts that every evaluation dimension rejects extra keys and that both deterministic hash fields reject `null`. After those assertions, fresh verification exited 0 for the focused Task 2 suite (3 files, 65 tests), direct contract suite (1 file, 57 tests), typecheck, lint with no warnings, and `git diff --check`; these final counts supersede the preliminary GREEN counts above.
+
+## Review fixes, round 5
+
+### RED
+
+The first focused RED cycle, `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts`, exited 1 with 7 expected failures and 58 passing tests. The exact Batch A video save using `requestNativeSnapshot: true` was rejected, both input and persisted video contracts accepted the legacy `requestNativeTranscript` field, and the canonical bilingual practice fixture was rejected in favor of the legacy English-only shape.
+
+After the flag and practice changes were GREEN at 65/65, the thumbnail RED cycle exited 1 with 11 expected failures and 65 passing tests. The exported exact thumbnail schema was absent; unrelated-host, HTTP, data, JavaScript, alternate-path, alternate-size, query, and fragment URLs were accepted; and thumbnail/video-ID mismatches were accepted by both `SavedItemInputSchema` and `SavedItemSchema`. Padding rejection was already protected by round 4. Final coverage also rejects short and percent-encoded video IDs.
+
+### GREEN
+
+The strict shared video variant now requires only `requestNativeSnapshot: true`; the legacy name is rejected on both video input and persisted video objects. `YouTubeThumbnailUrlSchema` is exported and preserves only the exact derived form `https://i.ytimg.com/vi/<11-character-video-id>/hqdefault.jpg`. Snapshots and video saves use it, and both save contracts add a cross-field issue when the embedded thumbnail ID differs from `youtubeVideoId`. No arbitrary client thumbnail URL is trusted.
+
+`PracticeTaskSchema` now requires the separate bilingual roles `promptChinese`, `instructionsEnglish`, and `goalEnglish` with bounded shared language validators. It retains `targetExpression`, `nativeLanguage: en`, and `targetLanguage: zh-CN`; removes `promptEnglish` and `contextEnglish`; and remains strict so legacy fields and any model-answer field are rejected. Deterministic source/practice fixtures use the frozen Batch A and Batch B payloads, and tests preserve every valid raw role string byte-for-byte.
+
+Fresh verification exited 0 for `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts src/server/env.test.ts src/server/api/respond.test.ts` (3 files, 86 tests), `CI=true pnpm vitest run tests/contract` (1 file, 78 tests), `CI=true pnpm typecheck`, `CI=true pnpm lint` with no warnings, and `git diff --check`.
+
+### Files and risk
+
+Changed only `src/contracts/source.ts`, `src/contracts/practice.ts`, `tests/factories/source.ts`, `tests/factories/practice.ts`, `tests/contract/shared-contracts.test.ts`, and this append-only handoff. No root config, dependency, lockfile, environment, extension, vendor, migration, plan/spec, ledger, save-kind, or unrelated contract changed.
+
+Risk: the renamed snapshot flag and bilingual practice roles intentionally break callers still constructing the legacy shapes. The thumbnail contract intentionally freezes one YouTube CDN host, one path, and `hqdefault.jpg`; future thumbnail formats require a controller-approved contract change rather than accepting client-provided alternatives.

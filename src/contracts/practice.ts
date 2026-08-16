@@ -18,8 +18,9 @@ export const PracticeTaskSchema = z.strictObject({
   nativeLanguage: NativeLanguageSchema,
   targetLanguage: TargetLanguageSchema,
   targetExpression: TargetChineseTextSchema.max(200),
-  promptEnglish: EnglishTextSchema.max(1_000),
-  contextEnglish: EnglishTextSchema.max(2_000),
+  promptChinese: TargetChineseTextSchema.max(2_000),
+  instructionsEnglish: EnglishTextSchema.max(1_000),
+  goalEnglish: EnglishTextSchema.max(1_000),
   createdAt: IsoDateTimeSchema,
   dueAt: IsoDateTimeSchema.nullable(),
 });

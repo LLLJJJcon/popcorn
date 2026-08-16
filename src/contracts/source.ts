@@ -79,19 +79,17 @@ export const EnglishTextSchema = z
   .max(10_000)
   .refine((value) => value.trim().length > 0, "Expected nonblank English text")
   .refine(isBasicLatinAsciiProse, "Expected Basic Latin/ASCII English prose");
-const RawThumbnailUrlSchema = z
+const youtubeThumbnailUrlPattern =
+  /^https:\/\/i\.ytimg\.com\/vi\/([A-Za-z0-9_-]{11})\/hqdefault\.jpg$/;
+export const YouTubeThumbnailUrlSchema = z
   .string()
-  .min(1)
   .max(2_048)
-  .refine((value) => value.trim() === value, "Expected a URL without surrounding whitespace")
-  .refine((value) => {
-    try {
-      new URL(value);
-      return true;
-    } catch {
-      return false;
-    }
-  }, "Expected a valid URL");
+  .regex(
+    youtubeThumbnailUrlPattern,
+    "Expected https://i.ytimg.com/vi/<video-id>/hqdefault.jpg",
+  );
+const getYouTubeThumbnailVideoId = (value: string) =>
+  youtubeThumbnailUrlPattern.exec(value)?.[1] ?? null;
 const SegmentIdsSchema = z.array(StableSegmentIdSchema).min(1).max(32);
 const ContextSchema = z.array(TargetChineseTextSchema.max(2_000)).max(3);
 
@@ -117,7 +115,7 @@ export const VideoSnapshotSchema = z.strictObject({
   sourceId: z.string().uuid(),
   title: NonblankStringSchema.max(300),
   channel: NonblankStringSchema.max(200),
-  thumbnailUrl: RawThumbnailUrlSchema,
+  thumbnailUrl: YouTubeThumbnailUrlSchema,
   durationSeconds: SecondSchema,
   description: z.string().max(5_000),
   transcriptLanguage: TargetLanguageSchema,
@@ -170,11 +168,11 @@ const saveVariants = {
     canonicalUrl: CanonicalYouTubeUrlSchema,
     title: NonblankStringSchema.max(300),
     channel: NonblankStringSchema.max(200),
-    thumbnailUrl: RawThumbnailUrlSchema,
+    thumbnailUrl: YouTubeThumbnailUrlSchema,
     durationSeconds: SecondSchema,
     description: z.string().max(5_000),
     currentTimeSeconds: SecondSchema,
-    requestNativeTranscript: z.literal(true),
+    requestNativeSnapshot: z.literal(true),
   },
   playerMoment: {
     kind: z.literal("player_moment"),
@@ -240,6 +238,16 @@ export const SavedItemInputSchema = z
         message: "Canonical URL must match youtubeVideoId",
       });
     }
+    if (
+      save.kind === "video" &&
+      getYouTubeThumbnailVideoId(save.thumbnailUrl) !== save.youtubeVideoId
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["thumbnailUrl"],
+        message: "Thumbnail URL must match youtubeVideoId",
+      });
+    }
     if ("endSeconds" in save && save.endSeconds < save.startSeconds) {
       context.addIssue({
         code: "custom",
@@ -285,6 +293,16 @@ export const SavedItemSchema = z
         code: "custom",
         path: ["canonicalUrl"],
         message: "Canonical URL must match youtubeVideoId",
+      });
+    }
+    if (
+      save.kind === "video" &&
+      getYouTubeThumbnailVideoId(save.thumbnailUrl) !== save.youtubeVideoId
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["thumbnailUrl"],
+        message: "Thumbnail URL must match youtubeVideoId",
       });
     }
     if ("endSeconds" in save && save.endSeconds < save.startSeconds) {
