@@ -13,6 +13,9 @@ const NonblankStringSchema = z
   .string()
   .min(1)
   .refine((value) => value.trim().length > 0, "Expected a nonblank string");
+const Sha256KeySchema = z
+  .string()
+  .regex(/^[a-f0-9]{64}$/, "Expected a lowercase 64-hex SHA-256 key");
 
 export const GeneratedArtifactTypeSchema = z.enum([
   "overview",
@@ -25,6 +28,7 @@ export const GeneratedArtifactTypeSchema = z.enum([
 
 export const GeneratedArtifactSchema = z.strictObject({
   id: z.string().uuid(),
+  userId: z.string().uuid(),
   sourceId: z.string().uuid(),
   savedItemId: z.string().uuid().nullable(),
   type: GeneratedArtifactTypeSchema,
@@ -33,6 +37,7 @@ export const GeneratedArtifactSchema = z.strictObject({
   content: z.record(z.string(), z.unknown()),
   promptVersion: NonblankStringSchema.max(100),
   model: NonblankStringSchema.max(100),
+  resultKey: Sha256KeySchema,
   createdAt: IsoDateTimeSchema,
 });
 
@@ -59,6 +64,7 @@ export const KnowledgeJobSchema = z.strictObject({
   savedItemId: z.string().uuid().nullable(),
   type: KnowledgeJobTypeSchema,
   status: KnowledgeJobStatusSchema,
+  dedupeKey: Sha256KeySchema,
   attemptCount: z.number().int().min(0).max(20),
   nextAttemptAt: IsoDateTimeSchema.nullable(),
   leaseExpiresAt: IsoDateTimeSchema.nullable(),

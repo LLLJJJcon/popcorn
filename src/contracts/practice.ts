@@ -1,21 +1,13 @@
 import { z } from "zod";
 
 import {
+  EnglishTextSchema,
   NativeLanguageSchema,
   TargetChineseTextSchema,
   TargetLanguageSchema,
 } from "./source";
 
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
-const EnglishTextSchema = z
-  .string()
-  .min(1)
-  .max(5_000)
-  .refine((value) => value.trim().length > 0, "Expected nonblank English text")
-  .refine(
-    (value) => /[A-Za-z]/.test(value) && !/\p{Script=Han}/u.test(value),
-    "Expected English text",
-  );
 
 export const PracticeTaskKindSchema = z.enum(["use_it_now", "due_practice"]);
 
@@ -34,10 +26,16 @@ export const PracticeTaskSchema = z.strictObject({
 
 export const AssistanceLevelSchema = z.enum(["none", "hint", "model_answer"]);
 
+const EvaluationDimensionSchema = z.strictObject({
+  score: z.number().int().min(1).max(5),
+  englishFeedback: EnglishTextSchema.max(2_000),
+});
+
 export const EvaluationResultSchema = z.strictObject({
   passed: z.boolean(),
-  score: z.number().finite().min(0).max(1),
-  englishFeedback: EnglishTextSchema.max(2_000),
+  accuracy: EvaluationDimensionSchema,
+  naturalness: EvaluationDimensionSchema,
+  contextualFit: EvaluationDimensionSchema,
   independentUse: z.boolean(),
   assistanceLevel: AssistanceLevelSchema,
 });

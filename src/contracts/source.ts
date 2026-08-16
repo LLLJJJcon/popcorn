@@ -63,15 +63,35 @@ export const TargetChineseTextSchema = z
   .max(10_000)
   .refine((value) => value.trim().length > 0, "Expected nonblank Chinese text")
   .refine((value) => /\p{Script=Han}/u.test(value), "Expected Chinese text");
+const isBasicLatinAsciiProse = (value: string) =>
+  /[A-Za-z]/.test(value) &&
+  [...value].every((character) => {
+    const codePoint = character.codePointAt(0);
+    return (
+      codePoint !== undefined &&
+      ((codePoint >= 0x09 && codePoint <= 0x0d) ||
+        (codePoint >= 0x20 && codePoint <= 0x7e))
+    );
+  });
 export const EnglishTextSchema = z
   .string()
   .min(1)
   .max(10_000)
   .refine((value) => value.trim().length > 0, "Expected nonblank English text")
-  .refine(
-    (value) => /[A-Za-z]/.test(value) && !/\p{Script=Han}/u.test(value),
-    "Expected English text",
-  );
+  .refine(isBasicLatinAsciiProse, "Expected Basic Latin/ASCII English prose");
+const RawThumbnailUrlSchema = z
+  .string()
+  .min(1)
+  .max(2_048)
+  .refine((value) => value.trim() === value, "Expected a URL without surrounding whitespace")
+  .refine((value) => {
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Expected a valid URL");
 const SegmentIdsSchema = z.array(StableSegmentIdSchema).min(1).max(32);
 const ContextSchema = z.array(TargetChineseTextSchema.max(2_000)).max(3);
 
@@ -97,7 +117,7 @@ export const VideoSnapshotSchema = z.strictObject({
   sourceId: z.string().uuid(),
   title: NonblankStringSchema.max(300),
   channel: NonblankStringSchema.max(200),
-  thumbnailUrl: z.string().url().max(2_048),
+  thumbnailUrl: RawThumbnailUrlSchema,
   durationSeconds: SecondSchema,
   description: z.string().max(5_000),
   transcriptLanguage: TargetLanguageSchema,
@@ -150,7 +170,7 @@ const saveVariants = {
     canonicalUrl: CanonicalYouTubeUrlSchema,
     title: NonblankStringSchema.max(300),
     channel: NonblankStringSchema.max(200),
-    thumbnailUrl: z.string().url().max(2_048),
+    thumbnailUrl: RawThumbnailUrlSchema,
     durationSeconds: SecondSchema,
     description: z.string().max(5_000),
     currentTimeSeconds: SecondSchema,

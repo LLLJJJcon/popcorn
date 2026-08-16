@@ -96,3 +96,27 @@ The direct GREEN contract run `CI=true pnpm vitest run tests/contract/shared-con
 ### Files and risk
 
 Changed only `src/contracts/source.ts`, `tests/contract/shared-contracts.test.ts`, and this append-only handoff. All existing ID, query, fragment, protocol, path, host, port, credentials, and cross-field identity checks remain in place. Risk: the strict raw-serialization comparison deliberately rejects browser-equivalent but differently written URLs; this is the required canonical boundary and means callers must submit the single exact URL form.
+
+## Review fixes, round 4
+
+### RED
+
+Before production changes, `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts` exited 1 with 9 expected failures and 41 passing tests. The failures proved that padded thumbnail URLs were normalized and accepted; dimensional evaluation results were rejected while the legacy aggregate result was accepted; accented Spanish and mixed Cyrillic prose passed English-valued fields; `GeneratedArtifact` rejected the required `userId`/`resultKey`; `KnowledgeJob` rejected `dedupeKey`; and the old strict shapes still accepted artifact/job objects with those required fields absent. Additional already-green assertions covered Han rejection, each missing dimension, 0/6/fractional scores, and malformed, uppercase, short, and long hash keys.
+
+### GREEN
+
+`EvaluationResultSchema` now requires strict `accuracy`, `naturalness`, and `contextualFit` objects, each containing an integer score from 1 through 5 and exact-preserved validated English feedback. It retains `passed`, `independentUse`, and `assistanceLevel`, and the former aggregate `score`/`englishFeedback` shape is rejected. Deterministic fixtures now cover evaluation results, generated artifacts, and knowledge jobs.
+
+The shared English text schema now preserves the raw string while requiring at least one ASCII letter and allowing only Basic Latin/ASCII printable characters plus ASCII whitespace. Practice prompts, contexts, evaluation feedback, translations, candidate meanings/explanations, tone, communicative function, register, and save explanations inherit this boundary; the literal native-language discriminator remains `en`. `GeneratedArtifact` now requires `userId` and a non-null lowercase 64-hex `resultKey`; `KnowledgeJob` requires the same format for non-null `dedupeKey`. Both objects remain strict. Thumbnail validation now parses without transforming the submitted value, rejects surrounding whitespace, retains the 2,048-character limit, and is reused by snapshots and video saves.
+
+After implementation and coverage tightening, the direct contract run exited 0 with 53 tests. Required verification exited 0 for `CI=true pnpm vitest run tests/contract/shared-contracts.test.ts src/server/env.test.ts src/server/api/respond.test.ts` (3 files, 61 tests), `CI=true pnpm vitest run tests/contract` (1 file, 53 tests), `CI=true pnpm typecheck`, `CI=true pnpm lint`, and `git diff --check`.
+
+### Controller language-validation decision, files, and risk
+
+The controller resolved this deterministic schema boundary without adding a language detector or changing dependencies/lockfiles. Basic Latin/ASCII validation rejects the specified accented Spanish, Cyrillic, and Han examples, but it does not claim semantic language detection: an ASCII-only foreign sentence can still pass. Exhaustive provider-content language validation remains a later provider-boundary obligation, analogous to the already-recorded `zh-CN` content decision. This conservative boundary also rejects otherwise understandable English containing non-ASCII typography or accented loanwords; callers must normalize such provider output before this contract or fail it explicitly.
+
+Changed only `src/contracts/source.ts`, `src/contracts/practice.ts`, `src/contracts/knowledge.ts`, `tests/factories/practice.ts`, `tests/contract/shared-contracts.test.ts`, and this append-only handoff. No root configuration, dependency, lockfile, extension, vendor, migration, plan/spec, ledger, environment, save-kind, canonical YouTube, or non-YouTube source boundary changed. Risk: adding required ownership/hash fields and replacing the legacy evaluation shape is intentionally contract-breaking for future callers; downstream implementation must construct the frozen new shapes.
+
+#### Final verification addendum
+
+Final coverage also asserts that every evaluation dimension rejects extra keys and that both deterministic hash fields reject `null`. After those assertions, fresh verification exited 0 for the focused Task 2 suite (3 files, 65 tests), direct contract suite (1 file, 57 tests), typecheck, lint with no warnings, and `git diff --check`; these final counts supersede the preliminary GREEN counts above.

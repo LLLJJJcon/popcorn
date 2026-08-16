@@ -4,9 +4,13 @@ import {
   CanonicalYouTubeUrlSchema,
   CandidateExpressionListSchema,
   CandidateExpressionSchema,
+  EnglishTextSchema,
   EvaluationResultSchema,
+  GeneratedArtifactSchema,
+  KnowledgeJobSchema,
   KnowledgeJobTypeSchema,
   MasteryStateSchema,
+  NativeLanguageSchema,
   PracticeTaskSchema,
   SavedItemInputSchema,
   TargetLanguageSchema,
@@ -14,7 +18,13 @@ import {
   VideoSnapshotSchema,
   VideoSourceSchema,
 } from "@/contracts";
-import { makeCandidateExpression, makePracticeTask } from "../factories/practice";
+import {
+  makeCandidateExpression,
+  makeEvaluationResult,
+  makeGeneratedArtifact,
+  makeKnowledgeJob,
+  makePracticeTask,
+} from "../factories/practice";
 import { makeSavedItemInput, makeVideoSource } from "../factories/source";
 
 const baseSave = {
@@ -209,6 +219,73 @@ describe("shared contracts", () => {
     expect(SavedItemInputSchema.parse(save)).toEqual(save);
   });
 
+  it("preserves valid raw thumbnail URLs byte-for-byte", () => {
+    const thumbnailUrl =
+      "https://I.YTIMG.COM:443/vi/dQw4w9WgXcQ/hqdefault.jpg?size=640%2F480";
+    const snapshot = {
+      id: "00000000-0000-4000-8000-000000000011",
+      sourceId: "00000000-0000-4000-8000-000000000001",
+      title: "中文访谈",
+      channel: "中文频道",
+      thumbnailUrl,
+      durationSeconds: 213,
+      description: "一段中文访谈。",
+      transcriptLanguage: "zh-CN",
+      transcriptHash: "hash-1",
+      capturedAt: "2026-08-16T10:00:00.000Z",
+    };
+    const save = {
+      ...baseSave,
+      kind: "video" as const,
+      canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: "中文访谈",
+      channel: "中文频道",
+      thumbnailUrl,
+      durationSeconds: 213,
+      description: "一段中文访谈。",
+      currentTimeSeconds: 42,
+      requestNativeTranscript: true as const,
+    };
+
+    expect(VideoSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+    expect(SavedItemInputSchema.parse(save)).toEqual(save);
+  });
+
+  it("rejects padded thumbnail URLs on snapshots and video saves", () => {
+    const thumbnailUrl = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg";
+    const snapshot = {
+      id: "00000000-0000-4000-8000-000000000011",
+      sourceId: "00000000-0000-4000-8000-000000000001",
+      title: "中文访谈",
+      channel: "中文频道",
+      thumbnailUrl,
+      durationSeconds: 213,
+      description: "一段中文访谈。",
+      transcriptLanguage: "zh-CN",
+      transcriptHash: "hash-1",
+      capturedAt: "2026-08-16T10:00:00.000Z",
+    };
+    const save = {
+      ...baseSave,
+      kind: "video" as const,
+      canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: "中文访谈",
+      channel: "中文频道",
+      thumbnailUrl,
+      durationSeconds: 213,
+      description: "一段中文访谈。",
+      currentTimeSeconds: 42,
+      requestNativeTranscript: true as const,
+    };
+
+    expect(
+      VideoSnapshotSchema.safeParse({ ...snapshot, thumbnailUrl: ` ${thumbnailUrl} ` }).success,
+    ).toBe(false);
+    expect(
+      SavedItemInputSchema.safeParse({ ...save, thumbnailUrl: ` ${thumbnailUrl} ` }).success,
+    ).toBe(false);
+  });
+
   it("preserves practice prompt and context byte-for-byte", () => {
     const task = makePracticeTask({
       promptEnglish: " \tReact to a friend.\n",
@@ -218,16 +295,103 @@ describe("shared contracts", () => {
     expect(PracticeTaskSchema.parse(task)).toEqual(task);
   });
 
-  it("preserves evaluation feedback byte-for-byte", () => {
-    const evaluation = {
-      passed: true,
-      score: 0.98,
-      englishFeedback: " \tThat sounded natural.\n",
-      independentUse: true,
-      assistanceLevel: "none" as const,
-    };
+  it("preserves all three evaluation dimensions and feedback byte-for-byte", () => {
+    const evaluation = makeEvaluationResult({
+      accuracy: {
+        score: 5,
+        englishFeedback: " \tThe expression is accurate.\n",
+      },
+      naturalness: {
+        score: 4,
+        englishFeedback: "  The response sounds natural.  ",
+      },
+      contextualFit: {
+        score: 5,
+        englishFeedback: "\nThe expression fits this situation.\t",
+      },
+    });
 
     expect(EvaluationResultSchema.parse(evaluation)).toEqual(evaluation);
+  });
+
+  it.each(["accuracy", "naturalness", "contextualFit"] as const)(
+    "requires the %s evaluation dimension",
+    (dimension) => {
+      const incompleteEvaluation = { ...makeEvaluationResult() };
+      Reflect.deleteProperty(incompleteEvaluation, dimension);
+
+      expect(EvaluationResultSchema.safeParse(incompleteEvaluation).success).toBe(false);
+    },
+  );
+
+  it("rejects the legacy aggregate evaluation fields", () => {
+    expect(
+      EvaluationResultSchema.safeParse({
+        passed: true,
+        score: 0.98,
+        englishFeedback: "That sounded natural.",
+        independentUse: true,
+        assistanceLevel: "none",
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    ["accuracy", 0],
+    ["naturalness", 6],
+    ["contextualFit", 1.5],
+  ] as const)("rejects an invalid %s evaluation score of %s", (dimension, score) => {
+    const evaluation = makeEvaluationResult();
+
+    expect(
+      EvaluationResultSchema.safeParse({
+        ...evaluation,
+        [dimension]: { ...evaluation[dimension], score },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each(["accuracy", "naturalness", "contextualFit"] as const)(
+    "keeps the %s evaluation dimension strict",
+    (dimension) => {
+      const evaluation = makeEvaluationResult();
+
+      expect(
+        EvaluationResultSchema.safeParse({
+          ...evaluation,
+          [dimension]: { ...evaluation[dimension], extra: true },
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("preserves valid Basic Latin English prose byte-for-byte", () => {
+    const english = " \tA clear explanation: score 5/5!\n";
+
+    expect(EnglishTextSchema.parse(english)).toBe(english);
+    expect(NativeLanguageSchema.parse("en")).toBe("en");
+    expect(NativeLanguageSchema.safeParse("es").success).toBe(false);
+  });
+
+  it.each([
+    ["accented Spanish", "Una explicación clara."],
+    ["Cyrillic", "English intro: Это объяснение."],
+    ["Han", "This means 很自然。"],
+  ])("rejects %s in English explanations and feedback", (_label, value) => {
+    const evaluation = makeEvaluationResult({
+      accuracy: {
+        score: 5,
+        englishFeedback: value,
+      },
+    });
+
+    expect(EnglishTextSchema.safeParse(value).success).toBe(false);
+    expect(
+      CandidateExpressionSchema.safeParse(
+        makeCandidateExpression({ englishExplanation: value }),
+      ).success,
+    ).toBe(false);
+    expect(EvaluationResultSchema.safeParse(evaluation).success).toBe(false);
   });
 
   it("preserves API failure messages byte-for-byte", () => {
@@ -286,6 +450,57 @@ describe("shared contracts", () => {
     });
 
     expect(CandidateExpressionSchema.parse(candidate)).toEqual(candidate);
+  });
+
+  it("round-trips a user-owned artifact with its deterministic SHA-256 result key", () => {
+    const artifact = makeGeneratedArtifact();
+
+    expect(GeneratedArtifactSchema.parse(artifact)).toEqual(artifact);
+  });
+
+  it("round-trips a knowledge job with its deterministic SHA-256 dedupe key", () => {
+    const job = makeKnowledgeJob();
+
+    expect(KnowledgeJobSchema.parse(job)).toEqual(job);
+  });
+
+  it("requires artifact ownership and its deterministic SHA-256 result key", () => {
+    const artifact = makeGeneratedArtifact();
+    const artifactWithoutOwner = { ...artifact };
+    const artifactWithoutResultKey = { ...artifact };
+    Reflect.deleteProperty(artifactWithoutOwner, "userId");
+    Reflect.deleteProperty(artifactWithoutResultKey, "resultKey");
+
+    expect(GeneratedArtifactSchema.safeParse(artifactWithoutOwner).success).toBe(false);
+    expect(GeneratedArtifactSchema.safeParse(artifactWithoutResultKey).success).toBe(false);
+  });
+
+  it("requires a knowledge job deterministic SHA-256 dedupe key", () => {
+    const jobWithoutKey = { ...makeKnowledgeJob() };
+    Reflect.deleteProperty(jobWithoutKey, "dedupeKey");
+
+    expect(KnowledgeJobSchema.safeParse(jobWithoutKey).success).toBe(false);
+  });
+
+  it.each(["g".repeat(64), "A".repeat(64), "a".repeat(63), "a".repeat(65)])(
+    "rejects malformed or non-lowercase SHA-256 key %s",
+    (key) => {
+      expect(
+        GeneratedArtifactSchema.safeParse(makeGeneratedArtifact({ resultKey: key })).success,
+      ).toBe(false);
+      expect(KnowledgeJobSchema.safeParse(makeKnowledgeJob({ dedupeKey: key })).success).toBe(
+        false,
+      );
+    },
+  );
+
+  it("rejects null deterministic SHA-256 keys", () => {
+    expect(
+      GeneratedArtifactSchema.safeParse({ ...makeGeneratedArtifact(), resultKey: null }).success,
+    ).toBe(false);
+    expect(
+      KnowledgeJobSchema.safeParse({ ...makeKnowledgeJob(), dedupeKey: null }).success,
+    ).toBe(false);
   });
 
   it("rejects segment identifiers with surrounding whitespace", () => {
@@ -501,5 +716,8 @@ describe("shared contracts", () => {
     expect(makeSavedItemInput()).toEqual(makeSavedItemInput());
     expect(makeCandidateExpression()).toEqual(makeCandidateExpression());
     expect(makePracticeTask()).toEqual(makePracticeTask());
+    expect(makeEvaluationResult()).toEqual(makeEvaluationResult());
+    expect(makeGeneratedArtifact()).toEqual(makeGeneratedArtifact());
+    expect(makeKnowledgeJob()).toEqual(makeKnowledgeJob());
   });
 });
