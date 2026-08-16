@@ -43,17 +43,23 @@ outside the approved intake allowlist, the task stops for controller review.
 - Action: method only. Popcorn MUST NOT copy GPLv3 implementation code, tests,
   prompts, components, or assets.
 
-The only allowed methods are independently implemented Popcorn versions of:
+The only allowed methods are concepts independently implemented in Popcorn relational/domain code:
 
-- immutable raw sources;
-- schema-governed structured knowledge;
-- content-addressed result identity; and
-- a persistent recoverable queue.
+- immutable raw sources followed by generated structured knowledge;
+- schema-governed knowledge organization;
+- two-stage analysis and knowledge update;
+- source traceability;
+- content hashing and incremental work avoidance;
+- durable processing queues;
+- asynchronous human review for ambiguous decisions; and
+- index, operation log, and staged retrieval concepts.
 
 These methods apply to private YouTube learning snapshots, source-grounded
 expression knowledge, deterministic hashes, and durable `knowledge_jobs`.
-Popcorn forbids LLM Wiki code, tests, prompts, components, assets, filesystem
-layout, vector pipeline, graph runtime, agent chat, and desktop UI structure.
+Batch B two-stage/traceability/async confirmation independently adapts the
+analysis, provenance, and human-decision methods. Batch C relational staged retrieval independently adapts the retrieval concepts without adding vector, graph, or chat behavior.
+
+Popcorn forbids LLM Wiki code, tests, prompts, components, assets, desktop runtime, Markdown/Obsidian filesystem, LanceDB/vector, graphs/community, agent chat, Deep Research, web clipper, and MCP implementation. These bans also prohibit their implementation structure, not merely their names.
 
 ## Enforcement
 

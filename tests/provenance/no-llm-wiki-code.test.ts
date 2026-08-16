@@ -30,13 +30,17 @@ describe("frozen upstream provenance", () => {
     expect(llmWiki).toContain("GPLv3");
     expect(llmWiki).toContain("MUST NOT copy GPLv3 implementation code");
 
-    for (const allowedMethod of [
-      "immutable raw sources",
-      "schema-governed structured knowledge",
-      "content-addressed result identity",
-      "persistent recoverable queue",
+    for (const adoptedMethod of [
+      "immutable raw sources followed by generated structured knowledge",
+      "schema-governed knowledge organization",
+      "two-stage analysis and knowledge update",
+      "source traceability",
+      "content hashing and incremental work avoidance",
+      "durable processing queues",
+      "asynchronous human review for ambiguous decisions",
+      "index, operation log, and staged retrieval concepts",
     ]) {
-      expect(llmWiki).toContain(allowedMethod);
+      expect(llmWiki).toContain(adoptedMethod);
     }
 
     for (const forbiddenArtifact of [
@@ -50,6 +54,25 @@ describe("frozen upstream provenance", () => {
         new RegExp(`(?:forbid|must not|never)[^\\n]*\\b${forbiddenArtifact}\\b`, "i"),
       );
     }
+
+    for (const forbiddenRuntimeOrProductArea of [
+      "desktop runtime",
+      "Markdown/Obsidian filesystem",
+      "LanceDB/vector",
+      "graphs/community",
+      "agent chat",
+      "Deep Research",
+      "web clipper",
+      "MCP implementation",
+    ]) {
+      expect(llmWiki).toContain(forbiddenRuntimeOrProductArea);
+    }
+
+    expect(llmWiki).toContain(
+      "independently implemented in Popcorn relational/domain code",
+    );
+    expect(llmWiki).toContain("Batch B two-stage/traceability/async confirmation");
+    expect(llmWiki).toContain("Batch C relational staged retrieval");
   });
 
   test("makes the pinned YouTube Digest reuse record reviewable per extension task", () => {

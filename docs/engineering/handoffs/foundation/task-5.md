@@ -182,3 +182,24 @@ upstream static gate to cases supported by the already frozen intake.
   upstream publishing-copy cases. Later extension tasks remain responsible for
   adapting product-specific manifest/package/release coverage under their
   exact upstream provenance briefs.
+
+## Corrective provenance addendum
+
+This corrective commit changes only this handoff, the LLM Wiki provenance test,
+and the `LLM Wiki: method only` policy section after review found that the
+original allowlist was too narrow. RED was captured with
+`CI=true pnpm vitest run tests/provenance/no-llm-wiki-code.test.ts`: exit 1,
+5 passed/1 failed, because the policy lacked `immutable raw sources followed
+by generated structured knowledge`. GREEN used the same command: exit 0,
+6/6 passed. The test now requires all eight adopted methods, Popcorn
+relational/domain independent implementation, the Batch B
+two-stage/traceability/async-confirmation rationale, the Batch C relational
+staged-retrieval rationale, and the complete explicit prohibition list.
+
+The policy remains method-only: it retains `MUST NOT copy GPLv3 implementation
+code` and bans code, tests, prompts, components, assets, desktop runtime,
+Markdown/Obsidian filesystem, LanceDB/vector, graphs/community, agent chat,
+Deep Research, web clipper, and MCP implementation. It does not add vector,
+graph, or chat work. Final corrective verification: `CI=true pnpm
+test:extension` exit 0 (4/4); `CI=true pnpm verify` exit 0 (unit 76/76,
+contract 128/128, provenance 11/11, build passed); `git diff --check` exit 0.
