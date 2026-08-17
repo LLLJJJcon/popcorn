@@ -2348,5 +2348,627 @@ select pg_temp.rejects_state_clean(
 
 reset role;
 
+-- Controller-owned durable learning-artifact job boundary. These RPCs are the
+-- only service-role mutation surface for overview, translation, and selection
+-- explanation jobs after global discovery through claim_knowledge_jobs.
+select extensions.set_eq(
+  $$select p.proname, pg_get_function_identity_arguments(p.oid)
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname in (
+      'register_learning_artifact_job',
+      'transition_learning_artifact_failure',
+      'complete_learning_artifact_job'
+    )$$,
+  $$values
+    ('register_learning_artifact_job'::name,
+      'p_user_id uuid, p_video_source_id uuid, p_job_type text, p_dedupe_key text, p_input jsonb, p_now timestamp with time zone'::text),
+    ('transition_learning_artifact_failure'::name,
+      'p_user_id uuid, p_job_id uuid, p_video_source_id uuid, p_job_type text, p_expected_lease_expires_at timestamp with time zone, p_expected_attempt_count integer, p_target_status text, p_next_attempt_at timestamp with time zone, p_error_code text, p_clear_input boolean, p_now timestamp with time zone'::text),
+    ('complete_learning_artifact_job'::name,
+      'p_user_id uuid, p_job_id uuid, p_video_source_id uuid, p_job_type text, p_expected_lease_expires_at timestamp with time zone, p_expected_attempt_count integer, p_artifact_type text, p_content jsonb, p_prompt_version text, p_model text, p_result_key text, p_now timestamp with time zone'::text)$$,
+  'learning-artifact RPCs expose exactly the frozen narrow signatures');
+
+select extensions.is(
+  (select count(*)::integer
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('register_learning_artifact_job',
+       'transition_learning_artifact_failure', 'complete_learning_artifact_job')
+     and p.prosecdef
+     and p.proconfig @> array['search_path=pg_catalog']),
+  3,
+  'all learning-artifact RPCs are security-definer with fixed pg_catalog search path');
+
+select extensions.is(
+  (select count(*)::integer
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('register_learning_artifact_job',
+       'transition_learning_artifact_failure', 'complete_learning_artifact_job')
+     and has_function_privilege('service_role', p.oid, 'execute')
+     and not has_function_privilege('authenticated', p.oid, 'execute')
+     and not has_function_privilege('anon', p.oid, 'execute')
+     and not has_function_privilege('public', p.oid, 'execute')),
+  3,
+  'only service_role can execute durable learning-artifact RPCs');
+
+create temporary table learning_artifact_registration_results (
+  label text primary key,
+  knowledge_job_id uuid not null,
+  status text not null,
+  created boolean not null
+);
+grant select, insert on table learning_artifact_registration_results to service_role;
+
+set local role service_role;
+
+insert into learning_artifact_registration_results
+select 'overview', result.* from public.register_learning_artifact_job(
+  :'user_a', '10000000-0000-4000-8000-000000000001', 'generate_overview',
+  repeat('7',64), '{"scope":"full-video"}', '2026-08-17 07:00:00+00'
+) as result;
+insert into learning_artifact_registration_results
+select 'translation', result.* from public.register_learning_artifact_job(
+  :'user_a', '10000000-0000-4000-8000-000000000001', 'translate_segments',
+  repeat('8',64), '{"segmentIds":["seg-a-1"]}', '2026-08-17 07:00:01+00'
+) as result;
+insert into learning_artifact_registration_results
+select 'explanation', result.* from public.register_learning_artifact_job(
+  :'user_a', '10000000-0000-4000-8000-000000000001', 'explain_selection',
+  repeat('9',64), '{"selectedChinese":"今天我们来学中文。"}', '2026-08-17 07:00:02+00'
+) as result;
+
+select extensions.results_eq(
+  $$select r.label, j.user_id, j.video_source_id, j.saved_item_id, j.job_type,
+      j.status, j.attempt_count, j.created_at, j.updated_at, i.input, i.result,
+      r.created
+    from learning_artifact_registration_results r
+    join public.knowledge_jobs j on j.id = r.knowledge_job_id
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    order by r.label$$,
+  $$values
+    ('explanation'::text, '00000000-0000-4000-8000-00000000a001'::uuid,
+      '10000000-0000-4000-8000-000000000001'::uuid, null::uuid,
+      'explain_selection'::text, 'pending'::text, 0,
+      '2026-08-17 07:00:02+00'::timestamptz, '2026-08-17 07:00:02+00'::timestamptz,
+      '{"selectedChinese":"今天我们来学中文。"}'::jsonb, null::jsonb, true),
+    ('overview'::text, '00000000-0000-4000-8000-00000000a001'::uuid,
+      '10000000-0000-4000-8000-000000000001'::uuid, null::uuid,
+      'generate_overview'::text, 'pending'::text, 0,
+      '2026-08-17 07:00:00+00'::timestamptz, '2026-08-17 07:00:00+00'::timestamptz,
+      '{"scope":"full-video"}'::jsonb, null::jsonb, true),
+    ('translation'::text, '00000000-0000-4000-8000-00000000a001'::uuid,
+      '10000000-0000-4000-8000-000000000001'::uuid, null::uuid,
+      'translate_segments'::text, 'pending'::text, 0,
+      '2026-08-17 07:00:01+00'::timestamptz, '2026-08-17 07:00:01+00'::timestamptz,
+      '{"segmentIds":["seg-a-1"]}'::jsonb, null::jsonb, true)$$,
+  'each allowed artifact type registers exact source-level public and private state');
+
+update public.knowledge_job_internal i
+set result = '{"sentinel":"preserve"}', updated_at = '2026-08-17 07:00:03+00'
+from learning_artifact_registration_results r
+where r.label = 'overview' and i.knowledge_job_id = r.knowledge_job_id;
+
+create temporary table learning_artifact_replay_states (
+  requested_status text primary key,
+  returned_status text not null,
+  created boolean not null,
+  preserved boolean not null
+);
+grant select, insert on table learning_artifact_replay_states to service_role;
+
+do $$
+declare
+  v_job_id uuid;
+  v_state text;
+  v_status text;
+  v_created boolean;
+  v_before jsonb;
+  v_after jsonb;
+begin
+  select knowledge_job_id into v_job_id
+  from learning_artifact_registration_results where label = 'overview';
+  foreach v_state in array array['pending','leased','retryable_failed','terminal_failed','succeeded'] loop
+    update public.knowledge_jobs set
+      status = v_state,
+      attempt_count = case when v_state = 'pending' then 0 else 1 end,
+      next_attempt_at = case when v_state = 'retryable_failed'
+        then '2026-08-17 07:10:00+00'::timestamptz else null end,
+      lease_expires_at = case when v_state = 'leased'
+        then '2026-08-17 07:05:00+00'::timestamptz else null end,
+      last_error_code = case when v_state in ('retryable_failed','terminal_failed')
+        then 'PROVIDER_UNAVAILABLE' else null end,
+      updated_at = '2026-08-17 07:00:04+00'
+    where id = v_job_id;
+
+    select jsonb_build_object('job', to_jsonb(j), 'internal', to_jsonb(i))
+    into v_before from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    where j.id = v_job_id;
+
+    select result.status, result.created into v_status, v_created
+    from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000001', 'generate_overview',
+      repeat('7',64), '{"replacement":"forbidden"}', '2026-08-17 07:30:00+00'
+    ) as result;
+
+    select jsonb_build_object('job', to_jsonb(j), 'internal', to_jsonb(i))
+    into v_after from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    where j.id = v_job_id;
+    insert into learning_artifact_replay_states
+    values (v_state, v_status, v_created, v_before = v_after);
+  end loop;
+end
+$$;
+
+select extensions.results_eq(
+  $$select requested_status, returned_status, created, preserved
+    from learning_artifact_replay_states order by requested_status$$,
+  $$values
+    ('leased'::text,'leased'::text,false,true),
+    ('pending'::text,'pending'::text,false,true),
+    ('retryable_failed'::text,'retryable_failed'::text,false,true),
+    ('succeeded'::text,'succeeded'::text,false,true),
+    ('terminal_failed'::text,'terminal_failed'::text,false,true)$$,
+  'registration replay preserves every public and private field in every lifecycle state');
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000002',
+      'generate_overview',repeat('a',64),'{}','2026-08-17 07:00:00+00')$$,
+  '22023', 'artifact registration rejects a source owned by another user');
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000001',
+      'resolve_snapshot',repeat('a',64),'{}','2026-08-17 07:00:00+00')$$,
+  '22023', 'artifact registration rejects a non-artifact job type');
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000001',
+      'generate_overview','ABC','{}','2026-08-17 07:00:00+00')$$,
+  '22023', 'artifact registration rejects a malformed dedupe hash');
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000001',
+      'generate_overview',repeat('a',64),'[]','2026-08-17 07:00:00+00')$$,
+  '22023', 'artifact registration requires an object input');
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000001',
+      'generate_overview',repeat('a',64),jsonb_build_object('payload',repeat('x',65536)),
+      '2026-08-17 07:00:00+00')$$,
+  '22023', 'artifact registration rejects private input over 65536 encoded bytes');
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000001',
+      'generate_overview',repeat('a',64),'{}','infinity')$$,
+  '22023', 'artifact registration rejects a non-finite clock');
+
+insert into public.video_sources (
+  id,user_id,youtube_video_id,canonical_url,created_at,updated_at
+) values (
+  '17000000-0000-4000-8000-000000000001',:'user_a','J---aiyznGQ',
+  'https://www.youtube.com/watch?v=J---aiyznGQ',
+  '2026-08-17 07:00:00+00','2026-08-17 07:00:00+00'
+);
+insert into public.knowledge_jobs (
+  id,user_id,video_source_id,saved_item_id,job_type,status,dedupe_key,attempt_count,
+  created_at,updated_at
+) values (
+  'f0000000-0000-4000-8000-000000000001',:'user_a',
+  '17000000-0000-4000-8000-000000000001',null,'generate_overview','pending',
+  repeat('6',64),0,'2026-08-17 07:00:00+00','2026-08-17 07:00:00+00'
+);
+insert into public.knowledge_job_internal values (
+  'f0000000-0000-4000-8000-000000000001',:'user_a','{"sentinel":"original"}',
+  '{"sentinel":"result"}','2026-08-17 07:00:00+00','2026-08-17 07:00:00+00'
+);
+create temporary table learning_artifact_cross_source_before as
+select to_jsonb(j) job_row,to_jsonb(i) internal_row
+from public.knowledge_jobs j
+join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+where j.id='f0000000-0000-4000-8000-000000000001';
+grant select on learning_artifact_cross_source_before to service_role;
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000001',
+      'generate_overview',repeat('6',64),'{"replacement":"forbidden"}',
+      '2026-08-17 07:30:00+00')$$,
+  '22023', 'registration rejects a replay whose dedupe key belongs to another source');
+select extensions.results_eq(
+  $$select to_jsonb(j),to_jsonb(i) from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+    where j.id='f0000000-0000-4000-8000-000000000001'$$,
+  $$select job_row,internal_row from learning_artifact_cross_source_before$$,
+  'rejected cross-source registration replay preserves the existing rows');
+
+insert into public.knowledge_jobs (
+  id,user_id,video_source_id,saved_item_id,job_type,status,dedupe_key,attempt_count,
+  created_at,updated_at
+) values (
+  'f0000000-0000-4000-8000-000000000002',:'user_a',
+  '10000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001',
+  'translate_segments','pending',repeat('f',64),0,
+  '2026-08-17 07:00:00+00','2026-08-17 07:00:00+00'
+);
+insert into public.knowledge_job_internal values (
+  'f0000000-0000-4000-8000-000000000002',:'user_a','{"sentinel":"saved-item"}',
+  null,'2026-08-17 07:00:00+00','2026-08-17 07:00:00+00'
+);
+create temporary table learning_artifact_saved_item_before as
+select to_jsonb(j) job_row,to_jsonb(i) internal_row
+from public.knowledge_jobs j
+join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+where j.id='f0000000-0000-4000-8000-000000000002';
+grant select on learning_artifact_saved_item_before to service_role;
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000001',
+      'translate_segments',repeat('f',64),'{"replacement":"forbidden"}',
+      '2026-08-17 07:30:00+00')$$,
+  '22023', 'registration rejects a replay whose dedupe key belongs to a saved-item job');
+select extensions.results_eq(
+  $$select to_jsonb(j),to_jsonb(i) from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+    where j.id='f0000000-0000-4000-8000-000000000002'$$,
+  $$select job_row,internal_row from learning_artifact_saved_item_before$$,
+  'rejected saved-item registration replay preserves the existing rows');
+
+insert into public.knowledge_jobs (
+  id,user_id,video_source_id,saved_item_id,job_type,status,dedupe_key,attempt_count,
+  lease_expires_at,created_at,updated_at
+)
+select ('f1000000-0000-4000-8000-00000000000' || attempt_count)::uuid,
+  :'user_a','10000000-0000-4000-8000-000000000001',null,
+  case attempt_count when 1 then 'generate_overview' when 2 then 'translate_segments'
+    else 'explain_selection' end,
+  'leased', repeat(attempt_count::text,64), attempt_count,
+  '2026-08-17 08:05:00+00','2026-08-17 08:00:00+00','2026-08-17 08:00:00+00'
+from generate_series(1,4) as attempt_count;
+insert into public.knowledge_job_internal (knowledge_job_id,user_id,input,result,created_at,updated_at)
+select id,user_id,jsonb_build_object('attempt',attempt_count),'{"sentinel":"keep"}',
+  '2026-08-17 08:00:00+00','2026-08-17 08:00:00+00'
+from public.knowledge_jobs where id::text like 'f1000000-0000-4000-8000-00000000000%';
+
+do $$
+declare v_attempt integer; v_job public.knowledge_jobs; v_ok boolean;
+begin
+  for v_attempt in 1..4 loop
+    select * into v_job from public.knowledge_jobs
+    where id = ('f1000000-0000-4000-8000-00000000000' || v_attempt)::uuid;
+    select public.transition_learning_artifact_failure(
+      v_job.user_id,v_job.id,v_job.video_source_id,v_job.job_type,v_job.lease_expires_at,
+      v_attempt,'retryable_failed',
+      '2026-08-17 08:00:00+00'::timestamptz + power(2,v_attempt-1) * interval '1 minute',
+      'PROVIDER_UNAVAILABLE',false,'2026-08-17 08:00:00+00') into v_ok;
+    if not v_ok then raise exception 'expected retry transition'; end if;
+  end loop;
+end
+$$;
+
+select extensions.results_eq(
+  $$select j.attempt_count,j.status,j.next_attempt_at,j.lease_expires_at,j.last_error_code,
+      i.input,i.result
+    from public.knowledge_jobs j join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+    where j.id::text like 'f1000000-0000-4000-8000-00000000000%' order by j.attempt_count$$,
+  $$values
+    (1,'retryable_failed'::text,'2026-08-17 08:01:00+00'::timestamptz,null::timestamptz,
+      'PROVIDER_UNAVAILABLE'::text,'{"attempt":1}'::jsonb,'{"sentinel":"keep"}'::jsonb),
+    (2,'retryable_failed'::text,'2026-08-17 08:02:00+00'::timestamptz,null::timestamptz,
+      'PROVIDER_UNAVAILABLE'::text,'{"attempt":2}'::jsonb,'{"sentinel":"keep"}'::jsonb),
+    (3,'retryable_failed'::text,'2026-08-17 08:04:00+00'::timestamptz,null::timestamptz,
+      'PROVIDER_UNAVAILABLE'::text,'{"attempt":3}'::jsonb,'{"sentinel":"keep"}'::jsonb),
+    (4,'retryable_failed'::text,'2026-08-17 08:08:00+00'::timestamptz,null::timestamptz,
+      'PROVIDER_UNAVAILABLE'::text,'{"attempt":4}'::jsonb,'{"sentinel":"keep"}'::jsonb)$$,
+  'attempts one through four retry at exact 1/2/4/8-minute clocks and preserve private bytes');
+
+insert into public.knowledge_jobs (
+  id,user_id,video_source_id,job_type,status,dedupe_key,attempt_count,lease_expires_at,created_at,updated_at
+) values ('f1000000-0000-4000-8000-000000000005',:'user_a',
+  '10000000-0000-4000-8000-000000000001','generate_overview','leased',repeat('5',64),5,
+  '2026-08-17 08:05:00+00','2026-08-17 08:00:00+00','2026-08-17 08:00:00+00');
+insert into public.knowledge_job_internal values (
+  'f1000000-0000-4000-8000-000000000005',:'user_a','{"attempt":5}','{"sentinel":"keep"}',
+  '2026-08-17 08:00:00+00','2026-08-17 08:00:00+00');
+select pg_temp.rejects_state_clean(
+  $$select public.transition_learning_artifact_failure(
+      '00000000-0000-4000-8000-00000000a001','f1000000-0000-4000-8000-000000000005',
+      '10000000-0000-4000-8000-000000000001','generate_overview',
+      '2026-08-17 08:05:00+00',5,'retryable_failed','2026-08-17 08:16:00+00',
+      'PROVIDER_UNAVAILABLE',false,'2026-08-17 08:00:00+00')$$,
+  '22023', 'attempt five cannot retry');
+
+insert into public.knowledge_jobs (
+  id,user_id,video_source_id,job_type,status,dedupe_key,attempt_count,lease_expires_at,created_at,updated_at
+)
+select ('f2000000-0000-4000-8000-00000000000' || attempt_count)::uuid,
+  :'user_a','10000000-0000-4000-8000-000000000001','explain_selection','leased',
+  repeat(substr('0a568',attempt_count,1),64),attempt_count,'2026-08-17 09:05:00+00',
+  '2026-08-17 09:00:00+00','2026-08-17 09:00:00+00'
+from generate_series(1,5) as attempt_count;
+insert into public.knowledge_job_internal (knowledge_job_id,user_id,input,result,created_at,updated_at)
+select id,user_id,jsonb_build_object('attempt',attempt_count),'{"sentinel":"keep"}',
+  '2026-08-17 09:00:00+00','2026-08-17 09:00:00+00'
+from public.knowledge_jobs where id::text like 'f2000000-0000-4000-8000-00000000000%';
+do $$
+declare v_job public.knowledge_jobs; v_ok boolean;
+begin
+  for v_job in select * from public.knowledge_jobs
+    where id::text like 'f2000000-0000-4000-8000-00000000000%' loop
+    select public.transition_learning_artifact_failure(
+      v_job.user_id,v_job.id,v_job.video_source_id,v_job.job_type,v_job.lease_expires_at,
+      v_job.attempt_count,'terminal_failed',null,'PROVIDER_OUTPUT_INVALID',true,
+      '2026-08-17 09:00:00+00') into v_ok;
+    if not v_ok then raise exception 'expected terminal transition'; end if;
+  end loop;
+end
+$$;
+select extensions.is(
+  (select count(*)::integer from public.knowledge_jobs j
+   join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+   where j.id::text like 'f2000000-0000-4000-8000-00000000000%'
+     and j.status='terminal_failed' and j.next_attempt_at is null
+     and j.lease_expires_at is null and j.last_error_code='PROVIDER_OUTPUT_INVALID'
+     and i.input='{}' and i.result='{"sentinel":"keep"}'),
+  5, 'attempts one through five may terminalize, clear input, and preserve result');
+
+insert into public.knowledge_jobs (
+  id,user_id,video_source_id,job_type,status,dedupe_key,attempt_count,lease_expires_at,created_at,updated_at
+) values ('f3000000-0000-4000-8000-000000000001',:'user_a',
+  '10000000-0000-4000-8000-000000000001','generate_overview','leased',repeat('a',64),1,
+  '2026-08-17 10:05:00+00','2026-08-17 10:00:00+00','2026-08-17 10:00:00+00');
+insert into public.knowledge_job_internal values (
+  'f3000000-0000-4000-8000-000000000001',:'user_a','{"sentinel":"input"}',
+  '{"sentinel":"result"}','2026-08-17 10:00:00+00','2026-08-17 10:00:00+00');
+create temporary table learning_artifact_fence_before as
+select to_jsonb(j) as job_row,to_jsonb(i) as internal_row from public.knowledge_jobs j
+join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+where j.id='f3000000-0000-4000-8000-000000000001';
+grant select on learning_artifact_fence_before to service_role;
+select extensions.is(public.transition_learning_artifact_failure(
+  :'user_b','f3000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 10:05:00+00',1,
+  'terminal_failed',null,'PROVIDER_UNAVAILABLE',true,'2026-08-17 10:00:00+00'),false,
+  'failure transition rejects wrong owner fence');
+select extensions.is(public.transition_learning_artifact_failure(
+  :'user_a','f3000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000001','translate_segments','2026-08-17 10:05:00+00',1,
+  'terminal_failed',null,'PROVIDER_UNAVAILABLE',true,'2026-08-17 10:00:00+00'),false,
+  'failure transition rejects wrong allowed-type fence');
+select extensions.is(public.transition_learning_artifact_failure(
+  :'user_a','f3000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 10:05:00.001+00',1,
+  'terminal_failed',null,'PROVIDER_UNAVAILABLE',true,'2026-08-17 10:00:00+00'),false,
+  'failure transition rejects a lost lease fence');
+select extensions.is(public.transition_learning_artifact_failure(
+  :'user_a','f3000000-0000-4000-8000-000000000001',
+  '17000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 10:05:00+00',1,
+  'terminal_failed',null,'PROVIDER_UNAVAILABLE',true,'2026-08-17 10:00:00+00'),false,
+  'failure transition rejects a wrong source fence');
+select extensions.is(public.transition_learning_artifact_failure(
+  :'user_a','f3000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 10:05:00+00',2,
+  'terminal_failed',null,'PROVIDER_UNAVAILABLE',true,'2026-08-17 10:00:00+00'),false,
+  'failure transition rejects a wrong attempt fence');
+select extensions.results_eq(
+  $$select to_jsonb(j),to_jsonb(i) from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+    where j.id='f3000000-0000-4000-8000-000000000001'$$,
+  $$select job_row,internal_row from learning_artifact_fence_before$$,
+  'wrong failure fences preserve public and private rows byte-for-byte');
+select pg_temp.rejects_state_clean(
+  $$select public.transition_learning_artifact_failure(
+      '00000000-0000-4000-8000-00000000a001','f3000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 10:05:00+00',1,
+      'retryable_failed','2026-08-17 10:02:00+00','PROVIDER_UNAVAILABLE',false,
+      '2026-08-17 10:00:00+00')$$,
+  '22023', 'failure transition rejects an inexact retry clock before mutation');
+select pg_temp.rejects_state_clean(
+  $$select public.transition_learning_artifact_failure(
+      '00000000-0000-4000-8000-00000000a001','f3000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 10:05:00+00',1,
+      'terminal_failed',null,'',false,'2026-08-17 10:00:00+00')$$,
+  '22023', 'failure transition rejects invalid error and clear combination before mutation');
+
+insert into public.knowledge_jobs (
+  id,user_id,video_source_id,job_type,status,dedupe_key,attempt_count,lease_expires_at,created_at,updated_at
+) values
+  ('c7000000-0000-4000-8000-000000000001',:'user_a','10000000-0000-4000-8000-000000000001',
+    'generate_overview','leased',repeat('b',64),1,'2026-08-17 11:05:00+00','2026-08-17 11:00:00+00','2026-08-17 11:00:00+00'),
+  ('c7000000-0000-4000-8000-000000000002',:'user_a','10000000-0000-4000-8000-000000000001',
+    'translate_segments','leased',repeat('c',64),2,'2026-08-17 11:05:00+00','2026-08-17 11:00:00+00','2026-08-17 11:00:00+00'),
+  ('c7000000-0000-4000-8000-000000000003',:'user_a','10000000-0000-4000-8000-000000000001',
+    'explain_selection','leased',repeat('d',64),3,'2026-08-17 11:05:00+00','2026-08-17 11:00:00+00','2026-08-17 11:00:00+00');
+insert into public.knowledge_job_internal (knowledge_job_id,user_id,input,result,created_at,updated_at)
+select id,user_id,jsonb_build_object('jobType',job_type),null,
+  '2026-08-17 11:00:00+00','2026-08-17 11:00:00+00'
+from public.knowledge_jobs where id::text like 'c7000000-0000-4000-8000-00000000000%';
+create temporary table learning_artifact_completion_results (
+  job_id uuid primary key,artifact_id uuid
+);
+grant select,insert on learning_artifact_completion_results to service_role;
+insert into learning_artifact_completion_results values
+  ('c7000000-0000-4000-8000-000000000001', public.complete_learning_artifact_job(
+    :'user_a','c7000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',
+    'generate_overview','2026-08-17 11:05:00+00',1,'overview',
+    '{"summaryEnglish":"A grounded overview","evidenceChinese":"今天我们来学中文。"}',
+    'overview-v1','fixture-model',repeat('b',64),'2026-08-17 11:00:00+00')),
+  ('c7000000-0000-4000-8000-000000000002', public.complete_learning_artifact_job(
+    :'user_a','c7000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001',
+    'translate_segments','2026-08-17 11:05:00+00',2,'segment_translation',
+    '{"translations":[{"stableId":"seg-a-1","english":"Today we learn Chinese."}]}',
+    'translation-v1','fixture-model',repeat('c',64),'2026-08-17 11:00:00+00')),
+  ('c7000000-0000-4000-8000-000000000003', public.complete_learning_artifact_job(
+    :'user_a','c7000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001',
+    'explain_selection','2026-08-17 11:05:00+00',3,'selection_explanation',
+    '{"selectedChinese":"今天我们来学中文。","explanationEnglish":"A welcoming lesson opener."}',
+    'explanation-v1','fixture-model',repeat('d',64),'2026-08-17 11:00:00+00'));
+
+select extensions.is(
+  (select count(*)::integer from learning_artifact_completion_results where artifact_id is not null),
+  3, 'each exact job-to-artifact mapping completes and returns an artifact UUID');
+select extensions.results_eq(
+  $$select j.job_type,a.artifact_type,a.user_id,a.video_source_id,a.saved_item_id,
+      a.native_language,a.target_language,a.prompt_version,a.model,a.result_key,
+      j.status,j.lease_expires_at,j.last_error_code,i.input,i.result
+    from learning_artifact_completion_results r
+    join public.knowledge_jobs j on j.id=r.job_id
+    join public.generated_artifacts a on a.id=r.artifact_id
+    join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+    order by j.job_type$$,
+  $$values
+    ('explain_selection'::text,'selection_explanation'::text,
+      '00000000-0000-4000-8000-00000000a001'::uuid,'10000000-0000-4000-8000-000000000001'::uuid,
+      null::uuid,'en'::text,'zh-CN'::text,'explanation-v1'::text,'fixture-model'::text,repeat('d',64),
+      'succeeded'::text,null::timestamptz,null::text,'{}'::jsonb,
+      jsonb_build_object('artifactId',(select artifact_id from learning_artifact_completion_results where job_id='c7000000-0000-4000-8000-000000000003'))),
+    ('generate_overview'::text,'overview'::text,
+      '00000000-0000-4000-8000-00000000a001'::uuid,'10000000-0000-4000-8000-000000000001'::uuid,
+      null::uuid,'en'::text,'zh-CN'::text,'overview-v1'::text,'fixture-model'::text,repeat('b',64),
+      'succeeded'::text,null::timestamptz,null::text,'{}'::jsonb,
+      jsonb_build_object('artifactId',(select artifact_id from learning_artifact_completion_results where job_id='c7000000-0000-4000-8000-000000000001'))),
+    ('translate_segments'::text,'segment_translation'::text,
+      '00000000-0000-4000-8000-00000000a001'::uuid,'10000000-0000-4000-8000-000000000001'::uuid,
+      null::uuid,'en'::text,'zh-CN'::text,'translation-v1'::text,'fixture-model'::text,repeat('c',64),
+      'succeeded'::text,null::timestamptz,null::text,'{}'::jsonb,
+      jsonb_build_object('artifactId',(select artifact_id from learning_artifact_completion_results where job_id='c7000000-0000-4000-8000-000000000002')))$$,
+  'completion writes exact language, metadata, result, input, and succeeded job state atomically');
+
+create temporary table learning_artifact_replay_before as
+select to_jsonb(a) artifact_row from public.generated_artifacts a
+join learning_artifact_completion_results r on r.artifact_id=a.id
+where r.job_id='c7000000-0000-4000-8000-000000000001';
+grant select on learning_artifact_replay_before to service_role;
+select extensions.is(public.complete_learning_artifact_job(
+  :'user_a','c7000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',
+  'generate_overview','2026-08-17 11:05:00+00',1,'overview','{"replacement":"forbidden"}',
+  'other-v1','other-model',repeat('b',64),'2026-08-17 11:00:01+00'),null::uuid,
+  'same completion replay loses its lease fence');
+select extensions.results_eq(
+  $$select to_jsonb(a) from public.generated_artifacts a
+    join learning_artifact_completion_results r on r.artifact_id=a.id
+    where r.job_id='c7000000-0000-4000-8000-000000000001'$$,
+  $$select artifact_row from learning_artifact_replay_before$$,
+  'same result replay preserves the first artifact without overwriting it');
+
+insert into public.knowledge_jobs (
+  id,user_id,video_source_id,job_type,status,dedupe_key,attempt_count,lease_expires_at,created_at,updated_at
+) values ('c7000000-0000-4000-8000-000000000010',:'user_a',
+  '10000000-0000-4000-8000-000000000001','generate_overview','leased',repeat('e',64),1,
+  '2026-08-17 12:05:00+00','2026-08-17 12:00:00+00','2026-08-17 12:00:00+00');
+insert into public.knowledge_job_internal values (
+  'c7000000-0000-4000-8000-000000000010',:'user_a','{"sentinel":"input"}',null,
+  '2026-08-17 12:00:00+00','2026-08-17 12:00:00+00');
+create temporary table learning_artifact_completion_before as
+select to_jsonb(j) job_row,to_jsonb(i) internal_row,
+  (select count(*) from public.generated_artifacts) artifact_count
+from public.knowledge_jobs j join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+where j.id='c7000000-0000-4000-8000-000000000010';
+grant select on learning_artifact_completion_before to service_role;
+select pg_temp.rejects_state_clean(
+  $$select public.complete_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','c7000000-0000-4000-8000-000000000010',
+      '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 12:05:00+00',1,
+      'segment_translation','{}','overview-v1','fixture-model',repeat('e',64),'2026-08-17 12:00:00+00')$$,
+  '22023', 'completion rejects a wrong job-to-artifact mapping before mutation');
+select pg_temp.rejects_state_clean(
+  $$select public.complete_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','c7000000-0000-4000-8000-000000000010',
+      '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 12:05:00+00',1,
+      'overview','{}','overview-v1','fixture-model',repeat('f',64),'2026-08-17 12:00:00+00')$$,
+  '22023', 'completion rejects a result key different from the job dedupe key');
+select pg_temp.rejects_state_clean(
+  $$select public.complete_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','c7000000-0000-4000-8000-000000000010',
+      '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 12:05:00+00',1,
+      'overview','[]','overview-v1','fixture-model',repeat('e',64),'2026-08-17 12:00:00+00')$$,
+  '22023', 'completion requires object content');
+select pg_temp.rejects_state_clean(
+  $$select public.complete_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','c7000000-0000-4000-8000-000000000010',
+      '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 12:05:00+00',1,
+      'overview',jsonb_build_object('payload',repeat('x',262144)),'overview-v1','fixture-model',
+      repeat('e',64),'2026-08-17 12:00:00+00')$$,
+  '22023', 'completion rejects artifact content over 262144 encoded bytes');
+select pg_temp.rejects_state_clean(
+  $$select public.complete_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','c7000000-0000-4000-8000-000000000010',
+      '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 12:05:00+00',1,
+      'overview','{}',' overview-v1','fixture-model',repeat('e',64),
+      '2026-08-17 12:00:00+00')$$,
+  '22023', 'completion rejects an untrimmed prompt version');
+select pg_temp.rejects_state_clean(
+  $$select public.complete_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','c7000000-0000-4000-8000-000000000010',
+      '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 12:05:00+00',1,
+      'overview','{}','overview-v1',repeat('m',101),repeat('e',64),
+      '2026-08-17 12:00:00+00')$$,
+  '22023', 'completion rejects a model name longer than 100 characters');
+select pg_temp.rejects_state_clean(
+  $$select public.complete_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','c7000000-0000-4000-8000-000000000010',
+      '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 12:05:00+00',1,
+      'overview','{}','overview-v1','fixture-model','INVALID',
+      '2026-08-17 12:00:00+00')$$,
+  '22023', 'completion rejects a malformed result-key hash');
+select pg_temp.rejects_state_clean(
+  $$select public.complete_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','c7000000-0000-4000-8000-000000000010',
+      '10000000-0000-4000-8000-000000000001','generate_overview','2026-08-17 12:05:00+00',1,
+      'overview','{}','overview-v1','fixture-model',repeat('e',64),
+      '2026-08-17 12:05:00+00')$$,
+  '22023', 'completion clock must be strictly before the expected lease expiry');
+select extensions.is(public.complete_learning_artifact_job(
+  :'user_b','c7000000-0000-4000-8000-000000000010','10000000-0000-4000-8000-000000000001',
+  'generate_overview','2026-08-17 12:05:00+00',1,'overview','{}','overview-v1','fixture-model',
+  repeat('e',64),'2026-08-17 12:00:00+00'),null::uuid,
+  'completion returns null for a wrong owner fence');
+select extensions.is(public.complete_learning_artifact_job(
+  :'user_a','c7000000-0000-4000-8000-000000000010','17000000-0000-4000-8000-000000000001',
+  'generate_overview','2026-08-17 12:05:00+00',1,'overview','{}','overview-v1','fixture-model',
+  repeat('e',64),'2026-08-17 12:00:00+00'),null::uuid,
+  'completion returns null for a wrong source fence');
+select extensions.is(public.complete_learning_artifact_job(
+  :'user_a','c7000000-0000-4000-8000-000000000010','10000000-0000-4000-8000-000000000001',
+  'generate_overview','2026-08-17 12:05:00+00',2,'overview','{}','overview-v1','fixture-model',
+  repeat('e',64),'2026-08-17 12:00:00+00'),null::uuid,
+  'completion returns null for a wrong attempt fence');
+select extensions.is(public.complete_learning_artifact_job(
+  :'user_a','c7000000-0000-4000-8000-000000000010','10000000-0000-4000-8000-000000000001',
+  'generate_overview','2026-08-17 12:05:00.001+00',1,'overview','{}','overview-v1','fixture-model',
+  repeat('e',64),'2026-08-17 12:00:00+00'),null::uuid,
+  'completion returns null for a lost lease fence');
+select extensions.results_eq(
+  $$select to_jsonb(j),to_jsonb(i),(select count(*) from public.generated_artifacts)
+    from public.knowledge_jobs j join public.knowledge_job_internal i on i.knowledge_job_id=j.id
+    where j.id='c7000000-0000-4000-8000-000000000010'$$,
+  $$select job_row,internal_row,artifact_count from learning_artifact_completion_before$$,
+  'wrong mapping, key, owner, and lease preserve artifact, job, and internal rows');
+
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', :'user_a', true);
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000001',
+      'generate_overview',repeat('f',64),'{}','2026-08-17 13:00:00+00')$$,
+  '42501', 'authenticated clients cannot register learning-artifact jobs');
+select pg_temp.rejects_state_clean(
+  $$insert into public.generated_artifacts (
+      user_id,video_source_id,artifact_type,native_language,target_language,content,prompt_version,model,result_key)
+    values ('00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000001',
+      'overview','en','zh-CN','{}','client','client',repeat('f',64))$$,
+  '42501', 'authenticated clients gain no direct artifact write through the worker gate');
+reset role;
+set local role anon;
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_learning_artifact_job(
+      '00000000-0000-4000-8000-00000000a001','10000000-0000-4000-8000-000000000001',
+      'generate_overview',repeat('f',64),'{}','2026-08-17 13:00:00+00')$$,
+  '42501', 'anonymous clients cannot execute learning-artifact RPCs');
+reset role;
+
 select extensions.finish();
 rollback;
