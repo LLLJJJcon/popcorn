@@ -2812,7 +2812,7 @@ select extensions.is(
 select extensions.results_eq(
   $$select j.job_type,a.artifact_type,a.user_id,a.video_source_id,a.saved_item_id,
       a.native_language,a.target_language,a.prompt_version,a.model,a.result_key,
-      j.status,j.lease_expires_at,j.last_error_code,i.input,i.result
+      a.content,j.status,j.lease_expires_at,j.last_error_code,i.input,i.result
     from learning_artifact_completion_results r
     join public.knowledge_jobs j on j.id=r.job_id
     join public.generated_artifacts a on a.id=r.artifact_id
@@ -2822,19 +2822,76 @@ select extensions.results_eq(
     ('explain_selection'::text,'selection_explanation'::text,
       '00000000-0000-4000-8000-00000000a001'::uuid,'10000000-0000-4000-8000-000000000001'::uuid,
       null::uuid,'en'::text,'zh-CN'::text,'explanation-v1'::text,'fixture-model'::text,repeat('d',64),
+      '{"selectedChinese":"今天我们来学中文。","explanationEnglish":"A welcoming lesson opener."}'::jsonb,
       'succeeded'::text,null::timestamptz,null::text,'{}'::jsonb,
       jsonb_build_object('artifactId',(select artifact_id from learning_artifact_completion_results where job_id='c7000000-0000-4000-8000-000000000003'))),
     ('generate_overview'::text,'overview'::text,
       '00000000-0000-4000-8000-00000000a001'::uuid,'10000000-0000-4000-8000-000000000001'::uuid,
       null::uuid,'en'::text,'zh-CN'::text,'overview-v1'::text,'fixture-model'::text,repeat('b',64),
+      '{"summaryEnglish":"A grounded overview","evidenceChinese":"今天我们来学中文。"}'::jsonb,
       'succeeded'::text,null::timestamptz,null::text,'{}'::jsonb,
       jsonb_build_object('artifactId',(select artifact_id from learning_artifact_completion_results where job_id='c7000000-0000-4000-8000-000000000001'))),
     ('translate_segments'::text,'segment_translation'::text,
       '00000000-0000-4000-8000-00000000a001'::uuid,'10000000-0000-4000-8000-000000000001'::uuid,
       null::uuid,'en'::text,'zh-CN'::text,'translation-v1'::text,'fixture-model'::text,repeat('c',64),
+      '{"translations":[{"stableId":"seg-a-1","english":"Today we learn Chinese."}]}'::jsonb,
       'succeeded'::text,null::timestamptz,null::text,'{}'::jsonb,
       jsonb_build_object('artifactId',(select artifact_id from learning_artifact_completion_results where job_id='c7000000-0000-4000-8000-000000000002')))$$,
   'completion writes exact language, metadata, result, input, and succeeded job state atomically');
+
+insert into public.generated_artifacts (
+  id,user_id,video_source_id,saved_item_id,artifact_type,native_language,
+  target_language,content,prompt_version,model,result_key,created_at
+) values (
+  'c8000000-0000-4000-8000-000000000001',:'user_a',
+  '10000000-0000-4000-8000-000000000001',null,'overview','en','zh-CN',
+  '{"summaryEnglish":"First artifact must survive","evidenceChinese":"原始证据。"}',
+  'preserved-overview-v1','first-model',repeat('0',64),'2026-08-17 11:30:00+00'
+);
+create temporary table learning_artifact_conflict_before as
+select to_jsonb(artifact) artifact_row
+from public.generated_artifacts artifact
+where artifact.id='c8000000-0000-4000-8000-000000000001';
+grant select on learning_artifact_conflict_before to service_role;
+
+insert into public.knowledge_jobs (
+  id,user_id,video_source_id,saved_item_id,job_type,status,dedupe_key,attempt_count,
+  lease_expires_at,created_at,updated_at
+) values (
+  'c8000000-0000-4000-8000-000000000002',:'user_a',
+  '10000000-0000-4000-8000-000000000001',null,'generate_overview','leased',
+  repeat('0',64),4,'2026-08-17 11:45:00+00',
+  '2026-08-17 11:30:00+00','2026-08-17 11:30:00+00'
+);
+insert into public.knowledge_job_internal values (
+  'c8000000-0000-4000-8000-000000000002',:'user_a',
+  '{"request":"must be cleared"}',null,
+  '2026-08-17 11:30:00+00','2026-08-17 11:30:00+00'
+);
+
+select extensions.is(public.complete_learning_artifact_job(
+  :'user_a','c8000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000001','generate_overview',
+  '2026-08-17 11:45:00+00',4,'overview',
+  '{"summaryEnglish":"Replacement forbidden","evidenceChinese":"替换禁止。"}',
+  'replacement-v1','replacement-model',repeat('0',64),'2026-08-17 11:40:00+00'),
+  'c8000000-0000-4000-8000-000000000001'::uuid,
+  'artifact conflict completion returns the pre-existing artifact UUID');
+select extensions.results_eq(
+  $$select to_jsonb(artifact) from public.generated_artifacts artifact
+    where artifact.id='c8000000-0000-4000-8000-000000000001'$$,
+  $$select artifact_row from learning_artifact_conflict_before$$,
+  'artifact conflict completion preserves the first full artifact row');
+select extensions.results_eq(
+  $$select job.status,job.attempt_count,job.next_attempt_at,job.lease_expires_at,
+      job.last_error_code,job.updated_at,internal.input,internal.result
+    from public.knowledge_jobs job
+    join public.knowledge_job_internal internal on internal.knowledge_job_id=job.id
+    where job.id='c8000000-0000-4000-8000-000000000002'$$,
+  $$values ('succeeded'::text,4,null::timestamptz,null::timestamptz,null::text,
+      '2026-08-17 11:40:00+00'::timestamptz,'{}'::jsonb,
+      '{"artifactId":"c8000000-0000-4000-8000-000000000001"}'::jsonb)$$,
+  'artifact conflict completion succeeds the job and writes only the preserved artifact reference');
 
 create temporary table learning_artifact_replay_before as
 select to_jsonb(a) artifact_row from public.generated_artifacts a

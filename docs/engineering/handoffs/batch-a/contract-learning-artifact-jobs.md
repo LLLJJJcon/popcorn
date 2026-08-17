@@ -86,3 +86,31 @@ dependency, lockfile, ledger, or checkpoint was changed.
   the existing unique indexes plus PostgreSQL conflict/row-lock semantics.
 - This handoff is implementation evidence only. Independent read-only review
   from `920bccd..HEAD` and controller integration are still required.
+
+## Independent Review Fix 1 — Artifact conflict replay coverage
+
+- Fix baseline: `9c8b8f7eec593830a6f77ad16eef6bc2dcc47fc4`.
+- Changed only
+  `docs/engineering/briefs/batch-a/contract-learning-artifact-jobs-review-fix-1.md`,
+  this handoff, and `supabase/tests/rls.sql`.
+- The three exact job-to-artifact mapping rows now assert their complete JSON
+  `content`, in addition to owner/source/type/languages/prompt/model/result key
+  and job/private state.
+- The conflict regression pre-inserts a complete overview artifact, records its
+  full row, and completes a distinct exact leased job with the same result key.
+  It proves the RPC returns the pre-existing UUID, preserves every artifact
+  field including content/metadata/languages/timestamp, succeeds the job,
+  clears private input, and writes strict `{artifactId}` for that existing row.
+- RED: a temporary conflict-path rejection returned `NULL`; pgTAP failed only
+  assertion 323 (1 failure of 343), expecting the pre-existing artifact UUID.
+- Migration 007 was then restored byte-for-byte to the fix baseline. Its Git
+  blob hash is `26ba2b0b8b5b48f9709a496885a4da019a42eb9f`, and `git diff
+  9c8b8f7 -- supabase/migrations/202608160007_learning_artifact_jobs.sql` is
+  empty.
+- GREEN: a fresh migrations 001–007 reset succeeded and pgTAP passed 343/343.
+  Application contract, typecheck, production build, and diff-check evidence
+  is recorded in the Review Fix 1 commit verification reported to the
+  controller.
+- Upstream/license conclusions and residual concurrency risk are unchanged.
+  This fix adds executable evidence only and still requires fresh independent
+  read-only review.
