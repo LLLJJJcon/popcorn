@@ -1558,5 +1558,150 @@ select pg_temp.rejects_state_clean(
 
 reset role;
 
+-- Controller-owned global discovery boundary: only the service role can turn
+-- cross-tenant eligible rows into owner-bearing leases. All later operations
+-- must use the returned user_id.
+select extensions.is(
+  (select count(*)::integer from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'claim_knowledge_jobs'),
+  1,
+  'job claim RPC has exactly one public overload');
+
+select extensions.ok(
+  (select p.prosecdef and p.proconfig @> array['search_path=pg_catalog']
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'claim_knowledge_jobs'),
+  'job claim RPC is security-definer with fixed pg_catalog search path');
+
+select extensions.ok(
+  (select has_function_privilege('service_role', p.oid, 'execute')
+      and not has_function_privilege('authenticated', p.oid, 'execute')
+      and not has_function_privilege('anon', p.oid, 'execute')
+      and not has_function_privilege('public', p.oid, 'execute')
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'claim_knowledge_jobs'),
+  'only service role can execute the job claim RPC');
+
+select extensions.ok(
+  (select pg_get_functiondef(p.oid) ~* 'for update( of [a-z_]+)? skip locked'
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'claim_knowledge_jobs'),
+  'job claim RPC uses row locking with SKIP LOCKED');
+
+update public.knowledge_jobs
+set status = 'succeeded', next_attempt_at = null, lease_expires_at = null,
+    last_error_code = null, updated_at = '2026-08-17 02:00:00+00';
+
+insert into public.knowledge_jobs (
+  id, user_id, video_source_id, job_type, status, dedupe_key, attempt_count,
+  next_attempt_at, lease_expires_at, last_error_code, created_at, updated_at
+) values
+  ('d1000000-0000-4000-8000-000000000001', :'user_a', '10000000-0000-4000-8000-000000000001',
+   'resolve_snapshot', 'pending', repeat('0',63) || '1', 0, null, null, null,
+   '2026-08-17 02:00:01+00', '2026-08-17 02:00:01+00'),
+  ('d1000000-0000-4000-8000-000000000002', :'user_b', '10000000-0000-4000-8000-000000000002',
+   'resolve_snapshot', 'pending', repeat('0',63) || '2', 0, null, null, null,
+   '2026-08-17 02:00:02+00', '2026-08-17 02:00:02+00'),
+  ('d1000000-0000-4000-8000-000000000003', :'user_a', '10000000-0000-4000-8000-000000000001',
+   'resolve_snapshot', 'leased', repeat('0',63) || '3', 1, null, '2026-08-17 03:01:00+00', null,
+   '2026-08-17 02:00:03+00', '2026-08-17 02:00:03+00'),
+  ('d1000000-0000-4000-8000-000000000004', :'user_b', '10000000-0000-4000-8000-000000000002',
+   'resolve_snapshot', 'leased', repeat('0',63) || '4', 2, null, '2026-08-17 02:59:00+00', null,
+   '2026-08-17 02:00:04+00', '2026-08-17 02:00:04+00'),
+  ('d1000000-0000-4000-8000-000000000005', :'user_a', '10000000-0000-4000-8000-000000000001',
+   'resolve_snapshot', 'retryable_failed', repeat('0',63) || '5', 4, '2026-08-17 02:59:00+00', null,
+   'PROVIDER_RATE_LIMITED', '2026-08-17 02:00:05+00', '2026-08-17 02:00:05+00'),
+  ('d1000000-0000-4000-8000-000000000006', :'user_a', '10000000-0000-4000-8000-000000000001',
+   'resolve_snapshot', 'leased', repeat('0',63) || '6', 5, null, '2026-08-17 02:59:00+00', null,
+   '2026-08-17 02:00:06+00', '2026-08-17 02:00:06+00'),
+  ('d1000000-0000-4000-8000-000000000007', :'user_b', '10000000-0000-4000-8000-000000000002',
+   'resolve_snapshot', 'retryable_failed', repeat('0',63) || '7', 2, '2026-08-17 03:01:00+00', null,
+   'PROVIDER_RATE_LIMITED', '2026-08-17 02:00:07+00', '2026-08-17 02:00:07+00');
+
+create temporary table claim_results
+  (like public.knowledge_jobs including defaults);
+grant select, insert on table claim_results to service_role;
+
+set local role service_role;
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.claim_knowledge_jobs(0, '2026-08-17 03:00:00+00')$$,
+  '22023',
+  'job claim rejects zero batch size before mutation');
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.claim_knowledge_jobs(26, '2026-08-17 03:00:00+00')$$,
+  '22023',
+  'job claim rejects oversized batch before mutation');
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.claim_knowledge_jobs(1, null)$$,
+  '22023',
+  'job claim rejects a null clock before mutation');
+
+insert into claim_results
+select * from public.claim_knowledge_jobs(25, '2026-08-17 03:00:00+00');
+
+select extensions.set_eq(
+  $$select id, user_id from claim_results$$,
+  $$values
+    ('d1000000-0000-4000-8000-000000000001'::uuid, '00000000-0000-4000-8000-00000000a001'::uuid),
+    ('d1000000-0000-4000-8000-000000000002'::uuid, '00000000-0000-4000-8000-00000000b002'::uuid),
+    ('d1000000-0000-4000-8000-000000000004'::uuid, '00000000-0000-4000-8000-00000000b002'::uuid),
+    ('d1000000-0000-4000-8000-000000000005'::uuid, '00000000-0000-4000-8000-00000000a001'::uuid)$$,
+  'claim returns every eligible job with database-derived owner exactly once');
+
+select extensions.results_eq(
+  $$select id, status, attempt_count, lease_expires_at, next_attempt_at,
+      last_error_code, updated_at
+    from claim_results order by id$$,
+  $$values
+    ('d1000000-0000-4000-8000-000000000001'::uuid, 'leased'::text, 1,
+      '2026-08-17 03:05:00+00'::timestamptz, null::timestamptz, null::text,
+      '2026-08-17 03:00:00+00'::timestamptz),
+    ('d1000000-0000-4000-8000-000000000002'::uuid, 'leased'::text, 1,
+      '2026-08-17 03:05:00+00'::timestamptz, null::timestamptz, null::text,
+      '2026-08-17 03:00:00+00'::timestamptz),
+    ('d1000000-0000-4000-8000-000000000004'::uuid, 'leased'::text, 3,
+      '2026-08-17 03:05:00+00'::timestamptz, null::timestamptz, null::text,
+      '2026-08-17 03:00:00+00'::timestamptz),
+    ('d1000000-0000-4000-8000-000000000005'::uuid, 'leased'::text, 5,
+      '2026-08-17 03:05:00+00'::timestamptz, null::timestamptz, null::text,
+      '2026-08-17 03:00:00+00'::timestamptz)$$,
+  'claim applies exact attempt, lifecycle, lease duration, and update clock');
+
+select extensions.results_eq(
+  $$select id, status, attempt_count, lease_expires_at, next_attempt_at, last_error_code
+    from public.knowledge_jobs
+    where id in ('d1000000-0000-4000-8000-000000000003',
+      'd1000000-0000-4000-8000-000000000006',
+      'd1000000-0000-4000-8000-000000000007')
+    order by id$$,
+  $$values
+    ('d1000000-0000-4000-8000-000000000003'::uuid, 'leased'::text, 1,
+      '2026-08-17 03:01:00+00'::timestamptz, null::timestamptz, null::text),
+    ('d1000000-0000-4000-8000-000000000006'::uuid, 'terminal_failed'::text, 5,
+      null::timestamptz, null::timestamptz, 'JOB_RETRY_EXHAUSTED'::text),
+    ('d1000000-0000-4000-8000-000000000007'::uuid, 'retryable_failed'::text, 2,
+      null::timestamptz, '2026-08-17 03:01:00+00'::timestamptz,
+      'PROVIDER_RATE_LIMITED'::text)$$,
+  'claim preserves active/future jobs and terminalizes expired fifth attempts');
+
+select extensions.is(
+  (select count(*) from public.claim_knowledge_jobs(25, '2026-08-17 03:00:00+00')),
+  0::bigint,
+  'a second worker cannot claim active leases at the same clock');
+
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', :'user_a', true);
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.claim_knowledge_jobs(1, '2026-08-17 03:00:00+00')$$,
+  '42501',
+  'authenticated clients cannot discover or claim global work');
+
+reset role;
+
 select extensions.finish();
 rollback;

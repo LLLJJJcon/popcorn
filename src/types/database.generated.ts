@@ -834,6 +834,30 @@ export type Database = {
           video_source_id: string
         }[]
       }
+      claim_knowledge_jobs: {
+        Args: { p_limit: number; p_now: string }
+        Returns: {
+          attempt_count: number
+          created_at: string
+          dedupe_key: string
+          id: string
+          job_type: string
+          last_error_code: string | null
+          lease_expires_at: string | null
+          next_attempt_at: string | null
+          saved_item_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          video_source_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "knowledge_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
     }
     Enums: {
       [_ in never]: never
