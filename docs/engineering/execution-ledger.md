@@ -3,11 +3,11 @@
 ## Current position
 
 - Stage: batch-a
-- Next task: dispatch Batch A Task 3 from accepted Tasks 1 and 2
+- Next task: dispatch Batch A Task 3 against frozen CONTRACT-007
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `c3a76f9` (Task 1/2 joint integration: auth Node 19/19, focused 22/22, full verify and extension/build gates)
+- Last verified commit: `ed1c983` (CONTRACT-007 integration: clean migrations 001–007, pgTAP 343/343, contract 146/146, generated types, typecheck/build/diff gates)
 
 ## Preflight
 
@@ -36,6 +36,7 @@
 | Batch A | 4 | `codex/popcorn-batch-a-4` | `f4a25dbceaffbc0562516945cbdb0323a64448f0` | `a619a12c3017a1747dbdd5a759cbb2dc951241df` | PASS; independent full-diff review found no Critical, Important, or Minor issues in the sole-RPC persistence path, authenticated owner scope, exact six-kind mapping, bounded ordered partial batch results, error boundary, or GPL isolation | Integrated as `f7a4dd705e347b86e5657bd5efd071a6422be06b`; capture integration 8/8; pgTAP 249/249; `pnpm verify` passed with unit 76/76, contract 128/128, integration 8/8, provenance 11/11, lint/typecheck/build; diff/status clean |
 | Batch A | 2 | `codex/popcorn-batch-a-2` | effective `21ee0e15ac3cd856b4ebfd1ffd62dd539b2fb53f`; CONTRACT-006 prerequisite through `3bfdd2c` | `62ade0a5bdce0e2aa604aece4157042015ecd7ef` | PASS after one application TDD repair/re-review; independent full-diff review approved native-zh Provider semantics, streaming byte bounds, sole atomic claim, owner/lease/attempt fencing, replay-safe registration, atomic failure/completion, bounded public result, nonleakage, upstream reuse, and GPL isolation | Integrated as `93fafb9` + `ac47c55`; focused 47/47; pgTAP 294/294; full verify passed with unit 97/97, contract 146/146, integration 29/29, provenance 11/11, lint/typecheck/production build; diff/status clean |
 | Batch A | 1 | `codex/popcorn-batch-a-1` | `b258e49fb745eac0309de3fcb6848e87ef43979f`; CONTRACT-005 separately integrated | `67362ee542b943918c9de154f4be0fb937e82370` | PASS after seven independent TDD repair/re-review rounds; final full-diff review approved real Chromium PKCE/GoTrue flow, distinct same-ID request Origin, query/fragment/token isolation, route exports, sole-worker session ownership, serialized refresh/login/sign-out mutations including adversarial storage/microtask schedules, sender/storage/owner boundaries, MIT reuse, and GPL isolation | Integrated through `c3a76f9` while skipping duplicate CONTRACT-005 cherry-pick; Node auth/worker 19/19; focused auth/env 22/22; full verify passed with unit 97/97, contract 146/146, integration 33/33, provenance 11/11, lint/typecheck/production build; extension gate 4/4; diff/status clean |
+| Batch A controller learning-artifact gate | pre-Task 3 | `codex/popcorn-artifact-job-contract` | `920bccd` | `7bfc32de26459ccb4a68688923906a0d9d7361e6` | PASS after one independent FAIL and TDD fix/re-review; final reviewer approved real artifact-conflict replay, first-result preservation, exact content/mapping/language assertions, atomic registration/failure/completion, service-only permissions, owner/source/type/lease fencing, and GPL isolation | Integrated as `fc034b0` + `e5c099c`; generated types `ed1c983`; fresh reset applied migrations 001–007; pgTAP 343/343; contract 146/146; typecheck, production build, and diff check passed |
 
 ## Open concerns
 
@@ -59,6 +60,7 @@
 | CONTRACT-004 | Batch A Task 2 dependency audit; controller resolution | Add controller-owned migration 005 with a service-role-only, 1–25 bounded `FOR UPDATE SKIP LOCKED` claim RPC. It atomically returns leased public jobs with database-derived owners and terminalizes eligible fifth-attempt rows, eliminating unaudited global scans. | `21ee0e15ac3cd856b4ebfd1ffd62dd539b2fb53f` | Batch A Task 2 processor must use this as its sole discovery path and scope every later operation by returned `user_id` |
 | CONTRACT-005 | Batch A Task 1 independent re-review | Correct the frozen Chrome Identity interpretation: `EXTENSION_REDIRECT_ORIGIN` is the exact `https://<stable-id>.chromiumapp.org` callback origin; the server derives and validates the distinct same-ID `chrome-extension://<stable-id>` request origin. | `6c27ed3` | Batch A Task 1 must consume the validated callback origin/helper, use the real `getRedirectURL("supabase")` shape, and reject query or fragment token material before re-review |
 | CONTRACT-006 | Batch A Task 2 independent review | Add controller-owned migration 006 with service-role-only RPCs for replay-safe source-level Provider registration, lease/attempt-fenced retry-or-terminal transition with atomic private attach/preserve/clear, and atomic snapshot completion covering bounded result, input clear, job success, and saved-item ready. | `b200fef` + `c97fb87`; generated types `e2bf6c6` | Batch A Task 2 must remove split service-role writes, consume all three RPCs, preserve conflict jobs, and add application-level recovery tests before re-review |
+| CONTRACT-007 | Batch A Task 3 dependency audit | Add controller-owned migration 007 with service-role-only RPCs for bounded replay-safe learning-artifact registration, exact lease/attempt-fenced retry or terminal failure, and atomic idempotent artifact completion for overview, segment translation, and selection explanation. Learner context remains `native_language='en'` and `target_language='zh-CN'`; Chinese-to-English is content direction. | `fc034b0` + `e5c099c`; generated types `ed1c983` | Batch A Task 3 must use these RPCs, keep `claim_knowledge_jobs` as the sole global discovery path, store prompt/model in private input, and expose only strict owner-scoped artifact references/results |
 
 ## File ownership
 
@@ -68,5 +70,6 @@
 
 ## Next dispatch
 
-- Batch A Tasks 1, 2, and 4 are accepted and integrated. Task 3 is now dependency-ready and must consume the service-worker auth client plus durable transcript/status/processor APIs.
+- Batch A Tasks 1, 2, and 4 plus CONTRACT-007 are accepted and integrated. Task 3 is dependency-ready and must consume the service-worker auth client, durable transcript/status/processor APIs, and the three frozen learning-artifact RPCs.
+- Task 3 preflight confirmed every named pinned YouTube Digest function exists. Its brief must explicitly allow the existing job processor/status/internal-process consumers and add persisted snapshot/segment reads before Provider fallback; public job status must remain metadata-only.
 - Task 3 waits for Tasks 1 and 2. Tasks 5 and 6 wait for their declared upstream tasks and must be sequenced if their resolved file allowlists overlap. The controller owns Task 7 integration gate.
