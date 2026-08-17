@@ -1592,6 +1592,21 @@ update public.knowledge_jobs
 set status = 'succeeded', next_attempt_at = null, lease_expires_at = null,
     last_error_code = null, updated_at = '2026-08-17 02:00:00+00';
 
+insert into public.saved_items (
+  id, user_id, video_source_id, snapshot_id, client_event_id, youtube_video_id,
+  kind, status, captured_at, start_seconds, payload, created_at, updated_at
+) values
+  ('4d000000-0000-4000-8000-000000000004', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null,
+   '4e000000-0000-4000-8000-000000000004', 'dQw4w9WgXcQ',
+   'player_moment', 'resolving_source', '2026-08-17 05:00:00+00', 42,
+   '{"capturedSecond":42}', '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('4d000000-0000-4000-8000-000000000005', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null,
+   '4e000000-0000-4000-8000-000000000005', 'dQw4w9WgXcQ',
+   'player_moment', 'resolving_source', '2026-08-17 05:00:00+00', 43,
+   '{"capturedSecond":43}', '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00');
+
 insert into public.knowledge_jobs (
   id, user_id, video_source_id, job_type, status, dedupe_key, attempt_count,
   next_attempt_at, lease_expires_at, last_error_code, created_at, updated_at
@@ -1700,6 +1715,469 @@ select pg_temp.rejects_state_clean(
   $$select * from public.claim_knowledge_jobs(1, '2026-08-17 03:00:00+00')$$,
   '42501',
   'authenticated clients cannot discover or claim global work');
+
+reset role;
+
+-- Batch A transcript resolution must not split one durable transition across
+-- separately committed PostgREST requests. These three worker-only RPCs are
+-- the sole mutation boundary after a provider request has begun.
+select extensions.set_eq(
+  $$select p.proname, pg_get_function_identity_arguments(p.oid)
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname in (
+      'register_resolve_snapshot_job',
+      'transition_resolve_snapshot_failure',
+      'complete_resolve_snapshot_job'
+    )$$,
+  $$values
+    ('register_resolve_snapshot_job'::name,
+      'p_user_id uuid, p_video_source_id uuid, p_dedupe_key text, p_provider_job_id text, p_now timestamp with time zone'::text),
+    ('transition_resolve_snapshot_failure'::name,
+      'p_user_id uuid, p_job_id uuid, p_expected_lease_expires_at timestamp with time zone, p_expected_attempt_count integer, p_target_status text, p_next_attempt_at timestamp with time zone, p_error_code text, p_provider_job_id text, p_clear_input boolean, p_now timestamp with time zone'::text),
+    ('complete_resolve_snapshot_job'::name,
+      'p_user_id uuid, p_job_id uuid, p_expected_lease_expires_at timestamp with time zone, p_expected_attempt_count integer, p_snapshot_id uuid, p_now timestamp with time zone'::text)$$,
+  'atomic transcript job RPCs expose exactly the frozen narrow signatures');
+
+select extensions.is(
+  (select count(*)::integer
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('register_resolve_snapshot_job',
+       'transition_resolve_snapshot_failure', 'complete_resolve_snapshot_job')
+     and p.prosecdef
+     and p.proconfig @> array['search_path=pg_catalog']),
+  3,
+  'all atomic transcript job RPCs are security-definer with fixed pg_catalog search path');
+
+select extensions.is(
+  (select count(*)::integer
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('register_resolve_snapshot_job',
+       'transition_resolve_snapshot_failure', 'complete_resolve_snapshot_job')
+     and has_function_privilege('service_role', p.oid, 'execute')
+     and not has_function_privilege('authenticated', p.oid, 'execute')
+     and not has_function_privilege('anon', p.oid, 'execute')
+     and not has_function_privilege('public', p.oid, 'execute')),
+  3,
+  'only service_role can execute atomic transcript job RPCs');
+
+create temporary table resolve_registration_results (
+  label text primary key,
+  knowledge_job_id uuid not null,
+  status text not null,
+  created_or_attached boolean not null
+);
+grant select, insert on table resolve_registration_results to service_role;
+
+set local role service_role;
+
+insert into resolve_registration_results
+select 'first', result.*
+from public.register_resolve_snapshot_job(
+  :'user_a',
+  '10000000-0000-4000-8000-000000000001',
+  repeat('1', 64),
+  'provider-job-first',
+  '2026-08-17 04:00:00+00'
+) as result;
+
+select extensions.results_eq(
+  $$select j.user_id, j.video_source_id, j.saved_item_id, j.job_type, j.status,
+      j.dedupe_key, j.attempt_count, j.created_at, j.updated_at,
+      i.input, i.result
+    from resolve_registration_results r
+    join public.knowledge_jobs j on j.id = r.knowledge_job_id
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    where r.label = 'first'$$,
+  $$values (
+    '00000000-0000-4000-8000-00000000a001'::uuid,
+    '10000000-0000-4000-8000-000000000001'::uuid,
+    null::uuid, 'resolve_snapshot'::text, 'pending'::text, repeat('1',64), 0,
+    '2026-08-17 04:00:00+00'::timestamptz,
+    '2026-08-17 04:00:00+00'::timestamptz,
+    '{"providerJobId":"provider-job-first"}'::jsonb, null::jsonb
+  )$$,
+  'registration atomically creates one source-level job and bounded private Provider reference');
+
+insert into resolve_registration_results
+select 'pending-replay', result.*
+from public.register_resolve_snapshot_job(
+  :'user_a', '10000000-0000-4000-8000-000000000001', repeat('1',64),
+  'provider-job-must-not-replace', '2026-08-17 04:00:01+00'
+) as result;
+
+select extensions.results_eq(
+  $$select replay.knowledge_job_id = first.knowledge_job_id,
+      replay.status, replay.created_or_attached,
+      i.input, i.result
+    from resolve_registration_results first
+    cross join resolve_registration_results replay
+    join public.knowledge_job_internal i on i.knowledge_job_id = first.knowledge_job_id
+    where first.label = 'first' and replay.label = 'pending-replay'$$,
+  $$values (true, 'pending'::text, false,
+    '{"providerJobId":"provider-job-first"}'::jsonb, null::jsonb)$$,
+  'pending replay returns the existing job without replacing private state');
+
+update public.knowledge_job_internal i
+set result = '{"sentinel":"preserve"}'::jsonb,
+    updated_at = '2026-08-17 04:00:02+00'
+from resolve_registration_results r
+where r.label = 'first' and i.knowledge_job_id = r.knowledge_job_id;
+
+create temporary table resolve_replay_states (
+  requested_status text primary key,
+  returned_status text not null,
+  created_or_attached boolean not null,
+  preserved boolean not null
+);
+grant select, insert on table resolve_replay_states to service_role;
+
+do $$
+declare
+  v_job_id uuid;
+  v_status text;
+  v_created boolean;
+  v_state text;
+begin
+  select knowledge_job_id into v_job_id
+  from resolve_registration_results where label = 'first';
+
+  foreach v_state in array array['leased','retryable_failed','terminal_failed','succeeded'] loop
+    update public.knowledge_jobs
+    set status = v_state,
+        attempt_count = case when v_state = 'leased' then 1 else 1 end,
+        next_attempt_at = case when v_state = 'retryable_failed'
+          then '2026-08-17 04:10:00+00'::timestamptz else null end,
+        lease_expires_at = case when v_state = 'leased'
+          then '2026-08-17 04:05:00+00'::timestamptz else null end,
+        last_error_code = case when v_state in ('retryable_failed','terminal_failed')
+          then 'PROVIDER_UNAVAILABLE' else null end,
+        updated_at = '2026-08-17 04:00:03+00'
+    where id = v_job_id
+      and user_id = '00000000-0000-4000-8000-00000000a001'::uuid;
+
+    select result.status, result.created_or_attached
+    into v_status, v_created
+    from public.register_resolve_snapshot_job(
+      '00000000-0000-4000-8000-00000000a001'::uuid,
+      '10000000-0000-4000-8000-000000000001', repeat('1',64),
+      'provider-job-' || v_state, '2026-08-17 04:00:04+00'
+    ) as result;
+
+    insert into resolve_replay_states
+    select v_state, v_status, v_created,
+      i.input = '{"providerJobId":"provider-job-first"}'::jsonb
+        and i.result = '{"sentinel":"preserve"}'::jsonb
+    from public.knowledge_job_internal i
+    where i.knowledge_job_id = v_job_id;
+  end loop;
+end
+$$;
+
+select extensions.results_eq(
+  $$select requested_status, returned_status, created_or_attached, preserved
+    from resolve_replay_states order by requested_status$$,
+  $$values
+    ('leased'::text, 'leased'::text, false, true),
+    ('retryable_failed'::text, 'retryable_failed'::text, false, true),
+    ('succeeded'::text, 'succeeded'::text, false, true),
+    ('terminal_failed'::text, 'terminal_failed'::text, false, true)$$,
+  'registration never overwrites existing internal input or result in any non-new state');
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_resolve_snapshot_job(
+      '00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000002', repeat('2',64),
+      'provider-job-wrong-owner', '2026-08-17 04:00:00+00')$$,
+  '22023',
+  'registration rejects a source owned by another user without creating rows');
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_resolve_snapshot_job(
+      '00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000001', 'ABC',
+      'provider-job-invalid-dedupe', '2026-08-17 04:00:00+00')$$,
+  '22023',
+  'registration rejects a malformed dedupe hash without creating rows');
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_resolve_snapshot_job(
+      '00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000001', repeat('2',64),
+      repeat('p',201), '2026-08-17 04:00:00+00')$$,
+  '22023',
+  'registration rejects an oversized Provider reference without creating rows');
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_resolve_snapshot_job(
+      '00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000001', repeat('2',64),
+      'provider-job-null-clock', null)$$,
+  '22023',
+  'registration rejects a null clock without creating rows');
+
+insert into public.knowledge_jobs (
+  id, user_id, video_source_id, saved_item_id, job_type, status, dedupe_key,
+  attempt_count, lease_expires_at, created_at, updated_at
+) values
+  ('d2000000-0000-4000-8000-000000000001', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('2',63) || '1', 1, '2026-08-17 05:05:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d2000000-0000-4000-8000-000000000002', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('2',63) || '2', 5, '2026-08-17 05:05:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d2000000-0000-4000-8000-000000000003', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('2',63) || '3', 2, '2026-08-17 05:05:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d2000000-0000-4000-8000-000000000004', :'user_a',
+   '10000000-0000-4000-8000-000000000001', '4d000000-0000-4000-8000-000000000004',
+   'resolve_snapshot', 'leased', repeat('2',63) || '4', 1,
+   '2026-08-17 05:05:00+00', '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d2000000-0000-4000-8000-000000000005', :'user_a',
+   '10000000-0000-4000-8000-000000000001', '4d000000-0000-4000-8000-000000000005',
+   'resolve_snapshot', 'leased', repeat('2',63) || '5', 1,
+   '2026-08-17 05:05:00+00', '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d2000000-0000-4000-8000-000000000006', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null,
+   'generate_overview', 'leased', repeat('2',63) || '6', 1,
+   '2026-08-17 05:05:00+00', '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00');
+
+insert into public.knowledge_job_internal (knowledge_job_id, user_id, input, result)
+values
+  ('d2000000-0000-4000-8000-000000000002', :'user_a',
+   '{"providerJobId":"provider-terminal"}', '{"sentinel":"keep"}'),
+  ('d2000000-0000-4000-8000-000000000003', :'user_a',
+   '{"providerJobId":"provider-unchanged"}', '{"sentinel":"unchanged"}'),
+  ('d2000000-0000-4000-8000-000000000004', :'user_a',
+   '{"providerJobId":"provider-complete"}', '{"sentinel":"replace"}'),
+  ('d2000000-0000-4000-8000-000000000005', :'user_a',
+   '{"providerJobId":"provider-wrong-snapshot"}', '{"sentinel":"unchanged"}'),
+  ('d2000000-0000-4000-8000-000000000006', :'user_a',
+   '{"providerJobId":"provider-wrong-type"}', '{"sentinel":"unchanged"}');
+
+select extensions.ok(
+  public.transition_resolve_snapshot_failure(
+    :'user_a', 'd2000000-0000-4000-8000-000000000001',
+    '2026-08-17 05:05:00+00', 1, 'retryable_failed',
+    '2026-08-17 05:01:00+00', 'PROVIDER_RATE_LIMITED',
+    'provider-job-after-202', false, '2026-08-17 05:00:00+00'
+  ),
+  'lease-fenced retry transition succeeds');
+
+select extensions.results_eq(
+  $$select j.status, j.attempt_count, j.next_attempt_at, j.lease_expires_at,
+      j.last_error_code, j.updated_at, i.input, i.result
+    from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    where j.id = 'd2000000-0000-4000-8000-000000000001'$$,
+  $$values ('retryable_failed'::text, 1,
+    '2026-08-17 05:01:00+00'::timestamptz, null::timestamptz,
+    'PROVIDER_RATE_LIMITED'::text, '2026-08-17 05:00:00+00'::timestamptz,
+    '{"providerJobId":"provider-job-after-202"}'::jsonb, null::jsonb)$$,
+  'retry transition and first Provider reference attach commit together');
+
+create temporary table lost_fence_before as
+select row_to_json(j)::jsonb as job_row, row_to_json(i)::jsonb as internal_row
+from public.knowledge_jobs j
+join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+where j.id = 'd2000000-0000-4000-8000-000000000003';
+grant select on table lost_fence_before to service_role;
+
+select extensions.is(
+  public.transition_resolve_snapshot_failure(
+    :'user_a', 'd2000000-0000-4000-8000-000000000003',
+    '2026-08-17 05:05:00.001+00', 2, 'retryable_failed',
+    '2026-08-17 05:02:00+00', 'PROVIDER_UNAVAILABLE',
+    'provider-must-not-attach', false, '2026-08-17 05:00:00+00'
+  ), false,
+  'lost failure-transition fence returns false');
+
+select extensions.results_eq(
+  $$select row_to_json(j)::jsonb, row_to_json(i)::jsonb
+    from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    where j.id = 'd2000000-0000-4000-8000-000000000003'$$,
+  $$select job_row, internal_row from lost_fence_before$$,
+  'lost failure-transition fence leaves public and private rows byte-for-byte unchanged');
+
+select extensions.is(
+  public.transition_resolve_snapshot_failure(
+    :'user_b', 'd2000000-0000-4000-8000-000000000003',
+    '2026-08-17 05:05:00+00', 2, 'retryable_failed',
+    '2026-08-17 05:02:00+00', 'PROVIDER_UNAVAILABLE',
+    'provider-must-not-attach', false, '2026-08-17 05:00:00+00'
+  ), false,
+  'wrong-user failure-transition fence returns false without mutation');
+
+select extensions.ok(
+  public.transition_resolve_snapshot_failure(
+    :'user_a', 'd2000000-0000-4000-8000-000000000003',
+    '2026-08-17 05:05:00+00', 2, 'retryable_failed',
+    '2026-08-17 05:02:00+00', 'PROVIDER_UNAVAILABLE',
+    'provider-must-not-replace', false, '2026-08-17 05:00:00+00'
+  ),
+  'retry transition can commit while preserving an already attached Provider reference');
+
+select extensions.results_eq(
+  $$select i.input, i.result
+    from public.knowledge_job_internal i
+    where i.knowledge_job_id = 'd2000000-0000-4000-8000-000000000003'$$,
+  $$values ('{"providerJobId":"provider-unchanged"}'::jsonb,
+    '{"sentinel":"unchanged"}'::jsonb)$$,
+  'successful retry transition never replaces existing private input or result');
+
+select extensions.ok(
+  public.transition_resolve_snapshot_failure(
+    :'user_a', 'd2000000-0000-4000-8000-000000000002',
+    '2026-08-17 05:05:00+00', 5, 'terminal_failed', null,
+    'JOB_RETRY_EXHAUSTED', null, true, '2026-08-17 05:00:00+00'
+  ),
+  'terminal failure transition succeeds under the exact fifth-attempt fence');
+
+select extensions.results_eq(
+  $$select j.status, j.next_attempt_at, j.lease_expires_at, j.last_error_code,
+      i.input, i.result
+    from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    where j.id = 'd2000000-0000-4000-8000-000000000002'$$,
+  $$values ('terminal_failed'::text, null::timestamptz, null::timestamptz,
+    'JOB_RETRY_EXHAUSTED'::text, '{}'::jsonb, '{"sentinel":"keep"}'::jsonb)$$,
+  'terminal transition clears only private input and preserves result in the same call');
+
+select pg_temp.rejects_state_clean(
+  $$select public.transition_resolve_snapshot_failure(
+      '00000000-0000-4000-8000-00000000a001',
+      'd2000000-0000-4000-8000-000000000003', '2026-08-17 05:05:00+00',
+      5, 'retryable_failed', '2026-08-17 05:02:00+00',
+      'PROVIDER_UNAVAILABLE', null, false, '2026-08-17 05:00:00+00')$$,
+  '22023',
+  'retry transition rejects fifth-attempt semantics before mutation');
+
+select pg_temp.rejects_state_clean(
+  $$select public.transition_resolve_snapshot_failure(
+      '00000000-0000-4000-8000-00000000a001',
+      'd2000000-0000-4000-8000-000000000003', '2026-08-17 05:05:00+00',
+      2, 'terminal_failed', null, 'PROVIDER_UNAVAILABLE',
+      'provider-invalid', true, '2026-08-17 05:00:00+00')$$,
+  '22023',
+  'failure transition rejects attach and clear together before mutation');
+
+select extensions.ok(
+  public.complete_resolve_snapshot_job(
+    :'user_a', 'd2000000-0000-4000-8000-000000000004',
+    '2026-08-17 05:05:00+00', 1,
+    '20000000-0000-4000-8000-000000000001', '2026-08-17 05:00:00+00'
+  ),
+  'completion succeeds under the exact owner and lease fence');
+
+select extensions.results_eq(
+  $$select j.status, j.next_attempt_at, j.lease_expires_at, j.last_error_code,
+      j.updated_at, i.input, i.result, s.status, s.snapshot_id, s.updated_at
+    from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    join public.saved_items s on s.id = j.saved_item_id
+    where j.id = 'd2000000-0000-4000-8000-000000000004'$$,
+  $$values ('succeeded'::text, null::timestamptz, null::timestamptz,
+    null::text, '2026-08-17 05:00:00+00'::timestamptz,
+    '{}'::jsonb,
+    '{"snapshotId":"20000000-0000-4000-8000-000000000001"}'::jsonb,
+    'ready'::text, '20000000-0000-4000-8000-000000000001'::uuid,
+    '2026-08-17 05:00:00+00'::timestamptz)$$,
+  'completion atomically succeeds job, replaces bounded result, clears input, and readies the exact save');
+
+create temporary table completion_wrong_snapshot_before as
+select row_to_json(j)::jsonb as job_row, row_to_json(i)::jsonb as internal_row,
+  row_to_json(s)::jsonb as saved_row
+from public.knowledge_jobs j
+join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+join public.saved_items s on s.id = j.saved_item_id
+where j.id = 'd2000000-0000-4000-8000-000000000005';
+grant select on table completion_wrong_snapshot_before to service_role;
+
+select extensions.is(
+  public.complete_resolve_snapshot_job(
+    :'user_a', 'd2000000-0000-4000-8000-000000000005',
+    '2026-08-17 05:05:00+00', 1,
+    '20000000-0000-4000-8000-000000000002', '2026-08-17 05:00:00+00'
+  ), false,
+  'completion rejects a snapshot owned by another user');
+
+select extensions.results_eq(
+  $$select row_to_json(j)::jsonb, row_to_json(i)::jsonb, row_to_json(s)::jsonb
+    from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    join public.saved_items s on s.id = j.saved_item_id
+    where j.id = 'd2000000-0000-4000-8000-000000000005'$$,
+  $$select job_row, internal_row, saved_row from completion_wrong_snapshot_before$$,
+  'wrong snapshot owner leaves job, internal, and saved rows byte-for-byte unchanged');
+
+insert into public.video_snapshots (
+  id, user_id, video_source_id, title, channel, thumbnail_url, duration_seconds,
+  description, transcript_language, transcript_hash, captured_at, created_at
+)
+select
+  '2d000000-0000-4000-8000-000000000005', :'user_a', r.video_source_id,
+  '另一来源', '测试频道', 'https://i.ytimg.com/vi/abc123XYZ00/hqdefault.jpg', 60,
+  '', 'zh-CN', repeat('9',64), '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'
+from capture_results r
+where r.label = 'first';
+
+select extensions.is(
+  public.complete_resolve_snapshot_job(
+    :'user_a', 'd2000000-0000-4000-8000-000000000005',
+    '2026-08-17 05:05:00+00', 1,
+    '2d000000-0000-4000-8000-000000000005', '2026-08-17 05:00:00+00'
+  ), false,
+  'completion rejects a same-owner snapshot belonging to another source');
+
+select extensions.is(
+  public.complete_resolve_snapshot_job(
+    :'user_a', 'd2000000-0000-4000-8000-000000000005',
+    '2026-08-17 05:05:00.001+00', 1,
+    '20000000-0000-4000-8000-000000000001', '2026-08-17 05:00:00+00'
+  ), false,
+  'completion rejects a lost exact lease fence');
+
+select extensions.is(
+  public.complete_resolve_snapshot_job(
+    :'user_a', 'd2000000-0000-4000-8000-000000000006',
+    '2026-08-17 05:05:00+00', 1,
+    '20000000-0000-4000-8000-000000000001', '2026-08-17 05:00:00+00'
+  ), false,
+  'completion rejects a non-resolve job before any mutation');
+
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', :'user_a', true);
+
+select pg_temp.rejects_state_clean(
+  $$select * from public.register_resolve_snapshot_job(
+      '00000000-0000-4000-8000-00000000a001',
+      '10000000-0000-4000-8000-000000000001', repeat('3',64),
+      'provider-client-denied', '2026-08-17 06:00:00+00')$$,
+  '42501',
+  'authenticated clients cannot register private Provider jobs');
+
+select pg_temp.rejects_state_clean(
+  $$select public.transition_resolve_snapshot_failure(
+      '00000000-0000-4000-8000-00000000a001',
+      'd2000000-0000-4000-8000-000000000003', '2026-08-17 05:05:00+00',
+      2, 'retryable_failed', '2026-08-17 05:02:00+00',
+      'PROVIDER_UNAVAILABLE', null, false, '2026-08-17 05:00:00+00')$$,
+  '42501',
+  'authenticated clients cannot transition private Provider jobs');
+
+select pg_temp.rejects_state_clean(
+  $$select public.complete_resolve_snapshot_job(
+      '00000000-0000-4000-8000-00000000a001',
+      'd2000000-0000-4000-8000-000000000005', '2026-08-17 05:05:00+00',
+      1, '20000000-0000-4000-8000-000000000001', '2026-08-17 05:00:00+00')$$,
+  '42501',
+  'authenticated clients cannot complete private Provider jobs');
 
 reset role;
 
