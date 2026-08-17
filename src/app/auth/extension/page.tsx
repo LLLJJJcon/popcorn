@@ -1,42 +1,36 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { createBrowserClient } from "@supabase/ssr";
-import { useEffect, useState } from "react";
+import { getServerEnv } from "@/server/env";
 
-const redirectPattern = /^chrome-extension:\/\/[a-p]{32}\/supabase$/;
+export const dynamic = "force-dynamic";
 
-export default function ExtensionAuthPage() {
-  const [message, setMessage] = useState("Preparing secure sign-in…");
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const redirectTo = params.get("redirect_uri");
-    const state = params.get("state");
-    const challenge = params.get("code_challenge");
-    if (!redirectTo || !redirectPattern.test(redirectTo) || !state || !challenge) {
-      setMessage("Invalid extension sign-in request.");
-      return;
-    }
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-      { auth: { flowType: "pkce", persistSession: false, detectSessionInUrl: false } },
-    );
-    void supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo,
-        skipBrowserRedirect: true,
-        queryParams: { state, code_challenge: challenge, code_challenge_method: "S256" },
-      },
-    }).then(({ data, error }) => {
-      if (error || !data.url) {
-        setMessage("Popcorn sign-in could not be started.");
-        return;
-      }
-      window.location.assign(data.url);
-    });
-  }, []);
+const value = (input: string | string[] | undefined) => typeof input === "string" ? input : undefined;
 
-  return <main><h1>Link Popcorn</h1><p role="status">{message}</p></main>;
+export default async function ExtensionAuthPage({ searchParams }: { searchParams: SearchParams }) {
+  const params = await searchParams;
+  const redirectUri = value(params.redirect_uri);
+  const state = value(params.state);
+  const challenge = value(params.code_challenge);
+  const method = value(params.code_challenge_method);
+  const environment = getServerEnv();
+  const expectedRedirectUri = `${environment.EXTENSION_REDIRECT_ORIGIN}/supabase`;
+
+  if (
+    redirectUri !== expectedRedirectUri ||
+    !state || state.length < 43 || state.length > 512 ||
+    !challenge || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge) ||
+    method !== "S256"
+  ) {
+    return <main><h1>Link Popcorn</h1><p role="status">Invalid extension sign-in request.</p></main>;
+  }
+
+  const authorize = new URL(`${environment.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/authorize`);
+  authorize.searchParams.set("provider", "google");
+  authorize.searchParams.set("redirect_to", expectedRedirectUri);
+  authorize.searchParams.set("state", state);
+  authorize.searchParams.set("code_challenge", challenge);
+  authorize.searchParams.set("code_challenge_method", "S256");
+  redirect(authorize.toString());
 }

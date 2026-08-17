@@ -24,7 +24,7 @@ const POPCORN_AUTH = (() => {
     return !!value && typeof value.accessToken === "string" && typeof value.refreshToken === "string" && Number.isFinite(value.accessExpiresAt) && !!value.user && typeof value.user.id === "string" && typeof value.user.email === "string";
   }
 
-  function createAuthClient({ chrome, crypto = globalThis.crypto, fetch = globalThis.fetch, appUrl, supabaseUrl = "https://project.supabase.co", now = () => Date.now() }) {
+  function createAuthClient({ chrome, crypto = globalThis.crypto, fetch = globalThis.fetch, appUrl, expectedRedirectUri = "chrome-extension://meocnghfgmmcnnjiihpcgjnaameioddp/supabase", boundedCachePrefix = "digest_", now = () => Date.now() }) {
     if (!chrome?.storage?.local || !chrome?.storage?.session || !chrome?.identity || !crypto?.subtle || !appUrl) {
       throw new Error("Popcorn auth requires trusted Chrome and Web Crypto APIs.");
     }
@@ -91,6 +91,7 @@ const POPCORN_AUTH = (() => {
     async function beginInteractiveSignIn({ userInitiated = false } = {}) {
       if (!userInitiated) throw new Error("Sign-in requires an explicit user action.");
       const redirectUri = chrome.identity.getRedirectURL("supabase");
+      if (redirectUri !== expectedRedirectUri) throw new Error("Unexpected configured redirect URI.");
       const verifier = randomValue(crypto, 64);
       const state = randomValue(crypto, 32);
       const pkce = { verifier, state, redirectUri, expiresAt: now() + PKCE_TTL_MS };
@@ -112,18 +113,13 @@ const POPCORN_AUTH = (() => {
     async function refreshSession() {
       const session = await getSession();
       if (!session) throw new Error("No Popcorn session.");
-      const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      const response = await fetch(`${appUrl}/api/v1/extension/session/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: session.refreshToken }),
+        body: JSON.stringify({ refreshToken: session.refreshToken, userId: session.user.id }),
       });
       const payload = await response.json().catch(() => null);
-      const refreshed = payload?.data?.session ?? payload?.session ?? (payload?.access_token && payload?.refresh_token && payload?.user ? {
-        accessToken: payload.access_token,
-        refreshToken: payload.refresh_token,
-        accessExpiresAt: now() + Number(payload.expires_in) * 1_000,
-        user: { id: payload.user.id, email: payload.user.email },
-      } : null);
+      const refreshed = payload?.data?.session ?? payload?.session;
       if (!response.ok || !isSession(refreshed) || refreshed.user.id !== session.user.id) {
         throw new Error("Popcorn session refresh failed.");
       }
@@ -157,16 +153,48 @@ const POPCORN_AUTH = (() => {
       return { pendingCount, requiresDecision: false };
     }
 
-    async function handleMessage(message) {
-      if (message?.source === "content-script") throw new Error("Untrusted content scripts cannot access Popcorn credentials.");
-      throw new Error("Unsupported trusted message.");
+    async function clearBoundedCache() {
+      const stored = await chrome.storage.local.get(null);
+      const keys = Object.keys(stored).filter((key) => key.startsWith(boundedCachePrefix));
+      if (keys.length) await chrome.storage.local.remove(keys);
+      return keys.length;
     }
 
-    return { beginInteractiveSignIn, completeInteractiveSignIn, getSession, getAccessToken, signOut, handleMessage, initialize };
+    return { beginInteractiveSignIn, completeInteractiveSignIn, getSession, getAccessToken, signOut, clearBoundedCache, initialize };
   }
 
-  return { createAuthClient };
+  function createAuthMessageHandler({ chrome, authClient }) {
+    const optionsUrl = chrome.runtime.getURL("options.html");
+    function assertTrustedOptionsSender(sender) {
+      if (!sender || sender.id !== chrome.runtime.id || sender.tab || sender.url !== optionsUrl) {
+        throw new Error("Forbidden auth sender.");
+      }
+    }
+    return async function handleAuthMessage(message, sender) {
+      if (!message || typeof message.command !== "string" || !message.command.startsWith("popcorn-auth:")) {
+        throw new Error("Unsupported auth command.");
+      }
+      assertTrustedOptionsSender(sender);
+      if (message.command === "popcorn-auth:session") {
+        const session = await authClient.getSession();
+        return { ok: true, account: session ? { email: session.user.email } : null };
+      }
+      if (message.command === "popcorn-auth:begin") {
+        const session = await authClient.beginInteractiveSignIn({ userInitiated: message.userInitiated === true });
+        return { ok: true, account: { email: session.user.email } };
+      }
+      if (message.command === "popcorn-auth:sign-out") {
+        const result = await authClient.signOut({ decision: message.decision === "discard" ? "discard" : undefined });
+        return { ok: true, pendingCount: result.pendingCount, requiresDecision: result.requiresDecision };
+      }
+      if (message.command === "popcorn-auth:clear-cache") {
+        return { ok: true, clearedCount: await authClient.clearBoundedCache() };
+      }
+      throw new Error("Unsupported auth command.");
+    };
+  }
+
+  return { createAuthClient, createAuthMessageHandler };
 })();
 
 globalThis.POPCORN_AUTH = POPCORN_AUTH;
-export const createAuthClient = POPCORN_AUTH.createAuthClient;

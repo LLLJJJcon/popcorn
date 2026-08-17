@@ -26,9 +26,7 @@ const YTD_OPTIONS = (() => {
 
   function initialize(root = globalThis) {
     const doc = root.document;
-    const auth = root.POPCORN_AUTH?.createAuthClient?.({ chrome: root.chrome, appUrl: "https://app.popcorn.local" });
-    if (!doc || !auth) return;
-    const storage = createStorageAdapter(root.chrome, root.localStorage);
+    if (!doc || !root.chrome?.runtime?.sendMessage) return;
     const email = doc.getElementById("accountEmail");
     const signIn = doc.getElementById("signInBtn");
     const signOut = doc.getElementById("signOutBtn");
@@ -38,30 +36,38 @@ const YTD_OPTIONS = (() => {
     const discard = doc.getElementById("discardPendingBtn");
     const dataStatus = doc.getElementById("dataStatus");
 
+    async function sendAuthCommand(command, extra = {}) {
+      const response = await root.chrome.runtime.sendMessage({ command, ...extra });
+      if (!response?.ok) throw new Error("The sign-in request was rejected.");
+      return response;
+    }
+
     async function renderSession() {
-      const session = await auth.getSession();
-      email.textContent = session?.user.email ?? "Not signed in";
-      signIn.hidden = !!session;
-      signOut.hidden = !session;
-      syncStatus.textContent = session ? "Ready to sync saved moments." : "Sign in to sync saved moments.";
+      const { account } = await sendAuthCommand("popcorn-auth:session");
+      email.textContent = account?.email ?? "Not signed in";
+      signIn.hidden = !!account;
+      signOut.hidden = !account;
+      syncStatus.textContent = account ? "Ready to sync saved moments." : "Sign in to sync saved moments.";
     }
     signIn.addEventListener("click", async () => {
       authStatus.textContent = "Opening Popcorn sign-in…";
-      try { await auth.beginInteractiveSignIn({ userInitiated: true }); authStatus.textContent = "Signed in."; await renderSession(); } catch (_error) { authStatus.textContent = "Sign-in was not completed."; }
+      try { await sendAuthCommand("popcorn-auth:begin", { userInitiated: true }); authStatus.textContent = "Signed in."; await renderSession(); } catch (_error) { authStatus.textContent = "Sign-in was not completed."; }
     });
     signOut.addEventListener("click", async () => {
-      const result = await auth.signOut();
+      const result = await sendAuthCommand("popcorn-auth:sign-out");
       if (result.requiresDecision) { signOutChoice.hidden = false; discard.hidden = false; return; }
       await renderSession();
     });
-    discard.addEventListener("click", async () => { await auth.signOut({ decision: "discard" }); signOutChoice.hidden = true; discard.hidden = true; await renderSession(); });
+    discard.addEventListener("click", async () => { await sendAuthCommand("popcorn-auth:sign-out", { decision: "discard" }); signOutChoice.hidden = true; discard.hidden = true; await renderSession(); });
     doc.getElementById("clearCacheBtn").addEventListener("click", async () => {
-      const all = await storage.get(null);
-      const keys = Object.keys(all).filter((key) => key.startsWith(YTD_SETTINGS.DEFAULTS.boundedCachePrefix));
-      if (keys.length) await storage.remove(keys);
-      dataStatus.textContent = `Cleared ${keys.length} cached item${keys.length === 1 ? "" : "s"}.`;
+      try {
+        const { clearedCount } = await sendAuthCommand("popcorn-auth:clear-cache");
+        dataStatus.textContent = `Cleared ${clearedCount} cached item${clearedCount === 1 ? "" : "s"}.`;
+      } catch (_error) {
+        dataStatus.textContent = "Could not clear the bounded cache.";
+      }
     });
-    void auth.initialize().then(renderSession);
+    void renderSession().catch(() => { authStatus.textContent = "Could not check Popcorn sign-in."; });
   }
 
   return { createStorageAdapter, initialize };

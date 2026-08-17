@@ -13,7 +13,7 @@
 
 // Import safe defaults and validation helpers. Secret keys live in
 // chrome.storage.local and are never part of the extension source.
-importScripts("settings.js");
+importScripts("settings.js", "auth.js");
 
 const DEBUG = false;
 const AI_PROVIDER_IDLE_TIMEOUT_MS = 50_000;
@@ -22,6 +22,26 @@ const AI_PROVIDER_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const debugLog = (...args) => {
   if (DEBUG) console.log(...args);
 };
+
+// The service worker is the only extension context allowed to own session data.
+const popcornAuthClient = POPCORN_AUTH.createAuthClient({
+  chrome,
+  appUrl: "https://app.popcorn.local",
+  boundedCachePrefix: YTD_SETTINGS.DEFAULTS.boundedCachePrefix,
+});
+const popcornAuthMessages = POPCORN_AUTH.createAuthMessageHandler({
+  chrome,
+  authClient: popcornAuthClient,
+});
+void popcornAuthClient.initialize().catch(() => {});
+
+async function getPopcornAccessToken() {
+  return popcornAuthClient.getAccessToken();
+}
+
+function isPopcornAuthSender(sender) {
+  return !!sender && sender.id === chrome.runtime.id && !sender.tab && sender.url === chrome.runtime.getURL("options.html");
+}
 
 // Prevent the YouTube content script from reading API keys or cached data.
 // Side panel, options, and service-worker contexts remain trusted.
@@ -300,6 +320,17 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
  * This is like a switchboard — different "actions" trigger different handlers.
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (typeof message?.command === "string" && message.command.startsWith("popcorn-auth:")) {
+    if (!isPopcornAuthSender(sender)) {
+      sendResponse({ ok: false, error: "forbidden" });
+      return false;
+    }
+    popcornAuthMessages(message, sender)
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false, error: "forbidden" }));
+    return true;
+  }
+
   // We need to return true to indicate we'll respond asynchronously
   if (message.action === "fetchTranscript") {
     handleFetchTranscript(message.videoId)
