@@ -6,7 +6,9 @@ const { webcrypto } = require("node:crypto");
 
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
-const REDIRECT_ORIGIN = "chrome-extension://meocnghfgmmcnnjiihpcgjnaameioddp";
+const EXTENSION_ID = "meocnghfgmmcnnjiihpcgjnaameioddp";
+const REDIRECT_ORIGIN = `https://${EXTENSION_ID}.chromiumapp.org`;
+const REQUEST_ORIGIN = `chrome-extension://${EXTENSION_ID}`;
 const getAuth = async () => {
   await import("../auth.js");
   return globalThis.POPCORN_AUTH;
@@ -57,9 +59,9 @@ function createChrome({ onLaunch, redirectOrigin = REDIRECT_ORIGIN } = {}) {
         },
       },
       runtime: {
-        id: REDIRECT_ORIGIN.slice("chrome-extension://".length),
+        id: EXTENSION_ID,
         getURL(pathname) {
-          return `${REDIRECT_ORIGIN}/${pathname}`;
+          return `${REQUEST_ORIGIN}/${pathname}`;
         },
       },
     },
@@ -186,13 +188,26 @@ test("callbacks require exactly one nested Popcorn state and never accept token 
     await assert.rejects(client.completeInteractiveSignIn(`${REDIRECT_ORIGIN}/supabase?${suffix}`), /callback|state/i);
     assert.deepEqual(harness.session, {});
   }
+  for (const fragment of [
+    "access_token=forbidden",
+    "refresh_token=forbidden",
+    "id_token=forbidden",
+    "arbitrary-non-empty-fragment",
+  ]) {
+    setPkce();
+    await assert.rejects(
+      client.completeInteractiveSignIn(`${REDIRECT_ORIGIN}/supabase?code=code&state=gotrue-state&popcorn_state=popcorn-state#${fragment}`),
+      /callback|fragment/i,
+    );
+    assert.deepEqual(harness.session, {});
+  }
   assert.equal(exchanges, 0);
 });
 
 test("rejects a syntactically valid extension redirect that is not the configured origin", async () => {
   const auth = await getAuth();
-  const wrong = createChrome({ redirectOrigin: "chrome-extension://abcdefghijklmnopabcdefghijklmnop" });
-  const client = auth.createAuthClient({ chrome: wrong.chrome, crypto: webcrypto, appUrl: "https://app.popcorn.local", fetch: async () => response({}), expectedRedirectUri: `${REDIRECT_ORIGIN}/supabase` });
+  const wrong = createChrome({ redirectOrigin: "https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org" });
+  const client = auth.createAuthClient({ chrome: wrong.chrome, crypto: webcrypto, appUrl: "https://app.popcorn.local", fetch: async () => response({}) });
   await assert.rejects(client.beginInteractiveSignIn({ userInitiated: true }), /configured redirect/i);
   assert.equal(wrong.calls.includes("launch"), false);
   assert.deepEqual(wrong.session, {});

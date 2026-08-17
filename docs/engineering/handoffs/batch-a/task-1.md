@@ -96,3 +96,42 @@ The required production build also exited 1 before this correction because Next 
 ### Residual risk and reviewer focus
 
 Deploy the matching stable extension redirect and perform a real GoTrue/Google browser smoke test; this fixture verifies the protocol boundary but does not contact a provider. Worker ownership, sender validation, refresh, exact Origin, and replay handling were deliberately unchanged from the accepted first review-fix surface.
+
+## 2026-08-17 Chrome Identity callback review-fix addendum
+
+- Status: ready for a fresh independent re-review; this addendum does not self-approve Task 1.
+- Rejected head fixed: `4492a85fd55162c4fc33057da2284ff3bbbf8461`.
+- Reviewed controller prerequisite consumed: `e9100b1` (CONTRACT-005).
+
+### Corrections
+
+- The trusted auth owner now derives the exact Chrome Identity callback from the stable runtime ID as `https://<runtime-id>.chromiumapp.org/supabase`; it no longer treats the `chrome-extension://` request origin as the callback origin or accepts a caller override.
+- Exchange and refresh retain the Chromium HTTPS callback in `redirectUri`, while HTTP request `Origin` validation now delegates to CONTRACT-005's frozen assertion for the matching `chrome-extension://<runtime-id>` origin.
+- Every non-empty callback fragment is rejected before exchange. Coverage includes `access_token`, `refresh_token`, another token-shaped field, and an arbitrary fragment, and proves that no exchange occurs.
+- The reviewed lowercase `s256`, nested single `popcorn_state`, exact single code/state, worker ownership, sender validation, refresh mutex, owner binding, sign-out, and storage boundaries remain unchanged.
+
+### TDD evidence
+
+#### RED
+
+- With tests changed first to the real Chromium callback, `node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` failed 3 of 9: interactive and cancellation paths rejected Chrome's real callback as an unexpected configured redirect, and a non-empty fragment reached exchange instead of being rejected.
+- The focused Vitest run failed 4 of 22 while `src/server/env.test.ts` stayed green: valid exchange/refresh requests received `403` because the rejected implementation compared their `chrome-extension://` request Origin directly with the Chromium HTTPS callback origin.
+
+#### GREEN
+
+- `node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` — 9/9 passed.
+- `CI=true pnpm vitest run tests/integration/extension/auth-exchange.test.ts tests/integration/extension/auth-refresh.test.ts src/server/env.test.ts` — 22/22 passed across 3 files.
+- The brief's same Vitest command without `CI=true` was also attempted; the local pnpm dependency wrapper stopped before Vitest with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`. Adding the documented pnpm CI setting was the only operational difference in the successful run.
+
+### Full verification
+
+- `CI=true pnpm typecheck` — passed.
+- `CI=true pnpm build` — passed; both extension session routes remain dynamic and the authorization page builds.
+- `CI=true pnpm test:contract` — 128/128 passed.
+- `CI=true pnpm test:provenance` — 11/11 passed.
+- `CI=true pnpm test:extension` — 4/4 passed.
+- `git diff --check` — passed.
+
+### Residual risk and reviewer focus
+
+Register the stable Chromium HTTPS callback with Supabase and perform a deployed Chrome/GoTrue browser smoke test. The fixtures verify callback/request-origin separation and fragment rejection but do not exercise Chrome Identity or a live provider end to end. A fresh independent review remains required.

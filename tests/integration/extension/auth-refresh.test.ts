@@ -1,13 +1,15 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { createRefreshHandler } from "@/server/auth/extension-session";
+import { ExtensionRedirectOriginSchema } from "@/server/env";
 
 const environment = {
   NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
-  EXTENSION_REDIRECT_ORIGIN: "chrome-extension://meocnghfgmmcnnjiihpcgjnaameioddp",
+  EXTENSION_REDIRECT_ORIGIN: ExtensionRedirectOriginSchema.parse("https://meocnghfgmmcnnjiihpcgjnaameioddp.chromiumapp.org"),
 };
-const request = (body: unknown, origin = environment.EXTENSION_REDIRECT_ORIGIN) =>
+const requestOrigin = "chrome-extension://meocnghfgmmcnnjiihpcgjnaameioddp";
+const request = (body: unknown, origin = requestOrigin) =>
   new Request("https://app.popcorn.local/api/v1/extension/session/refresh", { method: "POST", headers: { Origin: origin }, body: JSON.stringify(body) });
 
 describe("extension session refresh", () => {

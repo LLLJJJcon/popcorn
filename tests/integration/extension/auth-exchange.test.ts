@@ -1,15 +1,17 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { createExchangeHandler } from "@/server/auth/extension-session";
+import { ExtensionRedirectOriginSchema } from "@/server/env";
 
 const environment = {
   NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
-  EXTENSION_REDIRECT_ORIGIN: "chrome-extension://meocnghfgmmcnnjiihpcgjnaameioddp",
+  EXTENSION_REDIRECT_ORIGIN: ExtensionRedirectOriginSchema.parse("https://meocnghfgmmcnnjiihpcgjnaameioddp.chromiumapp.org"),
 };
+const requestOrigin = "chrome-extension://meocnghfgmmcnnjiihpcgjnaameioddp";
 const redirectUri = `${environment.EXTENSION_REDIRECT_ORIGIN}/supabase`;
 const body = { code: "one-time-code", codeVerifier: "v".repeat(64), redirectUri };
-const request = (payload = body, origin = environment.EXTENSION_REDIRECT_ORIGIN) =>
+const request = (payload = body, origin = requestOrigin) =>
   new Request("https://app.popcorn.local/api/v1/extension/session/exchange", {
     method: "POST",
     headers: { Origin: origin },

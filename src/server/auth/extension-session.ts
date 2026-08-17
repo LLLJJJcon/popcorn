@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  assertExtensionRequestOrigin,
+  type ServerEnv,
+} from "@/server/env";
+
 const exchangeRequestSchema = z.strictObject({
   code: z.string().min(1).max(2048),
   codeVerifier: z.string().min(43).max(512),
@@ -11,11 +16,10 @@ const refreshRequestSchema = z.strictObject({
   userId: z.string().min(1).max(200),
 });
 
-export type ExtensionSessionEnvironment = {
-  NEXT_PUBLIC_SUPABASE_URL: string;
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: string;
-  EXTENSION_REDIRECT_ORIGIN: string;
-};
+export type ExtensionSessionEnvironment = Pick<
+  ServerEnv,
+  "NEXT_PUBLIC_SUPABASE_URL" | "NEXT_PUBLIC_SUPABASE_ANON_KEY" | "EXTENSION_REDIRECT_ORIGIN"
+>;
 
 type ExtensionSessionDependencies = {
   environment: ExtensionSessionEnvironment;
@@ -25,6 +29,18 @@ type ExtensionSessionDependencies = {
 
 const json = (body: unknown, status: number) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+
+const hasExpectedRequestOrigin = (environment: ExtensionSessionEnvironment, request: Request) => {
+  try {
+    assertExtensionRequestOrigin(
+      environment.EXTENSION_REDIRECT_ORIGIN,
+      request.headers.get("origin") ?? "",
+    );
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const parseRequest = async <T>(request: Request, schema: z.ZodType<T>) => {
   const rawBody = await request.text();
@@ -49,7 +65,7 @@ export function createExchangeHandler({ environment, fetcher = fetch, now = Date
 
   return async function post(request: Request): Promise<Response> {
     if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
-    if (request.headers.get("origin") !== environment.EXTENSION_REDIRECT_ORIGIN) {
+    if (!hasExpectedRequestOrigin(environment, request)) {
       return json({ ok: false, error: "forbidden" }, 403);
     }
     const input = await parseRequest(request, exchangeRequestSchema);
@@ -96,7 +112,7 @@ export function createExchangeHandler({ environment, fetcher = fetch, now = Date
 export function createRefreshHandler({ environment, fetcher = fetch, now = Date.now }: ExtensionSessionDependencies) {
   return async function post(request: Request): Promise<Response> {
     if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
-    if (request.headers.get("origin") !== environment.EXTENSION_REDIRECT_ORIGIN) {
+    if (!hasExpectedRequestOrigin(environment, request)) {
       return json({ ok: false, error: "forbidden" }, 403);
     }
     const input = await parseRequest(request, refreshRequestSchema);

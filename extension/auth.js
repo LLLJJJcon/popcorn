@@ -25,10 +25,11 @@ const POPCORN_AUTH = (() => {
     return !!value && typeof value.accessToken === "string" && typeof value.refreshToken === "string" && Number.isFinite(value.accessExpiresAt) && !!value.user && typeof value.user.id === "string" && typeof value.user.email === "string";
   }
 
-  function createAuthClient({ chrome, crypto = globalThis.crypto, fetch = globalThis.fetch, appUrl, expectedRedirectUri = "chrome-extension://meocnghfgmmcnnjiihpcgjnaameioddp/supabase", boundedCachePrefix = "digest_", now = () => Date.now() }) {
-    if (!chrome?.storage?.local || !chrome?.storage?.session || !chrome?.identity || !crypto?.subtle || !appUrl) {
+  function createAuthClient({ chrome, crypto = globalThis.crypto, fetch = globalThis.fetch, appUrl, boundedCachePrefix = "digest_", now = () => Date.now() }) {
+    if (!chrome?.storage?.local || !chrome?.storage?.session || !chrome?.identity || !/^[a-p]{32}$/.test(chrome?.runtime?.id ?? "") || !crypto?.subtle || !appUrl) {
       throw new Error("Popcorn auth requires trusted Chrome and Web Crypto APIs.");
     }
+    const expectedRedirectUri = `https://${chrome.runtime.id}.chromiumapp.org/supabase`;
     let refreshMutex = null;
 
     async function initialize() {
@@ -70,12 +71,13 @@ const POPCORN_AUTH = (() => {
       const stored = await chrome.storage.session.get(PKCE_KEY);
       const pkce = stored[PKCE_KEY];
       try {
-        if (!pkce || typeof pkce.state !== "string" || typeof pkce.verifier !== "string" || typeof pkce.redirectUri !== "string" || !Number.isFinite(pkce.expiresAt)) {
+        if (!pkce || typeof pkce.state !== "string" || typeof pkce.verifier !== "string" || pkce.redirectUri !== expectedRedirectUri || !Number.isFinite(pkce.expiresAt)) {
           throw new Error("Missing PKCE state.");
         }
         if (pkce.expiresAt <= now()) throw new Error("PKCE state expired.");
         const callback = new URL(callbackUrl);
         const redirect = new URL(pkce.redirectUri);
+        if (callback.hash) throw new Error("Invalid sign-in callback fragment.");
         const popcornStates = callback.searchParams.getAll(POPCORN_STATE_PARAM);
         if (callback.origin !== redirect.origin || callback.pathname !== redirect.pathname || popcornStates.length !== 1 || popcornStates[0] !== pkce.state) {
           throw new Error("Invalid sign-in callback state.");
