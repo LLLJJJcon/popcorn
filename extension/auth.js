@@ -25,6 +25,10 @@ const POPCORN_AUTH = (() => {
     return !!value && typeof value.accessToken === "string" && typeof value.refreshToken === "string" && Number.isFinite(value.accessExpiresAt) && !!value.user && typeof value.user.id === "string" && typeof value.user.email === "string";
   }
 
+  function isSameSession(left, right) {
+    return isSession(left) && isSession(right) && left.accessToken === right.accessToken && left.refreshToken === right.refreshToken && left.accessExpiresAt === right.accessExpiresAt && left.user.id === right.user.id && left.user.email === right.user.email;
+  }
+
   function createAuthClient({ chrome, crypto = globalThis.crypto, fetch = globalThis.fetch, appUrl, boundedCachePrefix = "digest_", now = () => Date.now() }) {
     if (!chrome?.storage?.local || !chrome?.storage?.session || !chrome?.identity || !/^[a-p]{32}$/.test(chrome?.runtime?.id ?? "") || !crypto?.subtle || !appUrl) {
       throw new Error("Popcorn auth requires trusted Chrome and Web Crypto APIs.");
@@ -32,6 +36,17 @@ const POPCORN_AUTH = (() => {
     const expectedRedirectUri = `https://${chrome.runtime.id}.chromiumapp.org/supabase`;
     let refreshMutex = null;
     let sessionGeneration = 0;
+    let sessionMutationQueue = Promise.resolve();
+
+    function assertCurrentGeneration(generation) {
+      if (generation !== sessionGeneration) throw new Error("Popcorn session was invalidated.");
+    }
+
+    function queueSessionMutation(mutation) {
+      const result = sessionMutationQueue.then(mutation);
+      sessionMutationQueue = result.catch(() => {});
+      return result;
+    }
 
     async function initialize() {
       for (const area of [chrome.storage.local, chrome.storage.session]) {
@@ -66,7 +81,13 @@ const POPCORN_AUTH = (() => {
       const session = payload?.data?.session ?? payload?.session;
       if (!response.ok || !isSession(session)) throw new Error("Popcorn sign-in could not be completed.");
       sessionGeneration += 1;
-      return saveSession(session);
+      const acceptedGeneration = sessionGeneration;
+      return queueSessionMutation(async () => {
+        assertCurrentGeneration(acceptedGeneration);
+        const saved = await saveSession(session);
+        assertCurrentGeneration(acceptedGeneration);
+        return saved;
+      });
     }
 
     async function completeInteractiveSignIn(callbackUrl) {
@@ -131,9 +152,14 @@ const POPCORN_AUTH = (() => {
       if (!response.ok || !isSession(refreshed) || refreshed.user.id !== session.user.id) {
         throw new Error("Popcorn session refresh failed.");
       }
-      if (refreshGeneration !== sessionGeneration) throw new Error("Popcorn session was invalidated.");
-      await saveSession(refreshed);
-      if (refreshGeneration !== sessionGeneration) throw new Error("Popcorn session was invalidated.");
+      await queueSessionMutation(async () => {
+        assertCurrentGeneration(refreshGeneration);
+        const currentSession = await getSession();
+        assertCurrentGeneration(refreshGeneration);
+        if (!isSameSession(currentSession, session)) throw new Error("Popcorn session was invalidated.");
+        await saveSession(refreshed);
+        assertCurrentGeneration(refreshGeneration);
+      });
       return refreshed.accessToken;
     }
 
@@ -156,12 +182,17 @@ const POPCORN_AUTH = (() => {
       const pendingCount = events.filter((event) => event?.ownerUserId === session.user.id).length;
       if (pendingCount && decision !== "discard") return { pendingCount, requiresDecision: true };
       sessionGeneration += 1;
+      const signOutGeneration = sessionGeneration;
       const activeRefresh = refreshMutex;
       if (activeRefresh) await activeRefresh.catch(() => {});
       if (decision === "discard") {
         await chrome.storage.local.set({ [PENDING_EVENTS_KEY]: events.filter((event) => event?.ownerUserId !== session.user.id) });
       }
-      await chrome.storage.local.remove(SESSION_KEY);
+      await queueSessionMutation(async () => {
+        assertCurrentGeneration(signOutGeneration);
+        await chrome.storage.local.remove(SESSION_KEY);
+        assertCurrentGeneration(signOutGeneration);
+      });
       await clearPkce();
       return { pendingCount, requiresDecision: false };
     }

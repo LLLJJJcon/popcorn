@@ -215,3 +215,40 @@ After changing only the two Fix 4 race assertions, `node --test extension/tests/
 ### Residual risk and reviewer focus
 
 The deterministic races use mocked Chrome storage rather than a live MV3 worker and real asynchronous storage scheduling. Perform deployed sign-in/refresh plus confirmed and decision-required sign-out smoke tests, and verify invalidated callers receive only the bounded error. A fresh independent review remains required.
+
+## 2026-08-17 serialized session mutation review-fix addendum
+
+- Status: ready for a fresh independent re-review; this addendum does not self-approve Task 1.
+- Rejected head fixed: `f35417c618a68407be70bd0236310326584d8b4f`.
+
+### Corrections
+
+- Every `popcorn_session` mutation—refresh write, accepted-login write, and confirmed-sign-out removal—now runs through one service-worker-local promise queue. Each caller receives its own result, while a recovered queue tail prevents a rejected mutation from poisoning later work.
+- A refresh holds its mutation turn while checking the captured generation, reading and exactly identifying its original stored session, writing the refreshed session, and rechecking generation. Any mismatch rejects with the bounded invalidation error and returns no token.
+- A newly accepted login invalidates older work before queuing a generation-guarded write. Confirmed sign-out invalidates, waits/catches the active refresh, then queues a generation-guarded removal. Pre/post guards plus queue ordering make the newer login or sign-out the final winner in both overlap directions.
+- `requiresDecision: true` still performs no generation change or session mutation. No generation or token is persisted/exposed, no second refresh path was added, and all approved PKCE, Origin, worker/sender/storage, owner, route, MIT-upstream, and GPL-isolation boundaries remain unchanged.
+
+### TDD evidence
+
+#### RED
+
+- The required deferred `chrome.storage.local.set` test first reproduced rejected head `f35417c`: the old refresh promise rejected after its generation post-check, but its delayed storage write completed after the new login and left `stale-refreshed` as the final stored session.
+- With stored-session identity and both login/sign-out overlap regressions added, `node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` exited 1 with 14/18 passing and 4/18 failing: stale refresh final overwrite, missing source-session identity rejection, older sign-out resolving/removing across a newer login, and older login resolving/writing across a newer sign-out.
+
+#### GREEN
+
+- `node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` — 18/18 passed. The adversarial refresh mutation rejects, the queue recovers, and the queued new login becomes final.
+- `CI=true pnpm vitest run tests/integration/extension/auth-exchange.test.ts tests/integration/extension/auth-refresh.test.ts src/server/env.test.ts` — 22/22 passed across 3 files.
+
+### Full verification
+
+- `CI=true pnpm typecheck` — passed.
+- `CI=true pnpm build` — passed; both extension session routes remain dynamic and the authorization page builds.
+- `CI=true pnpm test:contract` — 128/128 passed.
+- `CI=true pnpm test:provenance` — 11/11 passed.
+- `CI=true pnpm test:extension` — 4/4 passed.
+- `git diff --check` — passed.
+
+### Residual risk and reviewer focus
+
+The queue and generation are intentionally worker-local and the deterministic tests use mocked delayed Chrome storage calls. Perform live MV3 suspend/restart and storage-scheduling smoke tests around refresh/login/sign-out overlaps; an actual worker termination also discards its in-flight promises and queue. A fresh independent review remains required.

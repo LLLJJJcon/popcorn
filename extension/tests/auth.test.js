@@ -370,6 +370,162 @@ test("an old deferred refresh rejects after a newly accepted interactive session
   assert.deepEqual(harness.local.popcorn_session, newSession);
 });
 
+test("a queued new login wins when stale refresh storage completes in adversarial order", async () => {
+  const auth = await getAuth();
+  const harness = createChrome({
+    onLaunch(url) {
+      const start = new URL(url);
+      return `${REDIRECT_ORIGIN}/supabase?popcorn_state=${start.searchParams.get("popcorn_state")}&code=new-login-code&state=gotrue-state`;
+    },
+  });
+  harness.local.popcorn_session = { accessToken: "old", refreshToken: "old-refresh", accessExpiresAt: 0, user: { id: "user-a", email: "old@example.com" } };
+  const staleSetStarted = deferred();
+  const releaseStaleSet = deferred();
+  const loginAccepted = deferred();
+  const originalSet = harness.chrome.storage.local.set;
+  harness.chrome.storage.local.set = async (items) => {
+    if (items.popcorn_session?.accessToken === "stale-refreshed") {
+      staleSetStarted.resolve();
+      await releaseStaleSet.promise;
+    }
+    return originalSet(items);
+  };
+  const staleSession = { accessToken: "stale-refreshed", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } };
+  const newSession = { accessToken: "new-login", refreshToken: "new-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-b", email: "new@example.com" } };
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: webcrypto,
+    appUrl: "https://app.popcorn.local",
+    fetch: async (url) => {
+      if (url.endsWith("/refresh")) return response({ session: staleSession });
+      return response({
+        get session() {
+          loginAccepted.resolve();
+          return newSession;
+        },
+      });
+    },
+  });
+
+  const refreshing = client.getAccessToken();
+  await staleSetStarted.promise;
+  const signingIn = client.beginInteractiveSignIn({ userInitiated: true });
+  await loginAccepted.promise;
+  releaseStaleSet.resolve();
+
+  await assert.rejects(refreshing, /invalidated|session/i);
+  assert.deepEqual(await signingIn, newSession);
+  assert.deepEqual(harness.local.popcorn_session, newSession);
+});
+
+test("refresh rejects when the stored session no longer identifies its source session", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  harness.local.popcorn_session = { accessToken: "old", refreshToken: "old-refresh", accessExpiresAt: 0, user: { id: "user-a", email: "old@example.com" } };
+  const refreshStarted = deferred();
+  const providerRefresh = deferred();
+  const replacement = { accessToken: "replacement", refreshToken: "replacement-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-b", email: "replacement@example.com" } };
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: webcrypto,
+    appUrl: "https://app.popcorn.local",
+    fetch: async () => {
+      refreshStarted.resolve();
+      return providerRefresh.promise;
+    },
+  });
+
+  const refreshing = client.getAccessToken();
+  await refreshStarted.promise;
+  harness.local.popcorn_session = replacement;
+  providerRefresh.resolve(response({ session: { accessToken: "stale-refreshed", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } } }));
+
+  await assert.rejects(refreshing, /invalidated|session/i);
+  assert.deepEqual(harness.local.popcorn_session, replacement);
+});
+
+test("a newer login survives an older confirmed sign-out with a deferred remove", async () => {
+  const auth = await getAuth();
+  const harness = createChrome({
+    onLaunch(url) {
+      const start = new URL(url);
+      return `${REDIRECT_ORIGIN}/supabase?popcorn_state=${start.searchParams.get("popcorn_state")}&code=new-login-code&state=gotrue-state`;
+    },
+  });
+  harness.local.popcorn_session = { accessToken: "old", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } };
+  const removeStarted = deferred();
+  const releaseRemove = deferred();
+  const loginAccepted = deferred();
+  const originalRemove = harness.chrome.storage.local.remove;
+  harness.chrome.storage.local.remove = async (keys) => {
+    if (keys === "popcorn_session") {
+      removeStarted.resolve();
+      await releaseRemove.promise;
+    }
+    return originalRemove(keys);
+  };
+  const newSession = { accessToken: "new-login", refreshToken: "new-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-b", email: "new@example.com" } };
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: webcrypto,
+    appUrl: "https://app.popcorn.local",
+    fetch: async () => response({
+      get session() {
+        loginAccepted.resolve();
+        return newSession;
+      },
+    }),
+  });
+
+  const signingOut = client.signOut();
+  await removeStarted.promise;
+  const signingIn = client.beginInteractiveSignIn({ userInitiated: true });
+  await loginAccepted.promise;
+  releaseRemove.resolve();
+
+  await assert.rejects(signingOut, /invalidated|session/i);
+  assert.deepEqual(await signingIn, newSession);
+  assert.deepEqual(harness.local.popcorn_session, newSession);
+});
+
+test("a newer confirmed sign-out removes an older login with a deferred session write", async () => {
+  const auth = await getAuth();
+  const harness = createChrome({
+    onLaunch(url) {
+      const start = new URL(url);
+      return `${REDIRECT_ORIGIN}/supabase?popcorn_state=${start.searchParams.get("popcorn_state")}&code=older-login-code&state=gotrue-state`;
+    },
+  });
+  harness.local.popcorn_session = { accessToken: "old", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } };
+  const loginSetStarted = deferred();
+  const releaseLoginSet = deferred();
+  const originalSet = harness.chrome.storage.local.set;
+  harness.chrome.storage.local.set = async (items) => {
+    if (items.popcorn_session?.accessToken === "older-login") {
+      loginSetStarted.resolve();
+      await releaseLoginSet.promise;
+    }
+    return originalSet(items);
+  };
+  const olderLogin = { accessToken: "older-login", refreshToken: "older-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-b", email: "older@example.com" } };
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: webcrypto,
+    appUrl: "https://app.popcorn.local",
+    fetch: async () => response({ session: olderLogin }),
+  });
+
+  const signingIn = client.beginInteractiveSignIn({ userInitiated: true });
+  await loginSetStarted.promise;
+  const signingOut = client.signOut();
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseLoginSet.resolve();
+
+  await assert.rejects(signingIn, /invalidated|session/i);
+  assert.deepEqual(await signingOut, { pendingCount: 0, requiresDecision: false });
+  assert.equal(harness.local.popcorn_session, undefined);
+});
+
 test("sign-out requiring a pending-event decision does not invalidate an active refresh", async () => {
   const auth = await getAuth();
   const harness = createChrome();
