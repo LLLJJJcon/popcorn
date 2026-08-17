@@ -20,6 +20,33 @@ function response(status: number, body: unknown): Response {
   });
 }
 
+function chunkedResponse(
+  chunks: readonly string[],
+  hooks: { delivered: number; cancelled: boolean },
+): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          const chunk = chunks[hooks.delivered];
+          if (chunk === undefined) {
+            controller.close();
+            return;
+          }
+          hooks.delivered += 1;
+          controller.enqueue(encoder.encode(chunk));
+        },
+        cancel() {
+          hooks.cancelled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    ),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
 describe("Supadata native-Chinese provider", () => {
   test("uses the exact canonical request and keeps the key only in a header", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => response(200, chineseResponse));
@@ -166,6 +193,44 @@ describe("Supadata native-Chinese provider", () => {
       code: "PROVIDER_OUTPUT_INVALID",
       retryable: false,
     });
+  });
+
+  test("cancels a chunked body immediately when encoded bytes exceed the limit", async () => {
+    const hooks = { delivered: 0, cancelled: false };
+    const chunks = [
+      '{"lang":"zh",',
+      '"content":[{"text":"你好","offset":0,"duration":1000,"lang":"zh"}]}',
+      '{"private":"must-not-be-consumed"}',
+    ];
+    const firstTwoBytes = new TextEncoder().encode(chunks[0] + chunks[1]).byteLength;
+    const provider = createSupadataTranscriptProvider({
+      apiKey: API_KEY,
+      maxResponseBytes: firstTwoBytes - 1,
+      fetchImpl: vi.fn(async () => chunkedResponse(chunks, hooks)),
+    });
+
+    await expect(provider.request(VIDEO_ID)).resolves.toEqual({
+      kind: "failure",
+      code: "PROVIDER_OUTPUT_INVALID",
+      retryable: false,
+    });
+    expect(hooks.cancelled).toBe(true);
+    expect(hooks.delivered).toBe(2);
+  });
+
+  test("parses a bounded valid JSON body delivered across multiple chunks", async () => {
+    const hooks = { delivered: 0, cancelled: false };
+    const encoded = JSON.stringify(chineseResponse);
+    const chunks = [encoded.slice(0, 17), encoded.slice(17, 53), encoded.slice(53)];
+    const provider = createSupadataTranscriptProvider({
+      apiKey: API_KEY,
+      maxResponseBytes: new TextEncoder().encode(encoded).byteLength,
+      fetchImpl: vi.fn(async () => chunkedResponse(chunks, hooks)),
+    });
+
+    await expect(provider.request(VIDEO_ID)).resolves.toMatchObject({ kind: "ready" });
+    expect(hooks.delivered).toBe(3);
+    expect(hooks.cancelled).toBe(false);
   });
 
   test("polls one durable Provider step without an in-process loop", async () => {

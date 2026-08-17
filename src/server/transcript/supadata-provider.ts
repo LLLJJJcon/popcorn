@@ -35,12 +35,37 @@ function providerFailure(
 async function readBoundedJson(response: Response, maximumBytes: number): Promise<unknown> {
   const declaredLength = response.headers.get("content-length");
   if (declaredLength !== null && Number(declaredLength) > maximumBytes) {
+    await response.body?.cancel();
     throw new NativeTranscriptError("Provider response is oversized", "invalid");
   }
-  const text = await response.text();
-  if (new TextEncoder().encode(text).byteLength > maximumBytes) {
-    throw new NativeTranscriptError("Provider response is oversized", "invalid");
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  const reader = response.body?.getReader();
+  if (reader) {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maximumBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The bounded-read failure remains authoritative if cancellation fails.
+        }
+        throw new NativeTranscriptError("Provider response is oversized", "invalid");
+      }
+      chunks.push(value);
+    }
   }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const text = new TextDecoder().decode(bytes);
   try {
     return JSON.parse(text) as unknown;
   } catch {

@@ -7,9 +7,12 @@ import {
   MAX_JOB_ATTEMPTS,
   createJobResultKey,
   leaseJob,
+  nextJobFailure,
 } from "@/server/domain/lease-job";
 import {
   createJobProcessor,
+  createSupabaseDurableJobStore,
+  createSupabaseTranscriptStore,
   type DurableJobStore,
 } from "@/server/jobs/process-jobs";
 import { createResolveSnapshotHandler } from "@/server/jobs/handlers/resolve-snapshot";
@@ -102,22 +105,28 @@ function storeFixture(initial: KnowledgeJob): DurableJobStore & {
       expect(sourceId).toBe(SOURCE_ID);
       return "abc123XYZ00";
     },
-    async writePrivateInput(expectedUserId, jobId, input) {
-      expect(expectedUserId).toBe(USER_A);
-      expect(jobId).toBe(JOB_ID);
-      this.privateInput = input;
-    },
-    async persistState(expectedUserId, expectedLease, state) {
+    async transitionFailure(expectedUserId, expectedLease, state, privateChange) {
       expect(expectedUserId).toBe(state.userId);
       expect(expectedLease).toMatchObject({ userId: expectedUserId, status: "leased" });
+      if (privateChange.providerJobId !== null) {
+        this.privateInput = { providerJobId: privateChange.providerJobId };
+      }
+      if (privateChange.clearInput) this.privateInput = {};
       states.push(state);
       return true;
     },
-    async persistResolved(expectedUserId, leased, result, completedAt) {
+    async persistSnapshotEvidence(expectedUserId, leased, result, completedAt) {
       expect(expectedUserId).toBe(leased.userId);
       expect(completedAt).toBe(NOW);
       this.persisted.push(result);
+      return SNAPSHOT_ID;
+    },
+    async completeResolved(expectedUserId, leased, snapshotId, completedAt) {
+      expect(expectedUserId).toBe(leased.userId);
+      expect(snapshotId).toBe(SNAPSHOT_ID);
+      expect(completedAt).toBe(NOW);
       this.privateResult = { snapshotId: SNAPSHOT_ID };
+      this.privateInput = {};
       states.push({
         ...leased,
         status: "succeeded",
@@ -128,15 +137,184 @@ function storeFixture(initial: KnowledgeJob): DurableJobStore & {
       });
       return true;
     },
-    async clearPrivateProviderInput(expectedUserId, jobId) {
-      expect(expectedUserId).toBe(USER_A);
-      expect(jobId).toBe(JOB_ID);
-      this.privateInput = {};
-    },
   };
 }
 
 describe("durable resolve_snapshot processing", () => {
+  test("atomically attaches the first Provider 202 with the exact frozen retry state", async () => {
+    const decision = leaseJob(job(), NOW);
+    if (decision.kind !== "leased") throw new Error("fixture must lease");
+    const transitionFailure = vi.fn(async () => true);
+    const legacyPersistState = vi.fn(async () => true);
+    const legacyWritePrivateInput = vi.fn(async () => undefined);
+    const store = {
+      readPrivateInput: vi.fn(async () => null),
+      readVideoId: vi.fn(async () => "abc123XYZ00"),
+      transitionFailure,
+      persistState: legacyPersistState,
+      writePrivateInput: legacyWritePrivateInput,
+    } as unknown as DurableJobStore;
+    const handler = createResolveSnapshotHandler({
+      store,
+      provider: {
+        request: vi.fn(async () => ({
+          kind: "pending" as const,
+          providerJobId: "provider-new-123",
+        })),
+        poll: vi.fn(),
+      },
+    });
+    const expectedFailure = nextJobFailure(decision.job, "SYNC_RETRYING", NOW);
+
+    await expect(handler(decision.job, USER_A, NOW)).resolves.toBe("deferred");
+
+    expect(transitionFailure).toHaveBeenCalledExactlyOnceWith(
+      USER_A,
+      decision.job,
+      expectedFailure,
+      { providerJobId: "provider-new-123", clearInput: false },
+    );
+    expect(legacyPersistState).not.toHaveBeenCalled();
+    expect(legacyWritePrivateInput).not.toHaveBeenCalled();
+  });
+
+  test("terminalizes an attempt-five initial Provider 202 without attaching its unusable ID", async () => {
+    const decision = leaseJob(job({ attemptCount: MAX_JOB_ATTEMPTS - 1 }), NOW);
+    if (decision.kind !== "leased") throw new Error("fixture must lease");
+    const transitionFailure = vi.fn(async () => true);
+    const store = {
+      readPrivateInput: vi.fn(async () => null),
+      readVideoId: vi.fn(async () => "abc123XYZ00"),
+      transitionFailure,
+    } as unknown as DurableJobStore;
+    const handler = createResolveSnapshotHandler({
+      store,
+      provider: {
+        request: vi.fn(async () => ({
+          kind: "pending" as const,
+          providerJobId: "provider-never-polled",
+        })),
+        poll: vi.fn(),
+      },
+    });
+    const expectedFailure = nextJobFailure(decision.job, "SYNC_RETRYING", NOW);
+
+    await expect(handler(decision.job, USER_A, NOW)).resolves.toBe("failed");
+    expect(expectedFailure.status).toBe("terminal_failed");
+    expect(transitionFailure).toHaveBeenCalledExactlyOnceWith(
+      USER_A,
+      decision.job,
+      expectedFailure,
+      { providerJobId: null, clearInput: true },
+    );
+  });
+
+  test("a pending-poll lost fence returns only deferred with no split mutation", async () => {
+    const decision = leaseJob(job(), NOW);
+    if (decision.kind !== "leased") throw new Error("fixture must lease");
+    const transitionFailure = vi.fn(async () => false);
+    const legacyPersistState = vi.fn(async () => true);
+    const cleanup = vi.fn(async () => undefined);
+    const store = {
+      readPrivateInput: vi.fn(async () => ({ providerJobId: "provider-private-123" })),
+      transitionFailure,
+      persistState: legacyPersistState,
+      clearPrivateProviderInput: cleanup,
+    } as unknown as DurableJobStore;
+    const handler = createResolveSnapshotHandler({
+      store,
+      provider: {
+        request: vi.fn(),
+        poll: vi.fn(async () => ({ kind: "pending" as const })),
+      },
+    });
+
+    await expect(handler(decision.job, USER_A, NOW)).resolves.toBe("deferred");
+    expect(transitionFailure).toHaveBeenCalledTimes(1);
+    expect(legacyPersistState).not.toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    {
+      label: "pending poll",
+      providerResult: { kind: "pending" as const },
+      errorCode: "SYNC_RETRYING",
+      terminal: false,
+    },
+    {
+      label: "unsupported terminal result",
+      providerResult: {
+        kind: "unsupported" as const,
+        code: "NATIVE_CHINESE_TRANSCRIPT_REQUIRED" as const,
+      },
+      errorCode: "NATIVE_CHINESE_TRANSCRIPT_REQUIRED",
+      terminal: true,
+    },
+  ])("uses one atomic failure transition for $label", async ({ providerResult, errorCode, terminal }) => {
+    const decision = leaseJob(job(), NOW);
+    if (decision.kind !== "leased") throw new Error("fixture must lease");
+    const transitionFailure = vi.fn(async () => true);
+    const cleanup = vi.fn(async () => undefined);
+    const store = {
+      readPrivateInput: vi.fn(async () => ({ providerJobId: "provider-private-123" })),
+      transitionFailure,
+      persistState: vi.fn(async () => true),
+      clearPrivateProviderInput: cleanup,
+    } as unknown as DurableJobStore;
+    const handler = createResolveSnapshotHandler({
+      store,
+      provider: { request: vi.fn(), poll: vi.fn(async () => providerResult) },
+    });
+    const expectedState = terminal
+      ? {
+          ...decision.job,
+          status: "terminal_failed" as const,
+          nextAttemptAt: null,
+          leaseExpiresAt: null,
+          lastErrorCode: errorCode,
+          updatedAt: NOW,
+        }
+      : nextJobFailure(decision.job, errorCode, NOW);
+
+    await handler(decision.job, USER_A, NOW);
+
+    expect(transitionFailure).toHaveBeenCalledExactlyOnceWith(
+      USER_A,
+      decision.job,
+      expectedState,
+      { providerJobId: null, clearInput: terminal },
+    );
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+
+  test("returns deferred after a lost completion fence without split cleanup", async () => {
+    const decision = leaseJob(job(), NOW);
+    if (decision.kind !== "leased") throw new Error("fixture must lease");
+    const persistSnapshotEvidence = vi.fn(async () => SNAPSHOT_ID);
+    const completeResolved = vi.fn(async () => false);
+    const cleanup = vi.fn(async () => undefined);
+    const store = {
+      readPrivateInput: vi.fn(async () => ({ providerJobId: "provider-private-123" })),
+      persistSnapshotEvidence,
+      completeResolved,
+      persistResolved: vi.fn(async () => false),
+      clearPrivateProviderInput: cleanup,
+    } as unknown as DurableJobStore;
+    const handler = createResolveSnapshotHandler({
+      store,
+      provider: {
+        request: vi.fn(),
+        poll: vi.fn(async () => ({ kind: "ready" as const, snapshot })),
+      },
+    });
+
+    await expect(handler(decision.job, USER_A, NOW)).resolves.toBe("deferred");
+    expect(persistSnapshotEvidence).toHaveBeenCalledWith(USER_A, decision.job, snapshot, NOW);
+    expect(completeResolved).toHaveBeenCalledWith(USER_A, decision.job, SNAPSHOT_ID, NOW);
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+
   test("runs an atomically claimed bounded batch concurrently", async () => {
     const firstLease = leaseJob(job(), NOW);
     const secondLease = leaseJob(
@@ -301,6 +479,79 @@ describe("durable resolve_snapshot processing", () => {
       attemptCount: MAX_JOB_ATTEMPTS,
       leaseExpiresAt: null,
       updatedAt: NOW,
+    });
+  });
+});
+
+describe("CONTRACT-006 Supabase RPC adapters", () => {
+  test("registers a conflict through one RPC and never mutates job tables", async () => {
+    const sourceQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({ data: { id: SOURCE_ID }, error: null })),
+    };
+    const from = vi.fn((table: string) => {
+      if (table !== "video_sources") throw new Error(`forbidden table mutation: ${table}`);
+      return sourceQuery;
+    });
+    const rpc = vi.fn(async () => ({
+      data: [{ knowledge_job_id: JOB_ID, status: "succeeded", created_or_attached: false }],
+      error: null,
+    }));
+    const store = createSupabaseTranscriptStore({ from, rpc } as never, () => NOW);
+    await expect(
+      store.savePending(USER_A, "abc123XYZ00", "provider-secret", "d".repeat(64)),
+    ).resolves.toEqual({ jobId: JOB_ID });
+
+    expect(rpc).toHaveBeenCalledExactlyOnceWith("register_resolve_snapshot_job", {
+      p_user_id: USER_A,
+      p_video_source_id: SOURCE_ID,
+      p_dedupe_key: "d".repeat(64),
+      p_provider_job_id: "provider-secret",
+      p_now: NOW,
+    });
+    expect(from).toHaveBeenCalledTimes(1);
+  });
+
+  test("maps retry transitions to the exact owner and lease-fenced RPC arguments", async () => {
+    const rpc = vi.fn(async () => ({ data: true, error: null }));
+    const store = createSupabaseDurableJobStore({ rpc } as never);
+    const decision = leaseJob(job(), NOW);
+    if (decision.kind !== "leased") throw new Error("fixture must lease");
+    const failure = nextJobFailure(decision.job, "SYNC_RETRYING", NOW);
+    await expect(
+      store.transitionFailure(USER_A, decision.job, failure, {
+        providerJobId: "provider-new-123",
+        clearInput: false,
+      }),
+    ).resolves.toBe(true);
+    expect(rpc).toHaveBeenCalledExactlyOnceWith("transition_resolve_snapshot_failure", {
+      p_user_id: USER_A,
+      p_job_id: JOB_ID,
+      p_expected_lease_expires_at: "2026-08-17T00:05:00.000Z",
+      p_expected_attempt_count: 1,
+      p_target_status: "retryable_failed",
+      p_next_attempt_at: "2026-08-17T00:01:00.000Z",
+      p_error_code: "SYNC_RETRYING",
+      p_provider_job_id: "provider-new-123",
+      p_clear_input: false,
+      p_now: NOW,
+    });
+  });
+
+  test("maps completion to one exact RPC and reports a lost fence", async () => {
+    const rpc = vi.fn(async () => ({ data: false, error: null }));
+    const store = createSupabaseDurableJobStore({ rpc } as never);
+    const decision = leaseJob(job(), NOW);
+    if (decision.kind !== "leased") throw new Error("fixture must lease");
+    await expect(store.completeResolved(USER_A, decision.job, SNAPSHOT_ID, NOW)).resolves.toBe(false);
+    expect(rpc).toHaveBeenCalledExactlyOnceWith("complete_resolve_snapshot_job", {
+      p_user_id: USER_A,
+      p_job_id: JOB_ID,
+      p_expected_lease_expires_at: "2026-08-17T00:05:00.000Z",
+      p_expected_attempt_count: 1,
+      p_snapshot_id: SNAPSHOT_ID,
+      p_now: NOW,
     });
   });
 });

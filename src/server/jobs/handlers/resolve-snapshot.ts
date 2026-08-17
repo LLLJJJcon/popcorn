@@ -52,13 +52,13 @@ async function persistTerminal(
   code: string,
   now: string,
 ): Promise<JobHandlerResult> {
-  const persisted = await store.persistState(
+  const persisted = await store.transitionFailure(
     expectedUserId,
     job,
     terminalFailure(job, code, now),
+    { providerJobId: null, clearInput: true },
   );
   if (!persisted) return "deferred";
-  await store.clearPrivateProviderInput(expectedUserId, job.id);
   return "failed";
 }
 
@@ -89,16 +89,18 @@ export function createResolveSnapshotHandler({
       const initialResult = await provider.request(videoId);
       if (initialResult.kind === "pending") {
         const retryState = nextJobFailure(job, "SYNC_RETRYING", now);
-        const persisted = await store.persistState(
+        const terminal = retryState.status === "terminal_failed";
+        const persisted = await store.transitionFailure(
           expectedUserId,
           job,
           retryState,
+          {
+            providerJobId: terminal ? null : initialResult.providerJobId,
+            clearInput: terminal,
+          },
         );
         if (!persisted) return "deferred";
-        await store.writePrivateInput(expectedUserId, job.id, {
-          providerJobId: initialResult.providerJobId,
-        });
-        return "deferred";
+        return terminal ? "failed" : "deferred";
       }
       result = initialResult;
     } else {
@@ -119,21 +121,27 @@ export function createResolveSnapshotHandler({
 
     /* Both an initial request and one durable poll converge here. */
     if (result.kind === "ready") {
-      const persisted = await store.persistResolved(
+      const snapshotId = await store.persistSnapshotEvidence(
         expectedUserId,
         job,
         result.snapshot,
         now,
       );
-      if (!persisted) return "deferred";
-      await store.clearPrivateProviderInput(expectedUserId, job.id);
+      const completed = await store.completeResolved(
+        expectedUserId,
+        job,
+        snapshotId,
+        now,
+      );
+      if (!completed) return "deferred";
       return "completed";
     }
     if (result.kind === "pending") {
-      await store.persistState(
+      await store.transitionFailure(
         expectedUserId,
         job,
         nextJobFailure(job, "SYNC_RETRYING", now),
+        { providerJobId: null, clearInput: false },
       );
       return "deferred";
     }
@@ -145,12 +153,15 @@ export function createResolveSnapshotHandler({
     }
 
     const failed = nextJobFailure(job, result.code, now);
-    const persisted = await store.persistState(expectedUserId, job, failed);
+    const terminal = failed.status === "terminal_failed";
+    const persisted = await store.transitionFailure(
+      expectedUserId,
+      job,
+      failed,
+      { providerJobId: null, clearInput: terminal },
+    );
     if (!persisted) return "deferred";
-    if (failed.status === "terminal_failed") {
-      await store.clearPrivateProviderInput(expectedUserId, job.id);
-      return "failed";
-    }
+    if (terminal) return "failed";
     return "deferred";
   };
 }

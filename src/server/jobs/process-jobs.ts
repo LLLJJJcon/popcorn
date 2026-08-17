@@ -8,7 +8,10 @@ import {
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { failure, success } from "@/server/api/respond";
-import type { NativeTranscriptSnapshot } from "@/server/transcript/provider";
+import type {
+  NativeTranscriptSnapshot,
+  TranscriptRouteStore,
+} from "@/server/transcript/provider";
 import type { Database, Json } from "@/types/database.generated";
 
 export const MAX_PROCESS_BATCH_SIZE = 10;
@@ -22,23 +25,27 @@ export interface DurableJobStore {
   claimJobs(limit: number, now: string): Promise<readonly KnowledgeJob[]>;
   readPrivateInput(expectedUserId: string, jobId: string): Promise<unknown>;
   readVideoId(expectedUserId: string, sourceId: string): Promise<string>;
-  writePrivateInput(
-    expectedUserId: string,
-    jobId: string,
-    input: { readonly providerJobId: string },
-  ): Promise<void>;
-  persistState(
+  transitionFailure(
     expectedUserId: string,
     expectedLease: Extract<KnowledgeJob, { status: "leased" }>,
-    state: KnowledgeJob,
+    state: Extract<KnowledgeJob, { status: "retryable_failed" | "terminal_failed" }>,
+    privateChange: {
+      readonly providerJobId: string | null;
+      readonly clearInput: boolean;
+    },
   ): Promise<boolean>;
-  persistResolved(
+  persistSnapshotEvidence(
     expectedUserId: string,
     leased: Extract<KnowledgeJob, { status: "leased" }>,
     snapshot: NativeTranscriptSnapshot,
     completedAt: string,
+  ): Promise<string>;
+  completeResolved(
+    expectedUserId: string,
+    leased: Extract<KnowledgeJob, { status: "leased" }>,
+    snapshotId: string,
+    completedAt: string,
   ): Promise<boolean>;
-  clearPrivateProviderInput(expectedUserId: string, jobId: string): Promise<void>;
 }
 
 export type JobHandlerResult = "completed" | "deferred" | "failed";
@@ -236,17 +243,6 @@ function contractJob(row: JobRow): KnowledgeJob {
   });
 }
 
-function jobUpdate(state: KnowledgeJob) {
-  return {
-    status: state.status,
-    attempt_count: state.attemptCount,
-    next_attempt_at: state.nextAttemptAt,
-    lease_expires_at: state.leaseExpiresAt,
-    last_error_code: state.lastErrorCode,
-    updated_at: state.updatedAt,
-  };
-}
-
 function objectValue(value: Json, key: string): Json | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value[key]
@@ -301,34 +297,32 @@ export function createSupabaseDurableJobStore(
       return result.data.youtube_video_id;
     },
 
-    async writePrivateInput(expectedUserId, jobId, input) {
-      const result = await client.from("knowledge_job_internal").upsert({
-        knowledge_job_id: jobId,
-        user_id: expectedUserId,
-        input: input satisfies Json,
-        result: null,
-      });
-      if (result.error) throw result.error;
-    },
-
-    async persistState(expectedUserId, expectedLease, state) {
-      if (state.userId !== expectedUserId || expectedLease.userId !== expectedUserId) {
-        throw new Error("job owner mismatch");
+    async transitionFailure(expectedUserId, expectedLease, state, privateChange) {
+      if (
+        expectedLease.userId !== expectedUserId ||
+        state.userId !== expectedUserId ||
+        state.id !== expectedLease.id ||
+        state.attemptCount !== expectedLease.attemptCount
+      ) {
+        throw new Error("job owner or lease mismatch");
       }
-      const updated = await client
-        .from("knowledge_jobs")
-        .update(jobUpdate(state))
-        .eq("user_id", expectedUserId)
-        .eq("id", state.id)
-        .eq("status", "leased")
-        .eq("lease_expires_at", expectedLease.leaseExpiresAt)
-        .select("id")
-        .maybeSingle();
-      if (updated.error) throw updated.error;
-      return updated.data !== null;
+      const transitioned = await client.rpc("transition_resolve_snapshot_failure", {
+        p_user_id: expectedUserId,
+        p_job_id: expectedLease.id,
+        p_expected_lease_expires_at: expectedLease.leaseExpiresAt,
+        p_expected_attempt_count: expectedLease.attemptCount,
+        p_target_status: state.status,
+        p_next_attempt_at: state.nextAttemptAt as string,
+        p_error_code: state.lastErrorCode,
+        p_provider_job_id: privateChange.providerJobId as string,
+        p_clear_input: privateChange.clearInput,
+        p_now: state.updatedAt,
+      });
+      if (transitioned.error) throw transitioned.error;
+      return transitioned.data;
     },
 
-    async persistResolved(expectedUserId, leased, snapshot, completedAt) {
+    async persistSnapshotEvidence(expectedUserId, leased, snapshot, completedAt) {
       if (leased.userId !== expectedUserId) throw new Error("job owner mismatch");
       const source = await client
         .from("video_sources")
@@ -403,42 +397,129 @@ export function createSupabaseDurableJobStore(
         .upsert(segments, { onConflict: "snapshot_id,stable_id", ignoreDuplicates: true });
       if (segmentWrite.error) throw segmentWrite.error;
 
-      const privateResultWrite = await client.from("knowledge_job_internal").upsert({
-        knowledge_job_id: leased.id,
-        user_id: expectedUserId,
-        result: { snapshotId: persisted.data.id } satisfies Json,
-      });
-      if (privateResultWrite.error) throw privateResultWrite.error;
-
-      const succeeded: KnowledgeJob = {
-        ...leased,
-        status: "succeeded",
-        nextAttemptAt: null,
-        leaseExpiresAt: null,
-        lastErrorCode: null,
-        updatedAt: completedAt,
-      };
-      const jobUpdated = await this.persistState(expectedUserId, leased, succeeded);
-      if (!jobUpdated) return false;
-      if (leased.savedItemId) {
-        const savedUpdate = await client
-          .from("saved_items")
-          .update({ snapshot_id: persisted.data.id, status: "ready", updated_at: completedAt })
-          .eq("user_id", expectedUserId)
-          .eq("id", leased.savedItemId)
-          .eq("video_source_id", leased.sourceId);
-        if (savedUpdate.error) throw savedUpdate.error;
-      }
-      return true;
+      return persisted.data.id;
     },
 
-    async clearPrivateProviderInput(expectedUserId, jobId) {
-      const result = await client
-        .from("knowledge_job_internal")
-        .update({ input: {} })
+    async completeResolved(expectedUserId, leased, snapshotId, completedAt) {
+      if (leased.userId !== expectedUserId) throw new Error("job owner mismatch");
+      const completed = await client.rpc("complete_resolve_snapshot_job", {
+        p_user_id: expectedUserId,
+        p_job_id: leased.id,
+        p_expected_lease_expires_at: leased.leaseExpiresAt,
+        p_expected_attempt_count: leased.attemptCount,
+        p_snapshot_id: snapshotId,
+        p_now: completedAt,
+      });
+      if (completed.error) throw completed.error;
+      return completed.data;
+    },
+  };
+}
+
+async function ownedSourceId(
+  client: SupabaseClient<Database>,
+  expectedUserId: string,
+  videoId: string,
+): Promise<string> {
+  const existing = await client
+    .from("video_sources")
+    .select("id")
+    .eq("user_id", expectedUserId)
+    .eq("youtube_video_id", videoId)
+    .maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return existing.data.id;
+
+  const inserted = await client
+    .from("video_sources")
+    .insert({
+      user_id: expectedUserId,
+      youtube_video_id: videoId,
+      canonical_url: `https://www.youtube.com/watch?v=${videoId}`,
+    })
+    .select("id")
+    .single();
+  if (!inserted.error) return inserted.data.id;
+
+  const raced = await client
+    .from("video_sources")
+    .select("id")
+    .eq("user_id", expectedUserId)
+    .eq("youtube_video_id", videoId)
+    .single();
+  if (raced.error) throw inserted.error;
+  return raced.data.id;
+}
+
+export function createSupabaseTranscriptStore(
+  client: SupabaseClient<Database>,
+  now: () => string = () => new Date().toISOString(),
+): TranscriptRouteStore {
+  return {
+    async savePending(expectedUserId, videoId, providerJobId, resultKey) {
+      const sourceId = await ownedSourceId(client, expectedUserId, videoId);
+      const registered = await client.rpc("register_resolve_snapshot_job", {
+        p_user_id: expectedUserId,
+        p_video_source_id: sourceId,
+        p_dedupe_key: resultKey,
+        p_provider_job_id: providerJobId,
+        p_now: now(),
+      });
+      if (registered.error) throw registered.error;
+      const registration = registered.data[0];
+      if (!registration || registered.data.length !== 1) {
+        throw new Error("resolve_snapshot registration returned an invalid result");
+      }
+      return { jobId: registration.knowledge_job_id };
+    },
+
+    async saveReady(expectedUserId, videoId, snapshot) {
+      const sourceId = await ownedSourceId(client, expectedUserId, videoId);
+      const capturedAt = now();
+      const durationSeconds = Math.max(...snapshot.segments.map((segment) => segment.endSeconds));
+      const snapshotWrite = await client
+        .from("video_snapshots")
+        .upsert(
+          {
+            user_id: expectedUserId,
+            video_source_id: sourceId,
+            title: `YouTube video ${videoId}`,
+            channel: "YouTube",
+            thumbnail_url: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            duration_seconds: durationSeconds,
+            description: "",
+            transcript_language: "zh-CN",
+            transcript_hash: snapshot.transcriptHash,
+            captured_at: capturedAt,
+          },
+          { onConflict: "video_source_id,transcript_hash", ignoreDuplicates: true },
+        );
+      if (snapshotWrite.error) throw snapshotWrite.error;
+      const persisted = await client
+        .from("video_snapshots")
+        .select("id,user_id")
         .eq("user_id", expectedUserId)
-        .eq("knowledge_job_id", jobId);
-      if (result.error) throw result.error;
+        .eq("video_source_id", sourceId)
+        .eq("transcript_hash", snapshot.transcriptHash)
+        .single();
+      if (persisted.error || persisted.data.user_id !== expectedUserId) {
+        throw persisted.error ?? new Error("snapshot owner mismatch");
+      }
+      const segments = snapshot.segments.map((segment) => ({
+        user_id: expectedUserId,
+        snapshot_id: persisted.data.id,
+        stable_id: segment.stableId,
+        position: segment.position,
+        original_chinese: segment.originalChinese,
+        start_seconds: segment.startSeconds,
+        end_seconds: segment.endSeconds,
+        language: "zh-CN",
+      }));
+      const segmentWrite = await client
+        .from("transcript_segments")
+        .upsert(segments, { onConflict: "snapshot_id,stable_id", ignoreDuplicates: true });
+      if (segmentWrite.error) throw segmentWrite.error;
+      return { snapshotId: persisted.data.id };
     },
   };
 }

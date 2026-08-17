@@ -6,12 +6,13 @@
 - Recorded task baseline: `f4a25dbceaffbc0562516945cbdb0323a64448f0`.
 - Controller-owned prerequisite integrated before implementation: `21ee0e15ac3cd856b4ebfd1ffd62dd539b2fb53f` (`CONTRACT-004`, atomic `claim_knowledge_jobs` RPC).
 - Effective implementation parent: `21ee0e15ac3cd856b4ebfd1ffd62dd539b2fb53f`.
+- Independent Review Fix 1 prerequisite: `3bfdd2c21e23fb7d05f29db800c1cc667c75851b` (reviewed CONTRACT-006 plus generated RPC types).
 - Task HEAD: the `feat: resolve native Chinese transcripts durably` commit containing this handoff; its immutable SHA is returned to the controller with this report.
 - Worktree: `/private/tmp/popcorn-batch-a-2`.
 
 ## Delivered scope
 
-- Server-only Supadata boundary for canonical YouTube video IDs, native Simplified Chinese transcript requests, one-step async polling, bounded payloads, and typed Provider failures.
+- Server-only Supadata boundary for canonical YouTube video IDs, native Simplified Chinese transcript requests, one-step async polling, incrementally bounded/cancelled payload streams, and typed Provider failures.
 - Deterministic native transcript normalization with exact caption cleanup, millisecond conversion, stable segment IDs, transcript hash, plain text, and timestamped text.
 - Durable `resolve_snapshot` processing using the controller-owned atomic claim RPC, frozen lease/retry/attempt rules, lease fencing, bounded concurrent processing, and owner-filtered persistence.
 - Authenticated transcript and owner-only job-status APIs plus a secret-protected bounded internal processor API.
@@ -21,6 +22,7 @@
 ## Changed files
 
 - `docs/engineering/briefs/batch-a/task-2.md` (controller brief, committed unchanged)
+- `docs/engineering/briefs/batch-a/task-2-review-fix-1.md` (controller review-fix brief, committed unchanged)
 - `docs/engineering/handoffs/batch-a/task-2.md`
 - `src/server/transcript/provider.ts`
 - `src/server/transcript/supadata-provider.ts`
@@ -50,9 +52,11 @@ No shared contract, migration, generated type, extension, root configuration, de
 
 - The sole cross-tenant operation is `claim_knowledge_jobs(p_limit, p_now)`. It atomically returns leased rows with their database-owned `user_id`.
 - Every subsequent service-role read, insert, update, and upsert either includes `user_id: expectedUserId` in its row or filters by `.eq("user_id", expectedUserId)`; returned ownership is checked before use.
-- Job state updates additionally fence on job ID, `status = leased`, and the claimed `lease_expires_at`.
+- HTTP 202 registration calls only `register_resolve_snapshot_job` after resolving the explicit owner/source. Conflict replay returns the existing job and cannot overwrite its private input or result.
+- Every retry, pending, and terminal transition calls only `transition_resolve_snapshot_failure` with the database-returned owner, exact job/lease/attempt, frozen state, and bounded private-input action.
+- Snapshot and segment evidence is immutable/idempotent; publication calls only `complete_resolve_snapshot_job`, which atomically fences the lease and updates job success, strict result, private-input clearing, and the linked saved item.
 - Provider job IDs are validated as a single bounded private field and stored only in `knowledge_job_internal.input`.
-- A completed result writes strict `{snapshotId}` to `knowledge_job_internal.result` before the fenced success transition. Provider input is retained if the fence is lost, then cleared only after a successful transition, so another worker can recover.
+- A lost transition fence mutates no public/private job state. A lost completion fence may leave only owner-scoped, unreferenced idempotent snapshot evidence; it cannot publish success/result or alter the save.
 - Public success results are strict-parsed, reject extra Provider/payload fields, and are read by both expected user ID and job ID. User B receives not found.
 - Claim size is capped at 10, claimed work is concurrent within that bound, Provider calls time out after four seconds, and each poll invocation performs one Provider request only.
 - Retry/exhaustion delegates to the frozen `nextJobFailure`; the fifth failed attempt terminalizes and terminal/private cleanup is deterministic.
@@ -70,18 +74,32 @@ Source: `zarazhangrui/youtube-digest@d03e1f61e017b032159ffd1821cac6e7693ce0c7` (
 
 ## Fresh verification
 
-- Required focused Vitest: 3 files, 36 tests passed.
+- Required focused Vitest: 3 files, 47 tests passed.
 - `CI=true pnpm typecheck`: passed.
-- `CI=true pnpm test:contract`: 2 files, 144 tests passed.
+- `CI=true pnpm test:contract`: 2 files, 146 tests passed.
 - `CI=true pnpm test:unit`: 7 files, 84 tests passed.
+- `CI=true pnpm test:integration`: 1 file, 21 tests passed.
 - `CI=true pnpm test:provenance`: 2 files, 11 tests passed.
 - `CI=true pnpm lint`: passed.
 - `CI=true pnpm build`: passed; all three dynamic API routes compiled and Next route export validation passed.
+- `CI=true pnpm verify`: passed, including lint, typecheck, all test groups, provenance, and a second production build.
+- `CI=true pnpm db:test`: 294/294 pgTAP assertions passed.
 - `git diff --check`: passed.
 
 ## Risks and deferred validation
 
 - CI uses fixed Provider fixtures by design. A real Supadata request and asynchronous poll remain Delivery manual-verification work and require external credentials.
-- A worker that loses its lease after writing a bounded private result can leave that result unexposed while the job is non-succeeded; the Provider input is intentionally retained so the winning worker can recover and overwrite the bounded result.
+- A worker that loses its completion fence can leave owner-scoped snapshot evidence unreferenced. This is intentionally idempotent; job/result/input/saved-item publication remains atomic in CONTRACT-006.
 - Snapshot metadata uses the latest owner-filtered video save when available and a deterministic YouTube fallback otherwise; richer metadata is owned by the capture/integration tasks.
 - This handoff reports implementation evidence only. Independent review and controller integration are still required.
+
+## Independent Review Fix 1
+
+- Review-fix baseline: `3bfdd2c21e23fb7d05f29db800c1cc667c75851b`.
+- RED command: the required focused Vitest command reported 8 failures and 37 passes. Failures proved the old split Provider-input/state window, missing atomic failure/completion adapters, missing conflict-safe registration adapter, lost completion fencing path, and failure to cancel a chunked oversized body.
+- Additional attempt-five RED: integration reported 1 failure and 20 passes because an initial Provider 202 returned `deferred` and tried to attach an unusable Provider ID to a terminal state. The fix now sends `providerJobId: null`, `clearInput: true`, and returns `failed`; a pending-poll lost fence returns only `deferred` without split writes.
+- GREEN focused command: 3 files, 47 tests passed.
+- `createSupabaseTranscriptStore` now registers HTTP 202 exclusively through `register_resolve_snapshot_job`; conflict behavior is tested with a fake that throws on any job/internal table access.
+- `createSupabaseDurableJobStore.transitionFailure` maps every failure state to `transition_resolve_snapshot_failure`; `persistSnapshotEvidence` writes only snapshots/segments and `completeResolved` publishes only through `complete_resolve_snapshot_job`.
+- `readBoundedJson` now consumes `ReadableStream` chunks incrementally, counts actual encoded bytes, cancels immediately on overflow without reading later chunks, and parses valid bounded multi-chunk JSON.
+- CONTRACT-006 database gate remained green at 294/294. No migration, pgTAP, generated type, shared contract, root configuration, lockfile, extension, ledger, or checkpoint file was modified.
