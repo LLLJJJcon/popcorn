@@ -225,7 +225,12 @@ begin
       p_now,
       p_now
     )
-    on conflict (knowledge_job_id) do nothing;
+    on conflict (knowledge_job_id) do update
+      set input = excluded.input,
+          updated_at = p_now
+      where knowledge_job_internal.user_id = p_user_id
+        and knowledge_job_internal.input = '{}'::jsonb
+        and knowledge_job_internal.result is null;
   elsif p_clear_input then
     insert into public.knowledge_job_internal (
       knowledge_job_id,

@@ -103,3 +103,25 @@
 - Local dependency verification briefly encountered a concurrent pnpm
   `node_modules` self-check race. Dependencies were restored serially from the
   content-addressable store; all mandatory gates were then rerun successfully.
+
+## Review Fix 1
+
+- Review baseline: `a8ee195f47d4e27c3adb29c93d299ad60cd20873`.
+- Added a regression fixture where a leased job already has exactly
+  `knowledge_job_internal(input={}, result=null)`. The initial run of
+  `pnpm db:test` failed only test 261: the public retry transition succeeded but
+  the expected Provider ID was not attached (`have: {}`, `want:
+  {"providerJobId":"provider-empty-recovery"}`), 293/294 passing.
+- Changed only the Provider attach conflict branch. It now updates input when
+  and only when the conflicting row has the same explicit owner, exact empty
+  input, and null result. Non-empty input and any non-null result remain
+  immutable during retry transitions.
+- Added attempt 1/2/3/4 immediate-terminal coverage proving atomic input clear
+  and result preservation, plus frozen 1/2/4/8-minute retry clocks and a wrong
+  next-attempt-clock rejection with byte-for-byte no-mutation proof. Existing
+  attempt-five terminal coverage remains green.
+- Clean GREEN: `pnpm db:reset` applied migrations 001–006, then
+  `pnpm db:test` reported 294/294 passing.
+- Fresh broader gates: `CI=true pnpm test:contract` passed 128/128;
+  `CI=true pnpm typecheck` exited 0; `CI=true pnpm build` compiled and generated
+  all routes; `git diff --check` exited 0.

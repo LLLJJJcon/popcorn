@@ -1959,6 +1959,173 @@ values
   ('d2000000-0000-4000-8000-000000000006', :'user_a',
    '{"providerJobId":"provider-wrong-type"}', '{"sentinel":"unchanged"}');
 
+insert into public.knowledge_jobs (
+  id, user_id, video_source_id, saved_item_id, job_type, status, dedupe_key,
+  attempt_count, lease_expires_at, created_at, updated_at
+) values
+  ('d2000000-0000-4000-8000-000000000007', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('2',63) || '7', 1, '2026-08-17 05:05:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d3000000-0000-4000-8000-000000000001', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('3',63) || '1', 1, '2026-08-17 05:05:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d3000000-0000-4000-8000-000000000002', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('3',63) || '2', 2, '2026-08-17 05:05:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d3000000-0000-4000-8000-000000000003', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('3',63) || '3', 3, '2026-08-17 05:05:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d3000000-0000-4000-8000-000000000004', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('3',63) || '4', 4, '2026-08-17 05:05:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d4000000-0000-4000-8000-000000000001', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('4',63) || '1', 1, '2026-08-17 05:10:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d4000000-0000-4000-8000-000000000002', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('4',63) || '2', 2, '2026-08-17 05:10:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d4000000-0000-4000-8000-000000000003', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('4',63) || '3', 3, '2026-08-17 05:10:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d4000000-0000-4000-8000-000000000004', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('4',63) || '4', 4, '2026-08-17 05:10:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00'),
+  ('d5000000-0000-4000-8000-000000000003', :'user_a',
+   '10000000-0000-4000-8000-000000000001', null, 'resolve_snapshot', 'leased',
+   repeat('5',63) || '3', 3, '2026-08-17 05:10:00+00',
+   '2026-08-17 05:00:00+00', '2026-08-17 05:00:00+00');
+
+insert into public.knowledge_job_internal (knowledge_job_id, user_id, input, result)
+values
+  ('d2000000-0000-4000-8000-000000000007', :'user_a', '{}'::jsonb, null),
+  ('d3000000-0000-4000-8000-000000000001', :'user_a',
+   '{"providerJobId":"terminal-one"}', '{"attempt":1}'),
+  ('d3000000-0000-4000-8000-000000000002', :'user_a',
+   '{"providerJobId":"terminal-two"}', '{"attempt":2}'),
+  ('d3000000-0000-4000-8000-000000000003', :'user_a',
+   '{"providerJobId":"terminal-three"}', '{"attempt":3}'),
+  ('d3000000-0000-4000-8000-000000000004', :'user_a',
+   '{"providerJobId":"terminal-four"}', '{"attempt":4}'),
+  ('d5000000-0000-4000-8000-000000000003', :'user_a',
+   '{"providerJobId":"wrong-clock"}', '{"sentinel":"unchanged"}');
+
+select extensions.ok(
+  public.transition_resolve_snapshot_failure(
+    :'user_a', 'd2000000-0000-4000-8000-000000000007',
+    '2026-08-17 05:05:00+00', 1, 'retryable_failed',
+    '2026-08-17 05:01:00+00', 'SYNC_RETRYING',
+    'provider-empty-recovery', false, '2026-08-17 05:00:00+00'
+  ),
+  'retry transition accepts a leased job with a pre-existing empty internal row');
+
+select extensions.results_eq(
+  $$select j.status, j.next_attempt_at, i.input, i.result
+    from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    where j.id = 'd2000000-0000-4000-8000-000000000007'$$,
+  $$values ('retryable_failed'::text, '2026-08-17 05:01:00+00'::timestamptz,
+    '{"providerJobId":"provider-empty-recovery"}'::jsonb, null::jsonb)$$,
+  'retry transition atomically attaches Provider ID to exact empty/no-result internal state');
+
+select extensions.ok(
+  public.transition_resolve_snapshot_failure(
+    :'user_a', terminal.id, '2026-08-17 05:05:00+00', terminal.attempt_count,
+    'terminal_failed', null, 'NATIVE_CHINESE_TRANSCRIPT_REQUIRED',
+    null, true, '2026-08-17 05:00:00+00'
+  ),
+  'attempt ' || terminal.attempt_count || ' supports immediate terminal failure'
+)
+from public.knowledge_jobs terminal
+where terminal.id in (
+  'd3000000-0000-4000-8000-000000000001',
+  'd3000000-0000-4000-8000-000000000002',
+  'd3000000-0000-4000-8000-000000000003',
+  'd3000000-0000-4000-8000-000000000004'
+)
+order by terminal.attempt_count;
+
+select extensions.results_eq(
+  $$select j.attempt_count, j.status, j.next_attempt_at, j.lease_expires_at,
+      j.last_error_code, i.input, i.result
+    from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    where j.id::text like 'd3000000-0000-4000-8000-00000000000%'
+    order by j.attempt_count$$,
+  $$values
+    (1, 'terminal_failed'::text, null::timestamptz, null::timestamptz,
+      'NATIVE_CHINESE_TRANSCRIPT_REQUIRED'::text, '{}'::jsonb, '{"attempt":1}'::jsonb),
+    (2, 'terminal_failed'::text, null::timestamptz, null::timestamptz,
+      'NATIVE_CHINESE_TRANSCRIPT_REQUIRED'::text, '{}'::jsonb, '{"attempt":2}'::jsonb),
+    (3, 'terminal_failed'::text, null::timestamptz, null::timestamptz,
+      'NATIVE_CHINESE_TRANSCRIPT_REQUIRED'::text, '{}'::jsonb, '{"attempt":3}'::jsonb),
+    (4, 'terminal_failed'::text, null::timestamptz, null::timestamptz,
+      'NATIVE_CHINESE_TRANSCRIPT_REQUIRED'::text, '{}'::jsonb, '{"attempt":4}'::jsonb)$$,
+  'attempts one through four terminalize and clear input while preserving private result');
+
+select extensions.ok(
+  public.transition_resolve_snapshot_failure(
+    :'user_a', retry.id, '2026-08-17 05:10:00+00', retry.attempt_count,
+    'retryable_failed',
+    '2026-08-17 05:00:00+00'::timestamptz
+      + (power(2, retry.attempt_count - 1) * interval '1 minute'),
+    'PROVIDER_UNAVAILABLE', null, false, '2026-08-17 05:00:00+00'
+  ),
+  'attempt ' || retry.attempt_count || ' accepts frozen retry backoff'
+)
+from public.knowledge_jobs retry
+where retry.id in (
+  'd4000000-0000-4000-8000-000000000001',
+  'd4000000-0000-4000-8000-000000000002',
+  'd4000000-0000-4000-8000-000000000003',
+  'd4000000-0000-4000-8000-000000000004'
+)
+order by retry.attempt_count;
+
+select extensions.results_eq(
+  $$select attempt_count, next_attempt_at
+    from public.knowledge_jobs
+    where id::text like 'd4000000-0000-4000-8000-00000000000%'
+    order by attempt_count$$,
+  $$values
+    (1, '2026-08-17 05:01:00+00'::timestamptz),
+    (2, '2026-08-17 05:02:00+00'::timestamptz),
+    (3, '2026-08-17 05:04:00+00'::timestamptz),
+    (4, '2026-08-17 05:08:00+00'::timestamptz)$$,
+  'attempts one through four freeze retry backoff at one, two, four, and eight minutes');
+
+create temporary table wrong_retry_clock_before as
+select row_to_json(j)::jsonb as job_row, row_to_json(i)::jsonb as internal_row
+from public.knowledge_jobs j
+join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+where j.id = 'd5000000-0000-4000-8000-000000000003';
+grant select on table wrong_retry_clock_before to service_role;
+
+select pg_temp.rejects_state_clean(
+  $$select public.transition_resolve_snapshot_failure(
+      '00000000-0000-4000-8000-00000000a001',
+      'd5000000-0000-4000-8000-000000000003', '2026-08-17 05:10:00+00',
+      3, 'retryable_failed', '2026-08-17 05:03:00+00',
+      'PROVIDER_UNAVAILABLE', null, false, '2026-08-17 05:00:00+00')$$,
+  '22023',
+  'retry transition rejects a non-frozen next-attempt clock before mutation');
+
+select extensions.results_eq(
+  $$select row_to_json(j)::jsonb, row_to_json(i)::jsonb
+    from public.knowledge_jobs j
+    join public.knowledge_job_internal i on i.knowledge_job_id = j.id
+    where j.id = 'd5000000-0000-4000-8000-000000000003'$$,
+  $$select job_row, internal_row from wrong_retry_clock_before$$,
+  'wrong retry clock leaves public and private rows byte-for-byte unchanged');
+
 select extensions.ok(
   public.transition_resolve_snapshot_failure(
     :'user_a', 'd2000000-0000-4000-8000-000000000001',
