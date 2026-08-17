@@ -858,6 +858,46 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      complete_resolve_snapshot_job: {
+        Args: {
+          p_expected_attempt_count: number
+          p_expected_lease_expires_at: string
+          p_job_id: string
+          p_now: string
+          p_snapshot_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      register_resolve_snapshot_job: {
+        Args: {
+          p_dedupe_key: string
+          p_now: string
+          p_provider_job_id: string
+          p_user_id: string
+          p_video_source_id: string
+        }
+        Returns: {
+          created_or_attached: boolean
+          knowledge_job_id: string
+          status: string
+        }[]
+      }
+      transition_resolve_snapshot_failure: {
+        Args: {
+          p_clear_input: boolean
+          p_error_code: string
+          p_expected_attempt_count: number
+          p_expected_lease_expires_at: string
+          p_job_id: string
+          p_next_attempt_at: string
+          p_now: string
+          p_provider_job_id: string
+          p_target_status: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never
