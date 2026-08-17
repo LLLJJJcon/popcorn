@@ -3,11 +3,11 @@
 ## Current position
 
 - Stage: batch-a
-- Next task: Batch A wave 1 — Tasks 1, 2, and 4
+- Next task: Batch A Task 1 review fix; then wave 1 Tasks 2 and 4 on `CONTRACT-003`
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `c790118dc89297af965dee8048a2722a98bee802`
+- Last verified commit: `9eacb9d530ee75179273eb21d4fcf59c7232f9c2`
 
 ## Preflight
 
@@ -29,6 +29,7 @@
 | Foundation | 3 | `codex/popcorn-foundation-3` | `fdd29126ce745a7b77f06446b6af2e8f65c154b8` | `4626aef76829204ed89b662df6a59e6d5be62e7a` | PASS; fresh full-diff acceptance review approved with no Critical, Important, or Minor issues after security/traceability, exact Han-range, and UTF-16 boundary TDD corrections | Integrated through `2c67f80addbd548320759ccd1ead68f427b4b13c`; clean local reset applied both migrations and deterministic seed; pgTAP 215/215; `CI=true pnpm verify` passed with unit 9/9, contract 128/128, provenance 5/5, and production build; generated types matched the live database except the documented CLI trailing blank line; `git diff --check` passed |
 | Foundation | 4 | `codex/popcorn-foundation-4` | `0beb551beb0645f288ae221919eea67be1bcacc9` | `0b32e4dbbcb28578b334b46f8e6bbe2a54e2cd6b` | PASS; fresh full-diff review approved with no Critical, Important, or Minor issues after TDD corrections for exhausted fifth leases, exact UTF-16 string boundaries, and lossless lone-surrogate result-key identity | Integrated through `0c8aa90495f1a2d11fc9a2d86e3d4453222043b4`; focused domain 67/67; `CI=true pnpm verify` passed with unit 76/76, contract 128/128, provenance 5/5, and production build; pgTAP 215/215; `git diff --check` and worktree status clean |
 | Foundation | 5 | `codex/popcorn-foundation-5` | `04817e98e565f7e0c12f5d1916f96ff87edcbf9e` | `9447bb05232d268ecc934b2ff3364500da6c3a32` | PASS; fresh full-diff review approved with no Critical, Important, or Minor issues after the LLM Wiki method-only allowlist was corrected to the complete approved eight-method design; Cron/CI/static/ownership boundaries approved | Integrated through `c790118dc89297af965dee8048a2722a98bee802`; frozen install; unit 76/76; contract 128/128; provenance 11/11; extension static 4/4; production build; clean migrations 001–003; pgTAP 215/215; Cron catalog exactly one active every-minute runtime-Vault job; absent Vault secrets produced zero pg_net requests; e2e no-spec gate, vendor syntax, diff, and worktree status passed |
+| Batch A controller contract gate | pre-wave | `codex/popcorn-batch-a-db-contract` | `b258e49fb745eac0309de3fcb6848e87ef43979f` | `13a0faa400f11a310eba6f536e964c8fc16d7912` | PASS; independent full-diff review found no Critical, Important, or Minor issues in atomic capture, owner/RLS/service-role boundaries, private Provider metadata, job dedupe/lifecycle, or GPL isolation | Integrated as `9eacb9d530ee75179273eb21d4fcf59c7232f9c2`; clean reset applied migrations 001–004 and seed; pgTAP 237/237; `pnpm verify` passed with unit 76/76, contract 128/128, integration no-spec, provenance 11/11, lint/typecheck/build; diff and status clean |
 
 ## Open concerns
 
@@ -36,7 +37,7 @@
 |---|---|---|---|---|
 | ENV-001 | External | Controller | Production credentials, provider terms approval, and deployment access may be required only after local acceptance. | Defer until Delivery Task 6; do not weaken fixture-backed checks. |
 | LANG-001 | Deferred validation | Batch A/B provider owners | Foundation schemas enforce literal `en`/`zh-CN` plus deterministic Han and Basic-Latin/ASCII syntactic boundaries; they intentionally do not claim semantic detection of ASCII-only foreign prose or exhaustive Simplified-Chinese orthography. | At transcript and AI Provider boundaries, validate actual returned language/content and reject fallback output before persistence. |
-| DB-001 | Implementation boundary | Foundation Task 4 and later server workers | Service-role workers bypass RLS; the database cannot enforce tenant scoping for that role. `updated_at` is also an explicit application/worker responsibility. | Every worker read and mutation must include the job `user_id`; leasing/state transitions must set `updated_at` deterministically and receive focused tests. |
+| DB-001 | Implementation boundary | Foundation Task 4 and later server workers | Migration 004 now grants explicit CRUD to `service_role`, which bypasses RLS; the database cannot enforce tenant scoping for that role. `updated_at` is also an explicit application/worker responsibility. | Every worker read and mutation must include the job `user_id`; leasing/state transitions must set `updated_at` deterministically and receive focused tests. |
 | DELETE-001 | Deferred workflow | Batch C / Delivery | Foundation foreign keys intentionally use restrictive deletion rather than broad cascades. | Implement and test an explicit audited dependency-order account/source deletion workflow before release acceptance. |
 | HASH-001 | Frozen implementation boundary | Batch A/B job and artifact producers | Task 4 result keys use tagged, length-framed binary UTF-16LE values so every accepted JavaScript code-unit sequence remains distinct. Reconstructing a UTF-8 or ad-hoc concatenation elsewhere can create cache divergence or collisions. | All producers and cache lookups must call the frozen `createJobResultKey`; do not duplicate its serialization format. |
 | CI-001 | External execution | Controller / Delivery | The GitHub workflow is locally inspected and every command passed, but the hosted workflow cannot run until the branch is pushed or opened as a PR. | Run and record hosted CI before release integration; do not replace local fixture gates with live Providers. |
@@ -48,6 +49,7 @@
 | CONTRACT-001 | Controller; confirmed by user 2026-08-17 | Canonical design governs: include `UNSUPPORTED_YOUTUBE_PAGE`, `TRANSCRIPT_EMPTY`, and `SYNC_RETRYING` in the frozen `ApiFailure.code` union in addition to the Task 2 snippet. | `e7c67615d091fa00663c9cab504bec0c1c7eb448` | Foundation Task 2 and all later API consumers inherit the frozen 19-code union |
 | CONTRACT-002 | Controller review resolution 2026-08-17 | Freeze only deterministic language checks in shared schemas: literal `en`/`zh-CN`, Han presence for target text, and exact-preserved Basic-Latin/ASCII prose for English fields. Exhaustive semantic language and Simplified-Chinese validation belongs at Provider/transcript boundaries without adding a lockfile dependency here. | `e7c67615d091fa00663c9cab504bec0c1c7eb448` | Batch A transcript/AI adapters and Batch B Provider validators must enforce the deferred checks recorded as `LANG-001` |
 | FOUNDATION-FREEZE-001 | Controller after Foundation Tasks 1–5 review and exit gate | Freeze Foundation contracts, migrations 001–003, generated database types, deterministic mastery/scheduling/leasing/result-key rules, upstream/license policy, and ownership boundaries for all feature agents. Contract changes now require a controller-owned proposal and complete dependent re-verification. | `c790118dc89297af965dee8048a2722a98bee802` | Batch A Tasks 1–7, then all Batch B/C/Delivery consumers |
+| CONTRACT-003 | Controller pre-wave dependency audit for Batch A Tasks 2 and 4 | Add controller-owned migration 004: service-only durable job input/result metadata, explicit service-role CRUD, and one authenticated atomic/idempotent `capture_saved_item` RPC. This closes interfaces required by the written tasks without allowing feature Agents to edit frozen migrations. | `9eacb9d530ee75179273eb21d4fcf59c7232f9c2` | Batch A Task 2 must use `knowledge_job_internal`; Task 4 must call the frozen RPC rather than emulate a multi-query transaction |
 
 ## File ownership
 
@@ -57,5 +59,6 @@
 
 ## Next dispatch
 
-- Batch A wave 1: dispatch Task 1 (extension/web authentication), Task 2 (native Chinese transcript resolution), and Task 4 (server AI artifacts/prompts) in three distinct worktrees with disjoint file ownership against frozen commit `c790118dc89297af965dee8048a2722a98bee802`.
+- Batch A Task 1 is in a TDD repair/re-review loop after its first independent review rejected the PKCE/worker ownership implementation. It remains unintegrated.
+- Rebase the Task 2 and Task 4 worktrees onto `9eacb9d530ee75179273eb21d4fcf59c7232f9c2`, expand their durable briefs, and dispatch native-Chinese transcript resolution plus idempotent cloud capture in parallel with the Task 1 repair. Task 2 consumes `knowledge_job_internal`; Task 4 consumes `capture_saved_item`.
 - Task 3 waits for Tasks 1 and 2. Tasks 5 and 6 wait for their declared upstream tasks and must be sequenced if their resolved file allowlists overlap. The controller owns Task 7 integration gate.
