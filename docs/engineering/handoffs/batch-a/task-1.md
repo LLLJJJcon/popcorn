@@ -252,3 +252,37 @@ The deterministic races use mocked Chrome storage rather than a live MV3 worker 
 ### Residual risk and reviewer focus
 
 The queue and generation are intentionally worker-local and the deterministic tests use mocked delayed Chrome storage calls. Perform live MV3 suspend/restart and storage-scheduling smoke tests around refresh/login/sign-out overlaps; an actual worker termination also discards its in-flight promises and queue. A fresh independent review remains required.
+
+## 2026-08-17 final refresh return guard review-fix addendum
+
+- Status: ready for a fresh independent re-review; this addendum does not self-approve Task 1.
+- Rejected head fixed: `2dc7200d66b7864ef89c83319d037e67ab62987c`.
+
+### Correction
+
+After `refreshSession` awaits its queued mutation, it now synchronously reasserts the captured generation immediately before returning `refreshed.accessToken`. There is no await, callback, or other boundary between this final check and the return. The mutation queue, source-session identity comparison, pre/in/post-write checks, all prior 18 race tests, and every approved PKCE, Origin, worker, owner, upstream, and license boundary remain unchanged.
+
+### TDD evidence
+
+#### RED
+
+The new deterministic test deferred both the refresh storage completion and sign-out's pending-events read. It released the storage promise first, then queued the pending-read release so the mutation callback's post-write check passed before sign-out advanced generation, while sign-out still invalidated before the awaiting `refreshSession` continuation returned. On rejected head `2dc7200`, `node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` exited 1 with 18/19 passing; the sole failure was `Missing expected rejection`, proving the stale token still resolved.
+
+#### GREEN
+
+- `node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` — 19/19 passed; the exact reviewer sequence now rejects and confirmed sign-out leaves the session absent.
+- `CI=true pnpm vitest run tests/integration/extension/auth-exchange.test.ts tests/integration/extension/auth-refresh.test.ts src/server/env.test.ts` — 22/22 passed across 3 files.
+
+### Full verification
+
+- `CI=true pnpm lint` — passed.
+- `CI=true pnpm typecheck` — passed.
+- `CI=true pnpm build` — passed; both extension session routes remain dynamic and the authorization page builds.
+- `CI=true pnpm test:contract` — 128/128 passed.
+- `CI=true pnpm test:provenance` — 11/11 passed.
+- `CI=true pnpm test:extension` — 4/4 passed.
+- `git diff --check` — passed.
+
+### Residual risk and reviewer focus
+
+The regression controls JavaScript promise reactions deterministically but still uses mocked Chrome storage. Perform a live MV3 storage-scheduling and suspend/restart smoke test; worker termination discards the intentionally local generation and queue together with its in-flight callers. A fresh independent review remains required.

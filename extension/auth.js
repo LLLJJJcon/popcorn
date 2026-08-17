@@ -160,6 +160,7 @@ const POPCORN_AUTH = (() => {
         await saveSession(refreshed);
         assertCurrentGeneration(refreshGeneration);
       });
+      assertCurrentGeneration(refreshGeneration);
       return refreshed.accessToken;
     }
 

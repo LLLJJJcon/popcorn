@@ -335,6 +335,51 @@ test("confirmed sign-out rejects an active refresh before final session removal"
   assert.equal(harness.local.popcorn_session, undefined);
 });
 
+test("refresh rejects when sign-out invalidates between the queue post-check and token return", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  harness.local.popcorn_session = { accessToken: "old", refreshToken: "refresh", accessExpiresAt: 0, user: { id: "user-a", email: "a@example.com" } };
+  const refreshSetStarted = deferred();
+  const releaseRefreshSet = deferred();
+  const pendingReadStarted = deferred();
+  const releasePendingRead = deferred();
+  const originalSet = harness.chrome.storage.local.set;
+  const originalGet = harness.chrome.storage.local.get;
+  harness.chrome.storage.local.set = (items) => {
+    if (items.popcorn_session?.accessToken === "refreshed") {
+      Object.assign(harness.local, items);
+      refreshSetStarted.resolve();
+      return releaseRefreshSet.promise;
+    }
+    return originalSet(items);
+  };
+  harness.chrome.storage.local.get = (keys) => {
+    if (keys === "popcorn_pending_events") {
+      pendingReadStarted.resolve();
+      return releasePendingRead.promise;
+    }
+    return originalGet(keys);
+  };
+  const refreshedSession = { accessToken: "refreshed", refreshToken: "refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "a@example.com" } };
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: webcrypto,
+    appUrl: "https://app.popcorn.local",
+    fetch: async () => response({ session: refreshedSession }),
+  });
+
+  const refreshing = client.getAccessToken();
+  await refreshSetStarted.promise;
+  const signingOut = client.signOut();
+  await pendingReadStarted.promise;
+  releaseRefreshSet.resolve();
+  queueMicrotask(() => releasePendingRead.resolve({}));
+
+  await assert.rejects(refreshing, /invalidated|session/i);
+  assert.deepEqual(await signingOut, { pendingCount: 0, requiresDecision: false });
+  assert.equal(harness.local.popcorn_session, undefined);
+});
+
 test("an old deferred refresh rejects after a newly accepted interactive session", async () => {
   const auth = await getAuth();
   const harness = createChrome({
