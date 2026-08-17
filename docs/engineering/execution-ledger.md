@@ -3,11 +3,11 @@
 ## Current position
 
 - Stage: batch-a
-- Next task: repair Batch A Tasks 1 and 2 against independently reviewed controller contracts
+- Next task: finish Batch A Task 1 review loop, then dispatch dependency-ready Task 3
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `e2bf6c6` (migrations 001–006 clean reset, pgTAP 294/294, regenerated types, typecheck)
+- Last verified commit: `ac47c55` (Task 2 focused 47/47, pgTAP 294/294, full verify and production build)
 
 ## Preflight
 
@@ -34,6 +34,7 @@
 | Batch A controller Identity gate | Task 1 review repair | `codex/popcorn-extension-identity-contract` | `e9f3d292da3dd7ff352d8ba4ea232831ded9cc85` | `459383832a15cd832ef6b3401240287ba544f7c6` | PASS; independent review approved exact Chromium callback origin, derived same-ID extension request origin, strict malformed-origin rejection, scope, and GPL isolation | Integrated as `6c27ed3`; focused environment/shared-contract tests 146/146, typecheck, production build, and diff/status checks passed |
 | Batch A controller atomic-resolution gate | Task 2 review repair | `codex/popcorn-resolve-job-atomic-contract` | `e9f3d292da3dd7ff352d8ba4ea232831ded9cc85` | `3397662a1f83e45c7b41471714db2ba420dc5a72` | PASS after one TDD fix/re-review; independent review approved service-only atomic registration, exact lease/attempt transitions, empty-state Provider attach, replay preservation, atomic completion, owner/source constraints, and GPL isolation | Integrated as `b200fef` + `c97fb87`; clean reset applied migrations 001–006; pgTAP 294/294; generated types committed as `e2bf6c6`; contract 128/128, typecheck, production build, and diff/status gates passed |
 | Batch A | 4 | `codex/popcorn-batch-a-4` | `f4a25dbceaffbc0562516945cbdb0323a64448f0` | `a619a12c3017a1747dbdd5a759cbb2dc951241df` | PASS; independent full-diff review found no Critical, Important, or Minor issues in the sole-RPC persistence path, authenticated owner scope, exact six-kind mapping, bounded ordered partial batch results, error boundary, or GPL isolation | Integrated as `f7a4dd705e347b86e5657bd5efd071a6422be06b`; capture integration 8/8; pgTAP 249/249; `pnpm verify` passed with unit 76/76, contract 128/128, integration 8/8, provenance 11/11, lint/typecheck/build; diff/status clean |
+| Batch A | 2 | `codex/popcorn-batch-a-2` | effective `21ee0e15ac3cd856b4ebfd1ffd62dd539b2fb53f`; CONTRACT-006 prerequisite through `3bfdd2c` | `62ade0a5bdce0e2aa604aece4157042015ecd7ef` | PASS after one application TDD repair/re-review; independent full-diff review approved native-zh Provider semantics, streaming byte bounds, sole atomic claim, owner/lease/attempt fencing, replay-safe registration, atomic failure/completion, bounded public result, nonleakage, upstream reuse, and GPL isolation | Integrated as `93fafb9` + `ac47c55`; focused 47/47; pgTAP 294/294; full verify passed with unit 97/97, contract 146/146, integration 29/29, provenance 11/11, lint/typecheck/production build; diff/status clean |
 
 ## Open concerns
 
@@ -66,6 +67,6 @@
 
 ## Next dispatch
 
-- Batch A Task 1 is in a third TDD repair/re-review loop. Its independent second re-review rejected the incorrect Chrome Identity callback origin and fragment token acceptance; CONTRACT-005 is now reviewed, integrated, and ready for consumption.
-- Batch A Task 2 implementation commit `3740908` failed independent review on non-atomic Provider registration/failure/completion persistence and unbounded chunked response reads. CONTRACT-006 is now reviewed/integrated; its repair must consume the three generated RPCs and stream-limit chunked responses.
+- Batch A Task 1 remains in its TDD repair/re-review loop; Fix 6 serializes asynchronous Chrome session mutations after the fifth review reproduced a deferred-storage overwrite. It remains unintegrated.
+- Batch A Task 2 is accepted and integrated against CONTRACT-006. Task 3 may dispatch as soon as Task 1 also passes and integrates.
 - Task 3 waits for Tasks 1 and 2. Tasks 5 and 6 wait for their declared upstream tasks and must be sequenced if their resolved file allowlists overlap. The controller owns Task 7 integration gate.
