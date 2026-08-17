@@ -179,3 +179,39 @@ The deterministic pending-event decision regression remained green, proving the 
 ### Residual risk and reviewer focus
 
 The deterministic tests exercise deferred Provider responses and mocked Chrome storage, not a suspended/restarted MV3 worker or live Chrome storage scheduling. A worker restart also discards all in-flight promises, so the generation intentionally remains worker-local. Perform deployed Chrome/GoTrue sign-in, refresh, decision-required sign-out, and confirmed sign-out smoke tests. A fresh independent review remains required.
+
+## 2026-08-17 invalidated refresh result review-fix addendum
+
+- Status: ready for a fresh independent re-review; this addendum does not self-approve Task 1.
+- Rejected head fixed: `ad67dc378d9ce8c5008d26e5475216e8ab65d291`.
+
+### Corrections
+
+- An invalidated refresh no longer merely skips persistence and then returns the old account's Provider access token. It now throws the bounded `Popcorn session was invalidated.` error and exposes no token to its waiting caller.
+- `refreshSession` validates its captured generation immediately before starting session persistence and again after the awaited persistence completes. Either mismatch rejects the shared refresh promise before the refreshed token return.
+- Confirmed sign-out still invalidates first, catches/waits for the active refresh rejection, and removes the session as the final mutation. A newly accepted interactive session still wins storage, while `requiresDecision: true` leaves the active refresh valid and resolving normally.
+- No second refresh/token path was added; all earlier PKCE, Chromium callback/request-Origin, worker/sender/storage, owner/sign-out, route, upstream, and license boundaries remain unchanged.
+
+### TDD evidence
+
+#### RED
+
+After changing only the two Fix 4 race assertions, `node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` exited 1 with 12/14 passing and 2/14 failing. Both failures were `Missing expected rejection`, proving rejected head `ad67dc3` still resolved invalidated refresh callers with `stale-refreshed`. The final sign-out/new-login storage assertions and the successful decision-required refresh coverage were retained.
+
+#### GREEN
+
+- `node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` — 14/14 passed.
+- `CI=true pnpm vitest run tests/integration/extension/auth-exchange.test.ts tests/integration/extension/auth-refresh.test.ts src/server/env.test.ts` — 22/22 passed across 3 files.
+
+### Full verification
+
+- `CI=true pnpm typecheck` — passed.
+- `CI=true pnpm build` — passed; both extension session routes remain dynamic and the authorization page builds.
+- `CI=true pnpm test:contract` — 128/128 passed.
+- `CI=true pnpm test:provenance` — 11/11 passed.
+- `CI=true pnpm test:extension` — 4/4 passed.
+- `git diff --check` — passed.
+
+### Residual risk and reviewer focus
+
+The deterministic races use mocked Chrome storage rather than a live MV3 worker and real asynchronous storage scheduling. Perform deployed sign-in/refresh plus confirmed and decision-required sign-out smoke tests, and verify invalidated callers receive only the bounded error. A fresh independent review remains required.

@@ -302,7 +302,7 @@ test("simultaneous refreshes share one result and clear the mutex after success 
   assert.equal(refreshCalls, 3);
 });
 
-test("confirmed sign-out invalidates and waits for an active refresh before final session removal", async () => {
+test("confirmed sign-out rejects an active refresh before final session removal", async () => {
   const auth = await getAuth();
   const harness = createChrome();
   harness.local.popcorn_session = { accessToken: "old", refreshToken: "refresh", accessExpiresAt: 0, user: { id: "user-a", email: "a@example.com" } };
@@ -329,13 +329,13 @@ test("confirmed sign-out invalidates and waits for an active refresh before fina
   const settledBeforeRefresh = signOutSettled;
   providerRefresh.resolve(response({ session: { accessToken: "stale-refreshed", refreshToken: "refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "a@example.com" } } }));
 
-  assert.equal(await refreshing, "stale-refreshed");
+  await assert.rejects(refreshing, /invalidated|session/i);
   assert.deepEqual(await signingOut, { pendingCount: 0, requiresDecision: false });
   assert.equal(settledBeforeRefresh, false);
   assert.equal(harness.local.popcorn_session, undefined);
 });
 
-test("an old deferred refresh cannot overwrite a newly accepted interactive session", async () => {
+test("an old deferred refresh rejects after a newly accepted interactive session", async () => {
   const auth = await getAuth();
   const harness = createChrome({
     onLaunch(url) {
@@ -366,7 +366,7 @@ test("an old deferred refresh cannot overwrite a newly accepted interactive sess
   assert.deepEqual(harness.local.popcorn_session, newSession);
   providerRefresh.resolve(response({ session: { accessToken: "stale-refreshed", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } } }));
 
-  assert.equal(await refreshing, "stale-refreshed");
+  await assert.rejects(refreshing, /invalidated|session/i);
   assert.deepEqual(harness.local.popcorn_session, newSession);
 });
 

@@ -131,7 +131,9 @@ const POPCORN_AUTH = (() => {
       if (!response.ok || !isSession(refreshed) || refreshed.user.id !== session.user.id) {
         throw new Error("Popcorn session refresh failed.");
       }
-      if (refreshGeneration === sessionGeneration) await saveSession(refreshed);
+      if (refreshGeneration !== sessionGeneration) throw new Error("Popcorn session was invalidated.");
+      await saveSession(refreshed);
+      if (refreshGeneration !== sessionGeneration) throw new Error("Popcorn session was invalidated.");
       return refreshed.accessToken;
     }
 
