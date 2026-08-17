@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { createExchangeHandler } from "@/app/api/v1/extension/session/exchange/route";
+import { createExchangeHandler } from "@/server/auth/extension-session";
 
 const environment = {
   NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",

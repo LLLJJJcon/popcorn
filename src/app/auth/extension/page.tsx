@@ -11,7 +11,7 @@ const value = (input: string | string[] | undefined) => typeof input === "string
 export default async function ExtensionAuthPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const redirectUri = value(params.redirect_uri);
-  const state = value(params.state);
+  const popcornState = value(params.popcorn_state);
   const challenge = value(params.code_challenge);
   const method = value(params.code_challenge_method);
   const environment = getServerEnv();
@@ -19,18 +19,19 @@ export default async function ExtensionAuthPage({ searchParams }: { searchParams
 
   if (
     redirectUri !== expectedRedirectUri ||
-    !state || state.length < 43 || state.length > 512 ||
+    !popcornState || popcornState.length < 43 || popcornState.length > 512 ||
     !challenge || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge) ||
-    method !== "S256"
+    method !== "s256"
   ) {
     return <main><h1>Link Popcorn</h1><p role="status">Invalid extension sign-in request.</p></main>;
   }
 
   const authorize = new URL(`${environment.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/authorize`);
+  const redirectTo = new URL(expectedRedirectUri);
+  redirectTo.searchParams.set("popcorn_state", popcornState);
   authorize.searchParams.set("provider", "google");
-  authorize.searchParams.set("redirect_to", expectedRedirectUri);
-  authorize.searchParams.set("state", state);
+  authorize.searchParams.set("redirect_to", redirectTo.toString());
   authorize.searchParams.set("code_challenge", challenge);
-  authorize.searchParams.set("code_challenge_method", "S256");
+  authorize.searchParams.set("code_challenge_method", "s256");
   redirect(authorize.toString());
 }

@@ -93,6 +93,12 @@ test("manifest identity and options retain only the Popcorn account surface", ()
   const authPage = fs.readFileSync(path.resolve(root, "..", "src/app/auth/extension/page.tsx"), "utf8");
   assert.match(authPage, /auth\/v1\/authorize/);
   assert.doesNotMatch(authPage, /createBrowserClient|signInWithOAuth/);
+  assert.match(authPage, /code_challenge_method", "s256"/);
+  assert.match(authPage, /redirectTo\.searchParams\.set\("popcorn_state", popcornState\)/);
+  assert.match(authPage, /redirect_to", redirectTo\.toString\(\)/);
+  assert.equal((authPage.match(/authorize\.searchParams\.set\("code_challenge"/g) ?? []).length, 1);
+  assert.doesNotMatch(authPage, /code_verifier/);
+  assert.doesNotMatch(authPage, /authorize\.searchParams\.set\("state"/);
 });
 
 test("interactive sign-in is click-gated, stores PKCE before launch, and stores only a session", async () => {
@@ -104,8 +110,11 @@ test("interactive sign-in is click-gated, stores PKCE before launch, and stores 
       const start = new URL(url);
       assert.equal(start.searchParams.get("redirect_uri"), `${REDIRECT_ORIGIN}/supabase`);
       assert.ok(start.searchParams.get("code_challenge"));
+      assert.equal(start.searchParams.get("code_challenge_method"), "s256");
       assert.equal(start.searchParams.get("code_verifier"), null);
-      return `${REDIRECT_ORIGIN}/supabase?code=one-time-code&state=${start.searchParams.get("state")}`;
+      assert.equal(start.searchParams.get("access_token"), null);
+      assert.equal(start.searchParams.get("refresh_token"), null);
+      return `${REDIRECT_ORIGIN}/supabase?popcorn_state=${start.searchParams.get("popcorn_state")}&code=one-time-code&state=gotrue-owned-state`;
     },
   });
   const client = auth.createAuthClient({
@@ -140,14 +149,44 @@ test("invalid, cancelled, and expired callbacks clear transient PKCE material", 
   await assert.rejects(client.beginInteractiveSignIn({ userInitiated: true }), /cancelled/);
   assert.deepEqual(cancelled.session, {});
 
-  const invalid = createChrome({ onLaunch: async () => `${REDIRECT_ORIGIN}/supabase?code=code&state=wrong` });
+  const invalid = createChrome({ onLaunch: async () => `${REDIRECT_ORIGIN}/supabase?code=code&popcorn_state=wrong&state=gotrue-owned-state` });
   const invalidClient = auth.createAuthClient({ chrome: invalid.chrome, crypto: webcrypto, appUrl: "https://app.popcorn.local", fetch: async () => response({}) });
   await assert.rejects(invalidClient.beginInteractiveSignIn({ userInitiated: true }), /state/i);
   assert.deepEqual(invalid.session, {});
 
   invalid.session.popcorn_pkce = { state: "state", verifier: "v", redirectUri: `${REDIRECT_ORIGIN}/supabase`, expiresAt: 0 };
-  await assert.rejects(invalidClient.completeInteractiveSignIn(`${REDIRECT_ORIGIN}/supabase?code=code&state=state`), /expired/i);
+  await assert.rejects(invalidClient.completeInteractiveSignIn(`${REDIRECT_ORIGIN}/supabase?code=code&popcorn_state=state&state=gotrue-owned-state`), /expired/i);
   assert.deepEqual(invalid.session, {});
+});
+
+test("callbacks require exactly one nested Popcorn state and never accept token URL fields", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  let exchanges = 0;
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: webcrypto,
+    appUrl: "https://app.popcorn.local",
+    now: () => 1_000,
+    fetch: async () => {
+      exchanges += 1;
+      return response({ session: { accessToken: "access", refreshToken: "refresh", accessExpiresAt: 60_000, user: { id: "user-a", email: "a@example.com" } } });
+    },
+  });
+  const setPkce = () => {
+    harness.session.popcorn_pkce = { state: "popcorn-state", verifier: "verifier", redirectUri: `${REDIRECT_ORIGIN}/supabase`, expiresAt: 2_000 };
+  };
+  for (const suffix of [
+    "code=code&state=gotrue-state",
+    "code=code&state=gotrue-state&popcorn_state=popcorn-state&popcorn_state=duplicate",
+    "code=code&state=gotrue-state&popcorn_state=wrong",
+    "code=code&state=gotrue-state&popcorn_state=popcorn-state&access_token=forbidden",
+  ]) {
+    setPkce();
+    await assert.rejects(client.completeInteractiveSignIn(`${REDIRECT_ORIGIN}/supabase?${suffix}`), /callback|state/i);
+    assert.deepEqual(harness.session, {});
+  }
+  assert.equal(exchanges, 0);
 });
 
 test("rejects a syntactically valid extension redirect that is not the configured origin", async () => {

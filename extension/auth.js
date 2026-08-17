@@ -1,6 +1,7 @@
 const POPCORN_AUTH = (() => {
   const SESSION_KEY = "popcorn_session";
   const PKCE_KEY = "popcorn_pkce";
+  const POPCORN_STATE_PARAM = "popcorn_state";
   const PENDING_EVENTS_KEY = "popcorn_pending_events";
   const PKCE_TTL_MS = 10 * 60 * 1000;
 
@@ -75,11 +76,13 @@ const POPCORN_AUTH = (() => {
         if (pkce.expiresAt <= now()) throw new Error("PKCE state expired.");
         const callback = new URL(callbackUrl);
         const redirect = new URL(pkce.redirectUri);
-        if (callback.origin !== redirect.origin || callback.pathname !== redirect.pathname || callback.searchParams.get("state") !== pkce.state) {
+        const popcornStates = callback.searchParams.getAll(POPCORN_STATE_PARAM);
+        if (callback.origin !== redirect.origin || callback.pathname !== redirect.pathname || popcornStates.length !== 1 || popcornStates[0] !== pkce.state) {
           throw new Error("Invalid sign-in callback state.");
         }
-        const code = callback.searchParams.get("code");
-        if (!code || code.length > 2048 || callback.searchParams.has("access_token") || callback.searchParams.has("refresh_token")) {
+        const codes = callback.searchParams.getAll("code");
+        const code = codes[0];
+        if (codes.length !== 1 || !code || code.length > 2048 || callback.searchParams.has("access_token") || callback.searchParams.has("refresh_token") || callback.searchParams.has("id_token") || callback.searchParams.has("token_type") || callback.searchParams.has("expires_in")) {
           throw new Error("Invalid sign-in callback.");
         }
         return await exchangeCode(pkce, code);
@@ -98,9 +101,9 @@ const POPCORN_AUTH = (() => {
       await chrome.storage.session.set({ [PKCE_KEY]: pkce });
       const signInUrl = new URL("/auth/extension", appUrl);
       signInUrl.searchParams.set("redirect_uri", redirectUri);
-      signInUrl.searchParams.set("state", state);
+      signInUrl.searchParams.set(POPCORN_STATE_PARAM, state);
       signInUrl.searchParams.set("code_challenge", await s256(verifier, crypto));
-      signInUrl.searchParams.set("code_challenge_method", "S256");
+      signInUrl.searchParams.set("code_challenge_method", "s256");
       try {
         const callbackUrl = await chrome.identity.launchWebAuthFlow({ url: signInUrl.toString(), interactive: true });
         return await completeInteractiveSignIn(callbackUrl);

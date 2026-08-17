@@ -61,3 +61,38 @@ Before deployment, register the documented stable redirect URI with Supabase and
 
 ### Residual risk and reviewer focus
 The deployment must register the stable `chrome-extension://meocnghfgmmcnnjiihpcgjnaameioddp/supabase` redirect and configure the matching `EXTENSION_REDIRECT_ORIGIN`; run a deployed Chrome sign-in/refresh smoke test to confirm the browser-supplied `Origin` reaches the server as expected. A fresh independent review remains required.
+
+## 2026-08-17 GoTrue compatibility review-fix addendum
+
+- Status: ready for a fresh independent re-review; this addendum does not self-approve Task 1.
+- Reviewed head fixed: `3bedeaa4b37946a058d0978ae949a064394292d0`.
+
+### Corrections
+
+- The manual GoTrue authorization request now uses the required lowercase `code_challenge_method=s256` and retains exactly one extension-generated challenge.
+- Popcorn state is no longer supplied as GoTrue's top-level OAuth `state`. The exact validated extension redirect instead carries one `popcorn_state` query parameter; GoTrue may own and return its own top-level state without changing Popcorn's callback validation.
+- The callback requires exactly one matching `popcorn_state`, preserves exact extension origin/path validation, rejects duplicate/missing/wrong state and token-shaped URL fields, and exchanges only the authorization code with the stored verifier and base redirect URI.
+- The testable exchange/refresh handler factories now live in `src/server/auth/extension-session.ts`; both App Router modules export only `POST`, which restores production-build compatibility without changing their approved security behavior.
+
+### TDD evidence
+
+#### RED
+
+`node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` exited 1 on the rejected head: the authorization page emitted uppercase `S256`, set GoTrue's top-level `state`, and the callback rejected a valid GoTrue-owned top-level state even when the nested Popcorn state was preserved.
+
+The required production build also exited 1 before this correction because Next App Router rejected the named `createExchangeHandler` and `createRefreshHandler` exports from the two `route.ts` modules.
+
+#### GREEN
+
+- `node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` — 9/9 passed.
+- `pnpm vitest run tests/integration/extension/auth-exchange.test.ts tests/integration/extension/auth-refresh.test.ts` — 4/4 passed.
+- `CI=true pnpm typecheck` — passed.
+- `CI=true pnpm build` — passed; both extension session routes compile as dynamic routes.
+- `CI=true pnpm test:contract` — 128/128 passed.
+- `CI=true pnpm test:provenance` — 11/11 passed.
+- `CI=true pnpm test:extension` — 4/4 passed.
+- `git diff --check` — passed.
+
+### Residual risk and reviewer focus
+
+Deploy the matching stable extension redirect and perform a real GoTrue/Google browser smoke test; this fixture verifies the protocol boundary but does not contact a provider. Worker ownership, sender validation, refresh, exact Origin, and replay handling were deliberately unchanged from the accepted first review-fix surface.
