@@ -135,3 +135,47 @@ Deploy the matching stable extension redirect and perform a real GoTrue/Google b
 ### Residual risk and reviewer focus
 
 Register the stable Chromium HTTPS callback with Supabase and perform a deployed Chrome/GoTrue browser smoke test. The fixtures verify callback/request-origin separation and fragment rejection but do not exercise Chrome Identity or a live provider end to end. A fresh independent review remains required.
+
+## 2026-08-17 refresh concurrency and PKCE cleanup review-fix addendum
+
+- Status: ready for a fresh independent re-review; this addendum does not self-approve Task 1.
+- Rejected head fixed: `20147541c68d04db29ac5c66031c461f1863a600`.
+
+### Corrections
+
+- The trusted service-worker auth client now owns a monotonically changing in-memory session generation. Each refresh captures its starting generation and may persist returned tokens only if that generation is still current.
+- A confirmed sign-out advances the generation only after any pending-event decision is resolved, waits for the single active refresh to settle, and removes `popcorn_session` afterward as the final session mutation. Returning `requiresDecision: true` leaves the generation and active refresh valid.
+- A newly accepted interactive session advances the generation before storing its tokens, preventing an older deferred refresh from overwriting the new account.
+- All sign-in work after PKCE persistence—including URL construction, S256 digest, and `launchWebAuthFlow`—is now inside cleanup coverage. Digest and invalid-URL failures clear transient PKCE state without launching or exchanging.
+- The real Chromium callback, nested GoTrue state, fragment rejection, sender/storage/owner isolation, one refresh path, and server/page/route boundaries remain unchanged. This is original concurrency and cleanup work; no GPLv3 material was copied.
+
+### TDD evidence
+
+#### RED
+
+`node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` exited 1 on the rejected head with 10/14 passing and 4/14 failing:
+
+- digest rejection left `popcorn_pkce` persisted;
+- invalid app URL construction left `popcorn_pkce` persisted;
+- confirmed sign-out settled before the deferred refresh and allowed the refresh to restore the session;
+- an old deferred refresh overwrote a subsequently accepted new interactive session.
+
+The deterministic pending-event decision regression remained green, proving the existing `requiresDecision: true` path preserved the active session before implementation.
+
+#### GREEN
+
+- `node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js` — 14/14 passed.
+- `CI=true pnpm vitest run tests/integration/extension/auth-exchange.test.ts tests/integration/extension/auth-refresh.test.ts src/server/env.test.ts` — 22/22 passed across 3 files.
+
+### Full verification
+
+- `CI=true pnpm typecheck` — passed.
+- `CI=true pnpm build` — passed; both extension session routes remain dynamic and the authorization page builds.
+- `CI=true pnpm test:contract` — 128/128 passed.
+- `CI=true pnpm test:provenance` — 11/11 passed.
+- `CI=true pnpm test:extension` — 4/4 passed.
+- `git diff --check` — passed.
+
+### Residual risk and reviewer focus
+
+The deterministic tests exercise deferred Provider responses and mocked Chrome storage, not a suspended/restarted MV3 worker or live Chrome storage scheduling. A worker restart also discards all in-flight promises, so the generation intentionally remains worker-local. Perform deployed Chrome/GoTrue sign-in, refresh, decision-required sign-out, and confirmed sign-out smoke tests. A fresh independent review remains required.

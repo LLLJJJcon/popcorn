@@ -31,6 +31,7 @@ const POPCORN_AUTH = (() => {
     }
     const expectedRedirectUri = `https://${chrome.runtime.id}.chromiumapp.org/supabase`;
     let refreshMutex = null;
+    let sessionGeneration = 0;
 
     async function initialize() {
       for (const area of [chrome.storage.local, chrome.storage.session]) {
@@ -64,6 +65,7 @@ const POPCORN_AUTH = (() => {
       const payload = await response.json().catch(() => null);
       const session = payload?.data?.session ?? payload?.session;
       if (!response.ok || !isSession(session)) throw new Error("Popcorn sign-in could not be completed.");
+      sessionGeneration += 1;
       return saveSession(session);
     }
 
@@ -101,12 +103,12 @@ const POPCORN_AUTH = (() => {
       const state = randomValue(crypto, 32);
       const pkce = { verifier, state, redirectUri, expiresAt: now() + PKCE_TTL_MS };
       await chrome.storage.session.set({ [PKCE_KEY]: pkce });
-      const signInUrl = new URL("/auth/extension", appUrl);
-      signInUrl.searchParams.set("redirect_uri", redirectUri);
-      signInUrl.searchParams.set(POPCORN_STATE_PARAM, state);
-      signInUrl.searchParams.set("code_challenge", await s256(verifier, crypto));
-      signInUrl.searchParams.set("code_challenge_method", "s256");
       try {
+        const signInUrl = new URL("/auth/extension", appUrl);
+        signInUrl.searchParams.set("redirect_uri", redirectUri);
+        signInUrl.searchParams.set(POPCORN_STATE_PARAM, state);
+        signInUrl.searchParams.set("code_challenge", await s256(verifier, crypto));
+        signInUrl.searchParams.set("code_challenge_method", "s256");
         const callbackUrl = await chrome.identity.launchWebAuthFlow({ url: signInUrl.toString(), interactive: true });
         return await completeInteractiveSignIn(callbackUrl);
       } catch (error) {
@@ -116,6 +118,7 @@ const POPCORN_AUTH = (() => {
     }
 
     async function refreshSession() {
+      const refreshGeneration = sessionGeneration;
       const session = await getSession();
       if (!session) throw new Error("No Popcorn session.");
       const response = await fetch(`${appUrl}/api/v1/extension/session/refresh`, {
@@ -128,7 +131,7 @@ const POPCORN_AUTH = (() => {
       if (!response.ok || !isSession(refreshed) || refreshed.user.id !== session.user.id) {
         throw new Error("Popcorn session refresh failed.");
       }
-      await saveSession(refreshed);
+      if (refreshGeneration === sessionGeneration) await saveSession(refreshed);
       return refreshed.accessToken;
     }
 
@@ -150,6 +153,9 @@ const POPCORN_AUTH = (() => {
       const events = Array.isArray(stored[PENDING_EVENTS_KEY]) ? stored[PENDING_EVENTS_KEY] : [];
       const pendingCount = events.filter((event) => event?.ownerUserId === session.user.id).length;
       if (pendingCount && decision !== "discard") return { pendingCount, requiresDecision: true };
+      sessionGeneration += 1;
+      const activeRefresh = refreshMutex;
+      if (activeRefresh) await activeRefresh.catch(() => {});
       if (decision === "discard") {
         await chrome.storage.local.set({ [PENDING_EVENTS_KEY]: events.filter((event) => event?.ownerUserId !== session.user.id) });
       }

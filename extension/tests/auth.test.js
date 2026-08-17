@@ -18,6 +18,16 @@ function response(body, ok = true, status = ok ? 200 : 400) {
   return { ok, status, json: async () => body };
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function createChrome({ onLaunch, redirectOrigin = REDIRECT_ORIGIN } = {}) {
   const local = {};
   const session = {};
@@ -161,6 +171,56 @@ test("invalid, cancelled, and expired callbacks clear transient PKCE material", 
   assert.deepEqual(invalid.session, {});
 });
 
+test("digest failures after PKCE persistence clear transient material without launching or exchanging", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  let exchanges = 0;
+  const failingCrypto = {
+    getRandomValues: webcrypto.getRandomValues.bind(webcrypto),
+    subtle: {
+      async digest() {
+        throw new Error("digest failed");
+      },
+    },
+  };
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: failingCrypto,
+    appUrl: "https://app.popcorn.local",
+    fetch: async () => {
+      exchanges += 1;
+      return response({});
+    },
+  });
+
+  await assert.rejects(client.beginInteractiveSignIn({ userInitiated: true }), /digest failed/);
+
+  assert.deepEqual(harness.session, {});
+  assert.equal(harness.calls.includes("launch"), false);
+  assert.equal(exchanges, 0);
+});
+
+test("invalid sign-in URL construction after PKCE persistence clears transient material without launching or exchanging", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  let exchanges = 0;
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: webcrypto,
+    appUrl: "://invalid-app-url",
+    fetch: async () => {
+      exchanges += 1;
+      return response({});
+    },
+  });
+
+  await assert.rejects(client.beginInteractiveSignIn({ userInitiated: true }), /invalid url/i);
+
+  assert.deepEqual(harness.session, {});
+  assert.equal(harness.calls.includes("launch"), false);
+  assert.equal(exchanges, 0);
+});
+
 test("callbacks require exactly one nested Popcorn state and never accept token URL fields", async () => {
   const auth = await getAuth();
   const harness = createChrome();
@@ -240,6 +300,101 @@ test("simultaneous refreshes share one result and clear the mutex after success 
   harness.local.popcorn_session.accessExpiresAt = 0;
   assert.equal(await client.getAccessToken(), "new-3");
   assert.equal(refreshCalls, 3);
+});
+
+test("confirmed sign-out invalidates and waits for an active refresh before final session removal", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  harness.local.popcorn_session = { accessToken: "old", refreshToken: "refresh", accessExpiresAt: 0, user: { id: "user-a", email: "a@example.com" } };
+  const refreshStarted = deferred();
+  const providerRefresh = deferred();
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: webcrypto,
+    appUrl: "https://app.popcorn.local",
+    fetch: async () => {
+      refreshStarted.resolve();
+      return providerRefresh.promise;
+    },
+  });
+
+  const refreshing = client.getAccessToken();
+  await refreshStarted.promise;
+  let signOutSettled = false;
+  const signingOut = client.signOut().then((result) => {
+    signOutSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const settledBeforeRefresh = signOutSettled;
+  providerRefresh.resolve(response({ session: { accessToken: "stale-refreshed", refreshToken: "refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "a@example.com" } } }));
+
+  assert.equal(await refreshing, "stale-refreshed");
+  assert.deepEqual(await signingOut, { pendingCount: 0, requiresDecision: false });
+  assert.equal(settledBeforeRefresh, false);
+  assert.equal(harness.local.popcorn_session, undefined);
+});
+
+test("an old deferred refresh cannot overwrite a newly accepted interactive session", async () => {
+  const auth = await getAuth();
+  const harness = createChrome({
+    onLaunch(url) {
+      const start = new URL(url);
+      return `${REDIRECT_ORIGIN}/supabase?popcorn_state=${start.searchParams.get("popcorn_state")}&code=new-login-code&state=gotrue-state`;
+    },
+  });
+  harness.local.popcorn_session = { accessToken: "old", refreshToken: "old-refresh", accessExpiresAt: 0, user: { id: "user-a", email: "old@example.com" } };
+  const refreshStarted = deferred();
+  const providerRefresh = deferred();
+  const newSession = { accessToken: "new-login", refreshToken: "new-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-b", email: "new@example.com" } };
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: webcrypto,
+    appUrl: "https://app.popcorn.local",
+    fetch: async (url) => {
+      if (url.endsWith("/refresh")) {
+        refreshStarted.resolve();
+        return providerRefresh.promise;
+      }
+      return response({ session: newSession });
+    },
+  });
+
+  const refreshing = client.getAccessToken();
+  await refreshStarted.promise;
+  assert.deepEqual(await client.beginInteractiveSignIn({ userInitiated: true }), newSession);
+  assert.deepEqual(harness.local.popcorn_session, newSession);
+  providerRefresh.resolve(response({ session: { accessToken: "stale-refreshed", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } } }));
+
+  assert.equal(await refreshing, "stale-refreshed");
+  assert.deepEqual(harness.local.popcorn_session, newSession);
+});
+
+test("sign-out requiring a pending-event decision does not invalidate an active refresh", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  harness.local.popcorn_session = { accessToken: "old", refreshToken: "refresh", accessExpiresAt: 0, user: { id: "user-a", email: "a@example.com" } };
+  harness.local.popcorn_pending_events = [{ ownerUserId: "user-a", clientEventId: "pending" }];
+  const refreshStarted = deferred();
+  const providerRefresh = deferred();
+  const refreshedSession = { accessToken: "refreshed", refreshToken: "refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "a@example.com" } };
+  const client = auth.createAuthClient({
+    chrome: harness.chrome,
+    crypto: webcrypto,
+    appUrl: "https://app.popcorn.local",
+    fetch: async () => {
+      refreshStarted.resolve();
+      return providerRefresh.promise;
+    },
+  });
+
+  const refreshing = client.getAccessToken();
+  await refreshStarted.promise;
+  assert.deepEqual(await client.signOut(), { pendingCount: 1, requiresDecision: true });
+  providerRefresh.resolve(response({ session: refreshedSession }));
+
+  assert.equal(await refreshing, "refreshed");
+  assert.deepEqual(harness.local.popcorn_session, refreshedSession);
 });
 
 test("owner-bound pending events survive sign-out until explicit discard and never transfer accounts", async () => {
