@@ -3,11 +3,11 @@
 ## Current position
 
 - Stage: batch-a
-- Next task: Batch A Task 1 review fix; then wave 1 Tasks 2 and 4 on `CONTRACT-003`
+- Next task: finish Batch A Task 1 re-review and Task 2 implementation/review
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `21ee0e15ac3cd856b4ebfd1ffd62dd539b2fb53f`
+- Last verified commit: `f7a4dd705e347b86e5657bd5efd071a6422be06b`
 
 ## Preflight
 
@@ -31,6 +31,7 @@
 | Foundation | 5 | `codex/popcorn-foundation-5` | `04817e98e565f7e0c12f5d1916f96ff87edcbf9e` | `9447bb05232d268ecc934b2ff3364500da6c3a32` | PASS; fresh full-diff review approved with no Critical, Important, or Minor issues after the LLM Wiki method-only allowlist was corrected to the complete approved eight-method design; Cron/CI/static/ownership boundaries approved | Integrated through `c790118dc89297af965dee8048a2722a98bee802`; frozen install; unit 76/76; contract 128/128; provenance 11/11; extension static 4/4; production build; clean migrations 001–003; pgTAP 215/215; Cron catalog exactly one active every-minute runtime-Vault job; absent Vault secrets produced zero pg_net requests; e2e no-spec gate, vendor syntax, diff, and worktree status passed |
 | Batch A controller contract gate | pre-wave | `codex/popcorn-batch-a-db-contract` | `b258e49fb745eac0309de3fcb6848e87ef43979f` | `13a0faa400f11a310eba6f536e964c8fc16d7912` | PASS; independent full-diff review found no Critical, Important, or Minor issues in atomic capture, owner/RLS/service-role boundaries, private Provider metadata, job dedupe/lifecycle, or GPL isolation | Integrated as `9eacb9d530ee75179273eb21d4fcf59c7232f9c2`; clean reset applied migrations 001–004 and seed; pgTAP 237/237; `pnpm verify` passed with unit 76/76, contract 128/128, integration no-spec, provenance 11/11, lint/typecheck/build; diff and status clean |
 | Batch A controller claim gate | pre-Task 2 | `codex/popcorn-batch-a-claim-contract` | `f4a25dbceaffbc0562516945cbdb0323a64448f0` | `41e2a5c85fff7f6ed5b7f30df3ffdbba17774dc8` | PASS; independent full-diff review found no Critical, Important, or Minor issues in service-only bounded discovery, `SKIP LOCKED` atomicity, eligibility/lease/exhaustion, owner return, payload isolation, or GPL scope | Integrated as `21ee0e15ac3cd856b4ebfd1ffd62dd539b2fb53f`; clean reset applied migrations 001–005 and seed; pgTAP 249/249; `pnpm verify` passed with unit 76/76, contract 128/128, integration no-spec, provenance 11/11, lint/typecheck/build |
+| Batch A | 4 | `codex/popcorn-batch-a-4` | `f4a25dbceaffbc0562516945cbdb0323a64448f0` | `a619a12c3017a1747dbdd5a759cbb2dc951241df` | PASS; independent full-diff review found no Critical, Important, or Minor issues in the sole-RPC persistence path, authenticated owner scope, exact six-kind mapping, bounded ordered partial batch results, error boundary, or GPL isolation | Integrated as `f7a4dd705e347b86e5657bd5efd071a6422be06b`; capture integration 8/8; pgTAP 249/249; `pnpm verify` passed with unit 76/76, contract 128/128, integration 8/8, provenance 11/11, lint/typecheck/build; diff/status clean |
 
 ## Open concerns
 
@@ -62,5 +63,5 @@
 ## Next dispatch
 
 - Batch A Task 1 is in a TDD repair/re-review loop after its first independent review rejected the PKCE/worker ownership implementation. It remains unintegrated.
-- Rebase the Task 2 and Task 4 worktrees onto `9eacb9d530ee75179273eb21d4fcf59c7232f9c2`, expand their durable briefs, and dispatch native-Chinese transcript resolution plus idempotent cloud capture in parallel with the Task 1 repair. Task 2 consumes `knowledge_job_internal`; Task 4 consumes `capture_saved_item`.
+- Batch A Task 4 is accepted/integrated. Task 2 now consumes both `knowledge_job_internal` and the sole `claim_knowledge_jobs` discovery RPC; finish its implementation/review next.
 - Task 3 waits for Tasks 1 and 2. Tasks 5 and 6 wait for their declared upstream tasks and must be sequenced if their resolved file allowlists overlap. The controller owns Task 7 integration gate.
