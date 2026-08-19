@@ -1,7 +1,9 @@
 import {
   assertExtensionRequestOrigin,
   deriveExtensionRequestOrigin,
+  getModelGatewaySettingsEnv,
   getServerEnv,
+  parseModelGatewaySettingsEnv,
   parseServerEnv,
 } from "./env";
 
@@ -93,5 +95,37 @@ describe("parseServerEnv", () => {
         extensionRequestOrigin,
       ),
     ).toBe(extensionRequestOrigin);
+  });
+});
+
+describe("parseModelGatewaySettingsEnv", () => {
+  const settingsEnvironment = {
+    NEXT_PUBLIC_SUPABASE_URL: validEnvironment.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: validEnvironment.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: validEnvironment.SUPABASE_SERVICE_ROLE_KEY,
+    APP_URL: validEnvironment.APP_URL,
+  };
+
+  it("initializes gateway settings without legacy Provider or extension environment", () => {
+    expect(parseModelGatewaySettingsEnv(settingsEnvironment)).toEqual(settingsEnvironment);
+    expect(getModelGatewaySettingsEnv({ ...settingsEnvironment, PATH: "/usr/bin" })).toEqual(
+      settingsEnvironment,
+    );
+  });
+
+  it.each([
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "APP_URL",
+  ] as const)("still requires settings dependency %s", (key) => {
+    const incomplete: Record<string, string> = { ...settingsEnvironment };
+    delete incomplete[key];
+    expect(() => parseModelGatewaySettingsEnv(incomplete)).toThrow();
+  });
+
+  it("rejects unrelated fields at the explicit parser boundary", () => {
+    expect(() => parseModelGatewaySettingsEnv({ ...settingsEnvironment, OPENAI_API_KEY: "legacy" }))
+      .toThrow();
   });
 });
