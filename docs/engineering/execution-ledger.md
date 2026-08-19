@@ -3,11 +3,11 @@
 ## Current position
 
 - Stage: batch-a
-- Next task: dispatch user model gateway settings UI Task 3 against accepted Task 2 API and shared Web cookie factory
+- Next task: execute user model gateway Task 4 by rebasing Batch A Task 3 onto the accepted per-user gateway settings stack
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `63f9b37` (user gateway Task 2 integration: focused 34/34, application 347/347, pgTAP 407/407, lint/typecheck/webpack build/diff/status gates)
+- Last verified commit: `1e769b4` (user gateway Task 3 integration: directed 48/48, auth/UI 51/51, Task 2 28/28, application 398/398, lint/typecheck/webpack build/diff/status gates)
 
 ## Preflight
 
@@ -41,6 +41,7 @@
 | User model gateway | CONTRACT-008A | `codex/popcorn-youtube-learning` (controller-owned amendment) | `8bd4504` | `ad5390e6a81f42c4c9e7fa5547fd4ce5126cfbda` | PASS; independent reviewer approved the owner-bound boolean-only credential presence RPC and proved the tests detect both implementation removal and authenticated execute leakage | Clean migrations 001–008; gateway pgTAP 64/64; full pgTAP 407/407; application 307/307; exact generated types; typecheck, webpack production build, diff/status, and negative-injection gates passed |
 | User model gateway | CONTRACT-008B | `codex/popcorn-youtube-learning` (controller-owned amendment) | `3d0e684` | `3c398bb` | PASS; independent reviewer approved the strict four-field settings environment and verified gateway settings do not depend on legacy OpenAI/Supadata/extension/worker configuration | Focused env 24/24; application 313/313; removal of legacy OpenAI key still passed, removal of service-role key failed closed; lint, typecheck, webpack production build, diff/status passed |
 | User model gateway | Task 2 | `codex/popcorn-gateway-settings-api` | `3d0e684` | `df11f2d1014f7de9c3291e35f9fe1353279f8170` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved scoped runtime env, fail-closed mixed-owner handling, one reusable cookie adapter, cookie-only auth, strict CSRF/body/DTO boundaries, boolean-only secret presence, atomic lifecycle RPCs, and nonleaking responses | Integrated through `63f9b37`; focused 34/34; application 347/347; pgTAP 407/407; ESLint, TypeScript, webpack production build with both settings routes, diff/status passed |
+| User model gateway | Task 3 | `codex/popcorn-gateway-settings-ui` | `8c13805` | `6cc287c5991f142d25b569dee9cc7809f99a00a2` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved canonical PKCE code rejection, one-time flow cookies, CSRF/fixed redirects, server-only auth, write-only key clearing/nonpersistence, mutation/refetch behavior, fixed consent data classes, accessible error association, and GPL isolation | Integrated through `1e769b4`; directed auth/a11y 48/48; auth/UI 51/51; Task 2 regression 28/28; application 398/398; ESLint, TypeScript, webpack production build with sign-in/auth/settings routes, diff/status passed |
 
 ## Open concerns
 
@@ -78,5 +79,5 @@
 
 ## Next dispatch
 
-- CONTRACT-008/008A/008B and user gateway Task 2 are accepted and integrated. Dispatch Task 3 Web UI with the preflight allowlist: minimal email magic-link PKCE login/callback/POST sign-out plus the settings surface, consuming the shared server cookie factory and uniform `ApiSuccess<ModelGatewayConfigView>` mutation responses without modifying Task 2 files.
+- CONTRACT-008/008A/008B and user gateway Tasks 2–3 are accepted and integrated. Execute gateway Task 4 / Batch A Task 3 repair in its isolated worktree: preserve checkpoint `a0ab48f` cross-line selection and Overview grounding fixes, replace the deployment-env singleton with owner/config-revision resolution, pin fingerprint in private durable jobs/result keys, and keep CI fixture selection before any config/Vault read or network call.
 - After settings API/UI acceptance, rebase Batch A Task 3 onto the frozen gateway contracts, retain the already-reviewed cross-line selection and Overview fixes, and replace its deployment-env singleton with owner/config-revision resolution. Tasks 5 and 6 retain their declared dependencies; the controller owns Task 7 integration gate.
