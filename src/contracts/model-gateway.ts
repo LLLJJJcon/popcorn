@@ -22,18 +22,22 @@ export const CanonicalModelGatewayOriginSchema = z
     "Expected an exact lowercase HTTPS domain origin without port, path, query, or fragment",
   )
   .refine((value) => {
-    const hostname = new URL(value).hostname;
-    return (
-      !/^\d+(?:\.\d+){3}$/.test(hostname) &&
-      hostname !== "localhost" &&
-      !hostname.endsWith(".localhost") &&
-      hostname !== "local" &&
-      !hostname.endsWith(".local") &&
-      hostname !== "internal" &&
-      !hostname.endsWith(".internal") &&
-      hostname !== "metadata" &&
-      !hostname.startsWith("metadata.")
-    );
+    try {
+      const hostname = new URL(value).hostname;
+      return (
+        !/^\d+(?:\.\d+){3}$/.test(hostname) &&
+        hostname !== "localhost" &&
+        !hostname.endsWith(".localhost") &&
+        hostname !== "local" &&
+        !hostname.endsWith(".local") &&
+        hostname !== "internal" &&
+        !hostname.endsWith(".internal") &&
+        hostname !== "metadata" &&
+        !hostname.startsWith("metadata.")
+      );
+    } catch {
+      return false;
+    }
   }, "Expected a public DNS gateway origin, not an IP, local, internal, or metadata target");
 
 export const ModelGatewayOriginViewSchema = z.strictObject({

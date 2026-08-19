@@ -92,3 +92,10 @@ them and now has permanent fixtures. Metadata and internal-name tests are
 independent, and replacement tests retain the old Vault UUID to prove the actual
 `vault.secrets` row is destroyed, not merely its private mapping. Focused
 contracts are 17/17 and gateway pgTAP is 59/59.
+
+The final security pass then added fail-closed fixtures for invalid numeric hosts
+whose WHATWG parsing throws (`999.1`, `4294967296`). The Zod refinement now catches
+URL parsing errors and returns validation failure. Zod metadata/internal tests
+are independent, and explicit revoke now retains its pre-revoke Vault UUID to
+prove the underlying Vault row is destroyed. Focused contracts are 20/20 and
+gateway pgTAP is 60/60.

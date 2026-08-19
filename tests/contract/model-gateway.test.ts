@@ -43,12 +43,25 @@ describe("user model gateway contracts", () => {
     "https://[::1]",
     "https://localhost",
     "https://api.localhost",
-    "https://metadata.google.internal",
+    "https://metadata.example.com",
+    "https://service.internal",
   ])("rejects a local, IP-literal, or metadata origin: %s", (canonicalOrigin) => {
     expect(ModelGatewayOriginViewSchema.safeParse({ ...origin, canonicalOrigin }).success).toBe(
       false,
     );
   });
+
+  it.each(["https://999.1", "https://4294967296"])(
+    "fails closed without throwing for an invalid numeric host: %s",
+    (canonicalOrigin) => {
+      expect(() =>
+        ModelGatewayOriginViewSchema.safeParse({ ...origin, canonicalOrigin }),
+      ).not.toThrow();
+      expect(
+        ModelGatewayOriginViewSchema.safeParse({ ...origin, canonicalOrigin }).success,
+      ).toBe(false);
+    },
+  );
 
   it("accepts a write-only key with catalog selection and no caller URL or adapter", () => {
     const input = {

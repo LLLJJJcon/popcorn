@@ -272,6 +272,10 @@ select extensions.results_eq(
   $$values ('secret-b'::text,2)$$,
   'pending jobs use the rotated credential without changing config revision'
 );
+create temporary table gateway_explicit_revoke_vault_before on commit drop as
+select vault_secret_id
+from private.user_model_gateway_secrets
+where user_id=:'user_a' and config_id=:'config_a';
 select extensions.lives_ok(
   format($sql$select public.revoke_user_model_gateway_config(
     %L::uuid,%L::uuid,'2026-08-19 10:03:00+00')$sql$, :'user_a', :'config_a'),
@@ -288,6 +292,12 @@ select extensions.is(
    where config_id=:'config_a' and user_id=:'user_a'),
   0,
   'revocation removes the secret reference'
+);
+select extensions.is(
+  (select count(*)::integer from vault.secrets
+   where id=(select vault_secret_id from gateway_explicit_revoke_vault_before)),
+  0,
+  'explicit revocation destroys the Vault secret row'
 );
 select extensions.is(
   public.revoke_user_model_gateway_config(
