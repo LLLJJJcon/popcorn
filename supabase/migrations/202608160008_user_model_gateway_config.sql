@@ -6,6 +6,7 @@ set search_path = pg_catalog
 as $$
   select coalesce(
     value ~ '^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?[.])+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+    and value ~ '[.][a-z][a-z0-9-]*$'
     and length(value) <= 253
     and value !~ '[.][.]'
     and value !~ '^https://([0-9]+[.]){3}[0-9]+$'

@@ -83,3 +83,12 @@ IPv6, localhost, local, internal, and metadata destination rejection; immutable
 referenced origin/base-path/adapter semantics; and second-version activation
 with old-version revocation, obsolete-secret deletion, and exactly one active
 configuration. Focused gateway pgTAP is 53/53 and full pgTAP is 396/396.
+
+The next independent review found four WHATWG-compatible abbreviated/hex/octal
+IPv4 spellings that SQL alone had accepted (`127.1`, `127.0.1`, `0x7f.1`, and
+`0177.1`). SQL now requires a letter-leading DNS top-level label in addition to
+the existing exact-origin predicates; Zod's URL normalization already rejected
+them and now has permanent fixtures. Metadata and internal-name tests are
+independent, and replacement tests retain the old Vault UUID to prove the actual
+`vault.secrets` row is destroyed, not merely its private mapping. Focused
+contracts are 17/17 and gateway pgTAP is 59/59.

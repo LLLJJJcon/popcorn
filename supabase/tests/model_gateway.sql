@@ -63,8 +63,33 @@ select extensions.throws_ok(
 select extensions.throws_ok(
   $$insert into public.model_gateway_origins
     (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
-    ('metadata','Metadata','https://metadata.google.internal','/v1','openai-compatible','active')$$,
-  '23514', null, 'catalog rejects metadata and internal names');
+    ('metadata','Metadata','https://metadata.example.com','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects metadata hostnames independently');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('internal-name','Internal','https://service.internal','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects internal names independently');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('short-loopback','Short loopback','https://127.1','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects shortened IPv4 literals');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('three-part-loopback','Three-part loopback','https://127.0.1','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects three-part IPv4 literals');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('hex-loopback','Hex loopback','https://0x7f.1','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects hexadecimal IPv4 literals');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('octal-loopback','Octal loopback','https://0177.1','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects octal IPv4 literals');
 select extensions.throws_ok(
   $$insert into public.model_gateway_origins
     (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
@@ -285,6 +310,10 @@ select extensions.lives_ok(
     :'user_b'),
   'user B activates the first configuration'
 );
+create temporary table gateway_old_vault_secret_before on commit drop as
+select vault_secret_id
+from private.user_model_gateway_secrets
+where user_id=:'user_b' and config_id='81000000-0000-4000-8000-00000000b001';
 select extensions.lives_ok(
   format($sql$select * from public.create_user_model_gateway_config(
     %L::uuid,'81000000-0000-4000-8000-00000000b002'::uuid,%L::uuid,
@@ -316,6 +345,12 @@ select extensions.is(
    where user_id=:'user_b' and config_id='81000000-0000-4000-8000-00000000b001'),
   0,
   'replaced configuration loses its obsolete secret reference'
+);
+select extensions.is(
+  (select count(*)::integer from vault.secrets
+   where id=(select vault_secret_id from gateway_old_vault_secret_before)),
+  0,
+  'replaced configuration destroys its obsolete Vault secret row'
 );
 select extensions.is(
   (select count(*)::integer from private.user_model_gateway_secrets

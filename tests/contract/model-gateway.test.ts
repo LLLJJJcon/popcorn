@@ -34,6 +34,10 @@ describe("user model gateway contracts", () => {
 
   it.each([
     "https://127.0.0.1",
+    "https://127.1",
+    "https://127.0.1",
+    "https://0x7f.1",
+    "https://0177.1",
     "https://169.254.169.254",
     "https://0.0.0.0",
     "https://[::1]",
