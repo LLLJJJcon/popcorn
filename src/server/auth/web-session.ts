@@ -13,6 +13,22 @@ export type WebCookieAdapter = {
   readonly setAll?: (cookies: (CookiePair & { readonly options: CookieOptions })[]) => void | Promise<void>;
 };
 
+export type NextCookieStore = {
+  readonly getAll: () => readonly CookiePair[];
+  readonly set: (cookie: CookiePair & CookieOptions) => void;
+};
+
+export function createNextCookieAdapter(store: NextCookieStore): WebCookieAdapter {
+  return {
+    getAll: () => store.getAll().map(({ name, value }) => ({ name, value })),
+    setAll: (cookies) => {
+      for (const { name, value, options } of cookies) {
+        store.set({ name, value, ...options });
+      }
+    },
+  };
+}
+
 type AuthClient = {
   readonly auth: {
     readonly getUser: () => Promise<{

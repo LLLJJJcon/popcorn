@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
-import { createWebSessionAuthenticator, type WebCookieAdapter } from "@/server/auth/web-session";
-import { getServerEnv } from "@/server/env";
+import { createNextCookieAdapter, createWebSessionAuthenticator } from "@/server/auth/web-session";
+import { getModelGatewaySettingsEnv } from "@/server/env";
 import {
   createModelGatewayHttpHandlers,
   createModelGatewaySettingsService,
@@ -13,20 +13,8 @@ import { createVaultSecretStore } from "@/server/model-gateway/vault-secret-stor
 import { createModelGatewaySettingsRepository } from "@/server/repositories/model-gateway-settings-repository";
 import type { Database } from "@/types/database.generated";
 
-async function nextCookieAdapter(): Promise<WebCookieAdapter> {
-  const store = await cookies();
-  return {
-    getAll: () => store.getAll().map(({ name, value }) => ({ name, value })),
-    setAll: (values) => {
-      for (const { name, value, options } of values) {
-        store.set({ name, value, ...(options ?? {}) });
-      }
-    },
-  };
-}
-
 function runtimeHandlers() {
-  const environment = getServerEnv();
+  const environment = getModelGatewaySettingsEnv();
   const client = createClient<Database>(
     environment.NEXT_PUBLIC_SUPABASE_URL,
     environment.SUPABASE_SERVICE_ROLE_KEY,
@@ -43,7 +31,7 @@ function runtimeHandlers() {
       supabaseUrl: environment.NEXT_PUBLIC_SUPABASE_URL,
       anonKey: environment.NEXT_PUBLIC_SUPABASE_ANON_KEY,
       secureCookies: new URL(environment.APP_URL).protocol === "https:",
-      cookieAdapter: async () => nextCookieAdapter(),
+      cookieAdapter: async () => createNextCookieAdapter(await cookies()),
     }),
     service,
     appUrl: environment.APP_URL,

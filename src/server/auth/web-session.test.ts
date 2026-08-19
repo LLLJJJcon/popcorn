@@ -1,4 +1,50 @@
-import { createWebSessionAuthenticator } from "./web-session";
+import { createNextCookieAdapter, createWebSessionAuthenticator } from "./web-session";
+
+describe("createNextCookieAdapter", () => {
+  it("maps reads exactly and forwards secure cookie writes without dropping options", async () => {
+    const writes: unknown[] = [];
+    const adapter = createNextCookieAdapter({
+      getAll: () => [
+        { name: "sb-project-auth-token", value: "verified", domain: "ignored.example" },
+        { name: "theme", value: "dark" },
+      ],
+      set: (cookie) => {
+        writes.push(cookie);
+      },
+    });
+
+    expect(adapter.getAll()).toEqual([
+      { name: "sb-project-auth-token", value: "verified" },
+      { name: "theme", value: "dark" },
+    ]);
+
+    await adapter.setAll?.([
+      {
+        name: "sb-project-auth-token",
+        value: "refreshed",
+        options: {
+          httpOnly: true,
+          sameSite: "lax",
+          secure: true,
+          path: "/",
+          maxAge: 3_600,
+        },
+      },
+    ]);
+
+    expect(writes).toEqual([
+      {
+        name: "sb-project-auth-token",
+        value: "refreshed",
+        httpOnly: true,
+        sameSite: "lax",
+        secure: true,
+        path: "/",
+        maxAge: 3_600,
+      },
+    ]);
+  });
+});
 
 describe("createWebSessionAuthenticator", () => {
   const request = (headers?: HeadersInit) =>

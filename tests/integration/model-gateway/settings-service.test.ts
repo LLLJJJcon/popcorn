@@ -130,6 +130,61 @@ describe("model gateway settings service", () => {
     expect(operations).toContain("limit:20");
   });
 
+  it("fails closed when a service-role config list contains a different owner", async () => {
+    const wrongOwnerRow = {
+      id: CONFIG_ID,
+      user_id: USER_B,
+      display_name: "Cross-owner Gateway",
+      origin_id: ORIGIN_ID,
+      adapter_kind: "openai-compatible",
+      model: "model-a",
+      revision: 1,
+      config_fingerprint: "a".repeat(64),
+      state: "pending_consent",
+      consent_policy_version: null,
+      consented_origin: null,
+      consented_at: null,
+      revoked_at: null,
+      created_at: "2026-08-20T00:00:00.000Z",
+      updated_at: "2026-08-20T00:00:00.000Z",
+      model_gateway_origins: {
+        id: ORIGIN_ID,
+        slug: origin.slug,
+        display_name: origin.displayName,
+        canonical_origin: origin.canonicalOrigin,
+        adapter_kind: origin.adapterKind,
+        state: origin.state,
+        base_path: "/v1",
+        created_at: "2026-08-20T00:00:00.000Z",
+        updated_at: "2026-08-20T00:00:00.000Z",
+      },
+    };
+    const operations: string[] = [];
+    const builder = {
+      select() { return this; },
+      eq(column: string, value: string) { operations.push(`eq:${column}:${value}`); return this; },
+      order() { return this; },
+      limit(value: number) { operations.push(`limit:${value}`); return this; },
+      then(resolve: (value: { data: unknown[]; error: null }) => unknown) {
+        return Promise.resolve(resolve({ data: [wrongOwnerRow], error: null }));
+      },
+    };
+    const client = {
+      from: (table: string) => {
+        operations.push(`from:${table}`);
+        return builder;
+      },
+    } as unknown as SupabaseClient<Database>;
+
+    const repository = createModelGatewaySettingsRepository(client);
+
+    await expect(repository.listConfigs(USER_A)).rejects.toThrow(
+      "model gateway settings unavailable",
+    );
+    expect(operations).toContain(`eq:user_id:${USER_A}`);
+    expect(operations).toContain("limit:20");
+  });
+
   it("checks credential presence with the boolean RPC and never invokes the secret resolver", async () => {
     const calls: string[] = [];
     const client = {

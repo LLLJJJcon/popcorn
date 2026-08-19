@@ -78,9 +78,13 @@ export function createModelGatewaySettingsRepository(
         .order("created_at", { ascending: false })
         .limit(20);
       if (result.error || !Array.isArray(result.data)) throw new Error("model gateway settings unavailable");
-      return (result.data as unknown as (ConfigRow & { model_gateway_origins: OriginRow })[])
-        .map(configRecord)
-        .filter((record) => record.userId === userId);
+      const records: ModelGatewayConfigRecord[] = [];
+      for (const row of result.data as unknown as (ConfigRow & { model_gateway_origins: OriginRow })[]) {
+        const record = configRecord(row);
+        if (record.userId !== userId) throw new Error("model gateway settings unavailable");
+        records.push(record);
+      }
+      return records;
     },
 
     async findConfig(userId, configId) {

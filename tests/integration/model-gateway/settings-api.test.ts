@@ -3,6 +3,17 @@ import {
   type ModelGatewaySettingsService,
 } from "@/server/model-gateway/settings-service";
 
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    getAll: () => [],
+    set: () => undefined,
+  }),
+}));
+
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: () => ({}),
+}));
+
 const USER = "11111111-1111-4111-8111-111111111111";
 const ORIGIN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CONFIG_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -130,5 +141,60 @@ describe("model gateway settings HTTP handlers", () => {
     const serialized = JSON.stringify(await body(response)) + JSON.stringify([...response.headers]);
     expect(response.status).toBe(500);
     expect(serialized).not.toMatch(/supplied-key|service-role-secret|eeeeeeee|db raw|vault/i);
+  });
+});
+
+describe("production model gateway settings routes", () => {
+  const settingsEnvironment = {
+    NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
+    SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+    APP_URL: "https://popcorn.example",
+  };
+  const legacyKeys = [
+    "SUPADATA_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "EXTENSION_REDIRECT_ORIGIN",
+    "INTERNAL_JOB_SECRET",
+  ] as const;
+  const originalEnvironment = { ...process.env };
+
+  beforeEach(() => {
+    vi.resetModules();
+    for (const key of legacyKeys) delete process.env[key];
+    Object.assign(process.env, settingsEnvironment);
+  });
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, originalEnvironment);
+    vi.resetModules();
+  });
+
+  it("initializes both production routes with only the four scoped settings variables", async () => {
+    const settingsRoute = await import("@/app/api/v1/settings/model-gateway/route");
+    const consentRoute = await import("@/app/api/v1/settings/model-gateway/consent/route");
+
+    const settingsResponse = await settingsRoute.GET(
+      request("GET", undefined, { Authorization: "Bearer ignored" }),
+    );
+    const consentResponse = await consentRoute.POST(
+      request("POST", undefined, { Authorization: "Bearer ignored" }),
+    );
+
+    expect(settingsResponse.status).toBe(401);
+    expect(consentResponse.status).toBe(401);
+    expect(settingsResponse.headers.get("Cache-Control")).toBe("no-store");
+    expect(consentResponse.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("fails closed when a required scoped settings dependency is missing", async () => {
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const settingsRoute = await import("@/app/api/v1/settings/model-gateway/route");
+
+    await expect(
+      settingsRoute.GET(request("GET")),
+    ).rejects.toThrow();
   });
 });
