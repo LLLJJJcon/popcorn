@@ -99,3 +99,10 @@ URL parsing errors and returns validation failure. Zod metadata/internal tests
 are independent, and explicit revoke now retains its pre-revoke Vault UUID to
 prove the underlying Vault row is destroyed. Focused contracts are 20/20 and
 gateway pgTAP is 60/60.
+
+Final acceptance reproduced a two-session race between an uncommitted catalog
+semantic update and config creation. The creation lookup now takes `FOR SHARE`
+on the exact origin row, which conflicts with non-key semantic updates and makes
+the fingerprint observe the committed catalog version. A real two-`psql`
+regression test failed before the lock and passes after it; CI runs this test
+immediately after pgTAP while local Supabase is active.

@@ -24,6 +24,9 @@ is `bd6c91d` in `/private/tmp/popcorn-youtube-learning`.
 
 - `supabase/migrations/202608160008_user_model_gateway_config.sql`
 - `supabase/tests/model_gateway.sql`
+- `tests/contract/model-gateway-concurrency.sh`
+- `.github/workflows/ci.yml`（仅增加并发契约门禁）
+- `tests/provenance/no-llm-wiki-code.test.ts`（仅冻结该 CI 命令）
 - `src/contracts/model-gateway.ts`
 - `tests/contract/model-gateway.test.ts`
 - `src/types/database.generated.ts`

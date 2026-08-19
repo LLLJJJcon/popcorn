@@ -187,7 +187,8 @@ begin
   select origin.adapter_kind, origin.canonical_origin, origin.base_path
   into v_adapter_kind, v_origin, v_base_path
   from public.model_gateway_origins as origin
-  where origin.id = p_origin_id and origin.state = 'active';
+  where origin.id = p_origin_id and origin.state = 'active'
+  for share of origin;
   if not found or v_adapter_kind <> 'openai-compatible' then
     raise exception using errcode = '22023', message = 'model gateway origin is not approved';
   end if;

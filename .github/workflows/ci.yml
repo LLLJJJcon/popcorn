@@ -48,6 +48,9 @@ jobs:
       - name: Run database pgTAP tests
         run: pnpm db:test
 
+      - name: Verify model gateway catalog concurrency
+        run: tests/contract/model-gateway-concurrency.sh
+
       - name: Check the pinned vendor script syntax
         run: bash -n scripts/vendor-youtube-digest.sh
 

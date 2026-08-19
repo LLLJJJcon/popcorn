@@ -221,6 +221,7 @@ describe("fixture-only CI freeze gate", () => {
       "node_modules/.bin/supabase start",
       "pnpm db:reset",
       "pnpm db:test",
+      "tests/contract/model-gateway-concurrency.sh",
       "bash -n scripts/vendor-youtube-digest.sh",
       "git diff --check",
     ]) {
