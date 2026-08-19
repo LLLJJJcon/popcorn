@@ -65,6 +65,26 @@ select extensions.throws_ok(
     (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
     ('metadata','Metadata','https://metadata.google.internal','/v1','openai-compatible','active')$$,
   '23514', null, 'catalog rejects metadata and internal names');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('unspecified','Unspecified','https://0.0.0.0','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects unspecified IPv4 literals');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('localhost-subdomain','Localhost','https://api.localhost','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects localhost subdomains');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('local-name','Local name','https://models.local','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects local pseudo-domains');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('ipv6-loopback','IPv6 loopback','https://[::1]','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects IPv6 literals');
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', :'user_a', true);
@@ -175,6 +195,14 @@ select extensions.throws_ok(
   format($sql$update public.model_gateway_origins set base_path='/attacker'
     where id=%L::uuid$sql$, :'origin_id'),
   '23514', null, 'referenced catalog transport semantics are immutable');
+select extensions.throws_ok(
+  format($sql$update public.model_gateway_origins set canonical_origin='https://other.example.com'
+    where id=%L::uuid$sql$, :'origin_id'),
+  '23514', null, 'referenced catalog exact origin is immutable');
+select extensions.throws_ok(
+  format($sql$update public.model_gateway_origins set adapter_kind='dynamic-plugin'
+    where id=%L::uuid$sql$, :'origin_id'),
+  '23514', null, 'referenced catalog adapter kind cannot change');
 select extensions.lives_ok(
   format($sql$select public.rename_user_model_gateway_config(
     %L::uuid,%L::uuid,'Renamed Gateway','2026-08-19 10:01:30+00')$sql$,
@@ -243,6 +271,59 @@ select extensions.is(
   'revocation replay is idempotent for an owned revoked config'
 );
 
+select extensions.lives_ok(
+  format($sql$select * from public.create_user_model_gateway_config(
+    %L::uuid,'81000000-0000-4000-8000-00000000b001'::uuid,%L::uuid,
+    'User B first','provider/model-v1','secret-b-first','2026-08-19 10:04:10+00')$sql$,
+    :'user_b', :'origin_id'),
+  'user B creates a first configuration version'
+);
+select extensions.lives_ok(
+  format($sql$select public.activate_user_model_gateway_config(
+    %L::uuid,'81000000-0000-4000-8000-00000000b001'::uuid,
+    'https://models.example.com','model-egress-v1','2026-08-19 10:04:20+00')$sql$,
+    :'user_b'),
+  'user B activates the first configuration'
+);
+select extensions.lives_ok(
+  format($sql$select * from public.create_user_model_gateway_config(
+    %L::uuid,'81000000-0000-4000-8000-00000000b002'::uuid,%L::uuid,
+    'User B second','provider/model-v2','secret-b-second','2026-08-19 10:04:30+00')$sql$,
+    :'user_b', :'origin_id'),
+  'user B creates a second immutable configuration version'
+);
+select extensions.lives_ok(
+  format($sql$select public.activate_user_model_gateway_config(
+    %L::uuid,'81000000-0000-4000-8000-00000000b002'::uuid,
+    'https://models.example.com','model-egress-v1','2026-08-19 10:04:40+00')$sql$,
+    :'user_b'),
+  'activating a second version atomically replaces the active version'
+);
+select extensions.results_eq(
+  format($sql$select revision,state from public.user_model_gateway_configs
+    where user_id=%L::uuid order by revision$sql$, :'user_b'),
+  $$values (1,'revoked'::text),(2,'active'::text)$$,
+  'second activation revokes the old version and activates the new version'
+);
+select extensions.is(
+  (select count(*)::integer from public.user_model_gateway_configs
+   where user_id=:'user_b' and state='active'),
+  1,
+  'the database preserves exactly one active configuration per user'
+);
+select extensions.is(
+  (select count(*)::integer from private.user_model_gateway_secrets
+   where user_id=:'user_b' and config_id='81000000-0000-4000-8000-00000000b001'),
+  0,
+  'replaced configuration loses its obsolete secret reference'
+);
+select extensions.is(
+  (select count(*)::integer from private.user_model_gateway_secrets
+   where user_id=:'user_b' and config_id='81000000-0000-4000-8000-00000000b002'),
+  1,
+  'new active configuration retains exactly one secret reference'
+);
+
 reset role;
 insert into public.user_model_gateway_configs (
   id,user_id,display_name,origin_id,adapter_kind,model,revision,
@@ -277,9 +358,10 @@ select extensions.results_eq(
 );
 select set_config('request.jwt.claim.sub', :'user_b', true);
 select extensions.is(
-  (select count(*)::integer from public.user_model_gateway_configs),
+  (select count(*)::integer from public.user_model_gateway_configs
+   where user_id=:'user_a'),
   0,
-  'another user cannot read config metadata'
+  'another user cannot read user A config metadata'
 );
 reset role;
 

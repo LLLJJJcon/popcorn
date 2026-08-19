@@ -76,3 +76,10 @@ implementation. Fix GREEN: Zod 13/13, gateway pgTAP 39/39, full pgTAP 382/382,
 contract/provenance 170/170, ESLint, TypeScript, production build, DB lint (only
 the same two pre-existing Foundation warnings), generated types, and diff check
 all pass after a second clean reset.
+
+The fresh re-review found implementation behavior correct but returned FAIL for
+missing permanent pgTAP coverage. The suite now additionally freezes IPv4,
+IPv6, localhost, local, internal, and metadata destination rejection; immutable
+referenced origin/base-path/adapter semantics; and second-version activation
+with old-version revocation, obsolete-secret deletion, and exactly one active
+configuration. Focused gateway pgTAP is 53/53 and full pgTAP is 396/396.
