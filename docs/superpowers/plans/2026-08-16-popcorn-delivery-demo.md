@@ -46,7 +46,10 @@ Use a clean temporary staging directory, an explicit allowlist, deterministic fi
 
 - [ ] **Step 3: Document install/reload**
 
-Describe unpacked installation for assessment, exact folder/zip, reload after updates, sign-in, supported page, and how to confirm Chinese transcript and cloud save. Do not require users to enter provider keys.
+Describe unpacked installation for assessment, exact folder/zip, reload after
+updates, sign-in, supported page, and how to confirm Chinese transcript and
+cloud save. The extension never asks for provider keys; optional AI gateway
+setup occurs only in authenticated Popcorn Web settings.
 
 - [ ] **Step 4: Verify and commit**
 
@@ -147,7 +150,11 @@ git commit -m "feat: observe and recover knowledge jobs safely"
 
 - [ ] **Step 1: Write failing deployment checks**
 
-Assert preview and production use different Supabase projects, auth redirect origins include the stable Chromium extension origin, service-role/provider/job secrets are absent from `NEXT_PUBLIC_*`, Cron secret comes from Vault, and extension host permissions contain only YouTube plus approved Popcorn origins.
+Assert preview and production use different Supabase projects, auth redirect
+origins include the stable Chromium extension origin, service-role/job secrets
+are absent from `NEXT_PUBLIC_*`, Cron and user gateway secrets use Vault,
+approved model-gateway origins are exact and environment-separated, and
+extension host permissions contain only YouTube plus approved Popcorn origins.
 
 - [ ] **Step 2: Document exact deployment order**
 
@@ -155,7 +162,11 @@ Apply migrations, verify RLS, set Vault/Cron, configure Supabase Auth redirects,
 
 - [ ] **Step 3: Complete provider-terms gate**
 
-Record current provider terms URL/date, native-caption storage permission, retention, deletion obligations, private-use boundary, and responsible reviewer. If private full transcript snapshots are not permitted, mark production deployment blocked; do not silently change to clip-only storage.
+Record current transcript and every approved AI gateway provider terms URL/date,
+native-caption storage permission, submitted prompt/transcript retention,
+deletion obligations, private-use boundary, and responsible reviewer. If private
+full transcript snapshots or the intended model egress are not permitted, mark
+production deployment blocked; do not silently weaken the product or consent.
 
 - [ ] **Step 4: Verify and commit**
 

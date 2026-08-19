@@ -64,7 +64,9 @@ The following are product-completion add-ons, not first-release tasks or accepta
 - AI-generated audio transcription or fallback transcription.
 - Native mobile applications, mobile-specific layouts, PWA installation, offline web mode, Firefox, Safari, or other Chromium browsers.
 - Traditional Chinese learning flows, another target language, or selectable source/target language pairs.
-- User-supplied Supadata, DeepSeek, OpenAI, or other provider keys.
+- User-supplied transcript-provider keys. AI model gateway configuration is
+  allowed only through authenticated Popcorn Web settings under the
+  owner-scoped, exact-origin-consent design amendment dated 2026-08-19.
 - Full-transcript English pre-generation.
 - Folders, tags, collaborative notes, rich note editing, recommendations, community, social features, marketplace, streaks, achievements, or gameplay.
 - Vector search, knowledge-graph visualization, Louvain clustering, Deep Research, agent chat, MCP, and Expression Health Check.
@@ -250,6 +252,10 @@ Server-only Provider Adapters
 - Every pending event is bound to the user ID that created it. Signing into a different account can never reassign or upload another account's queued events.
 - Explicit sign-out with pending events requires a clear choice to sync first or discard them; successful sign-out clears tokens and PKCE material.
 - Provider credentials and the Supabase service role key never reach the extension.
+- A learner may configure an approved AI gateway, model, and write-only API key
+  in authenticated Popcorn Web settings. The server stores only a Vault reference
+  in application tables and requires consent to the exact catalog origin before
+  any transcript or selection leaves Popcorn.
 
 ### 6.3 Fast-save and durable-job boundary
 
@@ -481,6 +487,8 @@ Transitions are monotonic in the first release. A weak later attempt records rec
 - The server accepts only canonical YouTube watch identities for this release.
 - User-supplied strings are stored and rendered as escaped plain text.
 - Server logs exclude tokens, raw private content, full provider responses, and sensitive transcript bodies by default.
+- AI gateway API keys, Vault references, exact private job inputs, and consented
+  transcript/selection bodies are never returned by public APIs or logs.
 - The application stores no YouTube video file and does not bypass access controls.
 - Full transcript snapshots are private, user-owned learning records and are not redistributed publicly.
 - Production readiness requires a recorded review of the selected transcript provider's current terms, retention rules, and permission for private transcript snapshots. An incompatibility blocks deployment until the provider or granted rights change; it may not silently weaken the agreed snapshot product.

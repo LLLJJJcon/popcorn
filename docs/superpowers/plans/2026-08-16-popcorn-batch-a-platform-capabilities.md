@@ -6,6 +6,11 @@
 
 **Architecture:** Keep YouTube-page and Side Panel interactions in the vendored Manifest V3 extension, but replace direct provider credentials and permanent local notes with user-scoped Popcorn APIs. The service worker alone owns the Supabase session and a compact durable event queue; all transcript polling and AI work stays server-side.
 
+**2026-08-19 amendment:** AI gateway display name, approved destination, model,
+write-only key, and exact-origin consent are user-scoped Popcorn Web settings as
+defined by `2026-08-19-popcorn-user-model-gateway.md`. They never return to the
+extension. CONTRACT-008 and the gateway settings service precede resuming Task 3.
+
 **Tech Stack:** Chrome Manifest V3/Side Panel/Identity/Storage/Alarms, plain HTML/CSS/JavaScript adapted from YouTube Digest, Next.js Route Handlers, Supabase Auth/PostgreSQL/RLS, Zod, Vitest, Playwright.
 
 ## Global Constraints
@@ -75,7 +80,9 @@ Expected: FAIL because `auth.js` does not exist.
 
 Set Chrome minimum `116`, add `identity` and `alarms`, keep `sidePanel`, `storage`, `tabs`, and `scripting`, keep only YouTube and Popcorn API/auth host permissions, and remove direct Supadata/DeepSeek hosts. Use a stable public manifest key so the unpacked extension redirect identity does not change between machines.
 
-Options shows account email, `Sign in to Popcorn`, `Sign out`, sync status, clear bounded cache, and discard pending events. It never contains provider-key fields.
+Extension Options shows account email, `Sign in to Popcorn`, `Sign out`, sync
+status, clear bounded cache, and discard pending events. It never contains
+provider-key fields; gateway configuration belongs to authenticated Popcorn Web.
 
 - [ ] **Step 3: Implement PKCE exchange**
 
