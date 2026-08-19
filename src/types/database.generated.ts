@@ -966,6 +966,26 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      complete_gateway_learning_artifact_job: {
+        Args: {
+          p_artifact_type: string
+          p_config_id: string
+          p_content: Json
+          p_expected_attempt_count: number
+          p_expected_config_fingerprint: string
+          p_expected_config_revision: number
+          p_expected_lease_expires_at: string
+          p_job_id: string
+          p_job_type: string
+          p_model: string
+          p_now: string
+          p_prompt_version: string
+          p_result_key: string
+          p_user_id: string
+          p_video_source_id: string
+        }
+        Returns: string
+      }
       complete_learning_artifact_job: {
         Args: {
           p_artifact_type: string
@@ -1014,6 +1034,24 @@ export type Database = {
         Args: { p_config_id: string; p_user_id: string }
         Returns: boolean
       }
+      register_gateway_learning_artifact_job: {
+        Args: {
+          p_config_id: string
+          p_dedupe_key: string
+          p_expected_config_fingerprint: string
+          p_expected_config_revision: number
+          p_input: Json
+          p_job_type: string
+          p_now: string
+          p_user_id: string
+          p_video_source_id: string
+        }
+        Returns: {
+          created: boolean
+          knowledge_job_id: string
+          status: string
+        }[]
+      }
       register_learning_artifact_job: {
         Args: {
           p_dedupe_key: string
@@ -1051,6 +1089,15 @@ export type Database = {
           p_user_id: string
         }
         Returns: boolean
+      }
+      resolve_active_user_model_gateway_pin: {
+        Args: { p_user_id: string }
+        Returns: {
+          config_fingerprint: string
+          config_id: string
+          model: string
+          revision: number
+        }[]
       }
       resolve_user_model_gateway_config: {
         Args: {

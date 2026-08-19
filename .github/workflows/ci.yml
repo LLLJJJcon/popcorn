@@ -51,6 +51,9 @@ jobs:
       - name: Verify model gateway catalog concurrency
         run: tests/contract/model-gateway-concurrency.sh
 
+      - name: Verify model gateway artifact publication concurrency
+        run: tests/contract/model-gateway-artifact-concurrency.sh
+
       - name: Check the pinned vendor script syntax
         run: bash -n scripts/vendor-youtube-digest.sh
 
