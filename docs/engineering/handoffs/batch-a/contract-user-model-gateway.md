@@ -54,3 +54,25 @@
 - Production must populate exact origin catalog rows and keep network-layer
   private-address/DNS-rebinding controls as a Delivery gate.
 - No real gateway was contacted and no credential was added to the repository.
+
+## Independent review fix 1
+
+The first independent review returned FAIL and the controller reproduced every
+blocking counterexample. Fix baseline `bd6c91d` adds:
+
+- Zod and SQL rejection for IPv4 literals, localhost/local/internal names,
+  metadata targets, and the already-rejected IPv6 literal form;
+- SELECT-only service-role access to immutable user config rows, with all writes
+  restricted to SECURITY DEFINER lifecycle RPCs;
+- a trigger that prevents changing a referenced catalog origin's exact origin,
+  base path, or adapter kind;
+- a rename-only owner RPC plus strict rename/revoke/settings-view contracts;
+- idempotent revocation that still marks a config revoked when the secret
+  mapping is missing; and
+- permission regression coverage for all six lifecycle/secret RPCs.
+
+Fix RED: Zod 6/13 failed and gateway pgTAP 16/38 failed against the vulnerable
+implementation. Fix GREEN: Zod 13/13, gateway pgTAP 39/39, full pgTAP 382/382,
+contract/provenance 170/170, ESLint, TypeScript, production build, DB lint (only
+the same two pre-existing Foundation warnings), generated types, and diff check
+all pass after a second clean reset.

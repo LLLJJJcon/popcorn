@@ -8,7 +8,9 @@ as $$
     value ~ '^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?[.])+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
     and length(value) <= 253
     and value !~ '[.][.]'
-    and value !~ '^https://localhost([.]|$)',
+    and value !~ '^https://([0-9]+[.]){3}[0-9]+$'
+    and value !~ '^https://([^./]+[.])*(localhost|local|internal)$'
+    and value !~ '^https://metadata([.]|$)',
     false
   )
 $$;
@@ -106,13 +108,42 @@ revoke all on table private.user_model_gateway_secrets from public, anon, authen
 grant select on table public.model_gateway_origins to authenticated;
 grant select on table public.user_model_gateway_configs to authenticated;
 grant select, insert, update, delete on table public.model_gateway_origins to service_role;
-grant select, insert, update, delete on table public.user_model_gateway_configs to service_role;
+grant select on table public.user_model_gateway_configs to service_role;
 grant select, insert, update, delete on table private.user_model_gateway_secrets to service_role;
 
 create policy model_gateway_origins_select_active on public.model_gateway_origins
   for select to authenticated using (state = 'active');
 create policy user_model_gateway_configs_select_own on public.user_model_gateway_configs
   for select to authenticated using ((select auth.uid()) = user_id);
+
+create function private.protect_model_gateway_origin_semantics()
+returns trigger
+language plpgsql
+security invoker
+set search_path = pg_catalog
+as $$
+begin
+  if (new.canonical_origin, new.base_path, new.adapter_kind)
+      is distinct from (old.canonical_origin, old.base_path, old.adapter_kind)
+    and exists (
+      select 1 from public.user_model_gateway_configs as config
+      where config.origin_id = old.id
+    ) then
+    raise exception using
+      errcode = '23514',
+      message = 'referenced model gateway transport semantics are immutable';
+  end if;
+  return new;
+end
+$$;
+
+revoke all on function private.protect_model_gateway_origin_semantics()
+  from public, anon, authenticated;
+grant execute on function private.protect_model_gateway_origin_semantics() to service_role;
+
+create trigger protect_model_gateway_origin_semantics
+before update on public.model_gateway_origins
+for each row execute function private.protect_model_gateway_origin_semantics();
 
 create function public.create_user_model_gateway_config(
   p_user_id uuid,
@@ -328,6 +359,33 @@ begin
 end
 $$;
 
+create function public.rename_user_model_gateway_config(
+  p_user_id uuid,
+  p_config_id uuid,
+  p_display_name text,
+  p_now timestamptz
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+begin
+  if p_user_id is null or p_config_id is null
+    or p_display_name is null or length(btrim(p_display_name)) not between 1 and 80
+    or p_display_name <> btrim(p_display_name)
+    or p_now is null or not isfinite(p_now) then
+    raise exception using errcode = '22023', message = 'invalid model gateway rename input';
+  end if;
+
+  update public.user_model_gateway_configs
+  set display_name = p_display_name, updated_at = p_now
+  where id = p_config_id and user_id = p_user_id
+    and state in ('pending_consent', 'active');
+  return found;
+end
+$$;
+
 create function public.revoke_user_model_gateway_config(
   p_user_id uuid,
   p_config_id uuid,
@@ -340,25 +398,31 @@ set search_path = pg_catalog
 as $$
 declare
   v_secret_id uuid;
+  v_state text;
 begin
   if p_user_id is null or p_config_id is null or p_now is null or not isfinite(p_now) then
     raise exception using errcode = '22023', message = 'invalid model gateway revocation input';
   end if;
-  select secret.vault_secret_id into v_secret_id
-  from private.user_model_gateway_secrets as secret
-  join public.user_model_gateway_configs as config
-    on config.id = secret.config_id and config.user_id = secret.user_id
-  where secret.config_id = p_config_id and secret.user_id = p_user_id
-    and config.state in ('pending_consent', 'active')
-  for update of config, secret;
+  select config.state into v_state
+  from public.user_model_gateway_configs as config
+  where config.id = p_config_id and config.user_id = p_user_id
+  for update of config;
   if not found then return false; end if;
+
+  if v_state = 'revoked' then return true; end if;
+  if v_state not in ('pending_consent', 'active') then return false; end if;
 
   update public.user_model_gateway_configs
   set state = 'revoked', revoked_at = p_now, updated_at = p_now
   where id = p_config_id and user_id = p_user_id;
-  delete from private.user_model_gateway_secrets
-  where config_id = p_config_id and user_id = p_user_id;
-  delete from vault.secrets where id = v_secret_id;
+  select secret.vault_secret_id into v_secret_id
+  from private.user_model_gateway_secrets as secret
+  where secret.config_id = p_config_id and secret.user_id = p_user_id;
+  if found then
+    delete from private.user_model_gateway_secrets
+    where config_id = p_config_id and user_id = p_user_id;
+    delete from vault.secrets where id = v_secret_id;
+  end if;
   return true;
 end
 $$;
@@ -375,6 +439,9 @@ revoke all on function public.resolve_user_model_gateway_config(
 revoke all on function public.rotate_user_model_gateway_key(
   uuid, uuid, text, timestamptz
 ) from public, anon, authenticated;
+revoke all on function public.rename_user_model_gateway_config(
+  uuid, uuid, text, timestamptz
+) from public, anon, authenticated;
 revoke all on function public.revoke_user_model_gateway_config(
   uuid, uuid, timestamptz
 ) from public, anon, authenticated;
@@ -389,6 +456,9 @@ grant execute on function public.resolve_user_model_gateway_config(
   uuid, uuid, integer
 ) to service_role;
 grant execute on function public.rotate_user_model_gateway_key(
+  uuid, uuid, text, timestamptz
+) to service_role;
+grant execute on function public.rename_user_model_gateway_config(
   uuid, uuid, text, timestamptz
 ) to service_role;
 grant execute on function public.revoke_user_model_gateway_config(

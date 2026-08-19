@@ -1039,6 +1039,15 @@ export type Database = {
           status: string
         }[]
       }
+      rename_user_model_gateway_config: {
+        Args: {
+          p_config_id: string
+          p_display_name: string
+          p_now: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       resolve_user_model_gateway_config: {
         Args: {
           p_config_id: string

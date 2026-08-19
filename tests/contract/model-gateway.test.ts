@@ -3,7 +3,10 @@ import {
   ModelGatewayConsentInputSchema,
   ModelGatewayCreateInputSchema,
   ModelGatewayOriginViewSchema,
+  ModelGatewayRenameInputSchema,
+  ModelGatewayRevokeInputSchema,
   ModelGatewayRotateKeyInputSchema,
+  ModelGatewaySettingsViewSchema,
 } from "@/contracts";
 
 const origin = {
@@ -27,6 +30,20 @@ describe("user model gateway contracts", () => {
         canonicalOrigin: "https://models.example.com/v1",
       }).success,
     ).toBe(false);
+  });
+
+  it.each([
+    "https://127.0.0.1",
+    "https://169.254.169.254",
+    "https://0.0.0.0",
+    "https://[::1]",
+    "https://localhost",
+    "https://api.localhost",
+    "https://metadata.google.internal",
+  ])("rejects a local, IP-literal, or metadata origin: %s", (canonicalOrigin) => {
+    expect(ModelGatewayOriginViewSchema.safeParse({ ...origin, canonicalOrigin }).success).toBe(
+      false,
+    );
   });
 
   it("accepts a write-only key with catalog selection and no caller URL or adapter", () => {
@@ -106,6 +123,32 @@ describe("user model gateway contracts", () => {
     expect(ModelGatewayRotateKeyInputSchema.parse(input)).toEqual(input);
     expect(
       ModelGatewayRotateKeyInputSchema.safeParse({ ...input, userId: origin.id }).success,
+    ).toBe(false);
+  });
+
+  it("freezes bounded rename, revoke, and settings view contracts", () => {
+    const configId = "20000000-0000-4000-8000-000000000008";
+
+    expect(
+      ModelGatewayRenameInputSchema.parse({ configId, displayName: "Renamed gateway" }),
+    ).toEqual({ configId, displayName: "Renamed gateway" });
+    expect(ModelGatewayRevokeInputSchema.parse({ configId })).toEqual({ configId });
+    expect(
+      ModelGatewayRenameInputSchema.safeParse({
+        configId,
+        displayName: "Renamed gateway",
+        model: "must-not-change",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      ModelGatewaySettingsViewSchema.parse({ origins: [origin], configs: [] }),
+    ).toEqual({ origins: [origin], configs: [] });
+    expect(
+      ModelGatewaySettingsViewSchema.safeParse({
+        origins: Array.from({ length: 51 }, () => origin),
+        configs: [],
+      }).success,
     ).toBe(false);
   });
 });

@@ -50,6 +50,22 @@ insert into public.model_gateway_origins (
   'https://models.example.com', '/v1', 'openai-compatible', 'active'
 );
 
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('loopback','Loopback','https://127.0.0.1','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects IPv4 loopback literals');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('link-local','Link local','https://169.254.169.254','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects link-local IP literals');
+select extensions.throws_ok(
+  $$insert into public.model_gateway_origins
+    (slug,display_name,canonical_origin,base_path,adapter_kind,state) values
+    ('metadata','Metadata','https://metadata.google.internal','/v1','openai-compatible','active')$$,
+  '23514', null, 'catalog rejects metadata and internal names');
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub', :'user_a', true);
 select extensions.results_eq(
@@ -79,6 +95,21 @@ select extensions.ok(
    from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.proname='create_user_model_gateway_config'),
   'config creation RPC is service-role-only'
+);
+select extensions.ok(
+  (select count(*) = 6 and bool_and(
+      has_function_privilege('service_role', p.oid, 'execute')
+      and not has_function_privilege('authenticated', p.oid, 'execute')
+      and not has_function_privilege('anon', p.oid, 'execute')
+      and not has_function_privilege('public', p.oid, 'execute')
+    )
+   from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname = any(array[
+     'create_user_model_gateway_config','activate_user_model_gateway_config',
+     'resolve_user_model_gateway_config','rotate_user_model_gateway_key',
+     'rename_user_model_gateway_config','revoke_user_model_gateway_config'
+   ])),
+  'every gateway lifecycle and secret RPC is service-role-only'
 );
 
 set local role service_role;
@@ -121,12 +152,49 @@ select extensions.lives_ok(
     :'user_a', :'config_a'),
   'activation records exact-origin consent'
 );
+select extensions.throws_ok(
+  format($sql$update public.user_model_gateway_configs set model='mutated'
+    where id=%L::uuid$sql$, :'config_a'),
+  '42501', null, 'service role cannot bypass RPCs to mutate config semantics');
+select extensions.throws_ok(
+  format($sql$update public.user_model_gateway_configs set consented_origin='https://attacker.example.com'
+    where id=%L::uuid$sql$, :'config_a'),
+  '42501', null, 'service role cannot rewrite consent evidence directly');
+select extensions.throws_ok(
+  format($sql$delete from public.user_model_gateway_configs where id=%L::uuid$sql$, :'config_a'),
+  '42501', null, 'service role cannot delete immutable config versions directly');
+select extensions.throws_ok(
+  format($sql$insert into public.user_model_gateway_configs (
+      id,user_id,display_name,origin_id,adapter_kind,model,revision,
+      config_fingerprint,state,created_at,updated_at)
+    values ('81000000-0000-4000-8000-000000000099',%L::uuid,'forged',%L::uuid,
+      'openai-compatible','forged',99,repeat('f',64),'pending_consent',now(),now())$sql$,
+    :'user_a', :'origin_id'),
+  '42501', null, 'service role cannot insert config versions outside the RPC');
+select extensions.throws_ok(
+  format($sql$update public.model_gateway_origins set base_path='/attacker'
+    where id=%L::uuid$sql$, :'origin_id'),
+  '23514', null, 'referenced catalog transport semantics are immutable');
+select extensions.lives_ok(
+  format($sql$select public.rename_user_model_gateway_config(
+    %L::uuid,%L::uuid,'Renamed Gateway','2026-08-19 10:01:30+00')$sql$,
+    :'user_a', :'config_a'),
+  'rename uses a bounded owner RPC without new consent'
+);
+select extensions.results_eq(
+  format($sql$select display_name,revision,config_fingerprint,state,consented_origin
+    from public.user_model_gateway_configs where id=%L::uuid$sql$, :'config_a'),
+  $$select 'Renamed Gateway'::text,1,encode(digest(
+      'adapter:17:openai-compatible|origin:26:https://models.example.com|path:3:/v1|model:17:provider/model-v1',
+      'sha256'),'hex'),'active'::text,'https://models.example.com'::text$$,
+  'rename preserves revision, fingerprint, state, and consent'
+);
 select extensions.results_eq(
   format($sql$select display_name,canonical_origin,base_path,adapter_kind,model,revision,
       config_fingerprint,api_key,credential_revision
     from public.resolve_user_model_gateway_config(%L::uuid,%L::uuid,1)$sql$,
     :'user_a', :'config_a'),
-  $$select 'My Gateway'::text,'https://models.example.com'::text,'/v1'::text,
+  $$select 'Renamed Gateway'::text,'https://models.example.com'::text,'/v1'::text,
       'openai-compatible'::text,'provider/model-v1'::text,1,encode(digest(
         'adapter:17:openai-compatible|origin:26:https://models.example.com|path:3:/v1|model:17:provider/model-v1',
         'sha256'),'hex'),
@@ -168,13 +236,43 @@ select extensions.is(
   0,
   'revocation removes the secret reference'
 );
+select extensions.is(
+  public.revoke_user_model_gateway_config(
+    :'user_a', :'config_a', '2026-08-19 10:04:00+00'),
+  true,
+  'revocation replay is idempotent for an owned revoked config'
+);
+
+reset role;
+insert into public.user_model_gateway_configs (
+  id,user_id,display_name,origin_id,adapter_kind,model,revision,
+  config_fingerprint,state,created_at,updated_at
+) values (
+  '81000000-0000-4000-8000-000000000002', :'user_a', 'Missing Secret', :'origin_id',
+  'openai-compatible','provider/model-v1',2,repeat('b',64),'pending_consent',
+  '2026-08-19 10:05:00+00','2026-08-19 10:05:00+00'
+);
+set local role service_role;
+select extensions.is(
+  public.revoke_user_model_gateway_config(
+    :'user_a','81000000-0000-4000-8000-000000000002','2026-08-19 10:06:00+00'),
+  true,
+  'missing secret mapping cannot prevent owner config revocation'
+);
+select extensions.results_eq(
+  $$select state,revoked_at is not null from public.user_model_gateway_configs
+    where id='81000000-0000-4000-8000-000000000002'$$,
+  $$values ('revoked'::text,true)$$,
+  'corrupt missing-secret config is fail-closed revoked'
+);
 reset role;
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', :'user_a', true);
 select extensions.results_eq(
   $$select display_name,state from public.user_model_gateway_configs order by revision$$,
-  $$values ('My Gateway'::text,'revoked'::text)$$,
+  $$values ('Renamed Gateway'::text,'revoked'::text),
+           ('Missing Secret'::text,'revoked'::text)$$,
   'owner can read only non-secret own config metadata'
 );
 select set_config('request.jwt.claim.sub', :'user_b', true);
