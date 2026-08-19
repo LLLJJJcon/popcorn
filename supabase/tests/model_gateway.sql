@@ -142,7 +142,7 @@ select extensions.ok(
   'config creation RPC is service-role-only'
 );
 select extensions.ok(
-  (select count(*) = 6 and bool_and(
+  (select count(*) = 7 and bool_and(
       has_function_privilege('service_role', p.oid, 'execute')
       and not has_function_privilege('authenticated', p.oid, 'execute')
       and not has_function_privilege('anon', p.oid, 'execute')
@@ -152,7 +152,8 @@ select extensions.ok(
    where n.nspname='public' and p.proname = any(array[
      'create_user_model_gateway_config','activate_user_model_gateway_config',
      'resolve_user_model_gateway_config','rotate_user_model_gateway_key',
-     'rename_user_model_gateway_config','revoke_user_model_gateway_config'
+     'rename_user_model_gateway_config','revoke_user_model_gateway_config',
+     'has_user_model_gateway_secret'
    ])),
   'every gateway lifecycle and secret RPC is service-role-only'
 );
@@ -177,6 +178,16 @@ select extensions.is(
    where config_id=:'config_a' and user_id=:'user_a'),
   1,
   'one private Vault reference is created'
+);
+select extensions.is(
+  public.has_user_model_gateway_secret(:'user_a', :'config_a'),
+  true,
+  'service role can obtain a non-secret credential-presence signal'
+);
+select extensions.is(
+  public.has_user_model_gateway_secret(:'user_b', :'config_a'),
+  false,
+  'credential-presence signal is owner-bound'
 );
 select extensions.is(
   (select count(*)::integer from private.user_model_gateway_secrets s
@@ -294,6 +305,11 @@ select extensions.is(
   'revocation removes the secret reference'
 );
 select extensions.is(
+  public.has_user_model_gateway_secret(:'user_a', :'config_a'),
+  false,
+  'revoked configuration reports no API key'
+);
+select extensions.is(
   (select count(*)::integer from vault.secrets
    where id=(select vault_secret_id from gateway_explicit_revoke_vault_before)),
   0,
@@ -379,6 +395,12 @@ insert into public.user_model_gateway_configs (
   '2026-08-19 10:05:00+00','2026-08-19 10:05:00+00'
 );
 set local role service_role;
+select extensions.is(
+  public.has_user_model_gateway_secret(
+    :'user_a','81000000-0000-4000-8000-000000000002'),
+  false,
+  'missing secret mapping reports no API key without resolving a secret'
+);
 select extensions.is(
   public.revoke_user_model_gateway_config(
     :'user_a','81000000-0000-4000-8000-000000000002','2026-08-19 10:06:00+00'),

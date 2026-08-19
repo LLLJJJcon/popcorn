@@ -322,6 +322,26 @@ as $$
     and config.consented_origin = origin.canonical_origin
 $$;
 
+create function public.has_user_model_gateway_secret(
+  p_user_id uuid,
+  p_config_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog
+as $$
+  select exists (
+    select 1
+    from public.user_model_gateway_configs as config
+    join private.user_model_gateway_secrets as secret
+      on secret.config_id = config.id and secret.user_id = config.user_id
+    where config.id = p_config_id and config.user_id = p_user_id
+      and config.state in ('pending_consent', 'active')
+  )
+$$;
+
 create function public.rotate_user_model_gateway_key(
   p_user_id uuid,
   p_config_id uuid,
@@ -438,6 +458,9 @@ revoke all on function public.activate_user_model_gateway_config(
 revoke all on function public.resolve_user_model_gateway_config(
   uuid, uuid, integer
 ) from public, anon, authenticated;
+revoke all on function public.has_user_model_gateway_secret(
+  uuid, uuid
+) from public, anon, authenticated;
 revoke all on function public.rotate_user_model_gateway_key(
   uuid, uuid, text, timestamptz
 ) from public, anon, authenticated;
@@ -456,6 +479,9 @@ grant execute on function public.activate_user_model_gateway_config(
 ) to service_role;
 grant execute on function public.resolve_user_model_gateway_config(
   uuid, uuid, integer
+) to service_role;
+grant execute on function public.has_user_model_gateway_secret(
+  uuid, uuid
 ) to service_role;
 grant execute on function public.rotate_user_model_gateway_key(
   uuid, uuid, text, timestamptz

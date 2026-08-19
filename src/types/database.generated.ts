@@ -1010,6 +1010,10 @@ export type Database = {
           state: string
         }[]
       }
+      has_user_model_gateway_secret: {
+        Args: { p_config_id: string; p_user_id: string }
+        Returns: boolean
+      }
       register_learning_artifact_job: {
         Args: {
           p_dedupe_key: string
