@@ -13,6 +13,7 @@ const FLOW_COOKIE = "popcorn-auth-flow";
 const FLOW_MAX_AGE_SECONDS = 10 * 60;
 const MAX_FORM_BYTES = 4 * 1024;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const AUTH_CODE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const EmailSchema = z
   .string()
   .max(254)
@@ -179,9 +180,7 @@ export function createWebAuthFlowHandlers({
         [...url.searchParams.keys()].every((key) => key === "code" || key === "flow") &&
         url.searchParams.size === 2 &&
         codes.length === 1 &&
-        codes[0].length > 0 &&
-        codes[0].length <= MAX_FORM_BYTES &&
-        codes[0] === codes[0].trim() &&
+        AUTH_CODE_PATTERN.test(codes[0]) &&
         flows.length === 1 &&
         storedFlows.length === 1 &&
         equalFlow(flows[0], storedFlows[0].value);

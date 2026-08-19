@@ -55,8 +55,10 @@ export function ModelGatewaySettings() {
   const [createInvalid, setCreateInvalid] = useState(false);
   const [consents, setConsents] = useState<Record<string, boolean>>({});
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
+  const [renameInvalidId, setRenameInvalidId] = useState<string | null>(null);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [rotationKeys, setRotationKeys] = useState<Record<string, string>>({});
+  const [rotationInvalidId, setRotationInvalidId] = useState<string | null>(null);
   const [revokeId, setRevokeId] = useState<string | null>(null);
   const revokeConfirmRef = useRef<HTMLButtonElement | null>(null);
 
@@ -148,10 +150,13 @@ export function ModelGatewaySettings() {
   async function rename(config: ModelGatewayConfigView, event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextName = (renameDrafts[config.id] ?? config.displayName).trim();
-    if (!nextName || busy) {
+    if (!nextName) {
+      setRenameInvalidId(config.id);
       setActionError("Enter a display name before renaming.");
       return;
     }
+    if (busy) return;
+    setRenameInvalidId(null);
     await mutate(SETTINGS_ENDPOINT, "PUT", {
       configId: config.id,
       displayName: nextName,
@@ -162,10 +167,13 @@ export function ModelGatewaySettings() {
     event.preventDefault();
     const writeOnlyKey = rotationKeys[config.id] ?? "";
     setRotationKeys((current) => ({ ...current, [config.id]: "" }));
-    if (!writeOnlyKey.trim() || busy) {
+    if (!writeOnlyKey.trim()) {
+      setRotationInvalidId(config.id);
       setActionError("Enter a new API key before saving.");
       return;
     }
+    if (busy) return;
+    setRotationInvalidId(null);
     await mutate(SETTINGS_ENDPOINT, "PUT", {
       configId: config.id,
       apiKey: writeOnlyKey,
@@ -323,8 +331,16 @@ export function ModelGatewaySettings() {
                             New display name for {config.displayName}
                             <input
                               value={renameDrafts[config.id] ?? config.displayName}
-                              onChange={(event) => setRenameDrafts((current) => ({ ...current, [config.id]: event.target.value }))}
+                              onChange={(event) => {
+                                setRenameDrafts((current) => ({ ...current, [config.id]: event.target.value }));
+                                if (renameInvalidId === config.id) {
+                                  setRenameInvalidId(null);
+                                  setActionError(null);
+                                }
+                              }}
                               maxLength={80}
+                              aria-invalid={renameInvalidId === config.id ? true : undefined}
+                              aria-describedby={renameInvalidId === config.id ? "gateway-action-error" : undefined}
                               disabled={busy}
                             />
                           </label>
@@ -340,14 +356,34 @@ export function ModelGatewaySettings() {
                                 autoComplete="off"
                                 spellCheck={false}
                                 value={rotationKeys[config.id] ?? ""}
-                                onChange={(event) => setRotationKeys((current) => ({ ...current, [config.id]: event.target.value }))}
+                                onChange={(event) => {
+                                  setRotationKeys((current) => ({ ...current, [config.id]: event.target.value }));
+                                  if (rotationInvalidId === config.id) {
+                                    setRotationInvalidId(null);
+                                    setActionError(null);
+                                  }
+                                }}
                                 maxLength={4_096}
+                                aria-invalid={rotationInvalidId === config.id ? true : undefined}
+                                aria-describedby={rotationInvalidId === config.id ? "gateway-action-error" : undefined}
                                 disabled={busy}
                               />
                             </label>
                             <div className={styles.buttonRow}>
                               <button className={styles.primaryButton} type="submit" disabled={busy}>Save new key for {config.displayName}</button>
-                              <button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => setRotatingId(null)}>Cancel rotation</button>
+                              <button
+                                className={styles.secondaryButton}
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  setRotationKeys((current) => ({ ...current, [config.id]: "" }));
+                                  setRotationInvalidId(null);
+                                  setActionError(null);
+                                  setRotatingId(null);
+                                }}
+                              >
+                                Cancel rotation
+                              </button>
                             </div>
                           </form>
                         ) : (
@@ -357,6 +393,8 @@ export function ModelGatewaySettings() {
                             disabled={busy}
                             onClick={() => {
                               setRotationKeys((current) => ({ ...current, [config.id]: "" }));
+                              setRotationInvalidId(null);
+                              setActionError(null);
                               setRotatingId(config.id);
                             }}
                           >

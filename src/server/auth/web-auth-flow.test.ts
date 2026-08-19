@@ -3,6 +3,7 @@ import { createWebAuthFlowHandlers } from "./web-auth-flow";
 
 const APP_URL = "https://popcorn.example/app/path";
 const FLOW_ID = "11111111-1111-4111-8111-111111111111";
+const AUTH_CODE = "34e770dd-9ff9-416c-87fa-43b31d7ef225";
 
 type CookieWrite = {
   name: string;
@@ -157,12 +158,12 @@ describe("server-only Web authentication flow", () => {
       initialCookies: [{ name: "popcorn-auth-flow", value: FLOW_ID }],
     });
     const response = await handlers.callback(new Request(
-      `https://popcorn.example/auth/callback?code=pkce-code&flow=${FLOW_ID}`,
+      `https://popcorn.example/auth/callback?code=${AUTH_CODE}&flow=${FLOW_ID}`,
     ));
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("https://popcorn.example/settings/model-gateway");
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(calls.exchange).toEqual(["pkce-code"]);
+    expect(calls.exchange).toEqual([AUTH_CODE]);
     expect(writes).toContainEqual(expect.objectContaining({
       name: "popcorn-auth-flow",
       value: "",
@@ -190,11 +191,45 @@ describe("server-only Web authentication flow", () => {
     expect(await response.text()).not.toMatch(/secret|evil|pkce/i);
   });
 
+  it.each([
+    { name: "invalid percent text", encodedCode: "%ZZ" },
+    { name: "NUL", encodedCode: "%00" },
+    { name: "control character", encodedCode: "%01" },
+    { name: "newline", encodedCode: "%0A" },
+    { name: "Unicode", encodedCode: "%E4%B8%AD" },
+    { name: "HTML", encodedCode: "%3Cscript%3E" },
+    { name: "metacharacters", encodedCode: "%26next%3Dhttps%3A%2F%2Fevil.example" },
+    { name: "whitespace", encodedCode: `%20${AUTH_CODE}` },
+    { name: "overlength", encodedCode: "a".repeat(4_097) },
+    { name: "uppercase noncanonical UUID", encodedCode: AUTH_CODE.toUpperCase() },
+    { name: "UUID without hyphens", encodedCode: AUTH_CODE.replaceAll("-", "") },
+    { name: "non-v4 UUID", encodedCode: "34e770dd-9ff9-516c-87fa-43b31d7ef225" },
+    { name: "non-RFC variant UUID", encodedCode: "34e770dd-9ff9-416c-77fa-43b31d7ef225" },
+  ])("rejects $name authorization code before exchange and consumes flow state", async ({ encodedCode }) => {
+    const { handlers, writes, calls } = harness({
+      initialCookies: [{ name: "popcorn-auth-flow", value: FLOW_ID }],
+    });
+
+    const response = await handlers.callback(new Request(
+      `https://popcorn.example/auth/callback?code=${encodedCode}&flow=${FLOW_ID}`,
+    ));
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("https://popcorn.example/sign-in");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(calls.exchange).toEqual([]);
+    expect(writes).toContainEqual(expect.objectContaining({
+      name: "popcorn-auth-flow",
+      value: "",
+      maxAge: 0,
+    }));
+  });
+
   it("rejects a missing or mismatched one-time cookie and does not replay it", async () => {
     for (const initialCookies of [[], [{ name: "popcorn-auth-flow", value: "33333333-3333-4333-8333-333333333333" }]]) {
       const { handlers, calls } = harness({ initialCookies });
       const response = await handlers.callback(new Request(
-        `https://popcorn.example/auth/callback?code=pkce-code&flow=${FLOW_ID}`,
+        `https://popcorn.example/auth/callback?code=${AUTH_CODE}&flow=${FLOW_ID}`,
       ));
       expect(response.headers.get("location")).toBe("https://popcorn.example/sign-in");
       expect(calls.exchange).toEqual([]);
@@ -204,13 +239,13 @@ describe("server-only Web authentication flow", () => {
   it("fails callback closed on provider error without leaking code or raw text", async () => {
     const { handlers } = harness({
       initialCookies: [{ name: "popcorn-auth-flow", value: FLOW_ID }],
-      exchangeError: new Error("raw pkce-code provider detail"),
+      exchangeError: new Error(`raw ${AUTH_CODE} provider detail`),
     });
     const response = await handlers.callback(new Request(
-      `https://popcorn.example/auth/callback?code=pkce-code&flow=${FLOW_ID}`,
+      `https://popcorn.example/auth/callback?code=${AUTH_CODE}&flow=${FLOW_ID}`,
     ));
     expect(response.headers.get("location")).toBe("https://popcorn.example/sign-in");
-    expect(await response.text()).not.toMatch(/pkce-code|provider detail/i);
+    expect(await response.text()).not.toMatch(/34e770dd|provider detail/i);
   });
 
   it("signs out only from an exact-origin POST and always uses the fixed redirect", async () => {

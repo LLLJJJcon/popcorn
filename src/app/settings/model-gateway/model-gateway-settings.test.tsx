@@ -239,6 +239,61 @@ describe("ModelGatewaySettings", () => {
     expect(document.body).not.toHaveTextContent("rotation-secret");
   });
 
+  it("associates an empty rename error with its input and clears invalid state on edit", async () => {
+    const fetchMock = mockFetch(response(settings([active])));
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    const rename = await screen.findByLabelText("New display name for My Gateway");
+    await user.clear(rename);
+    await user.click(screen.getByRole("button", { name: "Rename My Gateway" }));
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Enter a display name before renaming.");
+    expect(rename).toHaveAttribute("aria-invalid", "true");
+    expect(rename).toHaveAttribute("aria-describedby", alert.id);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.type(rename, "Edited Gateway");
+    expect(rename).not.toHaveAttribute("aria-invalid", "true");
+    expect(rename).not.toHaveAttribute("aria-describedby");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("associates an empty rotation error, clears it on edit, and immediately clears a submitted key", async () => {
+    const rotated = { ...active, revision: 2 };
+    const fetchMock = mockFetch(
+      response(settings([active])),
+      response(rotated),
+      response(settings([rotated])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Rotate key for My Gateway" }));
+    const rotation = screen.getByLabelText("New API key for My Gateway");
+    await user.click(screen.getByRole("button", { name: "Save new key for My Gateway" }));
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Enter a new API key before saving.");
+    expect(rotation).toHaveAttribute("aria-invalid", "true");
+    expect(rotation).toHaveAttribute("aria-describedby", alert.id);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.type(rotation, "fresh-rotation-secret");
+    expect(rotation).not.toHaveAttribute("aria-invalid", "true");
+    expect(rotation).not.toHaveAttribute("aria-describedby");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save new key for My Gateway" }));
+    await waitFor(() => expect(screen.getByText("Revision 2")).toBeInTheDocument());
+    expect(rotation).toHaveValue("");
+    expect(rotation).not.toHaveAttribute("aria-invalid", "true");
+    expect(rotation).not.toHaveAttribute("aria-describedby");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(document.documentElement.outerHTML).not.toContain("fresh-rotation-secret");
+  });
+
   it.each([
     { name: "validation", mutation: null },
     { name: "HTTP", mutation: Response.json({ raw: "failure-secret supplied-key" }, { status: 500 }) },
