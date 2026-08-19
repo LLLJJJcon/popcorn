@@ -8,6 +8,9 @@ select extensions.no_plan();
 \set origin_id '89000000-0000-4000-8000-000000000001'
 \set config_a '89100000-0000-4000-8000-000000000001'
 \set config_b '89100000-0000-4000-8000-000000000002'
+\set replace_old '89100000-0000-4000-8000-000000000003'
+\set replace_new '89100000-0000-4000-8000-000000000004'
+\set replace_corrupt '89100000-0000-4000-8000-000000000005'
 \set source_a '89200000-0000-4000-8000-000000000001'
 \set source_b '89200000-0000-4000-8000-000000000002'
 
@@ -46,6 +49,19 @@ select extensions.ok(
      'complete_gateway_learning_artifact_job'
    ])),
   'all gateway-aware learning-artifact RPCs are service-role-only'
+);
+select extensions.ok(
+  (select count(*) = 1 and bool_and(
+      not has_function_privilege('service_role', p.oid, 'execute')
+      and not has_function_privilege('authenticated', p.oid, 'execute')
+      and not has_function_privilege('anon', p.oid, 'execute')
+      and not has_function_privilege('public', p.oid, 'execute')
+    )
+   from pg_catalog.pg_proc as p
+   join pg_catalog.pg_namespace as n on n.oid = p.pronamespace
+   where n.nspname = 'private'
+     and p.proname = 'cleanup_revoked_user_model_gateway_config'),
+  'shared revoked-config cleanup helper is inaccessible to every runtime role'
 );
 select extensions.ok(
   (select pg_get_functiondef(p.oid) not like '%decrypted_secrets%'
@@ -450,6 +466,170 @@ select extensions.is(
   (select count(*)::integer from public.resolve_active_user_model_gateway_pin(:'user_a')),
   0,
   'revoked configuration is excluded from active lookup'
+);
+
+select extensions.lives_ok(
+  format($sql$select * from public.create_user_model_gateway_config(
+    %L::uuid,%L::uuid,%L::uuid,'Replacement old','provider/model-v1','replace-old-secret',
+    '2026-08-19 12:08:00+00'::timestamptz)$sql$, :'user_a', :'replace_old', :'origin_id'),
+  'owner creates the active configuration that will be replaced'
+);
+select extensions.lives_ok(
+  format($sql$select public.activate_user_model_gateway_config(
+    %L::uuid,%L::uuid,'https://gateway-jobs.example.com','model-egress-v1',
+    '2026-08-19 12:08:01+00'::timestamptz)$sql$, :'user_a', :'replace_old'),
+  'owner activates the configuration that will be replaced'
+);
+
+create temporary table replacement_job_results (
+  label text primary key,
+  knowledge_job_id uuid not null,
+  status text not null,
+  created boolean not null
+) on commit drop;
+grant select, insert on table replacement_job_results to service_role;
+
+insert into replacement_job_results
+select fixture.label, result.*
+from (values
+  ('pending'::text,'translate_segments'::text,repeat('8',64),'{"request":"replacement-pending"}'::jsonb),
+  ('retryable'::text,'explain_selection'::text,repeat('9',64),'{"request":"replacement-retryable"}'::jsonb),
+  ('leased'::text,'generate_overview'::text,repeat('a',64),'{"request":"replacement-leased"}'::jsonb),
+  ('succeeded'::text,'generate_overview'::text,repeat('b',64),'{"request":"replacement-succeeded"}'::jsonb)
+) as fixture(label,job_type,dedupe_key,input)
+cross join lateral public.register_gateway_learning_artifact_job(
+  :'user_a', :'source_a', fixture.job_type, fixture.dedupe_key, fixture.input,
+  :'replace_old',
+  (select revision from public.user_model_gateway_configs where id = :'replace_old'),
+  (select config_fingerprint from public.user_model_gateway_configs where id = :'replace_old'),
+  '2026-08-19 12:08:02+00'
+) as result;
+update public.knowledge_jobs as job
+set status = 'retryable_failed', attempt_count = 1,
+  next_attempt_at = '2026-08-19 12:18:00+00', last_error_code = 'PROVIDER_TIMEOUT'
+from replacement_job_results as result
+where result.label = 'retryable' and job.id = result.knowledge_job_id;
+update public.knowledge_jobs as job
+set status = 'leased', attempt_count = 1,
+  lease_expires_at = '2026-08-19 12:28:00+00'
+from replacement_job_results as result
+where result.label in ('leased','succeeded') and job.id = result.knowledge_job_id;
+select extensions.ok(
+  public.complete_gateway_learning_artifact_job(
+    :'user_a',
+    (select knowledge_job_id from replacement_job_results where label = 'succeeded'),
+    :'source_a','generate_overview','2026-08-19 12:28:00+00',1,'overview',
+    '{"summaryEnglish":"Keep replacement result","evidenceChinese":"已完成结果必须保留。"}'::jsonb,
+    'overview-v1','provider/model-v1',repeat('b',64),:'replace_old',
+    (select revision from public.user_model_gateway_configs where id = :'replace_old'),
+    (select config_fingerprint from public.user_model_gateway_configs where id = :'replace_old'),
+    '2026-08-19 12:08:03+00'
+  ) is not null,
+  'replacement fixture publishes one succeeded artifact before config replacement'
+);
+create temporary table replacement_old_vault on commit drop as
+select vault_secret_id from private.user_model_gateway_secrets
+where user_id = :'user_a' and config_id = :'replace_old';
+grant select on table replacement_old_vault to service_role;
+
+select extensions.lives_ok(
+  format($sql$select * from public.create_user_model_gateway_config(
+    %L::uuid,%L::uuid,%L::uuid,'Replacement new','provider/model-v1','replace-new-secret',
+    '2026-08-19 12:09:00+00'::timestamptz)$sql$, :'user_a', :'replace_new', :'origin_id'),
+  'owner creates a replacement pending configuration'
+);
+select extensions.is(
+  public.activate_user_model_gateway_config(
+    :'user_a', :'replace_new', 'https://gateway-jobs.example.com', 'model-egress-v1',
+    '2026-08-19 12:09:01+00'),
+  true,
+  'activating a replacement succeeds'
+);
+select extensions.results_eq(
+  $$select result.label,job.status,job.next_attempt_at,job.lease_expires_at,
+      job.last_error_code,internal.input
+    from replacement_job_results as result
+    join public.knowledge_jobs as job on job.id = result.knowledge_job_id
+    join public.knowledge_job_internal as internal on internal.knowledge_job_id = job.id
+    where result.label in ('leased','pending','retryable')
+    order by result.label$$,
+  $$values
+    ('leased'::text,'terminal_failed'::text,null::timestamptz,null::timestamptz,
+      'MODEL_GATEWAY_REVOKED'::text,'{}'::jsonb),
+    ('pending'::text,'terminal_failed'::text,null::timestamptz,null::timestamptz,
+      'MODEL_GATEWAY_REVOKED'::text,'{}'::jsonb),
+    ('retryable'::text,'terminal_failed'::text,null::timestamptz,null::timestamptz,
+      'MODEL_GATEWAY_REVOKED'::text,'{}'::jsonb)$$,
+  'replacement terminalizes every recoverable old pin and clears private input'
+);
+select extensions.results_eq(
+  $$select job.status,internal.result,(select count(*) from public.generated_artifacts
+      where user_id='09000000-0000-4000-8000-00000000a001' and result_key=repeat('b',64))
+    from replacement_job_results as result
+    join public.knowledge_jobs as job on job.id=result.knowledge_job_id
+    join public.knowledge_job_internal as internal on internal.knowledge_job_id=job.id
+    where result.label='succeeded'$$,
+  $$select 'succeeded'::text,jsonb_build_object('artifactId',artifact.id),1::bigint
+    from public.generated_artifacts as artifact
+    where artifact.user_id='09000000-0000-4000-8000-00000000a001'
+      and artifact.result_key=repeat('b',64)$$,
+  'replacement preserves already-succeeded pinned work'
+);
+select extensions.results_eq(
+  $$select id,state from public.user_model_gateway_configs
+    where id in (
+      '89100000-0000-4000-8000-000000000003',
+      '89100000-0000-4000-8000-000000000004')
+    order by id$$,
+  $$values
+    ('89100000-0000-4000-8000-000000000003'::uuid,'revoked'::text),
+    ('89100000-0000-4000-8000-000000000004'::uuid,'active'::text)$$,
+  'replacement revokes the old config and activates the target config'
+);
+select extensions.is(
+  (select count(*)::integer from private.user_model_gateway_secrets
+   where user_id = :'user_a' and config_id = :'replace_old'),
+  0,
+  'replacement deletes the old credential mapping'
+);
+select extensions.is(
+  (select count(*)::integer from vault.secrets
+   where id = (select vault_secret_id from replacement_old_vault)),
+  0,
+  'replacement destroys the old Vault secret'
+);
+
+reset role;
+create temporary table corrupt_active_vault on commit drop as
+select vault_secret_id from private.user_model_gateway_secrets
+where user_id = :'user_a' and config_id = :'replace_new';
+grant select on table corrupt_active_vault to service_role;
+delete from private.user_model_gateway_secrets
+where user_id = :'user_a' and config_id = :'replace_new';
+delete from vault.secrets where id = (select vault_secret_id from corrupt_active_vault);
+set local role service_role;
+select extensions.lives_ok(
+  format($sql$select * from public.create_user_model_gateway_config(
+    %L::uuid,%L::uuid,%L::uuid,'Corrupt replacement','provider/model-v1','corrupt-replacement-secret',
+    '2026-08-19 12:10:00+00'::timestamptz)$sql$, :'user_a', :'replace_corrupt', :'origin_id'),
+  'owner creates a target for replacing an active row missing its secret mapping'
+);
+select extensions.lives_ok(
+  format($sql$select public.activate_user_model_gateway_config(
+    %L::uuid,%L::uuid,'https://gateway-jobs.example.com','model-egress-v1',
+    '2026-08-19 12:10:01+00'::timestamptz)$sql$, :'user_a', :'replace_corrupt'),
+  'activation revokes a corrupt old active row without requiring its secret mapping'
+);
+select extensions.results_eq(
+  $$select id,state from public.user_model_gateway_configs
+    where id in (
+      '89100000-0000-4000-8000-000000000004',
+      '89100000-0000-4000-8000-000000000005')
+    order by id$$,
+  $$values
+    ('89100000-0000-4000-8000-000000000004'::uuid,'revoked'::text),
+    ('89100000-0000-4000-8000-000000000005'::uuid,'active'::text)$$,
+  'corrupt old active config is revoked and the target becomes active'
 );
 
 reset role;

@@ -6,9 +6,17 @@ POPCORN_PSQL_BIN="${POPCORN_PSQL_BIN:-psql}"
 POPCORN_ARTIFACT_LOCK_TMP="$(mktemp -d /tmp/popcorn-artifact-lock.XXXXXX)"
 POPCORN_COMPLETE_LOG="$POPCORN_ARTIFACT_LOCK_TMP/complete-first.log"
 POPCORN_REVOKE_LOG="$POPCORN_ARTIFACT_LOCK_TMP/revoke-first.log"
+POPCORN_JOB_BLOCKER_LOG="$POPCORN_ARTIFACT_LOCK_TMP/job-blocker.log"
 
 cleanup_artifact_lock_fixture() {
   "$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+select pg_terminate_backend(pid)
+from pg_catalog.pg_stat_activity
+where application_name in (
+  'popcorn_artifact_job_blocker',
+  'popcorn_artifact_completion_probe'
+)
+  and pid <> pg_backend_pid();
 do $$
 declare
   v_secret_id uuid;
@@ -72,11 +80,19 @@ SQL
   rm -rf "$POPCORN_ARTIFACT_LOCK_TMP"
 }
 
-trap cleanup_artifact_lock_fixture EXIT
+finish_artifact_lock_fixture() {
+  local fixture_status="$?"
+  trap - EXIT
+  cleanup_artifact_lock_fixture
+  exit "$fixture_status"
+}
+
+trap finish_artifact_lock_fixture EXIT
 cleanup_artifact_lock_fixture
 POPCORN_ARTIFACT_LOCK_TMP="$(mktemp -d /tmp/popcorn-artifact-lock.XXXXXX)"
 POPCORN_COMPLETE_LOG="$POPCORN_ARTIFACT_LOCK_TMP/complete-first.log"
 POPCORN_REVOKE_LOG="$POPCORN_ARTIFACT_LOCK_TMP/revoke-first.log"
+POPCORN_JOB_BLOCKER_LOG="$POPCORN_ARTIFACT_LOCK_TMP/job-blocker.log"
 
 "$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 insert into auth.users (
@@ -141,8 +157,27 @@ where user_id in (
 );
 SQL
 
-"$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 >"$POPCORN_COMPLETE_LOG" <<'SQL' &
+"$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 >"$POPCORN_JOB_BLOCKER_LOG" 2>&1 <<'SQL' &
+set application_name = 'popcorn_artifact_job_blocker';
 begin;
+select id from public.knowledge_jobs
+where user_id='0a000000-0000-4000-8000-00000000a001'
+for update;
+select 'POPCORN_JOB_LOCK_HELD';
+select pg_sleep(60);
+commit;
+SQL
+POPCORN_JOB_BLOCKER_PID=$!
+
+for _attempt in $(seq 1 100); do
+  grep -q 'POPCORN_JOB_LOCK_HELD' "$POPCORN_JOB_BLOCKER_LOG" && break
+  kill -0 "$POPCORN_JOB_BLOCKER_PID" 2>/dev/null || break
+  sleep 0.05
+done
+grep -q 'POPCORN_JOB_LOCK_HELD' "$POPCORN_JOB_BLOCKER_LOG"
+
+"$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 >"$POPCORN_COMPLETE_LOG" 2>&1 <<'SQL' &
+set application_name = 'popcorn_artifact_completion_probe';
 select public.complete_gateway_learning_artifact_job(
   '0a000000-0000-4000-8000-00000000a001',
   (select id from public.knowledge_jobs where user_id='0a000000-0000-4000-8000-00000000a001'),
@@ -154,26 +189,53 @@ select public.complete_gateway_learning_artifact_job(
    where id='8a100000-0000-4000-8000-000000000001'),
   '2099-01-01 00:00:00+00'
 );
-select 'POPCORN_COMPLETE_LOCK_HELD';
-select pg_sleep(2);
-commit;
 SQL
 POPCORN_COMPLETE_PID=$!
 
 for _attempt in $(seq 1 100); do
-  grep -q 'POPCORN_COMPLETE_LOCK_HELD' "$POPCORN_COMPLETE_LOG" && break
+  POPCORN_COMPLETION_WAITING="$("$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -At -v ON_ERROR_STOP=1 <<'SQL'
+select exists (
+  select 1
+  from pg_catalog.pg_stat_activity
+  where application_name = 'popcorn_artifact_completion_probe'
+    and wait_event_type = 'Lock'
+    and state = 'active'
+);
+SQL
+)"
+  [[ "$POPCORN_COMPLETION_WAITING" == "t" ]] && break
   kill -0 "$POPCORN_COMPLETE_PID" 2>/dev/null || break
   sleep 0.05
 done
-grep -q 'POPCORN_COMPLETE_LOCK_HELD' "$POPCORN_COMPLETE_LOG"
+[[ "${POPCORN_COMPLETION_WAITING:-f}" == "t" ]]
+
+if "$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
+begin;
+set local lock_timeout = '250ms';
+update public.user_model_gateway_configs
+set updated_at = updated_at
+where id = '8a100000-0000-4000-8000-000000000001';
+rollback;
+SQL
+then
+  echo "completion released its config lock before publication" >&2
+  exit 1
+fi
+
 "$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
-set statement_timeout = '10s';
+select pg_terminate_backend(pid)
+from pg_catalog.pg_stat_activity
+where application_name = 'popcorn_artifact_job_blocker';
+SQL
+wait "$POPCORN_JOB_BLOCKER_PID" || true
+wait "$POPCORN_COMPLETE_PID"
+
+"$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 select public.revoke_user_model_gateway_config(
   '0a000000-0000-4000-8000-00000000a001',
   '8a100000-0000-4000-8000-000000000001',now()
 );
 SQL
-wait "$POPCORN_COMPLETE_PID"
 
 POPCORN_COMPLETE_WON="$($POPCORN_PSQL_BIN "$POPCORN_TEST_DATABASE_URL" -X -At -v ON_ERROR_STOP=1 <<'SQL'
 select job.status='succeeded'

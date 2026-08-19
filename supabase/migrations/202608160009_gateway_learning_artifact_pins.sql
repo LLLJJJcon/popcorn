@@ -298,43 +298,19 @@ comment on function public.complete_gateway_learning_artifact_job(
 ) is
   'Revalidates and locks exact gateway consent and job pin before atomically publishing a lease-fenced learning artifact.';
 
-create or replace function public.revoke_user_model_gateway_config(
+create function private.cleanup_revoked_user_model_gateway_config(
   p_user_id uuid,
   p_config_id uuid,
   p_now timestamptz
 )
-returns boolean
+returns void
 language plpgsql
 security definer
 set search_path = pg_catalog
 as $$
 declare
   v_secret_id uuid;
-  v_state text;
 begin
-  if p_user_id is null or p_config_id is null or p_now is null or not isfinite(p_now) then
-    raise exception using errcode = '22023', message = 'invalid model gateway revocation input';
-  end if;
-
-  select config.state
-  into v_state
-  from public.user_model_gateway_configs as config
-  where config.id = p_config_id and config.user_id = p_user_id
-  for update of config;
-
-  if not found then
-    return false;
-  end if;
-  if v_state not in ('pending_consent', 'active', 'revoked') then
-    return false;
-  end if;
-
-  if v_state <> 'revoked' then
-    update public.user_model_gateway_configs
-    set state = 'revoked', revoked_at = p_now, updated_at = p_now
-    where id = p_config_id and user_id = p_user_id;
-  end if;
-
   with cancelled as (
     update public.knowledge_jobs as job
     set
@@ -364,6 +340,143 @@ begin
   if v_secret_id is not null then
     delete from vault.secrets where id = v_secret_id;
   end if;
+end
+$$;
+
+revoke all on function private.cleanup_revoked_user_model_gateway_config(
+  uuid, uuid, timestamptz
+) from public, anon, authenticated, service_role;
+
+comment on function private.cleanup_revoked_user_model_gateway_config(
+  uuid, uuid, timestamptz
+) is
+  'Owner-only migration helper called after a config row is locked and revoked; terminalizes recoverable pins, clears input, and destroys the credential.';
+
+create or replace function public.activate_user_model_gateway_config(
+  p_user_id uuid,
+  p_config_id uuid,
+  p_exact_origin text,
+  p_policy_version text,
+  p_now timestamptz
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  v_origin text;
+  v_old_config_id uuid;
+begin
+  if p_user_id is null or p_config_id is null or p_exact_origin is null
+    or p_policy_version <> 'model-egress-v1'
+    or p_now is null or not isfinite(p_now) then
+    raise exception using errcode = '22023', message = 'invalid model gateway consent input';
+  end if;
+
+  perform 1 from public.profiles where user_id = p_user_id for update;
+
+  select origin.canonical_origin
+  into v_origin
+  from public.user_model_gateway_configs as config
+  join public.model_gateway_origins as origin on origin.id = config.origin_id
+  join private.user_model_gateway_secrets as secret
+    on secret.config_id = config.id and secret.user_id = config.user_id
+  where config.id = p_config_id
+    and config.user_id = p_user_id
+    and config.state = 'pending_consent'
+    and origin.state = 'active'
+  for update of config, secret
+  for share of origin;
+
+  if not found or p_exact_origin <> v_origin then
+    raise exception using
+      errcode = '22023',
+      message = 'consent origin does not match approved gateway';
+  end if;
+
+  for v_old_config_id in
+    select config.id
+    from public.user_model_gateway_configs as config
+    where config.user_id = p_user_id
+      and config.state = 'active'
+      and config.id <> p_config_id
+    order by config.id
+    for update of config
+  loop
+    update public.user_model_gateway_configs
+    set state = 'revoked', revoked_at = p_now, updated_at = p_now
+    where id = v_old_config_id
+      and user_id = p_user_id
+      and state = 'active';
+
+    perform private.cleanup_revoked_user_model_gateway_config(
+      p_user_id,
+      v_old_config_id,
+      p_now
+    );
+  end loop;
+
+  update public.user_model_gateway_configs
+  set state = 'active',
+    consent_policy_version = p_policy_version,
+    consented_origin = p_exact_origin,
+    consented_at = p_now,
+    updated_at = p_now
+  where id = p_config_id
+    and user_id = p_user_id
+    and state = 'pending_consent';
+
+  return found;
+end
+$$;
+
+comment on function public.activate_user_model_gateway_config(
+  uuid, uuid, text, text, timestamptz
+) is
+  'Activates exact-origin consent while atomically revoking and cleaning every superseded active owner configuration, including rows missing credentials.';
+
+create or replace function public.revoke_user_model_gateway_config(
+  p_user_id uuid,
+  p_config_id uuid,
+  p_now timestamptz
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  v_state text;
+begin
+  if p_user_id is null or p_config_id is null or p_now is null or not isfinite(p_now) then
+    raise exception using errcode = '22023', message = 'invalid model gateway revocation input';
+  end if;
+
+  select config.state
+  into v_state
+  from public.user_model_gateway_configs as config
+  where config.id = p_config_id and config.user_id = p_user_id
+  for update of config;
+
+  if not found then
+    return false;
+  end if;
+  if v_state not in ('pending_consent', 'active', 'revoked') then
+    return false;
+  end if;
+
+  if v_state <> 'revoked' then
+    update public.user_model_gateway_configs
+    set state = 'revoked', revoked_at = p_now, updated_at = p_now
+    where id = p_config_id and user_id = p_user_id;
+  end if;
+
+  perform private.cleanup_revoked_user_model_gateway_config(
+    p_user_id,
+    p_config_id,
+    p_now
+  );
 
   return true;
 end
