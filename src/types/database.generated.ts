@@ -462,6 +462,42 @@ export type Database = {
           },
         ]
       }
+      model_gateway_origins: {
+        Row: {
+          adapter_kind: string
+          base_path: string
+          canonical_origin: string
+          created_at: string
+          display_name: string
+          id: string
+          slug: string
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          adapter_kind: string
+          base_path?: string
+          canonical_origin: string
+          created_at?: string
+          display_name: string
+          id?: string
+          slug: string
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          adapter_kind?: string
+          base_path?: string
+          canonical_origin?: string
+          created_at?: string
+          display_name?: string
+          id?: string
+          slug?: string
+          state?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       practice_tasks: {
         Row: {
           created_at: string
@@ -734,6 +770,68 @@ export type Database = {
           },
         ]
       }
+      user_model_gateway_configs: {
+        Row: {
+          adapter_kind: string
+          config_fingerprint: string
+          consent_policy_version: string | null
+          consented_at: string | null
+          consented_origin: string | null
+          created_at: string
+          display_name: string
+          id: string
+          model: string
+          origin_id: string
+          revision: number
+          revoked_at: string | null
+          state: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          adapter_kind: string
+          config_fingerprint: string
+          consent_policy_version?: string | null
+          consented_at?: string | null
+          consented_origin?: string | null
+          created_at: string
+          display_name: string
+          id: string
+          model: string
+          origin_id: string
+          revision: number
+          revoked_at?: string | null
+          state?: string
+          updated_at: string
+          user_id: string
+        }
+        Update: {
+          adapter_kind?: string
+          config_fingerprint?: string
+          consent_policy_version?: string | null
+          consented_at?: string | null
+          consented_origin?: string | null
+          created_at?: string
+          display_name?: string
+          id?: string
+          model?: string
+          origin_id?: string
+          revision?: number
+          revoked_at?: string | null
+          state?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_model_gateway_configs_origin_id_fkey"
+            columns: ["origin_id"]
+            isOneToOne: false
+            referencedRelation: "model_gateway_origins"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       video_snapshots: {
         Row: {
           captured_at: string
@@ -819,6 +917,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      activate_user_model_gateway_config: {
+        Args: {
+          p_config_id: string
+          p_exact_origin: string
+          p_now: string
+          p_policy_version: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       capture_saved_item: {
         Args: {
           p_captured_at: string
@@ -886,6 +994,22 @@ export type Database = {
         }
         Returns: boolean
       }
+      create_user_model_gateway_config: {
+        Args: {
+          p_api_key: string
+          p_config_id: string
+          p_display_name: string
+          p_model: string
+          p_now: string
+          p_origin_id: string
+          p_user_id: string
+        }
+        Returns: {
+          config_id: string
+          revision: number
+          state: string
+        }[]
+      }
       register_learning_artifact_job: {
         Args: {
           p_dedupe_key: string
@@ -914,6 +1038,37 @@ export type Database = {
           knowledge_job_id: string
           status: string
         }[]
+      }
+      resolve_user_model_gateway_config: {
+        Args: {
+          p_config_id: string
+          p_expected_revision: number
+          p_user_id: string
+        }
+        Returns: {
+          adapter_kind: string
+          api_key: string
+          base_path: string
+          canonical_origin: string
+          config_fingerprint: string
+          credential_revision: number
+          display_name: string
+          model: string
+          revision: number
+        }[]
+      }
+      revoke_user_model_gateway_config: {
+        Args: { p_config_id: string; p_now: string; p_user_id: string }
+        Returns: boolean
+      }
+      rotate_user_model_gateway_key: {
+        Args: {
+          p_api_key: string
+          p_config_id: string
+          p_now: string
+          p_user_id: string
+        }
+        Returns: boolean
       }
       transition_learning_artifact_failure: {
         Args: {
