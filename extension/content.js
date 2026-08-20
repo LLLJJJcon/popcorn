@@ -18,6 +18,76 @@ const debugLog = (...args) => {
   if (DEBUG) console.log(...args);
 };
 
+const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+const SAVE_SECOND_MAX = 604_800;
+
+function createSaveIdentity() {
+  return {
+    clientEventId: crypto.randomUUID(),
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+function assertSaveIdentity(identity) {
+  if (
+    !identity ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      identity.clientEventId || "",
+    ) ||
+    typeof identity.capturedAt !== "string" ||
+    !Number.isFinite(Date.parse(identity.capturedAt))
+  ) {
+    throw new Error("Invalid save identity");
+  }
+}
+
+function buildPlayerMomentSaveInput({ videoId, currentTime }, identity) {
+  assertSaveIdentity(identity);
+  if (!YOUTUBE_VIDEO_ID_PATTERN.test(videoId || "")) {
+    throw new Error("Invalid YouTube video ID");
+  }
+  if (
+    !Number.isFinite(currentTime) ||
+    currentTime < 0 ||
+    currentTime > SAVE_SECOND_MAX
+  ) {
+    throw new Error("Invalid player time");
+  }
+
+  return {
+    clientEventId: identity.clientEventId,
+    youtubeVideoId: videoId,
+    capturedAt: identity.capturedAt,
+    kind: "player_moment",
+    capturedSecond: Math.max(0, Math.floor(currentTime) - 3),
+  };
+}
+
+async function enqueueSavedItem(input) {
+  const response = await chrome.runtime.sendMessage({
+    action: "enqueueSavedItem",
+    input,
+  });
+  if (!response?.success) {
+    throw new Error(response?.code || response?.error || "SAVE_RETRY");
+  }
+  return response;
+}
+
+async function savePlayerMoment({
+  videoId,
+  player,
+  identity = createSaveIdentity(),
+  enqueueSavedItem: enqueue = enqueueSavedItem,
+}) {
+  if (!player) throw new Error("Player unavailable");
+  const input = buildPlayerMomentSaveInput(
+    { videoId, currentTime: Number(player.currentTime) },
+    identity,
+  );
+  return enqueue(input);
+}
+
 // ============================================================
 // GLOBAL STATE
 // ============================================================
@@ -446,7 +516,7 @@ function injectNoteButton() {
       <path d="M12 20h9"></path>
       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
     </svg>
-    <span>Note</span>
+    <span>Save moment</span>
   `;
 
   // Soft rounded pill in the terracotta accent, with a gentle shadow.
@@ -572,7 +642,7 @@ function handleNoteKeyboardShortcut(e) {
  * Captures the current timestamp and saves it as a note.
  */
 async function saveCurrentNote() {
-  debugLog("[YouTube Digest] Saving note");
+  debugLog("[YouTube Digest] Saving player moment");
 
   const video = document.querySelector("video.html5-main-video");
   if (!video) {
@@ -580,9 +650,6 @@ async function saveCurrentNote() {
     return;
   }
 
-  // Go back 3 seconds to capture what was just said (user reacts after hearing it)
-  const currentTime = Math.max(0, Math.floor(video.currentTime) - 3);
-  const videoInfo = extractVideoInfo();
   const videoId = new URLSearchParams(window.location.search).get("v");
 
   const noteButton = ytdNoteButton;
@@ -590,39 +657,29 @@ async function saveCurrentNote() {
 
   if (noteButton) {
     noteButton.innerHTML =
-      '<span style="letter-spacing: 0.2px;">SAVING...</span>';
+      '<span style="letter-spacing: 0.2px;">Saving…</span>';
     noteButton.style.pointerEvents = "none";
   }
 
   try {
-    const result = await chrome.runtime.sendMessage({
-      action: "saveNote",
-      videoId: videoId,
-      timestamp: currentTime,
-      videoTitle: videoInfo.title,
-      channelName: videoInfo.channelName,
-    });
+    const result = await savePlayerMoment({ videoId, player: video });
 
-    if (result.success) {
+    if (result.success !== false) {
       if (noteButton) {
         noteButton.innerHTML =
-          '<span style="letter-spacing: 0.2px;">SAVED</span>';
+          `<span style="letter-spacing: 0.2px;">${result.synced ? "Saved to Popcorn" : "Saved locally; sign in to sync"}</span>`;
         noteButton.style.background = "#7c8b6f";
       }
-      showNoteSavedToast(result.note);
-    } else {
-      if (noteButton) {
-        noteButton.innerHTML =
-          '<span style="letter-spacing: 0.2px;">ERROR</span>';
-      }
-      console.error("[YouTube Digest] Save note error:", result.error);
+      showNoteSavedToast(
+        result.synced ? "Saved to Popcorn" : "Saved locally; sign in to sync",
+      );
     }
   } catch (err) {
     if (noteButton) {
       noteButton.innerHTML =
-        '<span style="letter-spacing: 0.2px;">ERROR</span>';
+        '<span style="letter-spacing: 0.2px;">Retry save</span>';
     }
-    console.error("[YouTube Digest] Save note exception:", err);
+    console.error("[YouTube Digest] Save moment exception:", err);
   }
 
   setTimeout(() => {
@@ -637,7 +694,7 @@ async function saveCurrentNote() {
 /**
  * Shows a toast notification when a note is saved.
  */
-function showNoteSavedToast(note) {
+function showNoteSavedToast(message) {
   // Remove existing toast
   const existing = document.getElementById("ytd-note-toast");
   if (existing) existing.remove();
@@ -645,12 +702,7 @@ function showNoteSavedToast(note) {
   const toast = document.createElement("div");
   toast.id = "ytd-note-toast";
   toast.innerHTML = `
-    <div style="font-weight: 700; margin-bottom: 6px; color: #c8674f;">📝 Note saved</div>
-    <div style="font-size: 12px; color: #6b6258; margin-bottom: 8px;">${escapeHtmlForContent(note.timestamp)} — ${escapeHtmlForContent(note.videoTitle)}</div>
-    <div style="font-size: 13px; line-height: 1.55; color: #2e2a24;">"${escapeHtmlForContent(note.text)}"</div>
-    <div style="margin-top: 10px; font-size: 11px;">
-      <a href="${escapeHtmlForContent(note.timestampedUrl)}" style="color: #c8674f; font-weight: 600; text-decoration: none;">🔗 Copy link</a>
-    </div>
+    <div style="font-weight: 700; color: #c8674f;">${escapeHtmlForContent(message)}</div>
   `;
 
   toast.style.cssText = `
@@ -677,17 +729,6 @@ function showNoteSavedToast(note) {
     }
   `;
   document.head.appendChild(style);
-
-  // Copy link handler
-  toast.querySelector("a").addEventListener("click", async (e) => {
-    e.preventDefault();
-    try {
-      await navigator.clipboard.writeText(note.timestampedUrl);
-      e.target.textContent = "✓ Copied!";
-    } catch (err) {
-      console.error("Copy failed:", err);
-    }
-  });
 
   document.body.appendChild(toast);
 
@@ -735,6 +776,13 @@ function extractVideoInfo() {
     description: descriptionElement?.textContent?.trim() || "",
   };
 }
+
+// Pure helpers are exposed only to repository tests. Production interactions
+// keep using the recognizable upstream button/shortcut functions above.
+globalThis.__YTD_SAVE_TESTING__ = {
+  buildPlayerMomentSaveInput,
+  savePlayerMoment,
+};
 
 // ============================================================
 // PROGRESS BAR KEY MOMENTS

@@ -197,6 +197,30 @@ function createHarness() {
   };
 }
 
+test("Task 5 player save leaves the playing video untouched and enqueues once", async () => {
+  const harness = createHarness();
+  const player = { currentTime: 18.75, paused: false };
+  const calls = [];
+
+  await harness.context.__YTD_SAVE_TESTING__.savePlayerMoment({
+    videoId: "dQw4w9WgXcQ",
+    player,
+    identity: {
+      clientEventId: "00000000-0000-4000-8000-000000000101",
+      capturedAt: "2026-08-16T10:00:00.000Z",
+    },
+    enqueueSavedItem: async (input) => {
+      calls.push(input);
+      return { status: "saved" };
+    },
+  });
+
+  assert.equal(player.currentTime, 18.75);
+  assert.equal(player.paused, false);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].capturedSecond, 15);
+});
+
 function createActionRow({ width, height }) {
   const row = new FakeElement({
     id: "actions-inner",

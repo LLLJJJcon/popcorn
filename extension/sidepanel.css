@@ -127,6 +127,34 @@ body {
   flex: 1;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.save-video-btn,
+.transcript-save-btn,
+.selection-save-btn,
+.explanation-save-btn {
+  border: 1px solid var(--accent);
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font: 600 11px/1.4 var(--font-body);
+  padding: 5px 10px;
+}
+
+.save-video-btn:disabled,
+.transcript-save-btn:disabled,
+.selection-save-btn:disabled,
+.explanation-save-btn:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
 .settings-btn {
   flex-shrink: 0;
   padding: 5px 10px;
@@ -654,6 +682,20 @@ body {
   flex: 1;
 }
 
+.transcript-save-btn {
+  align-self: flex-start;
+  flex-shrink: 0;
+  opacity: 0;
+  padding: 3px 9px;
+  transition: opacity 0.14s ease;
+}
+
+.transcript-entry:hover .transcript-save-btn,
+.transcript-save-btn:focus-visible,
+.transcript-save-btn:disabled {
+  opacity: 1;
+}
+
 .transcript-original,
 .transcript-translation {
   display: block;
@@ -1037,6 +1079,8 @@ body {
 .explain-tooltip {
   position: absolute;
   z-index: 1000;
+  display: flex;
+  gap: 6px;
   transform: translateX(-50%);
   animation: fadeIn 0.15s ease;
 }
@@ -1157,6 +1201,10 @@ body {
 
 .explain-text p {
   margin-bottom: 12px;
+}
+
+.explanation-save-btn {
+  margin-top: 16px;
 }
 
 .explain-error {

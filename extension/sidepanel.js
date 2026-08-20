@@ -9,6 +9,344 @@ const debugLog = (...args) => {
   if (DEBUG) console.log(...args);
 };
 
+const SAVE_LIMITS = Object.freeze({
+  maxSeconds: 604_800,
+  maxOffset: 100_000,
+  maxSegments: 32,
+  maxContextItems: 3,
+});
+const SAVE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+const SAVE_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function createSaveIdentity() {
+  return {
+    clientEventId: crypto.randomUUID(),
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+function failSave(message) {
+  throw new Error(message);
+}
+
+function boundedString(value, name, maximum, { chinese = false, english = false, blank = false } = {}) {
+  if (typeof value !== "string" || value.length > maximum) {
+    return failSave(`Invalid ${name}`);
+  }
+  if (!blank && !value.trim()) return failSave(`Invalid ${name}`);
+  if (chinese && !/\p{Script=Han}/u.test(value)) return failSave(`Invalid ${name}`);
+  if (
+    english &&
+    (!/[A-Za-z]/.test(value) ||
+      [...value].some((character) => {
+        const code = character.codePointAt(0);
+        return !(
+          (code >= 0x09 && code <= 0x0d) ||
+          (code >= 0x20 && code <= 0x7e)
+        );
+      }))
+  ) {
+    return failSave(`Invalid ${name}`);
+  }
+  return value;
+}
+
+function boundedSecond(value, name) {
+  if (
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > SAVE_LIMITS.maxSeconds
+  ) {
+    return failSave(`Invalid ${name}`);
+  }
+  return value;
+}
+
+function boundedOffset(value, name) {
+  if (
+    !Number.isInteger(value) ||
+    value < 0 ||
+    value > SAVE_LIMITS.maxOffset
+  ) {
+    return failSave(`Invalid ${name}`);
+  }
+  return value;
+}
+
+function stableSegmentIds(value) {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > SAVE_LIMITS.maxSegments ||
+    new Set(value).size !== value.length ||
+    value.some(
+      (id) =>
+        typeof id !== "string" ||
+        id.length < 1 ||
+        id.length > 200 ||
+        id.trim() !== id,
+    )
+  ) {
+    return failSave("Invalid segment IDs");
+  }
+  return [...value];
+}
+
+function boundedContext(value, name) {
+  if (
+    !Array.isArray(value) ||
+    value.length > SAVE_LIMITS.maxContextItems
+  ) {
+    return failSave(`Invalid ${name}`);
+  }
+  return value.map((text) =>
+    boundedString(text, name, 2_000, { chinese: true }),
+  );
+}
+
+function saveBase(videoId, identity) {
+  if (!SAVE_VIDEO_ID_PATTERN.test(videoId || "")) {
+    return failSave("Invalid YouTube video ID");
+  }
+  if (
+    !identity ||
+    !SAVE_UUID_PATTERN.test(identity.clientEventId || "") ||
+    typeof identity.capturedAt !== "string" ||
+    !Number.isFinite(Date.parse(identity.capturedAt))
+  ) {
+    return failSave("Invalid save identity");
+  }
+  return {
+    clientEventId: identity.clientEventId,
+    youtubeVideoId: videoId,
+    capturedAt: identity.capturedAt,
+  };
+}
+
+function optionalEnglish(value, name) {
+  return value === undefined || value === null || value === ""
+    ? undefined
+    : boundedString(value, name, 10_000, { english: true });
+}
+
+function buildVideoSaveInput(details, identity = createSaveIdentity()) {
+  const base = saveBase(details?.videoId, identity);
+  const canonicalUrl = `https://www.youtube.com/watch?v=${details.videoId}`;
+  const thumbnailUrl = `https://i.ytimg.com/vi/${details.videoId}/hqdefault.jpg`;
+  if (details.url !== undefined) {
+    let supplied;
+    try {
+      supplied = new URL(details.url);
+    } catch {
+      return failSave("Invalid YouTube URL");
+    }
+    if (
+      supplied.protocol !== "https:" ||
+      supplied.hostname !== "www.youtube.com" ||
+      supplied.pathname !== "/watch" ||
+      supplied.searchParams.get("v") !== details.videoId
+    ) {
+      return failSave("Invalid YouTube URL");
+    }
+  }
+  if (
+    details.thumbnailUrl !== undefined &&
+    details.thumbnailUrl !== thumbnailUrl
+  ) {
+    return failSave("Invalid YouTube thumbnail");
+  }
+  return {
+    ...base,
+    kind: "video",
+    canonicalUrl,
+    title: boundedString(details.title, "title", 300),
+    channel: boundedString(details.channelName, "channel", 200),
+    thumbnailUrl,
+    durationSeconds: boundedSecond(Number(details.duration), "duration"),
+    description: boundedString(details.description || "", "description", 5_000, {
+      blank: true,
+    }),
+    currentTimeSeconds: boundedSecond(
+      Number(details.currentTime),
+      "current time",
+    ),
+    requestNativeSnapshot: true,
+  };
+}
+
+function buildSubtitleRowSaveInput(values, identity = createSaveIdentity()) {
+  const { segment } = values || {};
+  const startSeconds = boundedSecond(Number(segment?.start), "start time");
+  const endSeconds = boundedSecond(Number(segment?.end), "end time");
+  if (endSeconds < startSeconds) return failSave("Invalid segment time range");
+  const englishTranslation = optionalEnglish(
+    values.englishTranslation,
+    "English translation",
+  );
+  return {
+    ...saveBase(values.videoId, identity),
+    kind: "subtitle_row",
+    segmentId: stableSegmentIds([segment?.id])[0],
+    originalChinese: boundedString(segment?.text, "Chinese subtitle", 10_000, {
+      chinese: true,
+    }),
+    ...(englishTranslation ? { englishTranslation } : {}),
+    startSeconds,
+    endSeconds,
+    contextBefore: boundedContext(values.contextBefore, "context before"),
+    contextAfter: boundedContext(values.contextAfter, "context after"),
+  };
+}
+
+function assertCompleteSelection(evidence) {
+  if (!evidence || evidence.complete === false) {
+    return failSave("Incomplete selection evidence");
+  }
+  const start = boundedOffset(evidence.utf16Start, "selection start");
+  const end = boundedOffset(evidence.utf16End, "selection end");
+  const context = boundedString(evidence.context, "selection context", 16_000, {
+    chinese: true,
+  });
+  const selected = boundedString(
+    evidence.selectedChinese,
+    "selected Chinese",
+    2_000,
+    { chinese: true },
+  );
+  if (end <= start || context.slice(start, end) !== selected) {
+    return failSave("Incomplete selection evidence");
+  }
+  const ids = stableSegmentIds(evidence.segmentIds);
+  if (selected.includes("\n") && ids.length < 2) {
+    return failSave("Incomplete cross-line evidence");
+  }
+  return { start, end, selected, ids };
+}
+
+function buildSubtitleSelectionSaveInput(
+  values,
+  identity = createSaveIdentity(),
+) {
+  const projected = assertCompleteSelection(values?.evidence);
+  const startSeconds = boundedSecond(
+    Number(values.evidence.startSeconds),
+    "start time",
+  );
+  const endSeconds = boundedSecond(
+    Number(values.evidence.endSeconds),
+    "end time",
+  );
+  if (endSeconds < startSeconds) return failSave("Invalid selection time range");
+  const englishTranslation = optionalEnglish(
+    values.englishTranslation,
+    "English translation",
+  );
+  return {
+    ...saveBase(values.videoId, identity),
+    kind: "subtitle_selection",
+    originalChinese: projected.selected,
+    ...(englishTranslation ? { englishTranslation } : {}),
+    segmentIds: projected.ids,
+    startSeconds,
+    endSeconds,
+    startOffset: projected.start,
+    endOffset: projected.end,
+    contextBefore: boundedContext(values.contextBefore, "context before"),
+    contextAfter: boundedContext(values.contextAfter, "context after"),
+  };
+}
+
+function buildKeyQuoteSaveInput(values, identity = createSaveIdentity()) {
+  return {
+    ...saveBase(values?.videoId, identity),
+    kind: "key_quote",
+    exactQuote: boundedString(values?.quote?.quote, "key quote", 10_000, {
+      chinese: true,
+    }),
+    quoteSeconds: boundedSecond(
+      Number(values?.quote?.timestampSeconds),
+      "quote time",
+    ),
+    segmentIds: stableSegmentIds(values?.quote?.sourceSegmentIds),
+  };
+}
+
+function buildAiExplanationSaveInput(values, identity = createSaveIdentity()) {
+  const evidence = values?.evidence;
+  if (!evidence || evidence.complete === false) {
+    return failSave("Incomplete explanation evidence");
+  }
+  const startSeconds = boundedSecond(Number(evidence.startSeconds), "start time");
+  const endSeconds = boundedSecond(Number(evidence.endSeconds), "end time");
+  if (endSeconds < startSeconds) return failSave("Invalid explanation time range");
+  return {
+    ...saveBase(values.videoId, identity),
+    kind: "ai_explanation",
+    selectedChinese: boundedString(
+      evidence.selectedChinese,
+      "selected Chinese",
+      10_000,
+      { chinese: true },
+    ),
+    englishExplanation: boundedString(
+      values.englishExplanation,
+      "English explanation",
+      10_000,
+      { english: true },
+    ),
+    segmentIds: stableSegmentIds(evidence.segmentIds),
+    startSeconds,
+    endSeconds,
+    contextBefore: boundedContext(values.contextBefore, "context before"),
+    contextAfter: boundedContext(values.contextAfter, "context after"),
+  };
+}
+
+const EXACT_SAVE_KEYS = Object.freeze({
+  video: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "canonicalUrl", "title", "channel", "thumbnailUrl", "durationSeconds", "description", "currentTimeSeconds", "requestNativeSnapshot"],
+  player_moment: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "capturedSecond"],
+  subtitle_row: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "segmentId", "originalChinese", "englishTranslation", "startSeconds", "endSeconds", "contextBefore", "contextAfter"],
+  subtitle_selection: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "originalChinese", "englishTranslation", "segmentIds", "startSeconds", "endSeconds", "startOffset", "endOffset", "contextBefore", "contextAfter"],
+  key_quote: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "exactQuote", "quoteSeconds", "segmentIds"],
+  ai_explanation: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "selectedChinese", "englishExplanation", "segmentIds", "startSeconds", "endSeconds", "contextBefore", "contextAfter"],
+});
+
+function assertExactSavedItemInput(input) {
+  const allowed = EXACT_SAVE_KEYS[input?.kind];
+  if (!allowed) return failSave("Unsupported save kind");
+  const expected = new Set(allowed);
+  const keys = Object.keys(input);
+  if (keys.some((key) => !expected.has(key))) return failSave("Unexpected save field");
+  const required = allowed.filter((key) => key !== "englishTranslation");
+  if (required.some((key) => !(key in input))) return failSave("Missing save field");
+  saveBase(input.youtubeVideoId, input);
+  return input;
+}
+
+function createSaveController(enqueueSavedItem) {
+  if (typeof enqueueSavedItem !== "function") return failSave("Queue unavailable");
+  return {
+    async save(input) {
+      assertExactSavedItemInput(input);
+      return enqueueSavedItem(input);
+    },
+  };
+}
+
+async function enqueueSavedItem(input) {
+  const response = await chrome.runtime.sendMessage({
+    action: "enqueueSavedItem",
+    input,
+  });
+  if (!response?.success) {
+    throw new Error(response?.code || response?.error || "SAVE_RETRY");
+  }
+  return response;
+}
+
+const saveController = createSaveController(enqueueSavedItem);
+
 // ============================================================
 // STATE
 // ============================================================
@@ -362,6 +700,52 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
   }
 });
 
+function saveSuccessLabel(result) {
+  return result?.synced
+    ? "Saved to Popcorn"
+    : "Saved locally; sign in to sync";
+}
+
+async function saveWithButton(input, button, idleLabel = "Save") {
+  if (!button) return saveController.save(input);
+  button.disabled = true;
+  button.textContent = "Saving…";
+  try {
+    const result = await saveController.save(input);
+    button.textContent = saveSuccessLabel(result);
+    return result;
+  } catch (error) {
+    button.textContent = "Retry save";
+    throw error;
+  } finally {
+    setTimeout(() => {
+      button.textContent = idleLabel;
+      button.disabled = false;
+    }, 1800);
+  }
+}
+
+async function saveCurrentVideo(button) {
+  if (!currentVideoId) return;
+  const playback = await chrome.runtime.sendMessage({
+    action: "relayToContent",
+    payload: { action: "getCurrentTime" },
+  });
+  if (!playback?.success || !playback.response) {
+    throw new Error("Player unavailable");
+  }
+  const input = buildVideoSaveInput({
+    videoId: currentVideoId,
+    url: currentVideoUrl,
+    title: currentVideoTitle,
+    channelName: currentChannelName,
+    duration: currentVideoDuration,
+    description: currentVideoDescription,
+    currentTime: Number(playback.response.currentTime),
+  });
+  return saveWithButton(input, button, "Save Video");
+}
+
 function setupEventListeners() {
   // Tab switching
   document.querySelectorAll(".tab").forEach((tab) => {
@@ -381,6 +765,14 @@ function setupEventListeners() {
 
   document.getElementById("settingsBtn")?.addEventListener("click", () => {
     chrome.runtime.sendMessage({ action: "openOptions" });
+  });
+  document.getElementById("saveVideoBtn")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    try {
+      await saveCurrentVideo(event.currentTarget);
+    } catch (error) {
+      console.error("[Popcorn] Save Video failed:", error);
+    }
   });
 
   // Transcript actions
@@ -475,6 +867,7 @@ async function checkCurrentTab() {
 
     if (videoId) {
       currentVideoUrl = tab.url;
+      document.getElementById("saveVideoBtn").style.display = "inline-flex";
 
       try {
         // Route through background script for reliable message passing
@@ -499,6 +892,7 @@ async function checkCurrentTab() {
 
       startDigest(videoId, tab.url);
     } else {
+      document.getElementById("saveVideoBtn").style.display = "none";
       showState("welcome");
     }
   } catch (error) {
@@ -723,7 +1117,7 @@ function renderAnalysisResults(analysis) {
       <div class="quote-meta">
         <span class="quote-timestamp">${formatTimestampSeconds(quote.timestampSeconds)}</span>
         <div class="quote-actions">
-          <button class="quote-save-note-btn" title="Save this quote as a note">📝 Note</button>
+          <button class="quote-save-note-btn" title="Save this exact quote">Save</button>
           <button class="quote-copy-btn" title="Copy this quote">⧉ Copy</button>
         </div>
       </div>
@@ -762,47 +1156,15 @@ function renderAnalysisResults(analysis) {
 }
 
 /**
- * Saves a key quote as a timestamped note.
+ * Saves the exact displayed key quote and its server-grounded evidence.
  */
 async function saveQuoteAsNote(quote, btn) {
   if (!currentVideoId) return;
-
-  const originalText = btn.textContent;
-  btn.textContent = "Saving...";
-  btn.disabled = true;
-
   try {
-    const result = await chrome.runtime.sendMessage({
-      action: "saveNote",
-      videoId: currentVideoId,
-      timestamp: quote.timestampSeconds,
-      videoTitle: currentVideoTitle,
-      channelName: currentChannelName,
-    });
-
-    if (result.success) {
-      btn.textContent = "✓ Saved";
-      setTimeout(() => {
-        btn.textContent = originalText;
-        btn.disabled = false;
-      }, 1500);
-      // Refresh notes list if on Notes tab
-      loadNotes(currentVideoId);
-    } else {
-      console.error("[YouTube Digest] Save quote as note failed:", result.error);
-      btn.textContent = "Error";
-      setTimeout(() => {
-        btn.textContent = originalText;
-        btn.disabled = false;
-      }, 1500);
-    }
+    const input = buildKeyQuoteSaveInput({ videoId: currentVideoId, quote });
+    await saveWithButton(input, btn, "Save");
   } catch (error) {
-    console.error("[YouTube Digest] Save quote as note error:", error);
-    btn.textContent = "Error";
-    setTimeout(() => {
-      btn.textContent = originalText;
-      btn.disabled = false;
-    }, 1500);
+    console.error("[Popcorn] Save key quote failed:", error);
   }
 }
 
@@ -846,6 +1208,39 @@ function seekFromTranscriptEntryClick(event, seconds) {
   seekTo(seconds);
 }
 
+function saveContextForSegmentIds(segmentIds) {
+  const segments = getActiveTranscriptSegments();
+  const indices = segmentIds
+    .map((id) => segments.findIndex((segment) => segment.id === id))
+    .filter((index) => index >= 0);
+  if (indices.length !== segmentIds.length) return failSave("Missing transcript evidence");
+  const first = Math.min(...indices);
+  const last = Math.max(...indices);
+  return {
+    contextBefore: segments
+      .slice(Math.max(0, first - SAVE_LIMITS.maxContextItems), first)
+      .map((segment) => segment.text),
+    contextAfter: segments
+      .slice(last + 1, last + 1 + SAVE_LIMITS.maxContextItems)
+      .map((segment) => segment.text),
+  };
+}
+
+function shownEnglishForSegment(segment) {
+  if (currentTranscriptMode === "zh") return undefined;
+  return transcriptParagraphCache.get(transcriptTranslationCacheKey(segment));
+}
+
+async function saveTranscriptRow(segment, button) {
+  const input = buildSubtitleRowSaveInput({
+    videoId: currentVideoId,
+    segment,
+    englishTranslation: shownEnglishForSegment(segment),
+    ...saveContextForSegmentIds([segment.id]),
+  });
+  return saveWithButton(input, button, "Save");
+}
+
 function renderTranscript() {
   if (!currentTranscript) return;
 
@@ -881,11 +1276,22 @@ function renderTranscript() {
     div.innerHTML = `
       <span class="transcript-time">${timestamp}</span>
       <span class="transcript-text">${renderSubtitleInlineMarkup(group.text)}</span>
+      <button class="transcript-save-btn" type="button">Save</button>
     `;
 
     div.addEventListener("click", (event) =>
       seekFromTranscriptEntryClick(event, group.start),
     );
+    const saveButton = div.querySelector(".transcript-save-btn");
+    saveButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        await saveTranscriptRow(group, saveButton);
+      } catch (error) {
+        console.error("[Popcorn] Save subtitle row failed:", error);
+      }
+    });
     transcriptList.appendChild(div);
   });
 
@@ -1179,7 +1585,10 @@ function setupExplainFeature() {
   const tooltip = document.createElement("div");
   tooltip.id = "explainTooltip";
   tooltip.className = "explain-tooltip";
-  tooltip.innerHTML = `<button class="explain-btn">💡 Explain</button>`;
+  tooltip.innerHTML = `
+    <button class="explain-btn">💡 Explain</button>
+    <button class="selection-save-btn" type="button">Save</button>
+  `;
   tooltip.style.display = "none";
   document.body.appendChild(tooltip);
 
@@ -1243,6 +1652,26 @@ function setupExplainFeature() {
 
       tooltip.style.display = "none";
       await showExplanation(selectedEvidence);
+    });
+
+  tooltip
+    .querySelector(".selection-save-btn")
+    .addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!selectedEvidence) return;
+      const button = event.currentTarget;
+      try {
+        const input = buildSubtitleSelectionSaveInput({
+          videoId: currentVideoId,
+          evidence: selectedEvidence,
+          ...saveContextForSegmentIds(selectedEvidence.segmentIds),
+        });
+        await saveWithButton(input, button, "Save");
+        tooltip.style.display = "none";
+      } catch (error) {
+        console.error("[Popcorn] Save subtitle selection failed:", error);
+      }
     });
 }
 
@@ -1394,7 +1823,26 @@ async function showExplanation(selectionEvidence) {
         `Communicative function: ${explanation.communicativeFunction}`,
         `Contextual fit: ${explanation.contextualFit}`,
       ].join("\n\n");
-      contentDiv.innerHTML = `<div class="explain-text">${escapeHtml(text).replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>")}</div>`;
+      contentDiv.innerHTML = `
+        <div class="explain-text">${escapeHtml(text).replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>")}</div>
+        <button class="explanation-save-btn" type="button">Save Explanation</button>
+      `;
+      const saveButton = contentDiv.querySelector(".explanation-save-btn");
+      saveButton.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        try {
+          const input = buildAiExplanationSaveInput({
+            videoId: currentVideoId,
+            evidence: selectionEvidence,
+            englishExplanation: text,
+            ...saveContextForSegmentIds(selectionEvidence.segmentIds),
+          });
+          await saveWithButton(input, saveButton, "Save Explanation");
+        } catch (saveError) {
+          console.error("[Popcorn] Save explanation failed:", saveError);
+        }
+      });
     } else if (result.pending) {
       contentDiv.innerHTML = '<div class="explain-loading">Explanation is still processing. Try Explain again shortly.</div>';
     } else {
@@ -1868,10 +2316,21 @@ function renderTranscriptModeRows(segments, mode) {
     div.innerHTML = `
       <span class="transcript-time">${timestamp}</span>
       ${renderTranscriptSegmentContent(segment, mode, cached, "")}
+      <button class="transcript-save-btn" type="button">Save</button>
     `;
     div.addEventListener("click", (event) =>
       seekFromTranscriptEntryClick(event, segment.start),
     );
+    const saveButton = div.querySelector(".transcript-save-btn");
+    saveButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        await saveTranscriptRow(segment, saveButton);
+      } catch (saveError) {
+        console.error("[Popcorn] Save subtitle row failed:", saveError);
+      }
+    });
     transcriptList.appendChild(div);
     rows.push(div);
   });
@@ -2122,4 +2581,14 @@ globalThis.__YTD_TRANSCRIPT_TESTING__ = {
   createExplanationMessage,
   renderAnalysisResults,
   formatTimestampSeconds,
+};
+
+globalThis.__YTD_SAVE_TESTING__ = {
+  buildVideoSaveInput,
+  buildSubtitleRowSaveInput,
+  buildSubtitleSelectionSaveInput,
+  buildKeyQuoteSaveInput,
+  buildAiExplanationSaveInput,
+  assertExactSavedItemInput,
+  createSaveController,
 };
