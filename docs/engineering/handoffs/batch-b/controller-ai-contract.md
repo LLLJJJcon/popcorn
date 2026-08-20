@@ -184,3 +184,33 @@ build was run. This change has no runtime behavior, egress, API-key, RLS, queue,
 prompt, UI, or license effect. The controller still owns the later clean
 migration replay and full shared-contract integration gate. Independent
 re-review remains required; this repair does not self-approve.
+
+## Controller freeze gate
+
+Independent final re-review passed after fix 2. The controller then ran the one
+shared-contract integration gate required by the risk-calibrated verification policy:
+
+```text
+pnpm db:reset
+PASS; cleanly applied migrations 001 through 010 and seed
+
+pnpm db:test
+Files=4, Tests=487, Result: PASS
+
+supabase gen types typescript --local | normalized-final-newline | diff
+exit 0; committed generated types exactly match the clean local schema
+
+CI=true pnpm typecheck
+exit 0
+
+fixed-test-environment CI=true pnpm build
+exit 0; 19/19 routes/pages generated
+
+git diff --check
+exit 0
+```
+
+This contract is frozen for Batch B Tasks 1 and 4. Those consumers should run
+focused TDD and directly related regression tests; they must not repeat reset/full
+pgTAP/build unless they introduce a concrete shared-contract, secret, queue, or
+integration risk.
