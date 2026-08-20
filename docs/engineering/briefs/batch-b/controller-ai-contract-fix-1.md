@@ -33,7 +33,12 @@
 1. Add focused tests proving both `practice_tasks` and `attempts` reject:
    - a provenance group missing only its fingerprint;
    - a complete-looking group whose model differs from the exact referenced user
-     gateway config revision.
+   gateway config revision.
+   Also add the two directly related contract regressions requested by review:
+   - initial analysis registration rejects a saved item owned by the same user but
+     attached to a different YouTube source;
+   - revoking the pinned gateway terminalizes a pending `analyze_saved_item` job and
+     clears its private input before any future worker egress.
 2. Run only `supabase/tests/batch_b_ai_contract.sql` and record RED evidence showing
    all four new assertions fail for the intended reason.
 3. Make the smallest migration-010 repair:
