@@ -42,6 +42,11 @@ export type Database = {
           contextual_fit_feedback_english: string
           contextual_fit_score: number
           created_at: string
+          evaluation_gateway_config_id: string | null
+          evaluation_gateway_fingerprint: string | null
+          evaluation_gateway_revision: number | null
+          evaluation_model: string | null
+          evaluation_prompt_version: string | null
           id: string
           independent_use: boolean
           naturalness_feedback_english: string
@@ -60,6 +65,11 @@ export type Database = {
           contextual_fit_feedback_english: string
           contextual_fit_score: number
           created_at?: string
+          evaluation_gateway_config_id?: string | null
+          evaluation_gateway_fingerprint?: string | null
+          evaluation_gateway_revision?: number | null
+          evaluation_model?: string | null
+          evaluation_prompt_version?: string | null
           id?: string
           independent_use: boolean
           naturalness_feedback_english: string
@@ -78,6 +88,11 @@ export type Database = {
           contextual_fit_feedback_english?: string
           contextual_fit_score?: number
           created_at?: string
+          evaluation_gateway_config_id?: string | null
+          evaluation_gateway_fingerprint?: string | null
+          evaluation_gateway_revision?: number | null
+          evaluation_model?: string | null
+          evaluation_prompt_version?: string | null
           id?: string
           independent_use?: boolean
           naturalness_feedback_english?: string
@@ -90,6 +105,23 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "attempt_evaluation_gateway_fk"
+            columns: [
+              "evaluation_gateway_config_id",
+              "user_id",
+              "evaluation_gateway_revision",
+              "evaluation_gateway_fingerprint",
+            ]
+            isOneToOne: false
+            referencedRelation: "user_model_gateway_configs"
+            referencedColumns: [
+              "id",
+              "user_id",
+              "revision",
+              "config_fingerprint",
+            ]
+          },
           {
             foreignKeyName: "attempt_expression_owner_fk"
             columns: ["user_expression_id", "user_id"]
@@ -500,6 +532,11 @@ export type Database = {
       }
       practice_tasks: {
         Row: {
+          activation_gateway_config_id: string | null
+          activation_gateway_fingerprint: string | null
+          activation_gateway_revision: number | null
+          activation_model: string | null
+          activation_prompt_version: string | null
           created_at: string
           due_at: string | null
           goal_english: string
@@ -514,6 +551,11 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          activation_gateway_config_id?: string | null
+          activation_gateway_fingerprint?: string | null
+          activation_gateway_revision?: number | null
+          activation_model?: string | null
+          activation_prompt_version?: string | null
           created_at?: string
           due_at?: string | null
           goal_english: string
@@ -528,6 +570,11 @@ export type Database = {
           user_id: string
         }
         Update: {
+          activation_gateway_config_id?: string | null
+          activation_gateway_fingerprint?: string | null
+          activation_gateway_revision?: number | null
+          activation_model?: string | null
+          activation_prompt_version?: string | null
           created_at?: string
           due_at?: string | null
           goal_english?: string
@@ -542,6 +589,23 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "practice_task_activation_gateway_fk"
+            columns: [
+              "activation_gateway_config_id",
+              "user_id",
+              "activation_gateway_revision",
+              "activation_gateway_fingerprint",
+            ]
+            isOneToOne: false
+            referencedRelation: "user_model_gateway_configs"
+            referencedColumns: [
+              "id",
+              "user_id",
+              "revision",
+              "config_fingerprint",
+            ]
+          },
           {
             foreignKeyName: "practice_task_expression_owner_fk"
             columns: ["user_expression_id", "user_id"]
