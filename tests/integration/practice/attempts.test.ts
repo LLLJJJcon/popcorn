@@ -1,5 +1,9 @@
 import type { StructuredJsonGateway, StructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
 import {
+  buildActivatePracticePrompt,
+  createActivationFixtureGateway,
+} from "@/server/ai/prompts/activate.v1";
+import {
   createPracticeTaskHttpHandler,
   createPracticeTaskService,
   PracticeError,
@@ -10,6 +14,7 @@ import {
 import {
   createPracticeAttemptHttpHandlers,
   createPracticeAttemptService,
+  createSupabasePracticeRepository,
   RevisionConflictError,
   type PracticeDraftAttemptRecord,
 } from "@/server/repositories/attempt-repository";
@@ -42,6 +47,9 @@ const activation = {
   promptChinese: "朋友告诉你一杯普通咖啡卖一百元。你会怎么回应？",
   instructionsEnglish: "Reply with one natural Simplified Chinese sentence.",
   goalEnglish: "React critically to the unreasonable price using the target expression.",
+  targetExpression: candidate.expression,
+  evidenceText: candidate.evidenceText,
+  communicativeFunction: candidate.communicativeFunction,
 };
 
 const passingEvaluation = {
@@ -63,6 +71,95 @@ function artifact(overrides: Partial<CandidateArtifactRecord> = {}): CandidateAr
     content: { candidates: [candidate] },
     ...overrides,
   };
+}
+
+const draftRow = {
+  id: ATTEMPT,
+  user_id: USER_A,
+  video_source_id: SOURCE,
+  saved_item_id: SAVE,
+  candidate_artifact_id: ARTIFACT,
+  candidate_artifact_type: "saved_item_analysis",
+  candidate_index: 0,
+  future_user_expression_id: USER_B,
+  native_language: "en",
+  target_language: "zh-CN",
+  target_expression: candidate.expression,
+  prompt_chinese: activation.promptChinese,
+  instructions_english: activation.instructionsEnglish,
+  goal_english: activation.goalEnglish,
+  status: "active",
+  activation_prompt_version: "activate-practice-v1",
+  activation_model: "mandarin-model",
+  activation_gateway_config_id: CONFIG,
+  activation_gateway_revision: 3,
+  activation_gateway_fingerprint: FINGERPRINT,
+  created_at: NOW,
+  updated_at: NOW,
+};
+
+const attemptRow = {
+  id: USER_B,
+  user_id: USER_A,
+  practice_draft_id: ATTEMPT,
+  future_user_expression_id: USER_B,
+  revision: 1,
+  response_chinese: "这个价格也太离谱了。",
+  passed: true,
+  accuracy_score: 5,
+  accuracy_feedback_english: passingEvaluation.accuracy.englishFeedback,
+  naturalness_score: 4,
+  naturalness_feedback_english: passingEvaluation.naturalness.englishFeedback,
+  contextual_fit_score: 5,
+  contextual_fit_feedback_english: passingEvaluation.contextualFit.englishFeedback,
+  independent_use: true,
+  assistance_level: "none",
+  submitted_at: NOW,
+  evaluation_prompt_version: "evaluate-practice-v1",
+  evaluation_model: "mandarin-model",
+  evaluation_gateway_config_id: CONFIG,
+  evaluation_gateway_revision: 3,
+  evaluation_gateway_fingerprint: FINGERPRINT,
+  created_at: NOW,
+};
+
+type PlannedQuery = {
+  readonly table: string;
+  readonly terminal: "maybeSingle" | "single";
+  readonly result: { readonly data: unknown; readonly error: unknown };
+};
+
+function supabaseQueryHarness(plans: PlannedQuery[]) {
+  const calls: Array<readonly [string, ...unknown[]]> = [];
+  const remaining = [...plans];
+  const client = {
+    from(table: string) {
+      calls.push(["from", table]);
+      const query = {
+        select(columns: string) { calls.push(["select", table, columns]); return query; },
+        eq(column: string, value: unknown) { calls.push(["eq", table, column, value]); return query; },
+        order(column: string, options: unknown) { calls.push(["order", table, column, options]); return query; },
+        limit(value: number) { calls.push(["limit", table, value]); return query; },
+        insert(value: unknown) { calls.push(["insert", table, value]); return query; },
+        async maybeSingle() { return terminal("maybeSingle"); },
+        async single() { return terminal("single"); },
+      };
+      function terminal(name: PlannedQuery["terminal"]) {
+        calls.push([name, table]);
+        const plan = remaining.shift();
+        if (!plan || plan.table !== table || plan.terminal !== name) {
+          throw new Error(`unexpected ${table}.${name}`);
+        }
+        return plan.result;
+      }
+      return query;
+    },
+    async rpc(name: string, args: unknown) {
+      calls.push(["rpc", name, args]);
+      return { data: [], error: null };
+    },
+  };
+  return { client, calls, remaining };
 }
 
 function memoryRepository(candidateRecord: CandidateArtifactRecord | null = artifact()) {
@@ -189,6 +286,24 @@ function attemptService(store: ReturnType<typeof memoryRepository>, options: {
 }
 
 describe("learner-first practice activation", () => {
+  test("the CI activation fixture echoes the selected frozen candidate rather than a parallel identity", async () => {
+    const selectedCandidate = {
+      ...candidate,
+      expression: "没想到",
+      evidenceText: "我完全没想到。",
+      communicativeFunction: "Expressing surprise.",
+    };
+
+    await expect(createActivationFixtureGateway().complete(
+      "activate-practice-v1",
+      buildActivatePracticePrompt(selectedCandidate),
+    )).resolves.toMatchObject({
+      targetExpression: "没想到",
+      evidenceText: "我完全没想到。",
+      communicativeFunction: "Expressing surprise.",
+    });
+  });
+
   test("persists an exact candidate task before returning it, without a model answer or canonical evidence", async () => {
     const store = memoryRepository();
     const events: string[] = [];
@@ -234,6 +349,37 @@ describe("learner-first practice activation", () => {
     expect(store.drafts).toHaveLength(0);
   });
 
+  test.each([
+    ["target expression", { targetExpression: `${candidate.expression} ` }],
+    ["evidence text", { evidenceText: `${candidate.evidenceText} ` }],
+    ["communicative function", { communicativeFunction: `${candidate.communicativeFunction} ` }],
+  ])("rejects a schema-valid activation whose %s grounding echo is not byte-exact", async (_label, mismatch) => {
+    const store = memoryRepository();
+    const fixture = gateway({ ...activation, ...mismatch });
+
+    await expect(activate(store, { fixture })).rejects.toMatchObject({ code: "PROVIDER_FAILED" });
+
+    expect(store.drafts).toHaveLength(0);
+  });
+
+  test("rejects a schema-valid completed answer instead of a learner-first question", async () => {
+    const store = memoryRepository();
+    const fixture = gateway({ ...activation, promptChinese: "这个价格也太离谱了吧！" });
+
+    await expect(activate(store, { fixture })).rejects.toMatchObject({ code: "PROVIDER_FAILED" });
+
+    expect(store.drafts).toHaveLength(0);
+  });
+
+  test("rejects a learner question that leaks the complete target expression", async () => {
+    const store = memoryRepository();
+    const fixture = gateway({ ...activation, promptChinese: "请用太离谱了来回答这个问题？" });
+
+    await expect(activate(store, { fixture })).rejects.toMatchObject({ code: "PROVIDER_FAILED" });
+
+    expect(store.drafts).toHaveLength(0);
+  });
+
   test("CI uses its fixture before pin/Vault/fetch and replays one durable identity", async () => {
     const store = memoryRepository();
     const live = gateway(activation);
@@ -272,6 +418,7 @@ describe("learner-first practice activation", () => {
       configId: CONFIG, revision: 3, fingerprint: FINGERPRINT,
     });
     expect(store.drafts[0]).toMatchObject({
+      activationPromptVersion: "activate-practice-v1",
       activationModel: "mandarin-model",
       activationGatewayConfigId: CONFIG,
       activationGatewayRevision: 3,
@@ -345,6 +492,7 @@ describe("evaluation and append-only revisions", () => {
       accuracyScore: 5,
       naturalnessScore: 4,
       contextualFitScore: 5,
+      evaluationPromptVersion: "evaluate-practice-v1",
       evaluationModel: "mandarin-model",
       evaluationGatewayConfigId: CONFIG,
       evaluationGatewayRevision: 3,
@@ -393,7 +541,219 @@ describe("evaluation and append-only revisions", () => {
   });
 });
 
+describe("production Supabase practice repository", () => {
+  test("maps production rows and owner-filters candidate, draft, and attempt reads", async () => {
+    const candidateRow = {
+      id: ARTIFACT,
+      user_id: USER_A,
+      video_source_id: SOURCE,
+      saved_item_id: SAVE,
+      artifact_type: "saved_item_analysis",
+      content: { candidates: [candidate] },
+    };
+    const harness = supabaseQueryHarness([
+      { table: "generated_artifacts", terminal: "maybeSingle", result: { data: candidateRow, error: null } },
+      { table: "practice_drafts", terminal: "maybeSingle", result: { data: draftRow, error: null } },
+      { table: "practice_drafts", terminal: "maybeSingle", result: { data: draftRow, error: null } },
+      { table: "practice_draft_attempts", terminal: "maybeSingle", result: { data: attemptRow, error: null } },
+    ]);
+    const repository = createSupabasePracticeRepository(harness.client as never);
+
+    await expect(repository.findCandidate(USER_A, {
+      savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0,
+    })).resolves.toEqual(artifact());
+    await expect(repository.findDraftBySelection(USER_A, {
+      savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0,
+    })).resolves.toMatchObject({ id: ATTEMPT, userId: USER_A });
+    await expect(repository.findDraft(USER_A, ATTEMPT)).resolves.toMatchObject({
+      id: ATTEMPT,
+      userId: USER_A,
+      targetExpression: candidate.expression,
+      activationPromptVersion: "activate-practice-v1",
+      activationModel: "mandarin-model",
+      activationGatewayConfigId: CONFIG,
+      activationGatewayRevision: 3,
+      activationGatewayFingerprint: FINGERPRINT,
+    });
+    await expect(repository.findAttempt(USER_A, USER_B)).resolves.toMatchObject({
+      id: USER_B,
+      userId: USER_A,
+      practiceDraftId: ATTEMPT,
+      responseChinese: attemptRow.response_chinese,
+      evaluationPromptVersion: "evaluate-practice-v1",
+      evaluationModel: "mandarin-model",
+      evaluationGatewayConfigId: CONFIG,
+      evaluationGatewayRevision: 3,
+      evaluationGatewayFingerprint: FINGERPRINT,
+    });
+
+    expect(harness.calls).toEqual(expect.arrayContaining([
+      ["eq", "generated_artifacts", "user_id", USER_A],
+      ["eq", "generated_artifacts", "id", ARTIFACT],
+      ["eq", "generated_artifacts", "saved_item_id", SAVE],
+      ["eq", "generated_artifacts", "artifact_type", "saved_item_analysis"],
+      ["eq", "practice_drafts", "user_id", USER_A],
+      ["eq", "practice_drafts", "saved_item_id", SAVE],
+      ["eq", "practice_drafts", "candidate_artifact_id", ARTIFACT],
+      ["eq", "practice_drafts", "candidate_index", 0],
+      ["eq", "practice_drafts", "status", "active"],
+      ["eq", "practice_drafts", "id", ATTEMPT],
+      ["eq", "practice_draft_attempts", "user_id", USER_A],
+      ["eq", "practice_draft_attempts", "id", USER_B],
+    ]));
+    expect(harness.remaining).toHaveLength(0);
+  });
+
+  test("replays the owner-scoped durable draft after a 23505 insert race", async () => {
+    const harness = supabaseQueryHarness([
+      { table: "practice_drafts", terminal: "single", result: { data: null, error: { code: "23505" } } },
+      { table: "practice_drafts", terminal: "maybeSingle", result: { data: draftRow, error: null } },
+    ]);
+    const repository = createSupabasePracticeRepository(harness.client as never);
+    const input: PracticeDraftRecord = {
+      id: ATTEMPT,
+      userId: USER_A,
+      videoSourceId: SOURCE,
+      savedItemId: SAVE,
+      candidateArtifactId: ARTIFACT,
+      candidateIndex: 0,
+      futureUserExpressionId: USER_B,
+      nativeLanguage: "en",
+      targetLanguage: "zh-CN",
+      targetExpression: candidate.expression,
+      promptChinese: activation.promptChinese,
+      instructionsEnglish: activation.instructionsEnglish,
+      goalEnglish: activation.goalEnglish,
+      status: "active",
+      activationPromptVersion: "activate-practice-v1",
+      activationModel: "mandarin-model",
+      activationGatewayConfigId: CONFIG,
+      activationGatewayRevision: 3,
+      activationGatewayFingerprint: FINGERPRINT,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+
+    await expect(repository.insertDraft(input)).resolves.toMatchObject({ id: ATTEMPT, userId: USER_A });
+    const insert = harness.calls.find((call) => call[0] === "insert" && call[1] === "practice_drafts");
+    expect(insert?.[2]).toMatchObject({
+      id: ATTEMPT,
+      user_id: USER_A,
+      saved_item_id: SAVE,
+      candidate_artifact_id: ARTIFACT,
+      candidate_index: 0,
+      future_user_expression_id: USER_B,
+      activation_prompt_version: "activate-practice-v1",
+      activation_model: "mandarin-model",
+      activation_gateway_config_id: CONFIG,
+      activation_gateway_revision: 3,
+      activation_gateway_fingerprint: FINGERPRINT,
+    });
+    expect(harness.calls).toEqual(expect.arrayContaining([
+      ["eq", "practice_drafts", "user_id", USER_A],
+      ["eq", "practice_drafts", "id", ATTEMPT],
+    ]));
+  });
+
+  test("owner-filters revision lookup and maps a duplicate attempt revision to conflict", async () => {
+    const harness = supabaseQueryHarness([
+      { table: "practice_draft_attempts", terminal: "maybeSingle", result: { data: { revision: 2 }, error: null } },
+      { table: "practice_draft_attempts", terminal: "single", result: { data: null, error: { code: "23505" } } },
+    ]);
+    const repository = createSupabasePracticeRepository(harness.client as never);
+
+    await expect(repository.nextRevision(USER_A, ATTEMPT)).resolves.toBe(3);
+    await expect(repository.insertAttempt({
+      id: USER_B,
+      userId: USER_A,
+      practiceDraftId: ATTEMPT,
+      futureUserExpressionId: USER_B,
+      revision: 3,
+      responseChinese: attemptRow.response_chinese,
+      passed: true,
+      accuracyScore: 5,
+      accuracyFeedbackEnglish: passingEvaluation.accuracy.englishFeedback,
+      naturalnessScore: 4,
+      naturalnessFeedbackEnglish: passingEvaluation.naturalness.englishFeedback,
+      contextualFitScore: 5,
+      contextualFitFeedbackEnglish: passingEvaluation.contextualFit.englishFeedback,
+      independentUse: true,
+      assistanceLevel: "none",
+      submittedAt: NOW,
+      evaluationPromptVersion: "evaluate-practice-v1",
+      evaluationModel: "mandarin-model",
+      evaluationGatewayConfigId: CONFIG,
+      evaluationGatewayRevision: 3,
+      evaluationGatewayFingerprint: FINGERPRINT,
+      createdAt: NOW,
+    })).rejects.toBeInstanceOf(RevisionConflictError);
+    const insert = harness.calls.find((call) => call[0] === "insert" && call[1] === "practice_draft_attempts");
+    expect(insert?.[2]).toMatchObject({
+      user_id: USER_A,
+      practice_draft_id: ATTEMPT,
+      revision: 3,
+      response_chinese: attemptRow.response_chinese,
+      evaluation_prompt_version: "evaluate-practice-v1",
+      evaluation_model: "mandarin-model",
+      evaluation_gateway_config_id: CONFIG,
+      evaluation_gateway_revision: 3,
+      evaluation_gateway_fingerprint: FINGERPRINT,
+    });
+    expect(harness.calls).toEqual(expect.arrayContaining([
+      ["eq", "practice_draft_attempts", "user_id", USER_A],
+      ["eq", "practice_draft_attempts", "practice_draft_id", ATTEMPT],
+      ["order", "practice_draft_attempts", "revision", { ascending: false }],
+    ]));
+  });
+});
+
 describe("cookie Web mutation boundaries", () => {
+  test.each([undefined, "text/plain", "application/problem+json"]) (
+    "rejects unsupported Content-Type %s before the task action",
+    async (contentType) => {
+      const activate = vi.fn(async () => ({ id: ATTEMPT }));
+      const handler = createPracticeTaskHttpHandler({
+        authenticate: vi.fn(async () => ({ ok: true as const, userId: USER_A })),
+        activate,
+        appUrl: "https://popcorn.example",
+        requestId: () => "safe-request",
+      });
+      const headers: HeadersInit = { Origin: "https://popcorn.example" };
+      if (contentType) (headers as Record<string, string>)["Content-Type"] = contentType;
+
+      const response = await handler(new Request("https://popcorn.example/api/v1/practice/tasks", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0 }),
+      }));
+
+      expect(response.status).toBe(400);
+      expect(activate).not.toHaveBeenCalled();
+    },
+  );
+
+  test("accepts application/json with an explicit UTF-8 charset", async () => {
+    const activate = vi.fn(async () => ({ id: ATTEMPT }));
+    const handler = createPracticeTaskHttpHandler({
+      authenticate: vi.fn(async () => ({ ok: true as const, userId: USER_A })),
+      activate,
+      appUrl: "https://popcorn.example",
+      requestId: () => "safe-request",
+    });
+
+    const response = await handler(new Request("https://popcorn.example/api/v1/practice/tasks", {
+      method: "POST",
+      headers: {
+        Origin: "https://popcorn.example",
+        "Content-Type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify({ savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0 }),
+    }));
+
+    expect(response.status).toBe(201);
+    expect(activate).toHaveBeenCalledOnce();
+  });
+
   test("task activation enforces exact origin and forwards only authenticated selection", async () => {
     const activate = vi.fn(async () => ({ id: ATTEMPT }));
     const handler = createPracticeTaskHttpHandler({
@@ -452,5 +812,110 @@ describe("cookie Web mutation boundaries", () => {
       requestId: "safe-request",
     }));
     expect(submitRevision).not.toHaveBeenCalled();
+  });
+});
+
+describe("production practice route wiring", () => {
+  test("the three POST-only route modules wire cookie auth and service mutations", async () => {
+    vi.resetModules();
+    const client = { scope: "service-role-client" };
+    const createClient = vi.fn(() => client);
+    const cookies = vi.fn(async () => ({ getAll: () => [], set: () => undefined }));
+    const createNextCookieAdapter = vi.fn((store: unknown) => ({ store }));
+    const authOptions: Array<{ readonly cookieAdapter: () => Promise<unknown> }> = [];
+    const createWebSessionAuthenticator = vi.fn((options: { readonly cookieAdapter: () => Promise<unknown> }) => {
+      authOptions.push(options);
+      return vi.fn(async () => ({ ok: true as const, userId: USER_A }));
+    });
+    const activate = vi.fn(async () => ({ id: ATTEMPT }));
+    const submitOriginal = vi.fn(async () => ({ id: USER_B }));
+    const submitRevision = vi.fn(async () => ({ id: ARTIFACT }));
+    const createPracticeServerServices = vi.fn(() => ({
+      taskService: { activate },
+      attemptService: { submitOriginal, submitRevision },
+    }));
+    vi.doMock("@supabase/supabase-js", () => ({ createClient }));
+    vi.doMock("next/headers", () => ({ cookies }));
+    vi.doMock("@/server/auth/web-session", () => ({
+      createNextCookieAdapter,
+      createWebSessionAuthenticator,
+    }));
+    vi.doMock("@/server/env", () => ({
+      getModelGatewaySettingsEnv: () => ({
+        NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+        APP_URL: "https://popcorn.example",
+      }),
+    }));
+    vi.doMock("@/server/repositories/attempt-repository", async () => ({
+      ...(await vi.importActual<typeof import("@/server/repositories/attempt-repository")>(
+        "@/server/repositories/attempt-repository",
+      )),
+      createPracticeServerServices,
+    }));
+
+    const [taskRoute, attemptRoute, revisionRoute] = await Promise.all([
+      import("@/app/api/v1/practice/tasks/route"),
+      import("@/app/api/v1/practice/attempts/route"),
+      import("@/app/api/v1/practice/attempts/[attemptId]/revisions/route"),
+    ]);
+    expect(Object.keys(taskRoute)).toEqual(["POST"]);
+    expect(Object.keys(attemptRoute)).toEqual(["POST"]);
+    expect(Object.keys(revisionRoute)).toEqual(["POST"]);
+
+    const headers = { Origin: "https://popcorn.example", "Content-Type": "application/json" };
+    const taskResponse = await taskRoute.POST(new Request("https://popcorn.example/api/v1/practice/tasks", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0 }),
+    }));
+    const attemptResponse = await attemptRoute.POST(new Request("https://popcorn.example/api/v1/practice/attempts", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ taskId: ATTEMPT, responseChinese: "太离谱了。" }),
+    }));
+    const revisionResponse = await revisionRoute.POST(
+      new Request(`https://popcorn.example/api/v1/practice/attempts/${USER_B}/revisions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ responseChinese: "真的太离谱了。" }),
+      }),
+      { params: Promise.resolve({ attemptId: USER_B }) },
+    );
+
+    expect([taskResponse.status, attemptResponse.status, revisionResponse.status]).toEqual([201, 201, 201]);
+    expect(activate).toHaveBeenCalledExactlyOnceWith(USER_A, {
+      savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0,
+    });
+    expect(submitOriginal).toHaveBeenCalledExactlyOnceWith(USER_A, {
+      taskId: ATTEMPT, responseChinese: "太离谱了。",
+    });
+    expect(submitRevision).toHaveBeenCalledExactlyOnceWith(USER_A, USER_B, "真的太离谱了。");
+    expect(createClient).toHaveBeenCalledTimes(3);
+    expect(createClient).toHaveBeenCalledWith(
+      "https://project.supabase.co",
+      "service-role-key",
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+    expect(createPracticeServerServices).toHaveBeenCalledTimes(3);
+    expect(createPracticeServerServices).toHaveBeenCalledWith(client, false);
+    expect(createWebSessionAuthenticator).toHaveBeenCalledTimes(3);
+    expect(createWebSessionAuthenticator).toHaveBeenCalledWith(expect.objectContaining({
+      supabaseUrl: "https://project.supabase.co",
+      anonKey: "anon-key",
+      secureCookies: true,
+      cookieAdapter: expect.any(Function),
+    }));
+    for (const options of authOptions) await options.cookieAdapter();
+    expect(cookies).toHaveBeenCalledTimes(3);
+    expect(createNextCookieAdapter).toHaveBeenCalledTimes(3);
+
+    vi.doUnmock("@supabase/supabase-js");
+    vi.doUnmock("next/headers");
+    vi.doUnmock("@/server/auth/web-session");
+    vi.doUnmock("@/server/env");
+    vi.doUnmock("@/server/repositories/attempt-repository");
+    vi.resetModules();
   });
 });

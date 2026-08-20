@@ -150,6 +150,16 @@ export async function readPracticeMutation(
       { status: 403, headers: { "Cache-Control": "no-store" } },
     ) };
   }
+  const contentType = request.headers.get("content-type");
+  if (
+    contentType === null ||
+    !/^application\/json(?:\s*;\s*charset\s*=\s*utf-8)?\s*$/i.test(contentType)
+  ) {
+    return {
+      ok: false,
+      response: practiceErrorResponse(new PracticeError("VALIDATION_FAILED"), dependencies.requestId),
+    };
+  }
   try {
     return { ok: true, userId: authenticated.userId, body: await boundedJson(request) };
   } catch {
@@ -257,6 +267,13 @@ export function createPracticeTaskService(dependencies: {
           ACTIVATE_PRACTICE_PROMPT_VERSION,
           buildActivatePracticePrompt(candidate),
         ));
+        if (
+          output.targetExpression !== candidate.expression ||
+          output.evidenceText !== candidate.evidenceText ||
+          output.communicativeFunction !== candidate.communicativeFunction ||
+          output.promptChinese.includes(candidate.expression) ||
+          !/[？?]\s*$/u.test(output.promptChinese)
+        ) throw new TypeError("invalid grounded learner-first activation");
       } catch {
         throw new PracticeError("PROVIDER_FAILED", true);
       }
