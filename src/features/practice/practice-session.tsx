@@ -9,6 +9,7 @@ import { submitAttemptRevision, submitOriginalAttempt } from "@/features/practic
 export function PracticeSession({ task }: { readonly task: PracticeTask }) {
   const [responseChinese, setResponseChinese] = useState("");
   const [attempt, setAttempt] = useState<AttemptRecorded | null>(null);
+  const [hasVaultEntry, setHasVaultEntry] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -18,9 +19,11 @@ export function PracticeSession({ task }: { readonly task: PracticeTask }) {
     setSubmitting(true);
     setFailed(false);
     try {
-      const recorded = attempt
-        ? await submitAttemptRevision(attempt.id, responseChinese)
-        : await submitOriginalAttempt(task.id, responseChinese);
+      const isOriginal = attempt === null;
+      const recorded = isOriginal
+        ? await submitOriginalAttempt(task.id, responseChinese)
+        : await submitAttemptRevision(attempt.id, responseChinese);
+      if (isOriginal) setHasVaultEntry(recorded.evaluation.passed);
       setAttempt(recorded);
     } catch {
       setFailed(true);
@@ -57,7 +60,7 @@ export function PracticeSession({ task }: { readonly task: PracticeTask }) {
         ? <p role="alert">Your response could not be checked. Try again.</p>
         : null}
       {attempt ? <EvaluationPanel evaluation={attempt.evaluation} /> : null}
-      {attempt?.evaluation.passed
+      {attempt && hasVaultEntry
         ? <p><a href={`/vault#expression-${attempt.userExpressionId}`}>Open in Vault</a></p>
         : null}
     </article>

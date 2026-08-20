@@ -16,6 +16,9 @@ import {
 const USER = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
 const EXPRESSION = "33333333-3333-4333-8333-333333333333";
+const EXACT_EXPRESSION = "66666666-6666-4666-8666-666666666666";
+const SIMILAR_EXPRESSION = "77777777-7777-4777-8777-777777777777";
+const ZERO_EXPRESSION = "88888888-8888-4888-8888-888888888888";
 const NOW = "2026-08-21T02:03:04.000Z";
 
 const card: ExpressionCardView = {
@@ -95,6 +98,39 @@ function queryClient(plans: Array<{ table: string; data: unknown[] }>) {
   };
 }
 
+function expressionRow(id: string, senseId: string) {
+  return { id, user_id: USER, expression_sense_id: senseId, mastery_state: "tried", created_at: NOW };
+}
+
+function senseRow(id: string, expression: string, meaning: string) {
+  return {
+    id,
+    user_id: USER,
+    video_source_id: USER,
+    expression_text: expression,
+    normalized_expression_text: expression.normalize("NFKC").trim(),
+    english_meaning: meaning,
+    english_explanation: `${meaning} explanation`,
+    tone: "Neutral.",
+    communicative_function: "Reacting.",
+    register: "Spoken Mandarin.",
+  };
+}
+
+function occurrenceRow(id: string, senseId: string) {
+  return {
+    id,
+    user_id: USER,
+    video_source_id: USER,
+    expression_sense_id: senseId,
+    evidence_text: "source evidence",
+    segment_ids: ["segment-1"],
+    start_seconds: 40,
+    end_seconds: 43,
+    created_at: NOW,
+  };
+}
+
 describe("Vault and due Practice boundaries", () => {
   test("production Vault reads promoted expressions and complete staged revision history with owner filters", async () => {
     const harness = queryClient([
@@ -169,15 +205,83 @@ describe("Vault and due Practice boundaries", () => {
     ]));
   });
 
-  test("keeps exact normalized matches first and stable trigram suggestions display-only", () => {
+  test("keeps exact normalized matches first and omits zero-overlap suggestions", () => {
     expect(rankExpressionSuggestions("太离谱了", [
-      { userExpressionId: OTHER, expression: "太靠谱了", englishMeaning: "Reliable." },
-      { userExpressionId: EXPRESSION, expression: "太离谱了", englishMeaning: card.englishMeaning },
-      { userExpressionId: USER, expression: "离谱", englishMeaning: "Absurd." },
+      { userExpressionId: ZERO_EXPRESSION, expression: "天气真好", englishMeaning: "The weather is nice." },
+      { userExpressionId: OTHER, expression: "离谱", englishMeaning: "Absurd B." },
+      { userExpressionId: EXACT_EXPRESSION, expression: " 太离谱了 ", englishMeaning: card.englishMeaning },
+      { userExpressionId: USER, expression: "离谱", englishMeaning: "Absurd A." },
     ])).toEqual([
-      { userExpressionId: EXPRESSION, expression: "太离谱了", englishMeaning: card.englishMeaning, match: "exact" },
-      { userExpressionId: USER, expression: "离谱", englishMeaning: "Absurd.", match: "similar" },
-      { userExpressionId: OTHER, expression: "太靠谱了", englishMeaning: "Reliable.", match: "similar" },
+      { userExpressionId: EXACT_EXPRESSION, expression: " 太离谱了 ", englishMeaning: card.englishMeaning, match: "exact" },
+      { userExpressionId: USER, expression: "离谱", englishMeaning: "Absurd A.", match: "similar" },
+      { userExpressionId: OTHER, expression: "离谱", englishMeaning: "Absurd B.", match: "similar" },
+    ]);
+  });
+
+  test("limits deterministic exact suggestions to eight", () => {
+    const candidates = Array.from({ length: 9 }, (_, index) => ({
+      userExpressionId: `expression-${String(9 - index).padStart(2, "0")}`,
+      expression: "太离谱了",
+      englishMeaning: `Meaning ${9 - index}`,
+    }));
+    expect(rankExpressionSuggestions("太离谱了", candidates).map((value) => value.userExpressionId))
+      .toEqual([
+        "expression-01", "expression-02", "expression-03", "expression-04",
+        "expression-05", "expression-06", "expression-07", "expression-08",
+      ]);
+  });
+
+  test("Vault detail excludes itself while retaining a different exact match before positive similarity", async () => {
+    const exactSense = "99999999-9999-4999-8999-999999999999";
+    const similarSense = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const zeroSense = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const targetSense = senseRow(OTHER, card.expression, card.englishMeaning);
+    const exact = senseRow(exactSense, card.expression, "Same text, different source.");
+    const similar = senseRow(similarSense, "离谱", "Absurd.");
+    const zero = senseRow(zeroSense, "天气真好", "The weather is nice.");
+    const source = {
+      id: USER,
+      user_id: USER,
+      canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    };
+    const harness = queryClient([
+      { table: "user_expressions", data: [expressionRow(EXPRESSION, OTHER)] },
+      { table: "expression_senses", data: [targetSense] },
+      { table: "expression_occurrences", data: [occurrenceRow(OTHER, OTHER)] },
+      { table: "video_sources", data: [source] },
+      { table: "practice_draft_attempts", data: [] },
+      { table: "user_expressions", data: [
+        expressionRow(EXPRESSION, OTHER),
+        expressionRow(EXACT_EXPRESSION, exactSense),
+        expressionRow(SIMILAR_EXPRESSION, similarSense),
+        expressionRow(ZERO_EXPRESSION, zeroSense),
+      ] },
+      { table: "expression_senses", data: [targetSense, exact, similar, zero] },
+      { table: "expression_occurrences", data: [
+        occurrenceRow(OTHER, OTHER),
+        occurrenceRow(EXACT_EXPRESSION, exactSense),
+        occurrenceRow(SIMILAR_EXPRESSION, similarSense),
+        occurrenceRow(ZERO_EXPRESSION, zeroSense),
+      ] },
+      { table: "video_sources", data: [source] },
+      { table: "practice_draft_attempts", data: [] },
+    ]);
+
+    const detail = await createSupabaseReviewTaskRepository(harness.client as never)
+      .getVault(USER, EXPRESSION);
+    expect(detail?.suggestions).toEqual([
+      {
+        userExpressionId: EXACT_EXPRESSION,
+        expression: card.expression,
+        englishMeaning: "Same text, different source.",
+        match: "exact",
+      },
+      {
+        userExpressionId: SIMILAR_EXPRESSION,
+        expression: "离谱",
+        englishMeaning: "Absurd.",
+        match: "similar",
+      },
     ]);
   });
 

@@ -29,6 +29,12 @@ const evaluation = {
   assistanceLevel: "none",
 };
 
+const failedEvaluation = {
+  ...evaluation,
+  passed: false,
+  contextualFit: { score: 2, englishFeedback: "Use the expression in the requested situation." },
+};
+
 function apiResponse(data: unknown, status = 200) {
   return Response.json({ ok: true, data, requestId: "safe-request" }, { status });
 }
@@ -66,7 +72,7 @@ describe("PracticeSession", () => {
     expect(document.body).not.toHaveTextContent(/provider secret raw body/i);
   });
 
-  test("renders separate feedback and appends a revision without clearing learner text", async () => {
+  test("keeps the Vault link after a passed original followed by a failed optional revision", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(apiResponse({
         id: "44444444-4444-4444-8444-444444444444",
@@ -84,7 +90,7 @@ describe("PracticeSession", () => {
         practiceTaskId: task.id,
         userExpressionId: task.userExpressionId,
         responseChinese: "这个价格也太离谱了吧！",
-        evaluation,
+        evaluation: failedEvaluation,
         submittedAt: task.createdAt,
         createdAt: task.createdAt,
       }));
@@ -114,5 +120,50 @@ describe("PracticeSession", () => {
       "/api/v1/practice/attempts/44444444-4444-4444-8444-444444444444/revisions",
     );
     expect(response).toHaveValue("这个价格也太离谱了吧！");
+    expect(screen.getByText("Contextual fit: 2/5")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open in Vault" })).toHaveAttribute(
+      "href",
+      `/vault#expression-${task.userExpressionId}`,
+    );
+  });
+
+  test("does not show a Vault link when only revision 2 passes after a failed original", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(apiResponse({
+        id: "44444444-4444-4444-8444-444444444444",
+        userId: task.userId,
+        practiceTaskId: task.id,
+        userExpressionId: task.userExpressionId,
+        responseChinese: "这杯咖啡很贵。",
+        evaluation: failedEvaluation,
+        submittedAt: task.createdAt,
+        createdAt: task.createdAt,
+      }))
+      .mockResolvedValueOnce(apiResponse({
+        id: "55555555-5555-4555-8555-555555555555",
+        userId: task.userId,
+        practiceTaskId: task.id,
+        userExpressionId: task.userExpressionId,
+        responseChinese: "这个价格也太离谱了吧！",
+        evaluation,
+        submittedAt: task.createdAt,
+        createdAt: task.createdAt,
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<PracticeSession task={task} />);
+    const response = screen.getByLabelText("Your Chinese response");
+
+    await user.type(response, "这杯咖啡很贵。");
+    await user.click(screen.getByRole("button", { name: "Check my response" }));
+    expect(await screen.findByText("Contextual fit: 2/5")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open in Vault" })).not.toBeInTheDocument();
+
+    await user.clear(response);
+    await user.type(response, "这个价格也太离谱了吧！");
+    await user.click(screen.getByRole("button", { name: "Check revised response" }));
+    expect(await screen.findByText("Contextual fit: 5/5")).toBeInTheDocument();
+    expect(response).toHaveValue("这个价格也太离谱了吧！");
+    expect(screen.queryByRole("link", { name: "Open in Vault" })).not.toBeInTheDocument();
   });
 });

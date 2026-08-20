@@ -110,12 +110,13 @@ export function rankExpressionSuggestions(
       ? "exact" as const
       : "similar" as const,
     score: similarity(normalized, candidate.expression),
-  })).toSorted((left, right) =>
-    Number(right.match === "exact") - Number(left.match === "exact") ||
-    right.score - left.score ||
-    left.expression.localeCompare(right.expression, "zh-CN") ||
-    left.userExpressionId.localeCompare(right.userExpressionId),
-  ).slice(0, Math.max(0, Math.min(limit, 8))).map(({ score: _score, ...candidate }) => candidate);
+  })).filter((candidate) => candidate.match === "exact" || candidate.score > 0)
+    .toSorted((left, right) =>
+      Number(right.match === "exact") - Number(left.match === "exact") ||
+      right.score - left.score ||
+      left.expression.localeCompare(right.expression, "zh-CN") ||
+      left.userExpressionId.localeCompare(right.userExpressionId),
+    ).slice(0, Math.max(0, Math.min(limit, 8))).map(({ score: _score, ...candidate }) => candidate);
 }
 
 type QueryResult = { readonly data: unknown[] | null; readonly error: unknown };
@@ -231,14 +232,15 @@ export function createSupabaseReviewTaskRepository(
       const card = (await queryVault(userId, userExpressionId))[0];
       if (!card) return null;
       const bounded = await queryVault(userId);
-      const cards = [card, ...bounded.filter((value) => value.userExpressionId !== card.userExpressionId)];
       return {
         card,
-        suggestions: rankExpressionSuggestions(card.expression, cards.map((value) => ({
-          userExpressionId: value.userExpressionId,
-          expression: value.expression,
-          englishMeaning: value.englishMeaning,
-        }))),
+        suggestions: rankExpressionSuggestions(card.expression, bounded
+          .filter((value) => value.userExpressionId !== card.userExpressionId)
+          .map((value) => ({
+            userExpressionId: value.userExpressionId,
+            expression: value.expression,
+            englishMeaning: value.englishMeaning,
+          }))),
       };
     },
     async listDue(userId, now) {
