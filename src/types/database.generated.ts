@@ -532,6 +532,240 @@ export type Database = {
         }
         Relationships: []
       }
+      practice_draft_attempts: {
+        Row: {
+          accuracy_feedback_english: string
+          accuracy_score: number
+          assistance_level: string
+          contextual_fit_feedback_english: string
+          contextual_fit_score: number
+          created_at: string
+          evaluation_gateway_config_id: string | null
+          evaluation_gateway_fingerprint: string | null
+          evaluation_gateway_revision: number | null
+          evaluation_model: string | null
+          evaluation_prompt_version: string | null
+          future_user_expression_id: string
+          id: string
+          independent_use: boolean
+          naturalness_feedback_english: string
+          naturalness_score: number
+          passed: boolean
+          practice_draft_id: string
+          response_chinese: string
+          revision: number
+          submitted_at: string
+          user_id: string
+        }
+        Insert: {
+          accuracy_feedback_english: string
+          accuracy_score: number
+          assistance_level: string
+          contextual_fit_feedback_english: string
+          contextual_fit_score: number
+          created_at?: string
+          evaluation_gateway_config_id?: string | null
+          evaluation_gateway_fingerprint?: string | null
+          evaluation_gateway_revision?: number | null
+          evaluation_model?: string | null
+          evaluation_prompt_version?: string | null
+          future_user_expression_id: string
+          id?: string
+          independent_use: boolean
+          naturalness_feedback_english: string
+          naturalness_score: number
+          passed: boolean
+          practice_draft_id: string
+          response_chinese: string
+          revision: number
+          submitted_at: string
+          user_id: string
+        }
+        Update: {
+          accuracy_feedback_english?: string
+          accuracy_score?: number
+          assistance_level?: string
+          contextual_fit_feedback_english?: string
+          contextual_fit_score?: number
+          created_at?: string
+          evaluation_gateway_config_id?: string | null
+          evaluation_gateway_fingerprint?: string | null
+          evaluation_gateway_revision?: number | null
+          evaluation_model?: string | null
+          evaluation_prompt_version?: string | null
+          future_user_expression_id?: string
+          id?: string
+          independent_use?: boolean
+          naturalness_feedback_english?: string
+          naturalness_score?: number
+          passed?: boolean
+          practice_draft_id?: string
+          response_chinese?: string
+          revision?: number
+          submitted_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_draft_attempt_draft_owner_fk"
+            columns: [
+              "practice_draft_id",
+              "user_id",
+              "future_user_expression_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "practice_drafts"
+            referencedColumns: ["id", "user_id", "future_user_expression_id"]
+          },
+          {
+            foreignKeyName: "practice_draft_attempt_evaluation_gateway_fk"
+            columns: [
+              "evaluation_gateway_config_id",
+              "user_id",
+              "evaluation_gateway_revision",
+              "evaluation_gateway_fingerprint",
+              "evaluation_model",
+            ]
+            isOneToOne: false
+            referencedRelation: "user_model_gateway_configs"
+            referencedColumns: [
+              "id",
+              "user_id",
+              "revision",
+              "config_fingerprint",
+              "model",
+            ]
+          },
+        ]
+      }
+      practice_drafts: {
+        Row: {
+          activation_gateway_config_id: string | null
+          activation_gateway_fingerprint: string | null
+          activation_gateway_revision: number | null
+          activation_model: string | null
+          activation_prompt_version: string | null
+          candidate_artifact_id: string
+          candidate_artifact_type: string
+          candidate_index: number
+          created_at: string
+          future_user_expression_id: string
+          goal_english: string
+          id: string
+          instructions_english: string
+          native_language: string
+          prompt_chinese: string
+          saved_item_id: string
+          status: string
+          target_expression: string
+          target_language: string
+          updated_at: string
+          user_id: string
+          video_source_id: string
+        }
+        Insert: {
+          activation_gateway_config_id?: string | null
+          activation_gateway_fingerprint?: string | null
+          activation_gateway_revision?: number | null
+          activation_model?: string | null
+          activation_prompt_version?: string | null
+          candidate_artifact_id: string
+          candidate_artifact_type?: string
+          candidate_index: number
+          created_at?: string
+          future_user_expression_id: string
+          goal_english: string
+          id?: string
+          instructions_english: string
+          native_language: string
+          prompt_chinese: string
+          saved_item_id: string
+          status?: string
+          target_expression: string
+          target_language: string
+          updated_at?: string
+          user_id: string
+          video_source_id: string
+        }
+        Update: {
+          activation_gateway_config_id?: string | null
+          activation_gateway_fingerprint?: string | null
+          activation_gateway_revision?: number | null
+          activation_model?: string | null
+          activation_prompt_version?: string | null
+          candidate_artifact_id?: string
+          candidate_artifact_type?: string
+          candidate_index?: number
+          created_at?: string
+          future_user_expression_id?: string
+          goal_english?: string
+          id?: string
+          instructions_english?: string
+          native_language?: string
+          prompt_chinese?: string
+          saved_item_id?: string
+          status?: string
+          target_expression?: string
+          target_language?: string
+          updated_at?: string
+          user_id?: string
+          video_source_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_draft_activation_gateway_fk"
+            columns: [
+              "activation_gateway_config_id",
+              "user_id",
+              "activation_gateway_revision",
+              "activation_gateway_fingerprint",
+              "activation_model",
+            ]
+            isOneToOne: false
+            referencedRelation: "user_model_gateway_configs"
+            referencedColumns: [
+              "id",
+              "user_id",
+              "revision",
+              "config_fingerprint",
+              "model",
+            ]
+          },
+          {
+            foreignKeyName: "practice_draft_candidate_owner_fk"
+            columns: [
+              "candidate_artifact_id",
+              "user_id",
+              "video_source_id",
+              "saved_item_id",
+              "candidate_artifact_type",
+            ]
+            isOneToOne: false
+            referencedRelation: "generated_artifacts"
+            referencedColumns: [
+              "id",
+              "user_id",
+              "video_source_id",
+              "saved_item_id",
+              "artifact_type",
+            ]
+          },
+          {
+            foreignKeyName: "practice_draft_save_owner_fk"
+            columns: ["saved_item_id", "user_id", "video_source_id"]
+            isOneToOne: false
+            referencedRelation: "saved_items"
+            referencedColumns: ["id", "user_id", "video_source_id"]
+          },
+          {
+            foreignKeyName: "practice_draft_source_owner_fk"
+            columns: ["video_source_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "video_sources"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
       practice_tasks: {
         Row: {
           activation_gateway_config_id: string | null

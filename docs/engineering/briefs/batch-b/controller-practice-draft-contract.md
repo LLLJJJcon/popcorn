@@ -53,7 +53,8 @@ root config/lockfile, existing migrations/tests, ledger, prompts, and upstream f
 ### Ownership and provenance
 
 - Enable RLS. `authenticated` may select only own rows; no direct insert/update/delete.
-  `service_role` receives explicit CRUD and application code must still filter owner.
+  `service_role` receives select/insert/update on drafts and select/insert on append-only
+  attempt revisions; application code must still filter owner.
 - Composite owner FKs prevent cross-user/source/save/artifact/draft mixing.
 - Provenance is either all-null (deterministic CI/legacy fixture) or all five fields
   non-null and exactly bound, including model, to one immutable user gateway config.
