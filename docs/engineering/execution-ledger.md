@@ -3,11 +3,11 @@
 ## Current position
 
 - Stage: batch-a
-- Next task: close the final Task 5 handler-test repair and independent rereview, then execute controller-owned Batch A Task 7
+- Next task: execute controller-owned Batch A Task 7 extension-to-cloud integration gate
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `b2d7102` (Batch A Task 6: focused queue/restart 18/18, auth/worker/release 27/27, syntax/diff/status gates; no database/server/root change, so DB reset/pgTAP/build intentionally not repeated)
+- Last verified commit: `d1199bf` (Batch A Tasks 5+6 combined extension gate: exact-save 21/21, Task 3 regression 33/33, queue/restart 18/18, auth 19/19, provenance 11/11, syntax/diff/status gates; no DB/server/root change, so DB reset/pgTAP/build intentionally not repeated)
 
 ## Preflight
 
@@ -45,6 +45,7 @@
 | User model gateway | CONTRACT-009 | `codex/popcorn-youtube-learning` plus `codex/popcorn-contract-009-fix` | `1d65431`; brief `b3ba8e3` | `92eee42` + repair `5e0a14f` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved immutable private owner/config pins, non-secret lookup, atomic register/complete, explicit revoke and active-config replacement cleanup, exact config/consent/model/lease fences, deterministic validation-to-publication config locking, Vault destruction, succeeded artifact preservation, and GPL isolation | Clean migrations 001–009; focused pgTAP 54/54; full pgTAP 461/461; application 398/398; existing catalog and new three-session artifact concurrency regressions passed; lock-removal and cleanup-removal mutations failed as required; exact generated types, ESLint, TypeScript, webpack production build, diff/status passed |
 | Batch A | 3 | `codex/popcorn-gateway-learning-artifacts` plus `codex/popcorn-batch-a-3-fix` | `0399f9a` | `e32c40f` + `6d48d08`; integrated as `d157b4b` + `4e67831` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved exact YouTube Side Panel sender gating, same-segment Overview quote/timestamp grounding, fail-closed bilingual English selection, owner/config revision/fingerprint pins, fixture-first resolution, minimal bounded Provider egress, MIT reuse, and GPL isolation | Extension focused 33/33; server focused 108/108; application 467/467; ESLint, TypeScript, webpack production build, diff/status passed. No database or shared-contract changes, so DB reset/pgTAP was not repeated. |
 | Batch A | 6 | `codex/popcorn-batch-a-6` plus `codex/popcorn-batch-a-6-fix` | `8c8b2f3` | `5ef6eee` + repair `eb7f9e5`; integrated through `b2d7102` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved storage-first owner-bound persistence, bounded quota/retry, event-driven worker recovery, exact acknowledgements, account isolation, no automatic legacy-data deletion, and serialized enqueue/ack/retry/discard mutations with failure release | Queue/restart focused 18/18; auth/worker/release 27/27; syntax and diff/status passed. Candidate and baseline full-extension failure sets matched exactly (9 stale options-language + 3 stale settings); no candidate regression. No DB/server/root changes, so DB reset/pgTAP/build was not repeated. |
+| Batch A | 5 | `codex/popcorn-batch-a-5` plus three isolated repair branches | `8c8b2f3` | `25bea5a` + repairs `397fcca`, `9d90e74`, `40d700a`; integrated through `d1199bf` | PASS after three independent FAIL/fresh TDD repair loops; final reviewer approved real production handler coverage, mutation-sensitive zero-forbidden-call ledgers, exact six-kind payloads, player reaction delay, no playback/navigation/form side effects, and complete displayed Bilingual selection English with fail-closed omission | Exact-save focused 21/21; Task 3 regression 33/33; queue/restart 18/18; auth 19/19; provenance 11/11; syntax and diff/status passed. No DB/server/root changes, so DB reset/pgTAP/build was not repeated. |
 
 ## Open concerns
 
@@ -83,5 +84,5 @@
 
 ## Next dispatch
 
-- Batch A Task 6 is accepted and integrated through `b2d7102`. Task 5 remains isolated from Task 6 files and is in a final targeted repair/re-review loop for forbidden-call mutation sensitivity; do not integrate it before PASS.
-- After Task 5 independent acceptance and focused integration, the controller executes Task 7 and runs the Batch A end-to-end gate, including real Chrome worker termination/alarm recovery and rapid consecutive-save coverage.
+- Batch A Tasks 5 and 6 are independently accepted and jointly integrated through `d1199bf`; their combined focused extension gates are green.
+- The controller now executes Task 7 and the Batch A end-to-end gate, including persistent Chromium, six save kinds, cross-user isolation, worker termination/alarm recovery, rapid consecutive saves, upstream execution-log evidence, and one proportionate full Batch A verification.
