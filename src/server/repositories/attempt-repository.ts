@@ -37,6 +37,11 @@ import type { Database } from "@/types/database.generated";
 import { success } from "@/server/api/respond";
 import type { WebSessionResult } from "@/server/auth/web-session";
 import { createSupabaseModelGatewayRuntimeResolver } from "@/server/model-gateway/runtime-resolver";
+import {
+  createRecordValidAttemptService,
+  createSupabasePracticePromotionRepository,
+  type PracticePromotionResult,
+} from "@/server/domain/record-valid-attempt";
 
 const UserIdSchema = z.string().uuid();
 const OriginalAttemptInputSchema = z.strictObject({
@@ -75,6 +80,10 @@ export class RevisionConflictError extends Error {
   override readonly name = "RevisionConflictError";
 }
 
+type PracticeAttemptRepository = PracticeRepository & {
+  findOriginalAttempt(userId: string, taskId: string): Promise<PracticeDraftAttemptRecord | null>;
+};
+
 function attemptView(record: PracticeDraftAttemptRecord): AttemptRecorded {
   return AttemptRecordedSchema.parse({
     id: record.id,
@@ -106,19 +115,24 @@ function safeEvaluation(value: unknown): EvaluationResult {
 }
 
 export function createPracticeAttemptService(dependencies: {
-  readonly repository: PracticeRepository;
+  readonly repository: PracticeAttemptRepository;
   readonly gatewayResolver: StructuredJsonGatewayResolver;
   readonly fixtureGateway: StructuredJsonGateway;
   readonly ci: boolean;
   readonly now: () => string;
   readonly attemptId: () => string;
+  readonly promoteValidAttempt: (
+    userId: string,
+    draft: PracticeDraftRecord,
+    attempt: PracticeDraftAttemptRecord,
+  ) => Promise<PracticePromotionResult>;
 }) {
   async function evaluateAndPersist(
     userId: string,
     draft: PracticeDraftRecord,
     responseChinese: string,
     revision: number,
-  ): Promise<AttemptRecorded> {
+  ): Promise<PracticeDraftAttemptRecord> {
     const resolved = await resolvePracticeEgress(userId, dependencies);
     let evaluation: EvaluationResult;
     try {
@@ -156,7 +170,7 @@ export function createPracticeAttemptService(dependencies: {
       createdAt: now,
     };
     try {
-      return attemptView(await dependencies.repository.insertAttempt(record));
+      return await dependencies.repository.insertAttempt(record);
     } catch (error) {
       if (error instanceof RevisionConflictError) {
         throw new PracticeError("REVISION_CONFLICT");
@@ -165,18 +179,56 @@ export function createPracticeAttemptService(dependencies: {
     }
   }
 
+  async function promoteIfEligible(
+    userId: string,
+    draft: PracticeDraftRecord,
+    record: PracticeDraftAttemptRecord,
+  ): Promise<void> {
+    if (record.revision !== 1 || !record.passed) return;
+    try {
+      await dependencies.promoteValidAttempt(userId, draft, record);
+    } catch {
+      throw new PracticeError("INTERNAL_ERROR", true);
+    }
+  }
+
+  async function recoverOriginal(
+    userId: string,
+    draft: PracticeDraftRecord,
+    responseChinese: string,
+  ): Promise<AttemptRecorded | null> {
+    const existing = await dependencies.repository.findOriginalAttempt(userId, draft.id);
+    if (!existing) return null;
+    if (existing.responseChinese !== responseChinese) throw new PracticeError("REVISION_CONFLICT");
+    await promoteIfEligible(userId, draft, existing);
+    return attemptView(existing);
+  }
+
   return {
     async submitOriginal(userIdValue: string, inputValue: { taskId: string; responseChinese: string }) {
       const userId = UserIdSchema.safeParse(userIdValue);
       const input = OriginalAttemptInputSchema.safeParse(inputValue);
       if (!userId.success || !input.success) throw new PracticeError("VALIDATION_FAILED");
       const draft = await dependencies.repository.findDraft(userId.data, input.data.taskId);
-      if (!draft || draft.userId !== userId.data || draft.status !== "active") {
+      if (!draft || draft.userId !== userId.data || draft.status === "abandoned") {
         throw new PracticeError("NOT_FOUND");
       }
+      const recovered = await recoverOriginal(userId.data, draft, input.data.responseChinese);
+      if (recovered) return recovered;
+      if (draft.status !== "active") throw new PracticeError("NOT_FOUND");
       const revision = await dependencies.repository.nextRevision(userId.data, draft.id);
       if (revision !== 1) throw new PracticeError("REVISION_CONFLICT");
-      return evaluateAndPersist(userId.data, draft, input.data.responseChinese, 1);
+      try {
+        const record = await evaluateAndPersist(userId.data, draft, input.data.responseChinese, 1);
+        await promoteIfEligible(userId.data, draft, record);
+        return attemptView(record);
+      } catch (error) {
+        if (error instanceof PracticeError && error.code === "REVISION_CONFLICT") {
+          const raced = await recoverOriginal(userId.data, draft, input.data.responseChinese);
+          if (raced) return raced;
+        }
+        throw error;
+      }
     },
 
     async submitRevision(userIdValue: string, attemptIdValue: string, responseChineseValue: string) {
@@ -189,11 +241,11 @@ export function createPracticeAttemptService(dependencies: {
       const original = await dependencies.repository.findAttempt(userId.data, attemptId.data);
       if (!original || original.userId !== userId.data) throw new PracticeError("NOT_FOUND");
       const draft = await dependencies.repository.findDraft(userId.data, original.practiceDraftId);
-      if (!draft || draft.userId !== userId.data || draft.status !== "active") {
+      if (!draft || draft.userId !== userId.data || draft.status === "abandoned") {
         throw new PracticeError("NOT_FOUND");
       }
       const revision = await dependencies.repository.nextRevision(userId.data, draft.id);
-      return evaluateAndPersist(userId.data, draft, responseChinese.data, revision);
+      return attemptView(await evaluateAndPersist(userId.data, draft, responseChinese.data, revision));
     },
   };
 }
@@ -316,7 +368,7 @@ function databaseCode(error: unknown): string | null {
     : null;
 }
 
-export function createSupabasePracticeRepository(client: SupabaseClient<Database>): PracticeRepository {
+export function createSupabasePracticeRepository(client: SupabaseClient<Database>): PracticeAttemptRepository {
   async function findDraft(userId: string, taskId: string): Promise<PracticeDraftRecord | null> {
     const result = await client.from("practice_drafts").select(draftColumns)
       .eq("user_id", userId).eq("id", taskId).maybeSingle();
@@ -409,6 +461,13 @@ export function createSupabasePracticeRepository(client: SupabaseClient<Database
       return result.data ? attemptRecord(result.data as AttemptRow) : null;
     },
 
+    async findOriginalAttempt(userId, taskId) {
+      const result = await client.from("practice_draft_attempts").select(attemptColumns)
+        .eq("user_id", userId).eq("practice_draft_id", taskId).eq("revision", 1).maybeSingle();
+      if (result.error) throw result.error;
+      return result.data ? attemptRecord(result.data as AttemptRow) : null;
+    },
+
     async nextRevision(userId, taskId) {
       const result = await client.from("practice_draft_attempts").select("revision")
         .eq("user_id", userId).eq("practice_draft_id", taskId)
@@ -459,6 +518,9 @@ export function createPracticeServerServices(client: SupabaseClient<Database>, c
     createRuntimeResolver: () => createSupabaseModelGatewayRuntimeResolver(client),
   });
   const common = { repository, ci, now: () => new Date().toISOString(), attemptId: randomUUID };
+  const promotion = createRecordValidAttemptService({
+    repository: createSupabasePracticePromotionRepository(client),
+  });
   return {
     repository,
     taskService: createPracticeTaskService({
@@ -470,6 +532,7 @@ export function createPracticeServerServices(client: SupabaseClient<Database>, c
       ...common,
       fixtureGateway: evaluationFixture,
       gatewayResolver: resolver(evaluationFixture),
+      promoteValidAttempt: promotion.promote,
     }),
   };
 }

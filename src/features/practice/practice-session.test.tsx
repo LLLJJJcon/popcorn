@@ -99,6 +99,10 @@ describe("PracticeSession", () => {
     expect(screen.getByText("Accuracy: 5/5")).toBeInTheDocument();
     expect(screen.getByText("Naturalness: 4/5")).toBeInTheDocument();
     expect(screen.getByText("Contextual fit: 5/5")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open in Vault" })).toHaveAttribute(
+      "href",
+      `/vault#expression-${task.userExpressionId}`,
+    );
     expect(response).toHaveValue("这个价格也太离谱了。");
 
     await user.clear(response);

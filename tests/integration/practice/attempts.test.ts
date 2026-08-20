@@ -18,6 +18,7 @@ import {
   RevisionConflictError,
   type PracticeDraftAttemptRecord,
 } from "@/server/repositories/attempt-repository";
+import type { PracticePromotionResult } from "@/server/domain/record-valid-attempt";
 
 const USER_A = "11111111-1111-4111-8111-111111111111";
 const USER_B = "22222222-2222-4222-8222-222222222222";
@@ -183,7 +184,9 @@ function memoryRepository(candidateRecord: CandidateArtifactRecord | null = arti
   const attempts: PracticeDraftAttemptRecord[] = [];
   let activePin = { configId: CONFIG, revision: 3, fingerprint: FINGERPRINT };
   let pinReads = 0;
-  const repository: PracticeRepository = {
+  const repository: PracticeRepository & {
+    findOriginalAttempt(userId: string, taskId: string): Promise<PracticeDraftAttemptRecord | null>;
+  } = {
     async findCandidate(userId, selection) {
       if (
         !candidateRecord || candidateRecord.userId !== userId ||
@@ -214,6 +217,11 @@ function memoryRepository(candidateRecord: CandidateArtifactRecord | null = arti
     },
     async findAttempt(userId, attemptId) {
       return attempts.find((attempt) => attempt.userId === userId && attempt.id === attemptId) ?? null;
+    },
+    async findOriginalAttempt(userId, taskId) {
+      return attempts.find((attempt) =>
+        attempt.userId === userId && attempt.practiceDraftId === taskId && attempt.revision === 1,
+      ) ?? null;
     },
     async nextRevision(userId, taskId) {
       return 1 + Math.max(0, ...attempts
@@ -281,11 +289,22 @@ function attemptService(store: ReturnType<typeof memoryRepository>, options: {
   fixture?: StructuredJsonGateway;
   live?: StructuredJsonGateway;
   ids?: string[];
+  promote?: (userId: string, draft: PracticeDraftRecord, attempt: PracticeDraftAttemptRecord) => Promise<PracticePromotionResult>;
 } = {}) {
   const fixture = options.fixture ?? gateway(passingEvaluation, "fixture/evaluation-v1");
   const live = options.live ?? gateway(passingEvaluation);
   const ids = options.ids ?? [ATTEMPT];
   const liveResolver = resolver(live);
+  const promote = vi.fn(options.promote ?? (async (_userId, draft, attempt) => ({
+    expressionSenseId: SOURCE,
+    occurrenceId: SAVE,
+    userExpressionId: draft.futureUserExpressionId,
+    practiceTaskId: draft.id,
+    attemptId: attempt.id,
+    masteryEventId: ARTIFACT,
+    reviewTaskId: CONFIG,
+    created: true,
+  })));
   return {
     service: createPracticeAttemptService({
       repository: store.repository,
@@ -294,10 +313,12 @@ function attemptService(store: ReturnType<typeof memoryRepository>, options: {
       ci: options.ci ?? true,
       now: () => NOW,
       attemptId: () => ids.shift() ?? crypto.randomUUID(),
+      promoteValidAttempt: promote,
     }),
     fixture,
     live,
     liveResolver,
+    promote,
   };
 }
 
@@ -460,6 +481,143 @@ describe("learner-first practice activation", () => {
 });
 
 describe("evaluation and append-only revisions", () => {
+  test("replays the exact original and promotion before any second Provider resolution", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    const harness = attemptService(store);
+    const input = { taskId: task.id, responseChinese: "这个价格也太离谱了。" };
+    const first = await harness.service.submitOriginal(USER_A, input);
+    const replay = await harness.service.submitOriginal(USER_A, input);
+
+    expect(replay).toEqual(first);
+    expect(harness.fixture.complete).toHaveBeenCalledTimes(1);
+    expect(harness.promote).toHaveBeenCalledTimes(2);
+    expect(store.attempts).toHaveLength(1);
+  });
+
+  test("replays a stored failed original without Provider use or promotion", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    const failed = { ...passingEvaluation, passed: false };
+    const harness = attemptService(store, { fixture: gateway(failed) });
+    const input = { taskId: task.id, responseChinese: "这个价格太离谱了我。" };
+    const first = await harness.service.submitOriginal(USER_A, input);
+    const replay = await harness.service.submitOriginal(USER_A, input);
+    expect(replay).toEqual(first);
+    expect(harness.fixture.complete).toHaveBeenCalledTimes(1);
+    expect(harness.promote).not.toHaveBeenCalled();
+  });
+
+  test("keeps a staged passed attempt recoverable when promotion fails", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    let calls = 0;
+    const harness = attemptService(store, { promote: async (_userId, draft, staged) => {
+      calls += 1;
+      if (calls === 1) throw new Error("database temporarily unavailable");
+      return {
+        expressionSenseId: SOURCE, occurrenceId: SAVE,
+        userExpressionId: draft.futureUserExpressionId, practiceTaskId: draft.id,
+        attemptId: staged.id, masteryEventId: ARTIFACT, reviewTaskId: CONFIG, created: true,
+      };
+    } });
+    const input = { taskId: task.id, responseChinese: "这个价格也太离谱了。" };
+    await expect(harness.service.submitOriginal(USER_A, input)).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+    expect(store.attempts).toHaveLength(1);
+    await expect(harness.service.submitOriginal(USER_A, input)).resolves.toMatchObject({ id: ATTEMPT });
+    expect(harness.fixture.complete).toHaveBeenCalledTimes(1);
+    expect(store.attempts).toHaveLength(1);
+  });
+
+  test("rejects a changed original replay without Provider use", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    const harness = attemptService(store);
+    await harness.service.submitOriginal(USER_A, { taskId: task.id, responseChinese: "这个价格也太离谱了。" });
+    await expect(harness.service.submitOriginal(USER_A, {
+      taskId: task.id, responseChinese: "真的太离谱了。",
+    })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    expect(harness.fixture.complete).toHaveBeenCalledTimes(1);
+  });
+
+  test("reloads the exact staged original after a duplicate-insert race", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    const racedRecord: PracticeDraftAttemptRecord = {
+      ...attemptRow,
+      id: ATTEMPT,
+      userId: USER_A,
+      practiceDraftId: task.id,
+      futureUserExpressionId: task.userExpressionId,
+      revision: 1,
+      responseChinese: "这个价格也太离谱了。",
+      passed: true,
+      accuracyScore: 5,
+      accuracyFeedbackEnglish: passingEvaluation.accuracy.englishFeedback,
+      naturalnessScore: 4,
+      naturalnessFeedbackEnglish: passingEvaluation.naturalness.englishFeedback,
+      contextualFitScore: 5,
+      contextualFitFeedbackEnglish: passingEvaluation.contextualFit.englishFeedback,
+      independentUse: true,
+      assistanceLevel: "none",
+      submittedAt: NOW,
+      evaluationPromptVersion: null,
+      evaluationModel: null,
+      evaluationGatewayConfigId: null,
+      evaluationGatewayRevision: null,
+      evaluationGatewayFingerprint: null,
+      createdAt: NOW,
+    };
+    vi.spyOn(store.repository, "insertAttempt").mockImplementationOnce(async () => {
+      store.attempts.push(racedRecord);
+      throw new RevisionConflictError();
+    });
+    const harness = attemptService(store);
+    await expect(harness.service.submitOriginal(USER_A, {
+      taskId: task.id, responseChinese: racedRecord.responseChinese,
+    })).resolves.toMatchObject({ id: ATTEMPT });
+    expect(harness.promote).toHaveBeenCalledTimes(1);
+    expect(store.attempts).toHaveLength(1);
+  });
+
+  test("allows optional revision after completed original without another promotion", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    const harness = attemptService(store, { promote: async (_userId, draft, staged) => {
+      (store.drafts[0] as { status: PracticeDraftRecord["status"] }).status = "completed";
+      return {
+        expressionSenseId: SOURCE, occurrenceId: SAVE,
+        userExpressionId: draft.futureUserExpressionId, practiceTaskId: draft.id,
+        attemptId: staged.id, masteryEventId: ARTIFACT, reviewTaskId: CONFIG, created: true,
+      };
+    } });
+    const original = await harness.service.submitOriginal(USER_A, {
+      taskId: task.id, responseChinese: "这个价格也太离谱了。",
+    });
+    await expect(harness.service.submitRevision(USER_A, original.id, "真的太离谱了。")).resolves.toMatchObject({
+      responseChinese: "真的太离谱了。",
+    });
+    expect(harness.promote).toHaveBeenCalledTimes(1);
+    expect(store.attempts).toHaveLength(2);
+  });
+
+  test("a failed original followed by a passing revision never promotes", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    const evaluations = gateway({ ...passingEvaluation, passed: false });
+    evaluations.complete
+      .mockResolvedValueOnce({ ...passingEvaluation, passed: false })
+      .mockResolvedValueOnce(passingEvaluation);
+    const harness = attemptService(store, { fixture: evaluations, ids: [ATTEMPT, USER_B] });
+    const original = await harness.service.submitOriginal(USER_A, {
+      taskId: task.id, responseChinese: "这个价格太离谱了我。",
+    });
+    await expect(harness.service.submitRevision(USER_A, original.id, "这个价格也太离谱了。")).resolves.toMatchObject({
+      evaluation: { passed: true },
+    });
+    expect(harness.promote).not.toHaveBeenCalled();
+    expect(store.attempts).toHaveLength(2);
+  });
   test("rejects empty and English-only responses before Provider use", async () => {
     const store = memoryRepository();
     const task = await activate(store);

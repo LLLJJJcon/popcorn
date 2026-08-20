@@ -57,6 +57,9 @@ export function PracticeSession({ task }: { readonly task: PracticeTask }) {
         ? <p role="alert">Your response could not be checked. Try again.</p>
         : null}
       {attempt ? <EvaluationPanel evaluation={attempt.evaluation} /> : null}
+      {attempt?.evaluation.passed
+        ? <p><a href={`/vault#expression-${attempt.userExpressionId}`}>Open in Vault</a></p>
+        : null}
     </article>
   );
 }
