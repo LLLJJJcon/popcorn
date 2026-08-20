@@ -34,6 +34,24 @@ TypeScript noEmit: exit 0
 git diff --check: exit 0
 ```
 
+Independent-review repair RED was captured against task commit `748d0d5`:
+
+```text
+tests/integration/jobs/process-jobs.test.ts
+1 file failed; 5 new regressions failed; 19 existing tests passed
+```
+
+The failures proved the validator accepted NFKC-compatible text, ASCII substitutions
+for persisted full-width punctuation, inserted whitespace in evidence/expression, and
+provider-reversed segment order. After the minimal exact-grounding repair, that file
+passed 24/24. The repair's final focused gate was:
+
+```text
+4 focused test files passed; 52 tests passed
+TypeScript noEmit: exit 0
+git diff --check: exit 0
+```
+
 ## Implementation
 
 - The processor and authenticated internal route now enforce a maximum batch of five and
@@ -42,7 +60,10 @@ git diff --check: exit 0
 - `analyze_saved_item` reads strict private input only after checking the claimed owner and
   job/save identity. It loads the exact owner/source/save/snapshot plus at most 32 explicit
   or 12 timestamp-near transcript segments, then validates one to three candidates against
-  persisted Chinese evidence and exact referenced timestamp bounds.
+  persisted Chinese evidence and exact referenced timestamp bounds. Candidate segment IDs
+  must follow the persisted transcript-position order. Evidence and expression occurrence
+  use exact source strings: no Unicode normalization, punctuation substitution, or whitespace
+  removal can turn provider output into accepted evidence.
 - Analysis success calls only `complete_gateway_learning_artifact_job`; retry and terminal
   failure call only `transition_learning_artifact_failure`. Terminal failure clears private
   input, while raw saves are never changed. Atomic completion/result-key uniqueness makes

@@ -65,15 +65,13 @@ export const SavedItemAnalysisContentSchema = z.strictObject({
   candidates: CandidateExpressionListSchema,
 });
 
-const compactChinese = (value: string) => value.normalize("NFKC").replace(/\s+/gu, "");
-
 export function validateSavedItemAnalysisContent(
   value: unknown,
   evidence: SavedItemAnalysisEvidence,
 ) {
   const parsed = SavedItemAnalysisContentSchema.parse(value);
   const segmentsById = new Map(
-    evidence.segments.map((segment) => [segment.stableId, segment]),
+    evidence.segments.map((segment, position) => [segment.stableId, { segment, position }]),
   );
 
   for (const candidate of parsed.candidates) {
@@ -81,18 +79,26 @@ export function validateSavedItemAnalysisContent(
       throw new Error("candidate evidence segment IDs must be unique");
     }
     const referenced = candidate.segmentIds.map((id) => segmentsById.get(id));
-    if (referenced.some((segment) => !segment)) {
+    if (referenced.some((entry) => !entry)) {
       throw new Error("candidate references unknown persisted evidence");
     }
-    const exact = referenced as SavedItemAnalysisEvidence["segments"][number][];
-    const context = compactChinese(exact.map((segment) => segment.originalChinese).join("\n"));
-    const evidenceText = compactChinese(candidate.evidenceText);
-    if (!context.includes(evidenceText) || !evidenceText.includes(compactChinese(candidate.expression))) {
+    const exact = referenced as {
+      readonly segment: SavedItemAnalysisEvidence["segments"][number];
+      readonly position: number;
+    }[];
+    if (exact.some((entry, index) => index > 0 && entry.position <= exact[index - 1].position)) {
+      throw new Error("candidate evidence segment IDs must follow persisted transcript position order");
+    }
+    const context = exact.map((entry) => entry.segment.originalChinese).join("\n");
+    if (
+      !context.includes(candidate.evidenceText) ||
+      !candidate.evidenceText.includes(candidate.expression)
+    ) {
       throw new Error("candidate text is not exact persisted Chinese evidence");
     }
     if (
-      candidate.startSeconds !== Math.min(...exact.map((segment) => segment.startSeconds)) ||
-      candidate.endSeconds !== Math.max(...exact.map((segment) => segment.endSeconds))
+      candidate.startSeconds !== Math.min(...exact.map((entry) => entry.segment.startSeconds)) ||
+      candidate.endSeconds !== Math.max(...exact.map((entry) => entry.segment.endSeconds))
     ) {
       throw new Error("candidate timestamps do not match referenced evidence");
     }

@@ -136,6 +136,34 @@ const candidate = {
   confidence: 0.9,
 };
 
+const fullWidthEvidence: SavedItemAnalysisEvidence = {
+  ...evidence,
+  rawText: "咖啡Ａ很好！",
+  segments: [{
+    ...evidence.segments[0],
+    originalChinese: "咖啡Ａ很好！",
+  }],
+};
+
+const orderedEvidence: SavedItemAnalysisEvidence = {
+  ...evidence,
+  rawText: "你说\n什么呢？",
+  segments: [
+    {
+      stableId: "1".repeat(64),
+      originalChinese: "你说",
+      startSeconds: 10,
+      endSeconds: 11,
+    },
+    {
+      stableId: "2".repeat(64),
+      originalChinese: "什么呢？",
+      startSeconds: 11,
+      endSeconds: 12,
+    },
+  ],
+};
+
 function analysisStore(overrides: Partial<DurableJobStore> = {}) {
   const rawSave = structuredClone({ id: SAVE_ID, payload: { originalChinese: evidence.rawText } });
   return {
@@ -224,6 +252,52 @@ describe("source-grounded saved-item analysis", () => {
 
     expect(first).toEqual(second);
     expect(() => validateSavedItemAnalysisContent(first, evidence)).not.toThrow();
+  });
+
+  test.each([
+    [
+      "Unicode compatibility normalization",
+      fullWidthEvidence,
+      { ...candidate, expression: "咖啡A", evidenceText: "咖啡A很好!" },
+    ],
+    [
+      "ASCII punctuation substituted for persisted full-width punctuation",
+      fullWidthEvidence,
+      { ...candidate, expression: "咖啡Ａ", evidenceText: "咖啡Ａ很好!" },
+    ],
+    [
+      "whitespace inserted into persisted evidence",
+      evidence,
+      { ...candidate, evidenceText: "这也 太离谱了吧。" },
+    ],
+    [
+      "whitespace inserted into the expression occurrence",
+      evidence,
+      { ...candidate, expression: "太 离谱了" },
+    ],
+  ])("rejects %s instead of normalizing it into source evidence", (
+    _label,
+    persistedEvidence,
+    mutatedCandidate,
+  ) => {
+    expect(() => validateSavedItemAnalysisContent(
+      { candidates: [mutatedCandidate] },
+      persistedEvidence,
+    )).toThrow(/exact persisted Chinese evidence/);
+  });
+
+  test("rejects segment IDs supplied in reverse persisted transcript order", () => {
+    const reversedCandidate = {
+      ...candidate,
+      expression: "什么呢",
+      evidenceText: "什么呢？\n你说",
+      segmentIds: [orderedEvidence.segments[1].stableId, orderedEvidence.segments[0].stableId],
+    };
+
+    expect(() => validateSavedItemAnalysisContent(
+      { candidates: [reversedCandidate] },
+      orderedEvidence,
+    )).toThrow(/transcript position order/);
   });
 
   test("live resolution uses the claimed owner and immutable pin", async () => {
