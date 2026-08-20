@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { renderToString } from "react-dom/server";
 
 import { CandidateList } from "@/features/saved/candidate-list";
 
@@ -61,6 +62,44 @@ describe("Saved candidate expressions", () => {
     pageRuntime.authenticate.mockReset();
     pageRuntime.detail.mockReset();
     vi.restoreAllMocks();
+  });
+
+  it("keeps the native action disabled in SSR, then enables one activation after hydration", async () => {
+    const props = {
+      savedItemId: SAVED_ITEM_ID,
+      youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      artifact: artifact([candidate()]),
+    };
+    const serverContainer = document.createElement("div");
+    serverContainer.innerHTML = renderToString(<CandidateList {...props} />);
+    expect(serverContainer.querySelector("button")).toBeDisabled();
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      data: {
+        id: TASK_ID,
+        userId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        userExpressionId: EXPRESSION_ID,
+        kind: "use_it_now",
+        nativeLanguage: "en",
+        targetLanguage: "zh-CN",
+        targetExpression: "挺有意思的",
+        promptChinese: "请使用这个表达。",
+        instructionsEnglish: "Reply in Mandarin.",
+        goalEnglish: "Use the expression naturally.",
+        dueAt: null,
+        createdAt: "2026-08-21T00:00:00.000Z",
+      },
+      requestId: "safe-request",
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    render(<CandidateList {...props} />);
+
+    const action = screen.getByRole("button", { name: "Use It Now" });
+    await waitFor(() => expect(action).toBeEnabled());
+    await userEvent.click(action);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(push).toHaveBeenCalledExactlyOnceWith(`/practice/${TASK_ID}`);
   });
 
   it("renders three exact source-grounded candidates without numeric confidence", () => {

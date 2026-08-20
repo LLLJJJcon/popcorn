@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 
@@ -39,6 +39,7 @@ export function CandidateList({
   readonly artifact: CandidateArtifact | null;
 }) {
   const router = useRouter();
+  const [hydrationReady, setHydrationReady] = useState(false);
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const [recoveryState, setRecoveryState] = useState<"idle" | "pending" | "gateway" | "error">("idle");
   const parsed = artifact?.savedItemId === savedItemId
@@ -46,6 +47,11 @@ export function CandidateList({
     ? ArtifactContentSchema.safeParse(artifact.content)
     : null;
   const candidates = parsed?.success ? parsed.data.candidates : null;
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setHydrationReady(true), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   if (artifact && !candidates) {
     return <p>Candidate analysis is unavailable.</p>;
@@ -111,7 +117,7 @@ export function CandidateList({
           key={`${candidate.expression}-${index}`}
           candidate={candidate}
           canonicalUrl={youtubeUrl}
-          disabled={pendingIndex !== null}
+          disabled={!hydrationReady || pendingIndex !== null}
           onUse={() => void activate(index)}
         />
       ))}

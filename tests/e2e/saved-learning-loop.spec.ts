@@ -2,6 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type BrowserContext } from "@playwright/test";
 
+import { runSavedLearningLoopCleanup } from "./saved-learning-loop-cleanup";
+
 const USER_ID = "52000000-0000-4000-8000-000000000001";
 const SOURCE_ID = "52000000-0000-4000-8000-000000000002";
 const SNAPSHOT_ID = "52000000-0000-4000-8000-000000000003";
@@ -11,11 +13,157 @@ const IGNORED_SAVE_ID = "52000000-0000-4000-8000-000000000012";
 const ARTIFACT_ID = "52000000-0000-4000-8000-000000000013";
 const EVIDENCE_TEXT = "这个表达在口语里很常见。";
 const EXPRESSION = "这个表达";
+const FIXTURE_EMAIL = "learning-loop@popcorn.test";
+
+const CLEANUP_SQL = String.raw`
+begin;
+
+do $guard$
+begin
+  if exists (
+    select 1
+    from auth.users
+    where id = '52000000-0000-4000-8000-000000000001'::uuid
+      and email is distinct from 'learning-loop@popcorn.test'
+  ) then
+    raise exception 'reserved E2E fixture identity mismatch';
+  end if;
+end
+$guard$;
+
+delete from private.practice_promotion_receipts
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from private.learning_artifact_gateway_pins
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.mastery_events
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.review_tasks
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.attempts
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.practice_tasks
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.practice_draft_attempts
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.practice_drafts
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.user_expressions
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.expression_occurrences
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.expression_senses
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.knowledge_job_internal
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.knowledge_jobs
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.generated_artifacts
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.transcript_segments
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.saved_items
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.video_snapshots
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from private.user_model_gateway_secrets
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.user_model_gateway_configs
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.profiles
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.video_sources
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from auth.users
+where id = '52000000-0000-4000-8000-000000000001'::uuid;
+
+do $verify$
+begin
+  if exists (
+    select 1 from auth.users
+    where id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.profiles
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.video_sources
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.video_snapshots
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.transcript_segments
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.saved_items
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.generated_artifacts
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.knowledge_jobs
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.knowledge_job_internal
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.expression_senses
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.expression_occurrences
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.user_expressions
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.practice_tasks
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.attempts
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.mastery_events
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.review_tasks
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.practice_drafts
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.practice_draft_attempts
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from private.practice_promotion_receipts
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from private.learning_artifact_gateway_pins
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from private.user_model_gateway_secrets
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from public.user_model_gateway_configs
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) then
+    raise exception 'E2E fixture cleanup left owned rows behind';
+  end if;
+end
+$verify$;
+
+commit;
+`;
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required local E2E environment: ${name}`);
   return value;
+}
+
+async function cleanupFixture() {
+  await runSavedLearningLoopCleanup({
+    cleanupSql: CLEANUP_SQL,
+    databaseUrl: requiredEnvironment("POPCORN_E2E_DATABASE_URL"),
+  });
 }
 
 const appUrl = requiredEnvironment("APP_URL");
@@ -48,7 +196,7 @@ async function installSeedSession(context: BrowserContext) {
     },
   });
   const signedIn = await auth.auth.signInWithPassword({
-    email: "learning-loop@popcorn.test",
+    email: FIXTURE_EMAIL,
     password: "password-e2e",
   });
   expect(signedIn.error).toBeNull();
@@ -59,15 +207,12 @@ async function installSeedSession(context: BrowserContext) {
 }
 
 test.beforeAll(async () => {
-  const existing = await admin.from("saved_items").select("id")
-    .in("id", [ACTION_SAVE_ID, IGNORED_SAVE_ID]);
-  expect(existing.error).toBeNull();
-  expect(existing.data, "Run pnpm db:reset before this immutable learning-loop E2E gate").toEqual([]);
+  await cleanupFixture();
 
   const createdAt = "2026-08-20T10:00:00.000Z";
   const user = await admin.auth.admin.createUser({
     id: USER_ID,
-    email: "learning-loop@popcorn.test",
+    email: FIXTURE_EMAIL,
     password: "password-e2e",
     email_confirm: true,
   });
@@ -198,6 +343,10 @@ test.beforeAll(async () => {
   ignoredBefore = ignored.data!;
 });
 
+test.afterAll(async () => {
+  await cleanupFixture();
+});
+
 test.beforeEach(async ({ context }) => installSeedSession(context));
 
 test("one saved YouTube moment becomes tried knowledge and due Practice", async ({ page }) => {
@@ -217,11 +366,22 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   const candidate = page.getByRole("heading", { name: EXPRESSION, exact: true }).locator("..");
   await expect(candidate.getByText(EVIDENCE_TEXT, { exact: true })).toBeVisible();
   await expect(candidate.getByRole("link", { name: "Watch at 0:04" })).toBeVisible();
+  const activationButton = candidate.getByRole("button", { name: "Use It Now" });
+  await expect(activationButton).toBeEnabled();
 
-  await Promise.all([
-    page.waitForURL(/\/practice\/[0-9a-f-]+$/),
-    candidate.getByRole("button", { name: "Use It Now" }).click(),
+  const [activationResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === "POST"
+      && new URL(response.url()).pathname === "/api/v1/practice/tasks",
+    ),
+    activationButton.click(),
   ]);
+  const activationBody = await activationResponse.text();
+  expect(
+    activationResponse.status(),
+    `POST /api/v1/practice/tasks returned ${activationResponse.status()}: ${activationBody}`,
+  ).toBe(201);
+  await expect(page).toHaveURL(/\/practice\/[0-9a-f-]+$/);
   await expect(page.getByRole("heading", { name: `Use ${EXPRESSION} now` })).toBeVisible();
 
   const draft = await admin.from("practice_drafts")
