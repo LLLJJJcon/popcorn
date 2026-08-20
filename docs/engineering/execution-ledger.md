@@ -3,11 +3,11 @@
 ## Current position
 
 - Stage: batch-a
-- Next task: execute user model gateway Task 4 by rebasing Batch A Task 3 onto the accepted per-user gateway settings stack
+- Next task: execute Batch A Tasks 5 and 6 in parallel from the accepted Task 3 integration baseline, then run controller-owned Task 7
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `5e0a14f` (CONTRACT-009 gateway artifact pins: clean migrations 001–009, pgTAP 461/461, application 398/398, deterministic publication/revocation concurrency, catalog concurrency, lint/typecheck/webpack build/diff/status gates)
+- Last verified commit: `4e67831` (Batch A Task 3: extension focused 33/33, server focused 108/108, application 467/467, lint/typecheck/webpack build/diff/status gates; no database change, so DB reset/pgTAP intentionally not repeated)
 
 ## Preflight
 
@@ -43,6 +43,7 @@
 | User model gateway | Task 2 | `codex/popcorn-gateway-settings-api` | `3d0e684` | `df11f2d1014f7de9c3291e35f9fe1353279f8170` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved scoped runtime env, fail-closed mixed-owner handling, one reusable cookie adapter, cookie-only auth, strict CSRF/body/DTO boundaries, boolean-only secret presence, atomic lifecycle RPCs, and nonleaking responses | Integrated through `63f9b37`; focused 34/34; application 347/347; pgTAP 407/407; ESLint, TypeScript, webpack production build with both settings routes, diff/status passed |
 | User model gateway | Task 3 | `codex/popcorn-gateway-settings-ui` | `8c13805` | `6cc287c5991f142d25b569dee9cc7809f99a00a2` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved canonical PKCE code rejection, one-time flow cookies, CSRF/fixed redirects, server-only auth, write-only key clearing/nonpersistence, mutation/refetch behavior, fixed consent data classes, accessible error association, and GPL isolation | Integrated through `1e769b4`; directed auth/a11y 48/48; auth/UI 51/51; Task 2 regression 28/28; application 398/398; ESLint, TypeScript, webpack production build with sign-in/auth/settings routes, diff/status passed |
 | User model gateway | CONTRACT-009 | `codex/popcorn-youtube-learning` plus `codex/popcorn-contract-009-fix` | `1d65431`; brief `b3ba8e3` | `92eee42` + repair `5e0a14f` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved immutable private owner/config pins, non-secret lookup, atomic register/complete, explicit revoke and active-config replacement cleanup, exact config/consent/model/lease fences, deterministic validation-to-publication config locking, Vault destruction, succeeded artifact preservation, and GPL isolation | Clean migrations 001–009; focused pgTAP 54/54; full pgTAP 461/461; application 398/398; existing catalog and new three-session artifact concurrency regressions passed; lock-removal and cleanup-removal mutations failed as required; exact generated types, ESLint, TypeScript, webpack production build, diff/status passed |
+| Batch A | 3 | `codex/popcorn-gateway-learning-artifacts` plus `codex/popcorn-batch-a-3-fix` | `0399f9a` | `e32c40f` + `6d48d08`; integrated as `d157b4b` + `4e67831` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved exact YouTube Side Panel sender gating, same-segment Overview quote/timestamp grounding, fail-closed bilingual English selection, owner/config revision/fingerprint pins, fixture-first resolution, minimal bounded Provider egress, MIT reuse, and GPL isolation | Extension focused 33/33; server focused 108/108; application 467/467; ESLint, TypeScript, webpack production build, diff/status passed. No database or shared-contract changes, so DB reset/pgTAP was not repeated. |
 
 ## Open concerns
 
@@ -81,5 +82,5 @@
 
 ## Next dispatch
 
-- CONTRACT-008/008A/008B/009 and user gateway Tasks 2–3 are accepted and integrated. Execute gateway Task 4 / Batch A Task 3 repair in its isolated worktree: preserve checkpoint `a0ab48f` cross-line selection and Overview grounding fixes, replace the deployment-env singleton with owner/config-revision resolution, pin fingerprint in private durable jobs/result keys, and keep CI fixture selection before any config/Vault read or network call.
-- After settings API/UI acceptance, rebase Batch A Task 3 onto the frozen gateway contracts, retain the already-reviewed cross-line selection and Overview fixes, and replace its deployment-env singleton with owner/config-revision resolution. Tasks 5 and 6 retain their declared dependencies; the controller owns Task 7 integration gate.
+- Batch A Task 3 and the user-gateway stack are accepted and integrated through `4e67831`. Dispatch Tasks 5 and 6 in parallel from this baseline because their declared file sets do not overlap: Task 5 owns `content.js`/`sidepanel.*`; Task 6 owns `sync-queue.js`/`background.js`/`options.js`/`manifest.json`. Keep the extension Provider-neutral and preserve the reviewed `openSidePanel` sender boundary.
+- After independent review and focused integration of Tasks 5 and 6, the controller executes Task 7 and runs the Batch A end-to-end gate.
