@@ -42,12 +42,21 @@ const YTD_OPTIONS = (() => {
       return response;
     }
 
+    async function sendQueueCommand(action) {
+      const response = await root.chrome.runtime.sendMessage({ action });
+      if (response?.success === false) throw new Error("The sync request was rejected.");
+      return response;
+    }
+
     async function renderSession() {
       const { account } = await sendAuthCommand("popcorn-auth:session");
       email.textContent = account?.email ?? "Not signed in";
       signIn.hidden = !!account;
       signOut.hidden = !account;
-      syncStatus.textContent = account ? "Ready to sync saved moments." : "Sign in to sync saved moments.";
+      const summary = await sendQueueCommand("getSyncSummary");
+      syncStatus.textContent = account
+        ? (summary.pendingCount ? `${summary.pendingCount} saved moment${summary.pendingCount === 1 ? "" : "s"} waiting to sync.` : "Ready to sync saved moments.")
+        : "Sign in to sync saved moments.";
     }
     signIn.addEventListener("click", async () => {
       authStatus.textContent = "Opening Popcorn sign-in…";
@@ -58,7 +67,7 @@ const YTD_OPTIONS = (() => {
       if (result.requiresDecision) { signOutChoice.hidden = false; discard.hidden = false; return; }
       await renderSession();
     });
-    discard.addEventListener("click", async () => { await sendAuthCommand("popcorn-auth:sign-out", { decision: "discard" }); signOutChoice.hidden = true; discard.hidden = true; await renderSession(); });
+    discard.addEventListener("click", async () => { await sendQueueCommand("discardPendingEvents"); await sendAuthCommand("popcorn-auth:sign-out"); signOutChoice.hidden = true; discard.hidden = true; await renderSession(); });
     doc.getElementById("clearCacheBtn").addEventListener("click", async () => {
       try {
         const { clearedCount } = await sendAuthCommand("popcorn-auth:clear-cache");

@@ -4,6 +4,7 @@
  * never receive access or refresh tokens.
  */
 importScripts("settings.js", "auth.js");
+importScripts("sync-queue.js");
 
 const POPCORN_API_ORIGIN = "https://app.popcorn.local";
 const debugLog = () => {};
@@ -45,6 +46,11 @@ function isYoutubeWatchUrl(value) {
   }
 }
 
+function youtubeVideoIdFromWatchUrl(value) {
+  if (!isYoutubeWatchUrl(value)) return null;
+  return new URL(value).searchParams.get("v");
+}
+
 function isTrustedYoutubeContentSender(sender) {
   return !!sender &&
     sender.id === chrome.runtime.id &&
@@ -74,6 +80,18 @@ async function apiFetch(path, options = {}) {
     throw error;
   }
   return { status: response.status, data: body.data };
+}
+
+let popcornSyncQueue;
+function getPopcornSyncQueue() {
+  if (!popcornSyncQueue && globalThis.POPCORN_SYNC_QUEUE?.createSyncQueue) {
+    popcornSyncQueue = globalThis.POPCORN_SYNC_QUEUE.createSyncQueue({
+      chrome,
+      authClient: popcornAuthClient,
+      apiFetch,
+    });
+  }
+  return popcornSyncQueue || null;
 }
 
 /** One independent bounded status lookup; no long service-worker poll loop. */
@@ -216,7 +234,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: "forbidden" });
       return false;
     }
-    return respondFrom(popcornAuthMessages(message, sender), sendResponse);
+    const request = popcornAuthMessages(message, sender).then(async (result) => {
+      if (message.command === "popcorn-auth:begin" && result?.ok) {
+        await getPopcornSyncQueue()?.flushPendingEvents("regained-auth");
+      }
+      return result;
+    });
+    return respondFrom(request, sendResponse);
   }
 
   if (message?.action === "openSidePanel") {
@@ -231,12 +255,65 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       enabled: true,
     });
     chrome.sidePanel.open({ tabId }).then(() => {
+      void getPopcornSyncQueue()?.flushPendingEvents("panel-open");
       setTimeout(() => {
         chrome.runtime.sendMessage({ action: "startDigestFromButton" }).catch(() => {});
       }, 300);
     }).catch(() => {});
     sendResponse({ success: true });
     return false;
+  }
+
+  if (message?.action === "enqueueSavedItem") {
+    const trustedPlayerMoment = isTrustedYoutubeContentSender(sender) &&
+      message.input?.kind === "player_moment" &&
+      message.input?.youtubeVideoId === youtubeVideoIdFromWatchUrl(sender.url) &&
+      message.input?.youtubeVideoId === youtubeVideoIdFromWatchUrl(sender.tab?.url);
+    if (!isTrustedSidePanelSender(sender) && !trustedPlayerMoment) {
+      sendResponse({ success: false, error: "forbidden" });
+      return false;
+    }
+    const queue = getPopcornSyncQueue();
+    if (!queue) {
+      sendResponse({ success: false, error: "Sync queue unavailable." });
+      return false;
+    }
+    return respondFrom(queue.enqueueSavedItem(message.input), sendResponse);
+  }
+
+  if (message?.action === "flushPendingEvents") {
+    if (!isTrustedSidePanelSender(sender)) {
+      sendResponse({ success: false, error: "forbidden" });
+      return false;
+    }
+    const queue = getPopcornSyncQueue();
+    if (!queue) {
+      sendResponse({ success: false, error: "Sync queue unavailable." });
+      return false;
+    }
+    return respondFrom(queue.flushPendingEvents("panel-open"), sendResponse);
+  }
+
+  if (["getSyncSummary", "discardPendingEvents"].includes(message?.action)) {
+    if (!isPopcornAuthSender(sender)) {
+      sendResponse({ success: false, error: "forbidden" });
+      return false;
+    }
+    if (message.action === "getSyncSummary") {
+      const queue = getPopcornSyncQueue();
+      if (!queue) {
+        sendResponse({ success: false, error: "Sync queue unavailable." });
+        return false;
+      }
+      return respondFrom(queue.getSyncSummary(), sendResponse);
+    }
+    return respondFrom((async () => {
+      const session = await popcornAuthClient.getSession();
+      if (!session?.user?.id) throw new Error("No signed-in queue owner.");
+      const queue = getPopcornSyncQueue();
+      if (!queue) throw new Error("Sync queue unavailable.");
+      return queue.discardPendingEvents(session.user.id);
+    })(), sendResponse);
   }
 
   if (["fetchTranscript", "requestOverview", "translateSegments", "explainSelection"].includes(message?.action)) {
@@ -281,6 +358,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
   return false;
+});
+
+chrome.runtime.onStartup?.addListener(() => getPopcornSyncQueue()?.recoverOnStartup("startup"));
+chrome.runtime.onInstalled?.addListener(() => getPopcornSyncQueue()?.recoverOnStartup("installed"));
+chrome.alarms?.onAlarm?.addListener((alarm) => {
+  if (alarm?.name === "popcorn-sync-retry") return getPopcornSyncQueue()?.flushPendingEvents("alarm");
 });
 
 chrome.action.onClicked.addListener((tab) => {
