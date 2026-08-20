@@ -28,6 +28,9 @@ const CONFIG = "66666666-6666-4666-8666-666666666666";
 const ATTEMPT = "77777777-7777-4777-8777-777777777777";
 const NOW = "2026-08-21T02:03:04.000Z";
 const FINGERPRINT = "a".repeat(64);
+const CANDIDATE_SELECT = "id,user_id,video_source_id,saved_item_id,artifact_type,content";
+const DRAFT_SELECT = "id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,activation_prompt_version,activation_model,activation_gateway_config_id,activation_gateway_revision,activation_gateway_fingerprint,created_at,updated_at";
+const ATTEMPT_SELECT = "id,user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at,evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,evaluation_gateway_revision,evaluation_gateway_fingerprint,created_at";
 
 const candidate = {
   expression: "太离谱了",
@@ -135,8 +138,13 @@ function supabaseQueryHarness(plans: PlannedQuery[]) {
   const client = {
     from(table: string) {
       calls.push(["from", table]);
+      let selectedColumns: string | null = null;
       const query = {
-        select(columns: string) { calls.push(["select", table, columns]); return query; },
+        select(columns: string) {
+          selectedColumns = columns;
+          calls.push(["select", table, columns]);
+          return query;
+        },
         eq(column: string, value: unknown) { calls.push(["eq", table, column, value]); return query; },
         order(column: string, options: unknown) { calls.push(["order", table, column, options]); return query; },
         limit(value: number) { calls.push(["limit", table, value]); return query; },
@@ -150,7 +158,15 @@ function supabaseQueryHarness(plans: PlannedQuery[]) {
         if (!plan || plan.table !== table || plan.terminal !== name) {
           throw new Error(`unexpected ${table}.${name}`);
         }
-        return plan.result;
+        if (
+          !selectedColumns || plan.result.error || plan.result.data === null ||
+          typeof plan.result.data !== "object" || Array.isArray(plan.result.data)
+        ) return plan.result;
+        const row = plan.result.data as Record<string, unknown>;
+        return {
+          data: Object.fromEntries(selectedColumns.split(",").map((column) => [column, row[column]])),
+          error: null,
+        };
       }
       return query;
     },
@@ -564,29 +580,83 @@ describe("production Supabase practice repository", () => {
     })).resolves.toEqual(artifact());
     await expect(repository.findDraftBySelection(USER_A, {
       savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0,
-    })).resolves.toMatchObject({ id: ATTEMPT, userId: USER_A });
-    await expect(repository.findDraft(USER_A, ATTEMPT)).resolves.toMatchObject({
+    })).resolves.toEqual({
       id: ATTEMPT,
       userId: USER_A,
+      videoSourceId: SOURCE,
+      savedItemId: SAVE,
+      candidateArtifactId: ARTIFACT,
+      candidateIndex: 0,
+      futureUserExpressionId: USER_B,
+      nativeLanguage: "en",
+      targetLanguage: "zh-CN",
       targetExpression: candidate.expression,
+      promptChinese: activation.promptChinese,
+      instructionsEnglish: activation.instructionsEnglish,
+      goalEnglish: activation.goalEnglish,
+      status: "active",
       activationPromptVersion: "activate-practice-v1",
       activationModel: "mandarin-model",
       activationGatewayConfigId: CONFIG,
       activationGatewayRevision: 3,
       activationGatewayFingerprint: FINGERPRINT,
+      createdAt: NOW,
+      updatedAt: NOW,
     });
-    await expect(repository.findAttempt(USER_A, USER_B)).resolves.toMatchObject({
+    await expect(repository.findDraft(USER_A, ATTEMPT)).resolves.toEqual({
+      id: ATTEMPT,
+      userId: USER_A,
+      videoSourceId: SOURCE,
+      savedItemId: SAVE,
+      candidateArtifactId: ARTIFACT,
+      candidateIndex: 0,
+      futureUserExpressionId: USER_B,
+      nativeLanguage: "en",
+      targetLanguage: "zh-CN",
+      targetExpression: candidate.expression,
+      promptChinese: activation.promptChinese,
+      instructionsEnglish: activation.instructionsEnglish,
+      goalEnglish: activation.goalEnglish,
+      status: "active",
+      activationPromptVersion: "activate-practice-v1",
+      activationModel: "mandarin-model",
+      activationGatewayConfigId: CONFIG,
+      activationGatewayRevision: 3,
+      activationGatewayFingerprint: FINGERPRINT,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    await expect(repository.findAttempt(USER_A, USER_B)).resolves.toEqual({
       id: USER_B,
       userId: USER_A,
       practiceDraftId: ATTEMPT,
+      futureUserExpressionId: USER_B,
+      revision: 1,
       responseChinese: attemptRow.response_chinese,
+      passed: true,
+      accuracyScore: 5,
+      accuracyFeedbackEnglish: passingEvaluation.accuracy.englishFeedback,
+      naturalnessScore: 4,
+      naturalnessFeedbackEnglish: passingEvaluation.naturalness.englishFeedback,
+      contextualFitScore: 5,
+      contextualFitFeedbackEnglish: passingEvaluation.contextualFit.englishFeedback,
+      independentUse: true,
+      assistanceLevel: "none",
+      submittedAt: NOW,
       evaluationPromptVersion: "evaluate-practice-v1",
       evaluationModel: "mandarin-model",
       evaluationGatewayConfigId: CONFIG,
       evaluationGatewayRevision: 3,
       evaluationGatewayFingerprint: FINGERPRINT,
+      createdAt: NOW,
     });
 
+    expect(harness.calls.filter((call) => call[0] === "select")).toEqual([
+      ["select", "generated_artifacts", CANDIDATE_SELECT],
+      ["select", "practice_drafts", DRAFT_SELECT],
+      ["select", "practice_drafts", DRAFT_SELECT],
+      ["select", "practice_draft_attempts", ATTEMPT_SELECT],
+    ]);
     expect(harness.calls).toEqual(expect.arrayContaining([
       ["eq", "generated_artifacts", "user_id", USER_A],
       ["eq", "generated_artifacts", "id", ARTIFACT],
@@ -604,12 +674,7 @@ describe("production Supabase practice repository", () => {
     expect(harness.remaining).toHaveLength(0);
   });
 
-  test("replays the owner-scoped durable draft after a 23505 insert race", async () => {
-    const harness = supabaseQueryHarness([
-      { table: "practice_drafts", terminal: "single", result: { data: null, error: { code: "23505" } } },
-      { table: "practice_drafts", terminal: "maybeSingle", result: { data: draftRow, error: null } },
-    ]);
-    const repository = createSupabasePracticeRepository(harness.client as never);
+  test("round-trips a complete draft insert and replays the owner-scoped row after a 23505 race", async () => {
     const input: PracticeDraftRecord = {
       id: ATTEMPT,
       userId: USER_A,
@@ -634,41 +699,69 @@ describe("production Supabase practice repository", () => {
       updatedAt: NOW,
     };
 
-    await expect(repository.insertDraft(input)).resolves.toMatchObject({ id: ATTEMPT, userId: USER_A });
-    const insert = harness.calls.find((call) => call[0] === "insert" && call[1] === "practice_drafts");
-    expect(insert?.[2]).toMatchObject({
+    const successHarness = supabaseQueryHarness([
+      { table: "practice_drafts", terminal: "single", result: { data: draftRow, error: null } },
+    ]);
+    const successRepository = createSupabasePracticeRepository(successHarness.client as never);
+    await expect(successRepository.insertDraft(input)).resolves.toEqual(input);
+    const successInsert = successHarness.calls.find((call) => call[0] === "insert");
+    expect(successInsert?.[2]).toEqual({
       id: ATTEMPT,
       user_id: USER_A,
+      video_source_id: SOURCE,
       saved_item_id: SAVE,
       candidate_artifact_id: ARTIFACT,
+      candidate_artifact_type: "saved_item_analysis",
       candidate_index: 0,
       future_user_expression_id: USER_B,
+      native_language: "en",
+      target_language: "zh-CN",
+      target_expression: candidate.expression,
+      prompt_chinese: activation.promptChinese,
+      instructions_english: activation.instructionsEnglish,
+      goal_english: activation.goalEnglish,
+      status: "active",
       activation_prompt_version: "activate-practice-v1",
       activation_model: "mandarin-model",
       activation_gateway_config_id: CONFIG,
       activation_gateway_revision: 3,
       activation_gateway_fingerprint: FINGERPRINT,
+      created_at: NOW,
+      updated_at: NOW,
     });
-    expect(harness.calls).toEqual(expect.arrayContaining([
+    expect(successHarness.calls.filter((call) => call[0] === "select")).toEqual([
+      ["select", "practice_drafts", DRAFT_SELECT],
+    ]);
+
+    const raceHarness = supabaseQueryHarness([
+      { table: "practice_drafts", terminal: "single", result: { data: null, error: { code: "23505" } } },
+      { table: "practice_drafts", terminal: "maybeSingle", result: { data: draftRow, error: null } },
+    ]);
+    const raceRepository = createSupabasePracticeRepository(raceHarness.client as never);
+    await expect(raceRepository.insertDraft(input)).resolves.toEqual(input);
+    expect(raceHarness.calls).toEqual(expect.arrayContaining([
       ["eq", "practice_drafts", "user_id", USER_A],
       ["eq", "practice_drafts", "id", ATTEMPT],
     ]));
+    expect(raceHarness.calls.filter((call) => call[0] === "select")).toEqual([
+      ["select", "practice_drafts", DRAFT_SELECT],
+      ["select", "practice_drafts", DRAFT_SELECT],
+    ]);
   });
 
-  test("owner-filters revision lookup and maps a duplicate attempt revision to conflict", async () => {
+  test("owner-filters revision lookup, round-trips a complete attempt, and maps duplicate revision conflict", async () => {
     const harness = supabaseQueryHarness([
       { table: "practice_draft_attempts", terminal: "maybeSingle", result: { data: { revision: 2 }, error: null } },
+      { table: "practice_draft_attempts", terminal: "single", result: { data: attemptRow, error: null } },
       { table: "practice_draft_attempts", terminal: "single", result: { data: null, error: { code: "23505" } } },
     ]);
     const repository = createSupabasePracticeRepository(harness.client as never);
-
-    await expect(repository.nextRevision(USER_A, ATTEMPT)).resolves.toBe(3);
-    await expect(repository.insertAttempt({
+    const input: PracticeDraftAttemptRecord = {
       id: USER_B,
       userId: USER_A,
       practiceDraftId: ATTEMPT,
       futureUserExpressionId: USER_B,
-      revision: 3,
+      revision: 1,
       responseChinese: attemptRow.response_chinese,
       passed: true,
       accuracyScore: 5,
@@ -686,24 +779,70 @@ describe("production Supabase practice repository", () => {
       evaluationGatewayRevision: 3,
       evaluationGatewayFingerprint: FINGERPRINT,
       createdAt: NOW,
-    })).rejects.toBeInstanceOf(RevisionConflictError);
-    const insert = harness.calls.find((call) => call[0] === "insert" && call[1] === "practice_draft_attempts");
-    expect(insert?.[2]).toMatchObject({
+    };
+
+    await expect(repository.nextRevision(USER_A, ATTEMPT)).resolves.toBe(3);
+    await expect(repository.insertAttempt(input)).resolves.toEqual(input);
+    await expect(repository.insertAttempt({ ...input, revision: 3 })).rejects.toBeInstanceOf(RevisionConflictError);
+    const inserts = harness.calls.filter((call) => call[0] === "insert");
+    expect(inserts[0]?.[2]).toEqual({
+      id: USER_B,
       user_id: USER_A,
       practice_draft_id: ATTEMPT,
-      revision: 3,
+      future_user_expression_id: USER_B,
+      revision: 1,
       response_chinese: attemptRow.response_chinese,
+      passed: true,
+      accuracy_score: 5,
+      accuracy_feedback_english: passingEvaluation.accuracy.englishFeedback,
+      naturalness_score: 4,
+      naturalness_feedback_english: passingEvaluation.naturalness.englishFeedback,
+      contextual_fit_score: 5,
+      contextual_fit_feedback_english: passingEvaluation.contextualFit.englishFeedback,
+      independent_use: true,
+      assistance_level: "none",
+      submitted_at: NOW,
       evaluation_prompt_version: "evaluate-practice-v1",
       evaluation_model: "mandarin-model",
       evaluation_gateway_config_id: CONFIG,
       evaluation_gateway_revision: 3,
       evaluation_gateway_fingerprint: FINGERPRINT,
+      created_at: NOW,
+    });
+    expect(inserts[1]?.[2]).toEqual({
+      id: USER_B,
+      user_id: USER_A,
+      practice_draft_id: ATTEMPT,
+      future_user_expression_id: USER_B,
+      revision: 3,
+      response_chinese: attemptRow.response_chinese,
+      passed: true,
+      accuracy_score: 5,
+      accuracy_feedback_english: passingEvaluation.accuracy.englishFeedback,
+      naturalness_score: 4,
+      naturalness_feedback_english: passingEvaluation.naturalness.englishFeedback,
+      contextual_fit_score: 5,
+      contextual_fit_feedback_english: passingEvaluation.contextualFit.englishFeedback,
+      independent_use: true,
+      assistance_level: "none",
+      submitted_at: NOW,
+      evaluation_prompt_version: "evaluate-practice-v1",
+      evaluation_model: "mandarin-model",
+      evaluation_gateway_config_id: CONFIG,
+      evaluation_gateway_revision: 3,
+      evaluation_gateway_fingerprint: FINGERPRINT,
+      created_at: NOW,
     });
     expect(harness.calls).toEqual(expect.arrayContaining([
       ["eq", "practice_draft_attempts", "user_id", USER_A],
       ["eq", "practice_draft_attempts", "practice_draft_id", ATTEMPT],
       ["order", "practice_draft_attempts", "revision", { ascending: false }],
     ]));
+    expect(harness.calls.filter((call) => call[0] === "select")).toEqual([
+      ["select", "practice_draft_attempts", "revision"],
+      ["select", "practice_draft_attempts", ATTEMPT_SELECT],
+      ["select", "practice_draft_attempts", ATTEMPT_SELECT],
+    ]);
   });
 });
 

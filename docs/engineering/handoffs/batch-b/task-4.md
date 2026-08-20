@@ -5,10 +5,16 @@
 - Plan: `docs/superpowers/plans/2026-08-16-popcorn-batch-b-learning-loop.md`, Task 4.
 - Original implementation baseline: `3778e47`; independent-review fix baseline:
   `6ed81efe96bdbd0685729e5a08ef373016e74cd9`.
+- Second independent-review test-hardening baseline:
+  `cbeb21c7ccbf39f9bdd63dbbd9c4d5118ad95e05`.
 - Fix worktree: `/private/tmp/popcorn-batch-b-4-fix`; branch:
   `codex/popcorn-batch-b-4-fix`.
+- Second fix worktree: `/private/tmp/popcorn-batch-b-4-fix-2`; branch:
+  `codex/popcorn-batch-b-4-fix-2`.
 - Task HEAD: the commit returned to the controller with this handoff (the commit cannot embed its own SHA).
 - Changed only the Task 4 allowlist: practice feature/UI, two private prompts, activation domain, draft-attempt repository, three POST routes, the task page, two focused tests, and this handoff.
+- The second fix changes only `tests/integration/practice/attempts.test.ts` and this
+  handoff; production code is unchanged from the second-review baseline.
 
 ## RED / GREEN evidence
 
@@ -34,6 +40,20 @@ production behavior:
 Repository mapping/conflict, five-field provenance, and three real POST-route wiring
 assertions were added to close review coverage gaps. They characterize already-intended
 production behavior rather than claiming a new security framework.
+
+The second independent-review repair made the production Supabase boundary
+mutation-sensitive without increasing the 32-test task gate:
+
+- The harness now applies the exact `.select(...)` projection to planned rows instead
+  of returning fields that production did not request.
+- Candidate, draft, attempt, and revision projections are asserted byte-for-byte.
+  Draft and attempt reads assert complete camel-case records, while successful inserts
+  assert both the complete snake-case payload and the complete mapped round trip.
+- Negative mutation RED was observed after temporarily removing `goal_english`,
+  `accuracy_score`, and `evaluation_gateway_fingerprint` from the production select
+  projections: the repository suite failed 3 tests with the prompt, score, and
+  provenance fields received as `undefined` (26 passed / 3 failed). The temporary
+  mutation was then fully restored; no production file remains changed.
 
 GREEN candidate:
 
@@ -137,4 +157,7 @@ compiled, TypeScript, 21/21 static pages, and route collection succeeded; exit 0
   as required by the focused Task 4 brief and the already-frozen 533-test shared
   migration gate. One fixed-environment production build was run because the new Route
   module tests were a concrete task-local build risk; it passed.
+- The second test-only repair intentionally repeated only the two focused suites,
+  TypeScript, and diff-check. It did not repeat build, database, full-suite, or browser
+  gates because no production or shared contract changed.
 - This handoff is not self-approval; an independent read-only review is still required.
