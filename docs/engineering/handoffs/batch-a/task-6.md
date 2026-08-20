@@ -5,8 +5,10 @@
 - Plan/task: `docs/superpowers/plans/2026-08-16-popcorn-batch-a-platform-capabilities.md`, Task 6.
 - Accepted implementation/review baseline: `0449cc7`.
 - Worktree starting commit containing the task brief: `8c8b2f3`.
-- Candidate HEAD: the `feat: add durable extension save synchronization` commit containing this handoff.
-- Worktree: `/private/tmp/popcorn-batch-a-6`.
+- Reviewed implementation candidate: `5ef6eee6231beada03e855887cc384d02eb70889`.
+- Review-fix brief commit: `e6d8187`.
+- Review-fix HEAD: the fix commit containing this handoff.
+- Review-fix worktree: `/private/tmp/popcorn-batch-a-6-fix`.
 
 ## Changed files
 
@@ -18,6 +20,12 @@
 - `docs/engineering/handoffs/batch-a/task-6.md` (new)
 
 `extension/manifest.json` was inspected but did not require a change: it already has Chrome 116, `alarms`, exact Popcorn/YouTube/Supabase hosts, and no `unlimitedStorage` or Provider hosts. No content script, Side Panel file, contract, migration, root config, lockfile, ledger, auth module, server file, or upstream notice/license was changed.
+
+Review fix 1 changed only:
+
+- `extension/sync-queue.js`
+- `extension/tests/sync-queue.test.js`
+- `docs/engineering/handoffs/batch-a/task-6.md`
 
 ## TDD evidence
 
@@ -36,12 +44,23 @@ Additional focused RED/GREEN cycles covered:
 - clearing a stale retry alarm when the signed-in account does not own the retained event (one expected RED);
 - options queue-count display and explicit owner-bound discard command (one expected RED).
 
-Final focused GREEN:
+Independent review fix RED:
 
 ```text
 node --test extension/tests/sync-queue.test.js extension/tests/worker-restart.test.js
-12 tests: 12 pass, 0 fail
+18 tests: 14 pass, 4 fail
 ```
+
+The deterministic storage-read barrier reproduced four manifestations of the same whole-array lost-update root cause: concurrent enqueue lost one successful event; acknowledgement erased a concurrent enqueue; retry erased a concurrent enqueue; and discard followed by enqueue resurrected the discarded event. No timing delay or probabilistic rapid-click loop was used.
+
+Review fix final focused GREEN:
+
+```text
+node --test extension/tests/sync-queue.test.js extension/tests/worker-restart.test.js
+18 tests: 18 pass, 0 fail
+```
+
+Every queue read-modify-write now passes through one per-worker Promise mutation tail: enqueue admission and idempotency, acknowledgement/removal, retry bookkeeping, and owner-bound discard. Network calls remain outside the serialized mutation so an unavailable service does not block later durable writes. A rejected mutation settles the tail before the next operation; the regression test injects one quota write failure and proves the following enqueue persists and flushes instead of deadlocking.
 
 Relevant frozen regressions:
 
@@ -50,7 +69,7 @@ node --test extension/tests/auth-worker.test.js extension/tests/auth.test.js ext
 27 tests: 27 pass, 0 fail
 ```
 
-Full extension observation:
+Original candidate full extension observation (the fix rerun is recorded below after final verification):
 
 ```text
 node --test extension/tests/*.test.js
@@ -58,6 +77,15 @@ node --test extension/tests/*.test.js
 ```
 
 All 12 failures are pre-existing frozen-baseline mismatches outside this task: nine obsolete local-remix/language expectations in `options-language.test.js` against the already-accepted Popcorn cloud account page, plus three CommonJS export expectations in `settings.test.js` while the accepted root package is ESM. Neither test file, `options.html`, nor `settings.js` changed in Task 6. Task 6 focused tests and all affected auth/release regressions pass. The controller should decide whether to retire or rewrite those stale tests at the Batch A integration gate; doing so here would violate the allowlist.
+
+Review fix 1 reran the full extension suite once:
+
+```text
+node --test extension/tests/*.test.js
+86 tests: 74 pass, 12 fail
+```
+
+The six new concurrency/recovery regressions all pass. The failure set is exactly the same nine `options-language.test.js` and three `settings.test.js` baseline mismatches above; there is no new failure.
 
 Syntax/diff verification:
 
@@ -98,4 +126,4 @@ Pinned source: `zarazhangrui/youtube-digest@d03e1f61e017b032159ffd1821cac6e7693c
 - Following the controller's safety calibration after the implementation tool rejected irreversible local deletion, startup/install do not automatically delete or compress legacy `ytd_notes` or `digest_*` data. Existing data is preserved; the explicit options cache-clear action remains available. This is safer for personal data but is a documented deviation from the brief's automatic legacy migration wording and should be reviewed again at Delivery.
 - Automatic display-cache eviction was likewise not added because it would silently delete local cache data. The raw queue has an independent budget and returns `SYNC_QUEUE_FULL`; a user can explicitly clear bounded display cache and retry. This preserves events but may require that one user action when total Chrome storage is already exhausted.
 - Chrome UI/user-gesture behavior is covered by the existing VM regression, not a real-browser smoke. Batch A Task 7 should exercise actual Chrome worker termination, alarm restart, and the Side Panel save path.
-- The queue uses Chrome's atomic individual storage writes but `chrome.storage.local` has no compare-and-swap transaction for simultaneous enqueues. Typical personal-use clicks are serialized by the service worker; Task 7 should include rapid consecutive saves so any practical lost-update issue is detected before release.
+- Serialization is per active service-worker instance because `chrome.storage.local` has no compare-and-swap primitive. Chrome MV3 runs one active instance of this service worker; a terminated instance cannot overlap its replacement. The reload regression creates a fresh queue instance against the same durable storage and flushes every event retained by concurrent enqueues. Task 7 should still exercise actual Chrome worker termination and rapid consecutive saves in the browser.

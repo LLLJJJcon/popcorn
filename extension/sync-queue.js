@@ -31,6 +31,14 @@ const POPCORN_SYNC_QUEUE = (() => {
       throw new Error("Popcorn sync queue requires Chrome storage, alarms, auth, and API access.");
     }
 
+    let mutationTail = Promise.resolve();
+
+    function serializeMutation(mutation) {
+      const result = mutationTail.then(mutation);
+      mutationTail = result.catch(() => {});
+      return result;
+    }
+
     async function readEvents() {
       return normalizeEvents(await chrome.storage.local.get(PENDING_EVENTS_KEY));
     }
@@ -57,15 +65,17 @@ const POPCORN_SYNC_QUEUE = (() => {
 
     async function retrySelected(selectedKeys, ownerUserId) {
       const selected = new Set(selectedKeys);
-      const latest = await readEvents();
-      const updated = latest.map((event) => {
-        if (!selected.has(`${event.ownerUserId}:${event.clientEventId}`)) return event;
-        const attempts = Math.min(MAX_ATTEMPTS, event.attempts + 1);
-        return { ...event, attempts, nextAttemptAt: now() + retryDelay(attempts) };
+      return serializeMutation(async () => {
+        const latest = await readEvents();
+        const updated = latest.map((event) => {
+          if (!selected.has(`${event.ownerUserId}:${event.clientEventId}`)) return event;
+          const attempts = Math.min(MAX_ATTEMPTS, event.attempts + 1);
+          return { ...event, attempts, nextAttemptAt: now() + retryDelay(attempts) };
+        });
+        await chrome.storage.local.set({ [PENDING_EVENTS_KEY]: updated });
+        await scheduleRetry(updated.filter((event) => event.ownerUserId === ownerUserId));
+        return updated;
       });
-      await chrome.storage.local.set({ [PENDING_EVENTS_KEY]: updated });
-      await scheduleRetry(updated.filter((event) => event.ownerUserId === ownerUserId));
-      return updated;
     }
 
     async function flushPendingEvents(trigger = "manual") {
@@ -97,18 +107,21 @@ const POPCORN_SYNC_QUEUE = (() => {
         const acknowledged = new Set(results.filter((result) => (
           result?.ok === true && selectedIds.has(result.clientEventId)
         )).map((result) => result.clientEventId));
-        const latest = await readEvents();
-        const remaining = latest.filter((event) => !(
-          event.ownerUserId === session.user.id && acknowledged.has(event.clientEventId)
-        ));
         const unacknowledged = new Set(due.filter((event) => !acknowledged.has(event.clientEventId)).map((event) => `${event.ownerUserId}:${event.clientEventId}`));
-        const updated = remaining.map((event) => {
-          if (!unacknowledged.has(`${event.ownerUserId}:${event.clientEventId}`)) return event;
-          const attempts = Math.min(MAX_ATTEMPTS, event.attempts + 1);
-          return { ...event, attempts, nextAttemptAt: now() + retryDelay(attempts) };
+        const updated = await serializeMutation(async () => {
+          const latest = await readEvents();
+          const remaining = latest.filter((event) => !(
+            event.ownerUserId === session.user.id && acknowledged.has(event.clientEventId)
+          ));
+          const next = remaining.map((event) => {
+            if (!unacknowledged.has(`${event.ownerUserId}:${event.clientEventId}`)) return event;
+            const attempts = Math.min(MAX_ATTEMPTS, event.attempts + 1);
+            return { ...event, attempts, nextAttemptAt: now() + retryDelay(attempts) };
+          });
+          await chrome.storage.local.set({ [PENDING_EVENTS_KEY]: next });
+          await scheduleRetry(next.filter((event) => event.ownerUserId === session.user.id));
+          return next;
         });
-        await chrome.storage.local.set({ [PENDING_EVENTS_KEY]: updated });
-        await scheduleRetry(updated.filter((event) => event.ownerUserId === session.user.id));
         return { success: true, synced: acknowledged.size, pending: updated.length, trigger };
       } catch (_error) {
         const updated = await retrySelected(selectedKeys, session.user.id);
@@ -124,26 +137,29 @@ const POPCORN_SYNC_QUEUE = (() => {
       if (!input || typeof input !== "object" || typeof input.clientEventId !== "string") {
         return { success: false, synced: false, pending: false, code: "VALIDATION_FAILED" };
       }
-      const events = await readEvents();
-      const duplicate = events.some((event) => (
-        event.ownerUserId === session.user.id && event.clientEventId === input.clientEventId
-      ));
-      if (!duplicate) {
-        const descriptor = {
-          ownerUserId: session.user.id,
-          clientEventId: input.clientEventId,
-          input: structuredClone(input),
-          attempts: 0,
-          nextAttemptAt: now(),
-        };
-        if (!(await hasQueueCapacity(descriptor))) {
-          return { success: false, synced: false, pending: false, code: "SYNC_QUEUE_FULL" };
-        }
-        try {
+      try {
+        const admitted = await serializeMutation(async () => {
+          const events = await readEvents();
+          const duplicate = events.some((event) => (
+            event.ownerUserId === session.user.id && event.clientEventId === input.clientEventId
+          ));
+          if (duplicate) return true;
+          const descriptor = {
+            ownerUserId: session.user.id,
+            clientEventId: input.clientEventId,
+            input: structuredClone(input),
+            attempts: 0,
+            nextAttemptAt: now(),
+          };
+          if (!(await hasQueueCapacity(descriptor))) return false;
           await chrome.storage.local.set({ [PENDING_EVENTS_KEY]: [...events, descriptor] });
-        } catch (_error) {
+          return true;
+        });
+        if (!admitted) {
           return { success: false, synced: false, pending: false, code: "SYNC_QUEUE_FULL" };
         }
+      } catch (_error) {
+        return { success: false, synced: false, pending: false, code: "SYNC_QUEUE_FULL" };
       }
       const flushed = await flushPendingEvents("new-save");
       return {
@@ -170,12 +186,14 @@ const POPCORN_SYNC_QUEUE = (() => {
       if (!session?.user?.id || session.user.id !== ownerUserId) {
         throw new Error("Only the current queue owner may discard pending events.");
       }
-      const events = await readEvents();
-      const remaining = events.filter((event) => event.ownerUserId !== ownerUserId);
-      const discardedCount = events.length - remaining.length;
-      await chrome.storage.local.set({ [PENDING_EVENTS_KEY]: remaining });
-      await scheduleRetry(remaining.filter((event) => event.ownerUserId === ownerUserId));
-      return { discardedCount };
+      return serializeMutation(async () => {
+        const events = await readEvents();
+        const remaining = events.filter((event) => event.ownerUserId !== ownerUserId);
+        const discardedCount = events.length - remaining.length;
+        await chrome.storage.local.set({ [PENDING_EVENTS_KEY]: remaining });
+        await scheduleRetry(remaining.filter((event) => event.ownerUserId === ownerUserId));
+        return { discardedCount };
+      });
     }
 
     async function recoverOnStartup(trigger) {

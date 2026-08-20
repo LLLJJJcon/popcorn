@@ -20,19 +20,36 @@ function savedInput(clientEventId) {
   };
 }
 
-function createChrome(initial = {}, { bytesInUse, failSet = false } = {}) {
+function createChrome(initial = {}, {
+  bytesInUse,
+  failSet = false,
+  failSetCount = 0,
+  deferPendingReads = false,
+  onPendingRead = () => {},
+} = {}) {
   const values = structuredClone(initial);
   const calls = [];
+  let pendingReadCount = 0;
+  let remainingSetFailures = failSetCount;
   const local = {
     async get(keys) {
       calls.push(["get", keys]);
-      if (keys === null) return structuredClone(values);
+      const snapshot = structuredClone(values);
+      if (deferPendingReads && keys === "popcorn_pending_events") {
+        pendingReadCount += 1;
+        onPendingRead(pendingReadCount);
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      if (keys === null) return snapshot;
       const requested = Array.isArray(keys) ? keys : [keys];
-      return Object.fromEntries(requested.filter((key) => Object.hasOwn(values, key)).map((key) => [key, structuredClone(values[key])]));
+      return Object.fromEntries(requested.filter((key) => Object.hasOwn(snapshot, key)).map((key) => [key, structuredClone(snapshot[key])]));
     },
     async set(items) {
       calls.push(["set", structuredClone(items)]);
-      if (failSet) throw Object.assign(new Error("QUOTA_BYTES quota exceeded"), { code: "QUOTA_BYTES" });
+      if (failSet || remainingSetFailures > 0) {
+        remainingSetFailures -= 1;
+        throw Object.assign(new Error("QUOTA_BYTES quota exceeded"), { code: "QUOTA_BYTES" });
+      }
       Object.assign(values, structuredClone(items));
     },
     async remove(keys) {
@@ -61,6 +78,168 @@ function createChrome(initial = {}, { bytesInUse, failSet = false } = {}) {
     },
   };
 }
+
+test("concurrent enqueues persist every event and a reloaded worker can flush them", async () => {
+  const harness = createChrome({}, { deferPendingReads: true });
+  const queue = await createQueue({
+    chrome: harness.chrome,
+    authClient: authFor(USER_A),
+    apiFetch: async () => { throw new Error("offline"); },
+    now: () => 1_000,
+  });
+
+  const results = await Promise.all([
+    queue.enqueueSavedItem(savedInput(EVENT_A)),
+    queue.enqueueSavedItem(savedInput(EVENT_B)),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.success), [true, true]);
+  assert.deepEqual(
+    harness.values.popcorn_pending_events.map((event) => event.clientEventId).sort(),
+    [EVENT_A, EVENT_B],
+  );
+
+  const reloaded = await createQueue({
+    chrome: harness.chrome,
+    authClient: authFor(USER_A),
+    apiFetch: async (_path, options) => ({
+      data: {
+        results: JSON.parse(options.body).events.map(({ clientEventId }) => ({ clientEventId, ok: true })),
+      },
+    }),
+    now: () => Number.MAX_SAFE_INTEGER,
+  });
+  await reloaded.flushPendingEvents("startup");
+  assert.deepEqual(harness.values.popcorn_pending_events, []);
+});
+
+test("an acknowledgement cannot overwrite an enqueue that overlaps its queue mutation", async () => {
+  const descriptor = { ownerUserId: USER_A, clientEventId: EVENT_A, input: savedInput(EVENT_A), attempts: 0, nextAttemptAt: 0 };
+  let releaseAcknowledgement;
+  let markRequestStarted;
+  const acknowledgement = new Promise((resolve) => { releaseAcknowledgement = resolve; });
+  const requestStarted = new Promise((resolve) => { markRequestStarted = resolve; });
+  const harness = createChrome({ popcorn_pending_events: [descriptor] }, {
+    deferPendingReads: true,
+    onPendingRead(count) {
+      if (count === 2) releaseAcknowledgement();
+    },
+  });
+  let requestCount = 0;
+  const queue = await createQueue({
+    chrome: harness.chrome,
+    authClient: authFor(USER_A),
+    apiFetch: async () => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        markRequestStarted();
+        await acknowledgement;
+        return { data: { results: [{ clientEventId: EVENT_A, ok: true }] } };
+      }
+      throw new Error("offline");
+    },
+    now: () => 1_000,
+  });
+
+  const flush = queue.flushPendingEvents("manual");
+  await requestStarted;
+  const enqueue = queue.enqueueSavedItem(savedInput(EVENT_B));
+  await Promise.all([flush, enqueue]);
+
+  assert.deepEqual(harness.values.popcorn_pending_events.map((event) => event.clientEventId), [EVENT_B]);
+});
+
+test("a retry update cannot overwrite an enqueue that overlaps its queue mutation", async () => {
+  const descriptor = { ownerUserId: USER_A, clientEventId: EVENT_A, input: savedInput(EVENT_A), attempts: 0, nextAttemptAt: 0 };
+  let releaseFailure;
+  let markRequestStarted;
+  const failureGate = new Promise((resolve) => { releaseFailure = resolve; });
+  const requestStarted = new Promise((resolve) => { markRequestStarted = resolve; });
+  const harness = createChrome({ popcorn_pending_events: [descriptor] }, {
+    deferPendingReads: true,
+    onPendingRead(count) {
+      if (count === 2) releaseFailure();
+    },
+  });
+  let requestCount = 0;
+  const queue = await createQueue({
+    chrome: harness.chrome,
+    authClient: authFor(USER_A),
+    apiFetch: async () => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        markRequestStarted();
+        await failureGate;
+      }
+      throw new Error("offline");
+    },
+    now: () => 1_000,
+  });
+
+  const flush = queue.flushPendingEvents("manual");
+  await requestStarted;
+  const enqueue = queue.enqueueSavedItem(savedInput(EVENT_B));
+  await Promise.all([flush, enqueue]);
+
+  assert.deepEqual(
+    harness.values.popcorn_pending_events.map((event) => event.clientEventId).sort(),
+    [EVENT_A, EVENT_B],
+  );
+});
+
+test("owner discard and enqueue are serialized without resurrecting discarded events", async () => {
+  const descriptor = { ownerUserId: USER_A, clientEventId: EVENT_A, input: savedInput(EVENT_A), attempts: 0, nextAttemptAt: 0 };
+  const harness = createChrome({ popcorn_pending_events: [descriptor] }, { deferPendingReads: true });
+  const queue = await createQueue({
+    chrome: harness.chrome,
+    authClient: authFor(USER_A),
+    apiFetch: async () => { throw new Error("offline"); },
+    now: () => 1_000,
+  });
+
+  const [discarded, enqueued] = await Promise.all([
+    queue.discardPendingEvents(USER_A),
+    queue.enqueueSavedItem(savedInput(EVENT_B)),
+  ]);
+
+  assert.equal(discarded.discardedCount, 1);
+  assert.equal(enqueued.success, true);
+  assert.deepEqual(harness.values.popcorn_pending_events.map((event) => event.clientEventId), [EVENT_B]);
+});
+
+test("a failed queue write releases serialization for the next enqueue", { timeout: 1_000 }, async () => {
+  const harness = createChrome({}, { failSetCount: 1 });
+  const queue = await createQueue({
+    chrome: harness.chrome,
+    authClient: authFor(USER_A),
+    apiFetch: async () => { throw new Error("offline"); },
+    now: () => 1_000,
+  });
+
+  const failed = await queue.enqueueSavedItem(savedInput(EVENT_A));
+  const recovered = await queue.enqueueSavedItem(savedInput(EVENT_B));
+
+  assert.equal(failed.code, "SYNC_QUEUE_FULL");
+  assert.equal(recovered.success, true);
+  assert.deepEqual(harness.values.popcorn_pending_events.map((event) => event.clientEventId), [EVENT_B]);
+});
+
+test("concurrent duplicate client event IDs remain idempotent", async () => {
+  const harness = createChrome({}, { deferPendingReads: true });
+  const queue = await createQueue({
+    chrome: harness.chrome,
+    authClient: authFor(USER_A),
+    apiFetch: async () => { throw new Error("offline"); },
+    now: () => 1_000,
+  });
+
+  await Promise.all([
+    queue.enqueueSavedItem(savedInput(EVENT_A)),
+    queue.enqueueSavedItem(savedInput(EVENT_A)),
+  ]);
+
+  assert.deepEqual(harness.values.popcorn_pending_events.map((event) => event.clientEventId), [EVENT_A]);
+});
 
 function authFor(userId) {
   return { getSession: async () => userId ? ({ user: { id: userId } }) : null };
