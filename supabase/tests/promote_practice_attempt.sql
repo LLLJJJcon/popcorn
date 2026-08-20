@@ -296,8 +296,9 @@ select extensions.results_eq(
 );
 
 select extensions.results_eq(
-  $$select user_id,practice_task_id,user_expression_id,response_chinese,passed,accuracy_score,naturalness_score,
-      contextual_fit_score,independent_use,assistance_level,submitted_at,created_at,
+  $$select user_id,practice_task_id,user_expression_id,response_chinese,passed,
+      accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,
+      contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at,created_at,
       evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,
       evaluation_gateway_revision,evaluation_gateway_fingerprint
     from public.attempts
@@ -305,13 +306,14 @@ select extensions.results_eq(
   $$select '0c000000-0000-4000-8000-00000000a001'::uuid,
       '0c800000-0000-4000-8000-000000000001'::uuid,
       '0c900000-0000-4000-8000-000000000001'::uuid,
-      '这也太离谱了吧。'::text,true,5,5,5,true,'none'::text,
+      '这也太离谱了吧。'::text,true,5,'Accurate use.'::text,
+      5,'Natural response.'::text,5,'Fits the situation.'::text,true,'none'::text,
       '2026-08-20 11:04:00+00'::timestamptz,'2026-08-20 11:04:01+00'::timestamptz,
       'evaluate-practice-v1'::text,'provider/model-v1'::text,
       '0c700000-0000-4000-8000-000000000001'::uuid,1,config_fingerprint
     from public.user_model_gateway_configs
     where id='0c700000-0000-4000-8000-000000000001'::uuid$$,
-  'canonical attempt copies scores, timestamps, assistance, and non-secret evaluation provenance'
+  'canonical attempt copies scores, English feedback, timestamps, assistance, and non-secret evaluation provenance'
 );
 
 select extensions.results_eq(
