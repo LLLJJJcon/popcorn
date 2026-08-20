@@ -32,6 +32,16 @@ All mutations were temporary and reverted before GREEN:
 
 The workspace `pnpm` shim attempted an interactive dependency purge when used with the borrowed `node_modules` symlink, so verification used the equivalent project-local executables without modifying the shared dependency directory.
 
+## Independent-review repair
+
+Independent review of candidate `dfcf827` found that the form observer queried only the final DOM and therefore missed a form synchronously appended and removed before the observer callback ran.
+
+- Survivor reproduction: temporarily appended `<form>` and immediately removed it inside the `video` save action; the pre-fix Playwright test incorrectly remained GREEN (`1 passed`, 5.2s).
+- RED after adding the expectation enforcement: with the same temporary mutation retained, the MutationRecord-based observer permanently marked the added form and Playwright failed at `expect(formOpened).toBe(false)` with expected `false`, received `true`.
+- Fix: inspect every `MutationRecord.addedNodes` entry and mark detection when the node itself is a form or its subtree contains a form. Existing visible-form and final-state checks remain intact.
+- The temporary append/remove mutation was removed before final GREEN.
+- Follow-up GREEN: ESLint exit 0; TypeScript exit 0; Playwright `1 passed` (4.8s); `git diff --check` exit 0.
+
 ## Residual risks
 
 - This remains a deterministic, fixture-backed Chromium acceptance test; it does not exercise live YouTube or Provider availability.

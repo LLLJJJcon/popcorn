@@ -474,7 +474,18 @@ export class PopcornExtensionHarness {
       const baselineCount = forms().length;
       const baselineVisibleCount = forms().filter(isVisible).length;
       const state = { detected: false };
-      const inspect = () => {
+      const inspect = (records: MutationRecord[]) => {
+        for (const record of records) {
+          for (const addedNode of record.addedNodes) {
+            if (
+              addedNode instanceof HTMLFormElement ||
+              ((addedNode instanceof Element || addedNode instanceof DocumentFragment) &&
+                addedNode.querySelector("form"))
+            ) {
+              state.detected = true;
+            }
+          }
+        }
         const currentForms = forms();
         if (
           currentForms.length > baselineCount ||
