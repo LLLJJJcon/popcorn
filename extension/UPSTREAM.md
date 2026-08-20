@@ -28,9 +28,9 @@ This intake is non-shippable until adapted.
 | `prompts/note-cleanup.md` | `extension/prompts/note-cleanup.md` | Exact copy | Adapt source-grounded Mandarin explanation discipline | Batch B Task 4 |
 | `prompts/translation.md` | `extension/prompts/translation.md` | Exact copy | Adapt Mandarin translation behavior | Batch A Task 3 |
 | `tests/digest-button.test.js` | `extension/tests/digest-button.test.js` | Exact copy | Preserve player-button behavior coverage | Batch A Task 5 |
-| `tests/options-language.test.js` | `extension/tests/options-language.test.js` | Exact copy | Update linking/options coverage | Batch A Task 1 |
+| `tests/options-language.test.js` | Retired; superseded by `extension/tests/auth.test.js`, `extension/tests/worker-restart.test.js`, and `tests/e2e/extension/acquisition-save.spec.ts` | Upstream test provenance retained; obsolete test deleted | Cover the frozen account-only Options surface, session/sync/discard behavior, and explicit cloud-backed sign-in without local provider settings | Batch A Tasks 1 and 7 |
 | `tests/release.test.js` | `extension/tests/release.test.js` | Exact copy | Reuse accessibility and release checks | Batch C Task 5 |
-| `tests/settings.test.js` | `extension/tests/settings.test.js` | Exact copy | Update linking/settings coverage | Batch A Task 1 |
+| `tests/settings.test.js` | Retired; superseded by `extension/tests/release.test.js`, `tests/contract/model-gateway.test.ts`, and `tests/integration/model-gateway/*.test.ts` | Upstream test provenance retained; obsolete test deleted | Prove no extension provider credential dependency and cover authenticated, Vault-backed user gateway/model configuration server-side | Batch A Tasks 1 and 7 |
 | `tests/transcript-selection.test.js` | `extension/tests/transcript-selection.test.js` | Exact copy | Preserve transcript selection coverage | Batch A Task 5 |
 | `tests/translation.test.js` | `extension/tests/translation.test.js` | Exact copy | Preserve translation coverage | Batch A Task 3 |
 | `icons/icon16.png` | `extension/icons/icon16.png` | Exact copy | Retain extension icon asset | Batch A Task 7 |
