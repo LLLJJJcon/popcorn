@@ -58,13 +58,17 @@ const GatewayTranslationSchema = z.strictObject({
   })).min(1).max(4),
 });
 
-type AdapterOptions = {
+export type OpenAiCompatibleAdapterOptions = {
   readonly config: ModelGatewayRuntimeConfig;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
   readonly maxRequestBytes?: number;
   readonly maxResponseBytes?: number;
 };
+
+export interface StructuredJsonCompletionClient {
+  complete(promptVersion: string, prompt: string): Promise<unknown>;
+}
 
 function outputInvalid(): ModelGatewayError {
   return new ModelGatewayError("PROVIDER_OUTPUT_INVALID");
@@ -143,9 +147,9 @@ function parseAssistantJson(text: string): unknown {
   }
 }
 
-export function createOpenAiCompatibleLearningArtifactProvider(
-  options: AdapterOptions,
-): LearningArtifactProvider {
+export function createOpenAiCompatibleStructuredJsonClient(
+  options: OpenAiCompatibleAdapterOptions,
+): StructuredJsonCompletionClient {
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = boundedPositiveInteger(options.timeoutMs, DEFAULT_TIMEOUT_MS);
   const maxRequestBytes = boundedPositiveInteger(
@@ -197,6 +201,14 @@ export function createOpenAiCompatibleLearningArtifactProvider(
       clearTimeout(timer);
     }
   }
+
+  return { complete };
+}
+
+export function createOpenAiCompatibleLearningArtifactProvider(
+  options: OpenAiCompatibleAdapterOptions,
+): LearningArtifactProvider {
+  const { complete } = createOpenAiCompatibleStructuredJsonClient(options);
 
   return {
     async generateOverview(evidence) {
