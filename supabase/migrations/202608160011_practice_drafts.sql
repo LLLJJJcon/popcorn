@@ -26,6 +26,8 @@ create table public.practice_drafts (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint practice_draft_owner_key unique (id, user_id),
+  constraint practice_draft_future_expression_key
+    unique (future_user_expression_id),
   constraint practice_draft_future_owner_key
     unique (id, user_id, future_user_expression_id),
   constraint practice_draft_source_owner_fk foreign key (video_source_id, user_id)
@@ -85,6 +87,52 @@ create index practice_drafts_owner_status_created_idx
 create index practice_drafts_candidate_idx
   on public.practice_drafts (candidate_artifact_id, user_id, candidate_index);
 
+create function private.validate_practice_draft_candidate()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  candidate_expression_json jsonb;
+  candidate_expression text;
+begin
+  select
+    artifact.content -> 'candidates' -> new.candidate_index -> 'expression'
+  into candidate_expression_json
+  from public.generated_artifacts as artifact
+  where artifact.id = new.candidate_artifact_id
+    and artifact.user_id = new.user_id
+    and artifact.video_source_id = new.video_source_id
+    and artifact.saved_item_id = new.saved_item_id
+    and artifact.artifact_type = new.candidate_artifact_type;
+
+  if not found then
+    return new;
+  end if;
+
+  if jsonb_typeof(candidate_expression_json) is distinct from 'string' then
+    raise exception using
+      errcode = '23514',
+      constraint = 'practice_draft_candidate_content_check',
+      message = 'practice draft candidate expression is missing or not a string';
+  end if;
+
+  candidate_expression := candidate_expression_json #>> '{}';
+  if candidate_expression is distinct from new.target_expression then
+    raise exception using
+      errcode = '23514',
+      constraint = 'practice_draft_candidate_content_check',
+      message = 'practice draft target expression does not match candidate';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger practice_draft_candidate_content_trigger
+before insert on public.practice_drafts
+for each row execute function private.validate_practice_draft_candidate();
+
 create table public.practice_draft_attempts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete restrict,
@@ -117,7 +165,7 @@ create table public.practice_draft_attempts (
     id, user_id, future_user_expression_id
   ) on delete restrict,
   constraint practice_draft_attempt_revision_check
-    check (revision between 1 and 100),
+    check (revision > 0),
   constraint practice_draft_attempt_response_check
     check (private.is_target_chinese(response_chinese, 5000)),
   constraint practice_draft_attempt_score_check check (
@@ -167,11 +215,14 @@ create index practice_draft_attempts_owner_draft_revision_idx
 alter table public.practice_drafts enable row level security;
 alter table public.practice_draft_attempts enable row level security;
 
-revoke all on table public.practice_drafts from public, anon, authenticated;
-revoke all on table public.practice_draft_attempts from public, anon, authenticated;
+revoke all on table public.practice_drafts
+  from public, anon, authenticated, service_role;
+revoke all on table public.practice_draft_attempts
+  from public, anon, authenticated, service_role;
 grant select on table public.practice_drafts to authenticated;
 grant select on table public.practice_draft_attempts to authenticated;
-grant select, insert, update on table public.practice_drafts to service_role;
+grant select, insert on table public.practice_drafts to service_role;
+grant update (status, updated_at) on table public.practice_drafts to service_role;
 grant select, insert on table public.practice_draft_attempts to service_role;
 
 create policy practice_drafts_select_own on public.practice_drafts

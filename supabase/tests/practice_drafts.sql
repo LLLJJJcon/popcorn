@@ -15,7 +15,9 @@ select extensions.no_plan();
 \set config_a '0b500000-0000-4000-8000-000000000001'
 \set config_b '0b500000-0000-4000-8000-000000000002'
 \set draft_a '0b600000-0000-4000-8000-000000000001'
+\set draft_live '0b600000-0000-4000-8000-000000000002'
 \set future_a '0b700000-0000-4000-8000-000000000001'
+\set future_live '0b700000-0000-4000-8000-000000000002'
 \set attempt_a1 '0b800000-0000-4000-8000-000000000001'
 \set attempt_a2 '0b800000-0000-4000-8000-000000000002'
 
@@ -99,9 +101,52 @@ select extensions.results_eq(
       (select count(*) from public.user_expressions),
       (select count(*) from public.practice_tasks),
       (select count(*) from public.attempts),
-      (select count(*) from public.mastery_events)$$,
-  $$values (0::bigint,0::bigint,0::bigint,0::bigint)$$,
-  'draft creation produces no canonical Vault, practice, attempt, or mastery row'
+      (select count(*) from public.mastery_events),
+      (select count(*) from public.review_tasks)$$,
+  $$values (0::bigint,0::bigint,0::bigint,0::bigint,0::bigint)$$,
+  'draft creation produces no canonical Vault, practice, attempt, mastery, or review row'
+);
+
+select extensions.throws_ok(
+  format($sql$insert into public.practice_drafts (
+    user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
+    future_user_expression_id,native_language,target_language,target_expression,
+    prompt_chinese,instructions_english,goal_english,status
+  ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
+    '没想到','请自然回应。','Reply naturally.','Use the expression.','active')$sql$,
+    :'user_a',:'source_a',:'save_a',:'artifact_a'),
+  '23514',null,'draft target expression must exactly match its indexed candidate'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_drafts (
+    user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
+    future_user_expression_id,native_language,target_language,target_expression,
+    prompt_chinese,instructions_english,goal_english,status
+  ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,1,gen_random_uuid(),'en','zh-CN',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active')$sql$,
+    :'user_a',:'source_a',:'save_a',:'artifact_a'),
+  '23514',null,'draft rejects a candidate index absent from artifact content'
+);
+
+select extensions.throws_ok(
+  format($sql$insert into public.practice_drafts (
+    user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
+    future_user_expression_id,native_language,target_language,target_expression,
+    prompt_chinese,instructions_english,goal_english,status
+  ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,%L::uuid,'en','zh-CN',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active')$sql$,
+    :'user_a',:'source_a',:'save_a',:'artifact_a',:'future_a'),
+  '23505',null,'one owner cannot reuse a future expression identity across drafts'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_drafts (
+    user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
+    future_user_expression_id,native_language,target_language,target_expression,
+    prompt_chinese,instructions_english,goal_english,status
+  ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,%L::uuid,'en','zh-CN',
+    '没想到','请自然回应。','Reply naturally.','Use the expression.','active')$sql$,
+    :'user_b',:'source_b',:'save_b',:'artifact_b',:'future_a'),
+  '23505',null,'different owners cannot reuse a future expression identity'
 );
 
 select extensions.throws_ok(
@@ -127,16 +172,17 @@ select extensions.throws_ok(
 
 select extensions.lives_ok(
   format($sql$insert into public.practice_drafts (
-    user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
+    id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
     future_user_expression_id,native_language,target_language,target_expression,
     prompt_chinese,instructions_english,goal_english,status,
     activation_prompt_version,activation_model,activation_gateway_config_id,
     activation_gateway_revision,activation_gateway_fingerprint
-  ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
+  ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,%L::uuid,'en','zh-CN',
     '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active',
     'activate-v1','provider/model-v1',%L::uuid,1,
     (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
-    :'user_a',:'source_a',:'save_a',:'artifact_a',:'config_a',:'config_a'),
+    :'draft_live',:'user_a',:'source_a',:'save_a',:'artifact_a',:'future_live',
+    :'config_a',:'config_a'),
   'draft accepts exact non-secret activation provenance'
 );
 select extensions.throws_ok(
@@ -166,6 +212,75 @@ select extensions.throws_ok(
     :'user_a',:'source_a',:'save_a',:'artifact_a',:'config_a',:'config_a'),
   '23503',null,'draft activation model must match the exact owner gateway revision'
 );
+select extensions.throws_ok(
+  format($sql$insert into public.practice_drafts (
+    user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
+    future_user_expression_id,native_language,target_language,target_expression,
+    prompt_chinese,instructions_english,goal_english,status,
+    activation_prompt_version,activation_model,activation_gateway_config_id,
+    activation_gateway_revision,activation_gateway_fingerprint
+  ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active',
+    'activate-v1','provider/model-v1',%L::uuid,1,
+    (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
+    :'user_a',:'source_a',:'save_a',:'artifact_a',:'config_b',:'config_b'),
+  '23503',null,'draft activation provenance rejects another owner gateway'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_drafts (
+    user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
+    future_user_expression_id,native_language,target_language,target_expression,
+    prompt_chinese,instructions_english,goal_english,status,
+    activation_prompt_version,activation_model,activation_gateway_config_id,
+    activation_gateway_revision,activation_gateway_fingerprint
+  ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active',
+    'activate-v1','provider/model-v1',%L::uuid,2,
+    (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
+    :'user_a',:'source_a',:'save_a',:'artifact_a',:'config_a',:'config_a'),
+  '23503',null,'draft activation provenance rejects the wrong gateway revision'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_drafts (
+    user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
+    future_user_expression_id,native_language,target_language,target_expression,
+    prompt_chinese,instructions_english,goal_english,status,
+    activation_prompt_version,activation_model,activation_gateway_config_id,
+    activation_gateway_revision,activation_gateway_fingerprint
+  ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active',
+    'activate-v1','provider/model-v1',%L::uuid,1,%L)$sql$,
+    :'user_a',:'source_a',:'save_a',:'artifact_a',:'config_a',repeat('c',64)),
+  '23503',null,'draft activation provenance rejects the wrong gateway fingerprint'
+);
+
+select extensions.throws_ok(
+  format($sql$update public.practice_drafts set target_expression='没想到'
+    where id=%L::uuid$sql$, :'draft_live'),
+  '42501',null,'service role cannot mutate immutable draft content'
+);
+select extensions.throws_ok(
+  format($sql$update public.practice_drafts set activation_gateway_fingerprint=%L
+    where id=%L::uuid$sql$, repeat('c',64), :'draft_live'),
+  '42501',null,'service role cannot replace exact activation provenance'
+);
+select extensions.throws_ok(
+  format($sql$update public.practice_drafts set activation_gateway_fingerprint=null
+    where id=%L::uuid$sql$, :'draft_live'),
+  '42501',null,'service role cannot clear exact activation provenance'
+);
+select extensions.lives_ok(
+  format($sql$update public.practice_drafts
+    set status='completed',updated_at='2026-08-20 11:10:00+00'
+    where id=%L::uuid$sql$, :'draft_live'),
+  'service role may update only draft lifecycle state'
+);
+select extensions.results_eq(
+  format($sql$select status,updated_at from public.practice_drafts
+    where id=%L::uuid$sql$, :'draft_live'),
+  $$values ('completed'::text,'2026-08-20 11:10:00+00'::timestamptz)$$,
+  'draft lifecycle update persists without changing immutable activation data'
+);
 
 insert into public.practice_draft_attempts (
   id,user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
@@ -185,6 +300,28 @@ select extensions.results_eq(
     order by revision$$,
   $$values (1,'这也太离谱了吧。'::text),(2,'这件事也太离谱了。'::text)$$,
   'attempt revisions are append-only and ordered'
+);
+select extensions.lives_ok(
+  format($sql$insert into public.practice_draft_attempts (
+    user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+    passed,accuracy_score,accuracy_feedback_english,naturalness_score,
+    naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
+    independent_use,assistance_level,submitted_at
+  ) values (%L::uuid,%L::uuid,%L::uuid,101,'这也太离谱了吧。',true,5,'Accurate.',
+    5,'Natural.',5,'Fits.',true,'none','2026-08-20 11:05:30+00')$sql$,
+    :'user_a',:'draft_a',:'future_a'),
+  'positive attempt revisions are not capped at one hundred'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_draft_attempts (
+    user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+    passed,accuracy_score,accuracy_feedback_english,naturalness_score,
+    naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
+    independent_use,assistance_level,submitted_at
+  ) values (%L::uuid,%L::uuid,%L::uuid,0,'这也太离谱了吧。',true,5,'Accurate.',
+    5,'Natural.',5,'Fits.',true,'none','2026-08-20 11:05:31+00')$sql$,
+    :'user_a',:'draft_a',:'future_a'),
+  '23514',null,'attempt revision must remain positive'
 );
 select extensions.throws_ok(
   format($sql$insert into public.practice_draft_attempts (
@@ -236,6 +373,50 @@ select extensions.throws_ok(
     (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
     :'user_a',:'draft_a',:'future_a',:'config_a',:'config_a'),
   '23503',null,'attempt evaluation model must match the exact owner gateway revision'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_draft_attempts (
+    user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+    passed,accuracy_score,accuracy_feedback_english,naturalness_score,
+    naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
+    independent_use,assistance_level,submitted_at,
+    evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,
+    evaluation_gateway_revision,evaluation_gateway_fingerprint
+  ) values (%L::uuid,%L::uuid,%L::uuid,4,'这也太离谱了吧。',true,5,'Accurate.',
+    5,'Natural.',5,'Fits.',true,'none','2026-08-20 11:06:00+00',
+    'evaluate-v1','provider/model-v1',%L::uuid,1,
+    (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
+    :'user_a',:'draft_a',:'future_a',:'config_b',:'config_b'),
+  '23503',null,'attempt evaluation provenance rejects another owner gateway'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_draft_attempts (
+    user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+    passed,accuracy_score,accuracy_feedback_english,naturalness_score,
+    naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
+    independent_use,assistance_level,submitted_at,
+    evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,
+    evaluation_gateway_revision,evaluation_gateway_fingerprint
+  ) values (%L::uuid,%L::uuid,%L::uuid,4,'这也太离谱了吧。',true,5,'Accurate.',
+    5,'Natural.',5,'Fits.',true,'none','2026-08-20 11:06:00+00',
+    'evaluate-v1','provider/model-v1',%L::uuid,2,
+    (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
+    :'user_a',:'draft_a',:'future_a',:'config_a',:'config_a'),
+  '23503',null,'attempt evaluation provenance rejects the wrong gateway revision'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_draft_attempts (
+    user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+    passed,accuracy_score,accuracy_feedback_english,naturalness_score,
+    naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
+    independent_use,assistance_level,submitted_at,
+    evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,
+    evaluation_gateway_revision,evaluation_gateway_fingerprint
+  ) values (%L::uuid,%L::uuid,%L::uuid,4,'这也太离谱了吧。',true,5,'Accurate.',
+    5,'Natural.',5,'Fits.',true,'none','2026-08-20 11:06:00+00',
+    'evaluate-v1','provider/model-v1',%L::uuid,1,%L)$sql$,
+    :'user_a',:'draft_a',:'future_a',:'config_a',repeat('c',64)),
+  '23503',null,'attempt evaluation provenance rejects the wrong gateway fingerprint'
 );
 select extensions.lives_ok(
   format($sql$insert into public.practice_draft_attempts (
@@ -305,8 +486,28 @@ select extensions.is(
   'authenticated owner can select only the owner draft'
 );
 select extensions.is(
-  (select count(*)::integer from public.practice_draft_attempts),3,
+  (select count(*)::integer from public.practice_draft_attempts),4,
   'authenticated owner can select only the owner attempt revisions'
+);
+select extensions.throws_ok(
+  format($sql$update public.practice_drafts set status='abandoned'
+    where id=%L::uuid$sql$, :'draft_a'),
+  '42501',null,'authenticated owners cannot update drafts directly'
+);
+select extensions.throws_ok(
+  format($sql$delete from public.practice_drafts where id=%L::uuid$sql$, :'draft_a'),
+  '42501',null,'authenticated owners cannot delete drafts directly'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_draft_attempts (
+    user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+    passed,accuracy_score,accuracy_feedback_english,naturalness_score,
+    naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
+    independent_use,assistance_level,submitted_at
+  ) values (%L::uuid,%L::uuid,%L::uuid,5,'这也太离谱了吧。',true,5,'Accurate.',
+    5,'Natural.',5,'Fits.',true,'none','2026-08-20 11:08:00+00')$sql$,
+    :'user_a',:'draft_a',:'future_a'),
+  '42501',null,'authenticated owners cannot insert draft attempts directly'
 );
 select set_config('request.jwt.claim.sub', :'user_b', true);
 select extensions.is((select count(*)::integer from public.practice_drafts),0,
@@ -335,6 +536,32 @@ select extensions.ok(
     and not has_table_privilege('authenticated','public.practice_drafts','insert')
     and not has_table_privilege('authenticated','public.practice_draft_attempts','insert'),
   'draft grants expose owner reads only to authenticated clients'
+);
+select extensions.ok(
+  has_column_privilege('service_role','public.practice_drafts','status','update')
+    and has_column_privilege(
+      'service_role','public.practice_drafts','updated_at','update'
+    )
+    and not exists (
+      select 1
+      from information_schema.columns c
+      where c.table_schema='public'
+        and c.table_name='practice_drafts'
+        and c.column_name not in ('status','updated_at')
+        and has_column_privilege(
+          'service_role','public.practice_drafts',c.column_name,'update'
+        )
+    )
+    and not has_table_privilege(
+      'service_role','public.practice_drafts','delete'
+    )
+    and not has_table_privilege(
+      'service_role','public.practice_draft_attempts','update'
+    )
+    and not has_table_privilege(
+      'service_role','public.practice_draft_attempts','delete'
+    ),
+  'service role receives exact draft lifecycle and append-only attempt grants'
 );
 
 select * from extensions.finish();
