@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { JSDOM } = require("jsdom");
 
 const VIDEO_ID = "dQw4w9WgXcQ";
 const EVENT_ID = "00000000-0000-4000-8000-000000000101";
@@ -57,6 +58,196 @@ function loadScript(file, testingKey) {
 const content = loadScript("content.js", "__YTD_SAVE_TESTING__");
 const panel = loadScript("sidepanel.js", "__YTD_SAVE_TESTING__");
 const identity = { clientEventId: EVENT_ID, capturedAt: CAPTURED_AT };
+
+const SIDE_PANEL_HTML = `
+  <button id="errorBtn" type="button"></button>
+  <button id="saveVideoBtn" type="button">Save Video</button>
+  <div id="overviewText"></div>
+  <ul id="chapterList"></ul>
+  <div id="quotesList"></div>
+  <div id="contentArea">
+    <div><div id="transcriptList"></div></div>
+  </div>
+  <button id="followPlaybackBtn" type="button"></button>
+`;
+
+const TRANSCRIPT_SEGMENTS = [
+  {
+    stableId: "c".repeat(64),
+    text: "你刚才看到了吗？",
+    start: 36,
+    duration: 6,
+  },
+  {
+    stableId: SEGMENT_A,
+    text: "这也太离谱了吧。",
+    start: 42,
+    duration: 6,
+  },
+  {
+    stableId: SEGMENT_B,
+    text: "我完全没想到。",
+    start: 48,
+    duration: 6,
+  },
+];
+
+function jsonValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function createSidePanelHandlerHarness() {
+  const source = fs.readFileSync(
+    path.resolve(__dirname, "..", "sidepanel.js"),
+    "utf8",
+  );
+  const dom = new JSDOM(SIDE_PANEL_HTML, {
+    url: `chrome-extension://popcorn/sidepanel.html?v=${VIDEO_ID}`,
+  });
+  const document = dom.window.document;
+  const nativeAddEventListener = document.addEventListener.bind(document);
+  document.addEventListener = (type, listener, options) => {
+    if (type === "DOMContentLoaded") return;
+    nativeAddEventListener(type, listener, options);
+  };
+
+  const saveCalls = [];
+  const runtimeMessages = [];
+  const forbiddenCalls = [];
+  const passive = { addListener() {} };
+  const sandbox = {
+    console: {
+      ...console,
+      error() {},
+    },
+    URL,
+    URLSearchParams,
+    TextDecoder,
+    TextEncoder,
+    Date,
+    crypto: { randomUUID: () => EVENT_ID },
+    document,
+    window: dom.window,
+    navigator: dom.window.navigator,
+    fetch() {
+      forbiddenCalls.push("fetch");
+      throw new Error("fetch must not run from a save handler");
+    },
+    saveNote() {
+      forbiddenCalls.push("saveNote");
+      throw new Error("old saveNote must not run");
+    },
+    chrome: {
+      runtime: {
+        onMessage: passive,
+        async sendMessage(message) {
+          runtimeMessages.push(jsonValue(message));
+          if (
+            message?.action === "relayToContent" &&
+            message?.payload?.action === "getCurrentTime"
+          ) {
+            return { success: true, response: { currentTime: 42.8 } };
+          }
+          throw new Error(`unexpected runtime persistence: ${message?.action}`);
+        },
+      },
+      windows: { getCurrent: async () => ({ id: 1 }) },
+      tabs: { onUpdated: passive, onActivated: passive },
+      storage: {
+        local: {
+          get: async () => ({}),
+          remove: async () => {},
+        },
+      },
+    },
+    MutationObserver: dom.window.MutationObserver,
+    IntersectionObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    CSS: { escape: (value) => value },
+    YTD_SETTINGS: {},
+    setTimeout: () => 0,
+    clearTimeout() {},
+    setInterval: () => 1,
+    clearInterval() {},
+    __saveCalls: saveCalls,
+  };
+  sandbox.globalThis = sandbox;
+  const context = vm.createContext(sandbox);
+  vm.runInContext(source, context);
+  vm.runInContext(
+    `
+      createSaveIdentity = () => (${JSON.stringify(identity)});
+      enqueueSavedItem = async (input) => {
+        globalThis.__saveCalls.push(JSON.parse(JSON.stringify(input)));
+        return { success: true, synced: false };
+      };
+      currentVideoId = ${JSON.stringify(VIDEO_ID)};
+      currentVideoUrl = ${JSON.stringify(`https://www.youtube.com/watch?v=${VIDEO_ID}`)};
+      currentVideoTitle = "中文访谈";
+      currentChannelName = "中文频道";
+      currentVideoDescription = "一段中文访谈。";
+      currentVideoDuration = 213.9;
+      currentTranscript = ${JSON.stringify(TRANSCRIPT_SEGMENTS)};
+      seekTo = () => { throw new Error("save must not seek"); };
+      sendCloudAction = async () => {
+        throw new Error("Provider must not run from a save handler");
+      };
+      translateTranscript = async () => {
+        throw new Error("translation must not run from a save handler");
+      };
+      fetchTranscript = async () => {
+        throw new Error("transcript must not run from a save handler");
+      };
+      saveToCache = async () => {
+        throw new Error("secondary persistence must not run from a save handler");
+      };
+      updateCache = async () => {
+        throw new Error("secondary persistence must not run from a save handler");
+      };
+    `,
+    context,
+  );
+
+  let submitted = 0;
+  document.addEventListener("submit", (event) => {
+    submitted += 1;
+    event.preventDefault();
+  });
+
+  return {
+    context,
+    document,
+    dom,
+    saveCalls,
+    runtimeMessages,
+    forbiddenCalls,
+    get submitted() {
+      return submitted;
+    },
+  };
+}
+
+async function clickAndFlush(harness, element) {
+  element.dispatchEvent(
+    new harness.dom.window.MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+function assertNoSaveSideEffects(harness) {
+  assert.deepEqual(harness.forbiddenCalls, []);
+  assert.equal(harness.submitted, 0);
+  assert.equal(harness.document.querySelectorAll("form").length, 0);
+  assert.equal(
+    harness.dom.window.location.href,
+    `chrome-extension://popcorn/sidepanel.html?v=${VIDEO_ID}`,
+  );
+}
 
 test("Save Video builds only the frozen canonical YouTube snapshot payload", () => {
   const actual = panel.buildVideoSaveInput({
@@ -216,6 +407,224 @@ test("key quote and AI explanation preserve displayed text and grounded evidence
   });
 });
 
+test("the actual Save Video click handler enqueues the exact displayed snapshot once", async () => {
+  const harness = createSidePanelHandlerHarness();
+  harness.context.setupEventListeners();
+
+  await clickAndFlush(
+    harness,
+    harness.document.getElementById("saveVideoBtn"),
+  );
+
+  assert.deepEqual(jsonValue(harness.saveCalls), [
+    {
+      clientEventId: EVENT_ID,
+      youtubeVideoId: VIDEO_ID,
+      capturedAt: CAPTURED_AT,
+      kind: "video",
+      canonicalUrl: `https://www.youtube.com/watch?v=${VIDEO_ID}`,
+      title: "中文访谈",
+      channel: "中文频道",
+      thumbnailUrl: `https://i.ytimg.com/vi/${VIDEO_ID}/hqdefault.jpg`,
+      durationSeconds: 213.9,
+      description: "一段中文访谈。",
+      currentTimeSeconds: 42.8,
+      requestNativeSnapshot: true,
+    },
+  ]);
+  assert.deepEqual(harness.runtimeMessages, [
+    {
+      action: "relayToContent",
+      payload: { action: "getCurrentTime" },
+    },
+  ]);
+  assertNoSaveSideEffects(harness);
+});
+
+test("the actual subtitle-row Save click enqueues its displayed bilingual row once without seeking", async () => {
+  const harness = createSidePanelHandlerHarness();
+  vm.runInContext(
+    `
+      currentTranscriptMode = "bilingual";
+      const renderedSegments = getActiveTranscriptSegments();
+      transcriptParagraphCache.set(
+        transcriptTranslationCacheKey(renderedSegments[1]),
+        "That is way too absurd."
+      );
+      renderTranscriptModeRows(renderedSegments, "bilingual");
+    `,
+    harness.context,
+  );
+  const row = harness.document.querySelectorAll(".transcript-entry")[1];
+  assert.equal(row.querySelector(".transcript-original").textContent, "这也太离谱了吧。");
+  assert.equal(row.querySelector(".transcript-translation").textContent, "That is way too absurd.");
+
+  await clickAndFlush(harness, row.querySelector(".transcript-save-btn"));
+
+  assert.deepEqual(jsonValue(harness.saveCalls), [
+    {
+      clientEventId: EVENT_ID,
+      youtubeVideoId: VIDEO_ID,
+      capturedAt: CAPTURED_AT,
+      kind: "subtitle_row",
+      segmentId: SEGMENT_A,
+      originalChinese: "这也太离谱了吧。",
+      englishTranslation: "That is way too absurd.",
+      startSeconds: 42,
+      endSeconds: 48,
+      contextBefore: ["你刚才看到了吗？"],
+      contextAfter: ["我完全没想到。"],
+    },
+  ]);
+  assert.deepEqual(harness.runtimeMessages, []);
+  assertNoSaveSideEffects(harness);
+});
+
+test("the actual subtitle-selection Save click enqueues the exact selected UTF-16 evidence once", async () => {
+  const harness = createSidePanelHandlerHarness();
+  vm.runInContext(
+    `
+      currentTranscriptMode = "zh";
+      renderTranscriptModeRows(getActiveTranscriptSegments(), "zh");
+      setupExplainFeature();
+    `,
+    harness.context,
+  );
+  const row = harness.document.querySelectorAll(".transcript-entry")[1];
+  const textNode = row.querySelector(".transcript-original").firstChild;
+  const range = harness.document.createRange();
+  range.setStart(textNode, 2);
+  range.setEnd(textNode, 6);
+  range.getBoundingClientRect = () => ({
+    bottom: 20,
+    left: 10,
+    width: 40,
+  });
+  const selection = harness.dom.window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  harness.document.dispatchEvent(
+    new harness.dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  const saveButton = harness.document.querySelector(".selection-save-btn");
+  assert.equal(selection.toString(), "太离谱了");
+
+  await clickAndFlush(harness, saveButton);
+
+  assert.deepEqual(jsonValue(harness.saveCalls), [
+    {
+      clientEventId: EVENT_ID,
+      youtubeVideoId: VIDEO_ID,
+      capturedAt: CAPTURED_AT,
+      kind: "subtitle_selection",
+      originalChinese: "太离谱了",
+      segmentIds: [SEGMENT_A],
+      startSeconds: 42,
+      endSeconds: 48,
+      startOffset: 2,
+      endOffset: 6,
+      contextBefore: ["你刚才看到了吗？"],
+      contextAfter: ["我完全没想到。"],
+    },
+  ]);
+  assert.deepEqual(harness.runtimeMessages, []);
+  assertNoSaveSideEffects(harness);
+});
+
+test("the actual Key Quote Save click enqueues the exact displayed quote once without following its seek click", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const quote = {
+    quote: "这也太离谱了吧。",
+    englishMeaning: "That is way too absurd.",
+    timestampSeconds: 44,
+    sourceSegmentIds: [SEGMENT_A],
+  };
+  harness.context.renderAnalysisResults({
+    overview: "概览",
+    chapters: [],
+    keyQuotes: [quote],
+  });
+  const saveButton = harness.document.querySelector(".quote-save-note-btn");
+  assert.equal(harness.document.querySelector(".quote-text").textContent, quote.quote);
+
+  await clickAndFlush(harness, saveButton);
+
+  assert.deepEqual(jsonValue(harness.saveCalls), [
+    {
+      clientEventId: EVENT_ID,
+      youtubeVideoId: VIDEO_ID,
+      capturedAt: CAPTURED_AT,
+      kind: "key_quote",
+      exactQuote: "这也太离谱了吧。",
+      quoteSeconds: 44,
+      segmentIds: [SEGMENT_A],
+    },
+  ]);
+  assert.deepEqual(harness.runtimeMessages, []);
+  assertNoSaveSideEffects(harness);
+});
+
+test("the actual AI Explanation Save click enqueues the exact shown explanation once without another Provider call", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const evidence = {
+    selectedChinese: "太离谱了",
+    segmentIds: [SEGMENT_A],
+    startSeconds: 42,
+    endSeconds: 48,
+    complete: true,
+  };
+  vm.runInContext(
+    `sendCloudAction = async () => ({
+      success: true,
+      content: {
+        meaning: "Something is absurd.",
+        tone: "Informal.",
+        communicativeFunction: "Expresses disbelief.",
+        contextualFit: "A reaction to an unexpected claim."
+      }
+    })`,
+    harness.context,
+  );
+  await harness.context.showExplanation(evidence);
+  vm.runInContext(
+    `sendCloudAction = async () => {
+      throw new Error("Provider must not run from a save handler");
+    }`,
+    harness.context,
+  );
+  const saveButton = harness.document.querySelector(".explanation-save-btn");
+  const displayedExplanation = [
+    "Meaning: Something is absurd.",
+    "Tone: Informal.",
+    "Communicative function: Expresses disbelief.",
+    "Contextual fit: A reaction to an unexpected claim.",
+  ].join("\n\n");
+  assert.equal(
+    harness.document.querySelector(".explain-text").textContent,
+    displayedExplanation.replace(/\n/g, ""),
+  );
+
+  await clickAndFlush(harness, saveButton);
+
+  assert.deepEqual(jsonValue(harness.saveCalls), [
+    {
+      clientEventId: EVENT_ID,
+      youtubeVideoId: VIDEO_ID,
+      capturedAt: CAPTURED_AT,
+      kind: "ai_explanation",
+      selectedChinese: "太离谱了",
+      englishExplanation: displayedExplanation,
+      segmentIds: [SEGMENT_A],
+      startSeconds: 42,
+      endSeconds: 48,
+      contextBefore: ["你刚才看到了吗？"],
+      contextAfter: ["我完全没想到。"],
+    },
+  ]);
+  assert.deepEqual(harness.runtimeMessages, []);
+  assertNoSaveSideEffects(harness);
+});
+
 test("builders fail closed on untrusted sources, malformed evidence, and payload bounds", () => {
   const video = {
     videoId: VIDEO_ID,
@@ -252,17 +661,10 @@ test("builders fail closed on untrusted sources, malformed evidence, and payload
 
 test("the save controller accepts only six exact variants before one injected queue call", async () => {
   const calls = [];
-  const forbidden = {
-    fetch() { throw new Error("fetch must not run"); },
-    transcript() { throw new Error("transcript must not run"); },
-    translation() { throw new Error("translation must not run"); },
-    ai() { throw new Error("AI must not run"); },
-    saveNote() { throw new Error("old saveNote must not run"); },
-  };
   const controller = panel.createSaveController(async (input) => {
     calls.push(input);
     return { status: "queued_locally" };
-  }, forbidden);
+  });
   const valid = panel.buildKeyQuoteSaveInput({
     videoId: VIDEO_ID,
     quote: { quote: "这个表达很自然。", timestampSeconds: 10, sourceSegmentIds: [SEGMENT_A] },

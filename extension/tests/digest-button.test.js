@@ -96,19 +96,21 @@ class FakeElement {
   }
 }
 
-function createHarness() {
+function createHarness({ player = null, playerContainer = null } = {}) {
   const actionRows = [];
   const fallbackRows = [];
   const elements = [];
   const documentListeners = {};
   const windowListeners = {};
   const observers = [];
+  const runtimeMessages = [];
   const timers = new Map();
   let nextTimerId = 1;
 
   const document = {
     readyState: "loading",
     body: new FakeElement(),
+    head: new FakeElement(),
     addEventListener(type, listener) {
       documentListeners[type] = listener;
     },
@@ -122,7 +124,14 @@ function createHarness() {
       if (selector.includes("top-level-buttons-computed")) return fallbackRows;
       return [];
     },
-    querySelector() {
+    querySelector(selector) {
+      if (selector === "video.html5-main-video") return player;
+      if (
+        selector ===
+        "#movie_player.html5-video-player, #movie_player, .html5-video-player"
+      ) {
+        return playerContainer;
+      }
       return null;
     },
     getElementById(id) {
@@ -137,9 +146,20 @@ function createHarness() {
 
   const context = vm.createContext({
     console,
+    Date,
+    URLSearchParams,
+    crypto: {
+      randomUUID: () => "00000000-0000-4000-8000-000000000101",
+    },
+    fetch() {
+      throw new Error("fetch must not run from a save handler");
+    },
+    saveNote() {
+      throw new Error("old saveNote must not run");
+    },
     document,
     window: {
-      location: { pathname: "/watch" },
+      location: { pathname: "/watch", search: "?v=dQw4w9WgXcQ" },
       addEventListener(type, listener) {
         windowListeners[type] = listener;
       },
@@ -147,14 +167,16 @@ function createHarness() {
         return {
           display: element.display || "flex",
           visibility: element.visibility || "visible",
+          position: element.style.position || "static",
         };
       },
     },
     chrome: {
       runtime: {
         onMessage: { addListener() {} },
-        async sendMessage() {
-          return { success: true };
+        async sendMessage(message) {
+          runtimeMessages.push(message);
+          throw new Error(`unexpected runtime persistence: ${message?.action}`);
         },
       },
     },
@@ -189,12 +211,43 @@ function createHarness() {
     documentListeners,
     windowListeners,
     observers,
+    runtimeMessages,
     flushTimers() {
       const callbacks = Array.from(timers.values());
       timers.clear();
       callbacks.forEach((callback) => callback());
     },
   };
+}
+
+function saveEvent() {
+  return {
+    preventDefaultCalls: 0,
+    stopPropagationCalls: 0,
+    preventDefault() {
+      this.preventDefaultCalls += 1;
+    },
+    stopPropagation() {
+      this.stopPropagationCalls += 1;
+    },
+  };
+}
+
+function installPlayerSaveBoundary(harness, calls) {
+  harness.context.__saveCalls = calls;
+  vm.runInContext(
+    `
+      createSaveIdentity = () => ({
+        clientEventId: "00000000-0000-4000-8000-000000000101",
+        capturedAt: "2026-08-16T10:00:00.000Z"
+      });
+      enqueueSavedItem = async (input) => {
+        globalThis.__saveCalls.push(JSON.parse(JSON.stringify(input)));
+        return { success: true, synced: false };
+      };
+    `,
+    harness.context,
+  );
 }
 
 test("Task 5 player save leaves the playing video untouched and enqueues once", async () => {
@@ -219,6 +272,94 @@ test("Task 5 player save leaves the playing video untouched and enqueues once", 
   assert.equal(player.paused, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].capturedSecond, 15);
+});
+
+test("the actual player-overlay click handler enqueues one delayed moment without changing playback", async () => {
+  const player = {
+    currentTime: 18.75,
+    paused: false,
+    pauseCalls: 0,
+    playCalls: 0,
+    pause() {
+      this.pauseCalls += 1;
+    },
+    play() {
+      this.playCalls += 1;
+      return Promise.resolve();
+    },
+  };
+  const playerContainer = new FakeElement();
+  const calls = [];
+  const harness = createHarness({ player, playerContainer });
+  installPlayerSaveBoundary(harness, calls);
+  harness.context.injectNoteButton();
+  const button = harness.elements.find((element) => element.id === "ytd-note-button");
+  const event = saveEvent();
+
+  await button.listeners.click(event);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    {
+      clientEventId: "00000000-0000-4000-8000-000000000101",
+      youtubeVideoId: "dQw4w9WgXcQ",
+      capturedAt: "2026-08-16T10:00:00.000Z",
+      kind: "player_moment",
+      capturedSecond: 15,
+    },
+  ]);
+  assert.equal(event.preventDefaultCalls, 1);
+  assert.equal(event.stopPropagationCalls, 1);
+  assert.equal(player.currentTime, 18.75);
+  assert.equal(player.paused, false);
+  assert.equal(player.pauseCalls, 0);
+  assert.equal(player.playCalls, 0);
+  assert.deepEqual(harness.runtimeMessages, []);
+  assert.equal(harness.context.window.location.pathname, "/watch");
+  assert.equal(harness.context.window.location.search, "?v=dQw4w9WgXcQ");
+});
+
+test("the actual player keyboard shortcut enqueues one delayed moment without changing playback", async () => {
+  const player = {
+    currentTime: 18.75,
+    paused: false,
+    pauseCalls: 0,
+    playCalls: 0,
+    pause() {
+      this.pauseCalls += 1;
+    },
+    play() {
+      this.playCalls += 1;
+      return Promise.resolve();
+    },
+  };
+  const playerContainer = new FakeElement();
+  const calls = [];
+  const harness = createHarness({ player, playerContainer });
+  installPlayerSaveBoundary(harness, calls);
+  harness.context.init();
+  const event = { key: "n", ...saveEvent() };
+
+  harness.documentListeners.keydown(event);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    {
+      clientEventId: "00000000-0000-4000-8000-000000000101",
+      youtubeVideoId: "dQw4w9WgXcQ",
+      capturedAt: "2026-08-16T10:00:00.000Z",
+      kind: "player_moment",
+      capturedSecond: 15,
+    },
+  ]);
+  assert.equal(event.preventDefaultCalls, 1);
+  assert.equal(event.stopPropagationCalls, 1);
+  assert.equal(player.currentTime, 18.75);
+  assert.equal(player.paused, false);
+  assert.equal(player.pauseCalls, 0);
+  assert.equal(player.playCalls, 0);
+  assert.deepEqual(harness.runtimeMessages, []);
+  assert.equal(harness.context.window.location.pathname, "/watch");
+  assert.equal(harness.context.window.location.search, "?v=dQw4w9WgXcQ");
 });
 
 function createActionRow({ width, height }) {

@@ -345,7 +345,7 @@ async function enqueueSavedItem(input) {
   return response;
 }
 
-const saveController = createSaveController(enqueueSavedItem);
+const saveController = createSaveController((input) => enqueueSavedItem(input));
 
 // ============================================================
 // STATE

@@ -19,8 +19,73 @@ Only the Task 5 allowlist changed:
 - `extension/tests/save-payloads.test.js`
 - `docs/engineering/handoffs/batch-a/task-5.md`
 
-`node_modules` remains the controller-created untracked dependency symlink and
-is not part of the candidate.
+The controller-created untracked `node_modules` dependency symlink was removed
+before the review-fix commit and is not part of either candidate.
+
+## Independent review repair 1
+
+- Review-fix brief:
+  `docs/engineering/briefs/batch-a/task-5-review-fix-1.md`.
+- Reviewed candidate: `25bea5ae21815e7ade2c4abb3db3a85319cb1af4`.
+- Fix baseline (brief commit): `0c17100693421d3ec58e8f3e7d8fe737b1d4c2e2`.
+- Fix worktree: `/private/tmp/popcorn-batch-a-5-fix`; branch:
+  `codex/popcorn-batch-a-5-fix`.
+
+The independent review found one blocker: the existing tests called pure
+builders/controllers directly, so deleting or contaminating a real UI handler
+could still leave the suite green. The unused second argument to
+`createSaveController` also meant the purported forbidden-call double was not
+installed at any dependency read by production.
+
+The repair drives the actual DOM event listeners used at runtime:
+
+- Save Video through `setupEventListeners` and a real button click;
+- subtitle row Save through the rendered bilingual transcript row;
+- subtitle selection Save through a real DOM `Range`, document `mouseup`, and
+  tooltip click;
+- Key Quote Save through `renderAnalysisResults` and the rendered quote button;
+- AI Explanation Save through the rendered explanation modal button;
+- player moment through both the actual overlay click listener and registered
+  `n` keyboard listener.
+
+Each handler test independently asserts one exact literal payload and one queue
+call. The harness replaces the production-named `enqueueSavedItem` boundary,
+installs throwing dependencies at the globals/functions production reads for
+`fetch`, Provider, transcript, translation, historical `saveNote`, and legacy
+cache persistence, and rejects any unexpected Chrome runtime persistence.
+Playback time/paused state, pause/play calls, transcript seek, URL, form submit,
+and propagation behavior are asserted directly.
+
+Review-repair RED:
+
+```bash
+node --test extension/tests/digest-button.test.js extension/tests/save-payloads.test.js
+```
+
+Against the reviewed candidate, 19 tests ran: 14 passed and the five new Side
+Panel production-handler tests failed with zero observed queue calls. Player
+overlay and keyboard handler tests were already able to observe their live
+boundary and passed. This isolated the root cause to Side Panel controller
+construction capturing the original queue function before the handler harness
+could replace the production dependency.
+
+The minimal production repair is one late-binding adapter at Side Panel
+controller construction: it calls the same `enqueueSavedItem` function at save
+time instead of capturing its load-time function value. No parallel save path,
+handler, queue, button, or test-only production method was added.
+
+Review-repair GREEN and proportionate verification:
+
+- focused real-handler/payload suite: 19/19 passed;
+- transcript/translation/release regression: 33/33 passed;
+- provenance: 2 files, 11/11 passed;
+- `node --check extension/content.js`: exit 0;
+- `node --check extension/sidepanel.js`: exit 0.
+
+The repair changes only `extension/sidepanel.js`, the two allowlisted extension
+test files, and this handoff. It does not edit `background.js`, Task 6 files,
+shared contracts, database files, root configuration, lockfile, notices, or
+the execution ledger.
 
 ## RED evidence
 
@@ -89,7 +154,8 @@ no GPLv3 code, tests, prompt, component, asset, naming, or structure was used.
 
 ## GREEN and verification evidence
 
-- Focused Task 5 command: 12/12 passed.
+- Original focused Task 5 command: 12/12 passed; review-fix focused command:
+  19/19 passed with actual production handlers.
 - Existing extension regression command covering selection, translation, and
   release: 33/33 passed.
 - Provenance gate: 2 files, 11/11 passed.
