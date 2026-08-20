@@ -101,13 +101,40 @@ type CandidateService = ReturnType<typeof createCandidateService>;
 const MAX_BODY_BYTES = 256;
 
 async function boundedEmptyBody(request: Request) {
+  const mediaType = request.headers.get("content-type")
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  if (mediaType !== "application/json") throw new TypeError();
+  if (!request.body) throw new TypeError();
   const declared = request.headers.get("content-length");
   if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > MAX_BODY_BYTES)) {
+    await request.body.cancel().catch(() => undefined);
     throw new TypeError();
   }
-  if (!request.body) throw new TypeError();
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > MAX_BODY_BYTES) throw new TypeError();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      byteLength += chunk.value.byteLength;
+      if (byteLength > MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new TypeError();
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   return EmptyBodySchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
 }
 

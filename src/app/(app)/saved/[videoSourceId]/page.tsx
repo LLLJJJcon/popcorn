@@ -36,7 +36,7 @@ export default async function SavedVideoPage({
       </section>
 
       {video.items.map((item) => {
-        const artifact = video.artifacts.find((entry) =>
+        const artifact = video.artifacts.findLast((entry) =>
           entry.type === "saved_item_analysis" && entry.savedItemId === item.id,
         );
         return (
@@ -47,6 +47,7 @@ export default async function SavedVideoPage({
             artifact={artifact ? {
               artifactId: artifact.artifactId,
               savedItemId: artifact.savedItemId!,
+              promptVersion: artifact.promptVersion,
               content: artifact.content,
             } : null}
           />

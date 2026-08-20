@@ -47,6 +47,7 @@ type ArtifactRow = {
   readonly sourceId: string;
   readonly savedItemId: string | null;
   readonly type: string;
+  readonly promptVersion: string;
   readonly content: Json;
   readonly createdAt: string;
 };
@@ -108,6 +109,7 @@ export type SavedArtifactView = {
   readonly artifactId: string;
   readonly savedItemId: string | null;
   readonly type: string;
+  readonly promptVersion: string;
   readonly content: Json;
 };
 
@@ -298,7 +300,13 @@ export function createSavedLibraryService(repository: SavedLibraryRepository) {
         items,
         artifacts: rows.artifacts
           .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
-          .map(({ id: artifactId, savedItemId, type, content }) => ({ artifactId, savedItemId, type, content })),
+          .map(({ id: artifactId, savedItemId, type, promptVersion, content }) => ({
+            artifactId,
+            savedItemId,
+            type,
+            promptVersion,
+            content,
+          })),
         processingErrors: rows.jobs
           .filter(({ status }) => status === "terminal_failed")
           .map(() => "Popcorn could not organize this save. Your original saved text is still available."),
@@ -369,7 +377,7 @@ function throwQueryError(error: unknown) {
 type VideoSourceDbRow = Pick<Database["public"]["Tables"]["video_sources"]["Row"], "id" | "user_id" | "youtube_video_id" | "canonical_url">;
 type VideoSnapshotDbRow = Pick<Database["public"]["Tables"]["video_snapshots"]["Row"], "id" | "user_id" | "video_source_id" | "title" | "channel" | "thumbnail_url" | "captured_at">;
 type SavedItemDbRow = Pick<Database["public"]["Tables"]["saved_items"]["Row"], "id" | "user_id" | "video_source_id" | "snapshot_id" | "youtube_video_id" | "kind" | "status" | "captured_at" | "start_seconds" | "payload">;
-type ArtifactDbRow = Pick<Database["public"]["Tables"]["generated_artifacts"]["Row"], "id" | "user_id" | "video_source_id" | "saved_item_id" | "artifact_type" | "content" | "created_at">;
+type ArtifactDbRow = Pick<Database["public"]["Tables"]["generated_artifacts"]["Row"], "id" | "user_id" | "video_source_id" | "saved_item_id" | "artifact_type" | "prompt_version" | "content" | "created_at">;
 type JobDbRow = Pick<Database["public"]["Tables"]["knowledge_jobs"]["Row"], "id" | "user_id" | "video_source_id" | "saved_item_id" | "job_type" | "status" | "last_error_code" | "created_at">;
 
 function mapSource(row: VideoSourceDbRow): SourceRow {
@@ -385,7 +393,16 @@ function mapItem(row: SavedItemDbRow): SavedItemRow {
 }
 
 function mapArtifact(row: ArtifactDbRow): ArtifactRow {
-  return { id: row.id, userId: row.user_id, sourceId: row.video_source_id, savedItemId: row.saved_item_id, type: row.artifact_type, content: row.content, createdAt: row.created_at };
+  return {
+    id: row.id,
+    userId: row.user_id,
+    sourceId: row.video_source_id,
+    savedItemId: row.saved_item_id,
+    type: row.artifact_type,
+    promptVersion: row.prompt_version,
+    content: row.content,
+    createdAt: row.created_at,
+  };
 }
 
 function mapJob(row: JobDbRow): JobRow {
@@ -435,7 +452,7 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
     if (!includeDetail) return { sources, snapshots, items, jobs, artifacts: [], evidence: [] };
 
     const artifactResult = await client.from("generated_artifacts")
-      .select("id,user_id,video_source_id,saved_item_id,artifact_type,content,created_at")
+      .select("id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,content,created_at")
       .eq("user_id", userId).in("video_source_id", sourceIds)
       .order("created_at", { ascending: true }).limit(500);
     throwQueryError(artifactResult.error);

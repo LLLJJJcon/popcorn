@@ -69,6 +69,7 @@ export function createSupabaseExpressionRepository(
           .eq("saved_item_id", savedItemId)
           .eq("artifact_type", "saved_item_analysis")
           .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
           .limit(1)
           .maybeSingle(),
       ]);

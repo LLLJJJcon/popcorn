@@ -49,6 +49,7 @@ function rows(): SavedLibraryRows {
       sourceId: SOURCE_A,
       savedItemId: null,
       type: "overview",
+      promptVersion: "overview-v1",
       content: { summary: "A bounded overview", chapters: [{ title: "Start", startSeconds: 0 }] },
       createdAt: "2026-08-16T10:10:00.000Z",
     }],
@@ -114,6 +115,7 @@ describe("owner-scoped Saved video library", () => {
       artifactId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
       savedItemId: null,
       type: "overview",
+      promptVersion: "overview-v1",
       content: { summary: "A bounded overview", chapters: [{ title: "Start", startSeconds: 0 }] },
     }]);
     expect(JSON.stringify(detail)).not.toContain("seg-6\",\"userId");

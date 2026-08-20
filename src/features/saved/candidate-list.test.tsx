@@ -9,9 +9,24 @@ const TASK_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const EXPRESSION_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 const push = vi.fn();
+const pageRuntime = vi.hoisted(() => ({
+  authenticate: vi.fn(),
+  detail: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
+  redirect: vi.fn(),
+  notFound: vi.fn(),
+}));
+
+vi.mock("@/features/saved/api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/features/saved/api")>(),
+  createSavedRuntime: async () => ({
+    appUrl: "https://popcorn.example",
+    authenticate: pageRuntime.authenticate,
+    service: { detail: pageRuntime.detail },
+  }),
 }));
 
 function candidate(overrides: Record<string, unknown> = {}) {
@@ -35,6 +50,7 @@ function artifact(candidates: unknown[]) {
   return {
     artifactId: ARTIFACT_ID,
     savedItemId: SAVED_ITEM_ID,
+    promptVersion: "analyze-saved-item-v1",
     content: { candidates },
   };
 }
@@ -42,6 +58,8 @@ function artifact(candidates: unknown[]) {
 describe("Saved candidate expressions", () => {
   beforeEach(() => {
     push.mockReset();
+    pageRuntime.authenticate.mockReset();
+    pageRuntime.detail.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -99,6 +117,132 @@ describe("Saved candidate expressions", () => {
     );
     expect(within(cards[1]!).getByText("Needs your confirmation")).toBeInTheDocument();
     expect(screen.queryByText(/0\.69|69%|confidence/i)).not.toBeInTheDocument();
+  });
+
+  it("renders the production Saved page with only the latest current-version artifact wired to activation", async () => {
+    pageRuntime.authenticate.mockResolvedValue({ ok: true, userId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" });
+    pageRuntime.detail.mockResolvedValue({
+      sourceId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      youtubeVideoId: "dQw4w9WgXcQ",
+      canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: "中文访谈",
+      channel: "中文频道",
+      thumbnailUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+      savedCount: 1,
+      latestSavedAt: "2026-08-21T00:00:00.000Z",
+      processingState: "ready",
+      processingErrors: [],
+      items: [{
+        id: SAVED_ITEM_ID,
+        kind: "subtitle_row",
+        status: "ready",
+        capturedAt: "2026-08-21T00:00:00.000Z",
+        startSeconds: 62,
+        rawText: "这个想法挺有意思的",
+        englishTranslation: "This idea is pretty interesting.",
+        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=62s",
+      }],
+      artifacts: [
+        {
+          artifactId: "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          savedItemId: SAVED_ITEM_ID,
+          type: "saved_item_analysis",
+          promptVersion: "analyze-saved-item-v1",
+          content: { candidates: [candidate({ expression: "旧表达" })] },
+        },
+        {
+          artifactId: ARTIFACT_ID,
+          savedItemId: SAVED_ITEM_ID,
+          type: "saved_item_analysis",
+          promptVersion: "analyze-saved-item-v1",
+          content: { candidates: [candidate({ expression: "最新表达" })] },
+        },
+      ],
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      data: {
+        id: TASK_ID,
+        userId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        userExpressionId: EXPRESSION_ID,
+        kind: "use_it_now",
+        nativeLanguage: "en",
+        targetLanguage: "zh-CN",
+        targetExpression: "最新表达",
+        promptChinese: "请使用这个表达。",
+        instructionsEnglish: "Reply in Mandarin.",
+        goalEnglish: "Use the expression naturally.",
+        dueAt: null,
+        createdAt: "2026-08-21T00:00:00.000Z",
+      },
+      requestId: "safe-request",
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+
+    const { default: SavedVideoPage } = await import("@/app/(app)/saved/[videoSourceId]/page");
+    render(await SavedVideoPage({ params: Promise.resolve({ videoSourceId: "ffffffff-ffff-4fff-8fff-ffffffffffff" }) }));
+
+    expect(screen.getByTestId("raw-text")).toHaveTextContent("这个想法挺有意思的");
+    expect(screen.queryByText("旧表达")).not.toBeInTheDocument();
+    expect(screen.getByText("最新表达")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Use It Now" }));
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(String(vi.mocked(globalThis.fetch).mock.calls[0]![1]?.body))).toEqual({
+      savedItemId: SAVED_ITEM_ID,
+      candidateArtifactId: ARTIFACT_ID,
+      candidateIndex: 0,
+    });
+  });
+
+  it("keeps the production raw timeline visible and refuses activation when the latest artifact has the wrong prompt version", async () => {
+    pageRuntime.authenticate.mockResolvedValue({ ok: true, userId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" });
+    pageRuntime.detail.mockResolvedValue({
+      sourceId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      youtubeVideoId: "dQw4w9WgXcQ",
+      canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: "中文访谈",
+      channel: "中文频道",
+      thumbnailUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+      savedCount: 1,
+      latestSavedAt: "2026-08-21T00:00:00.000Z",
+      processingState: "ready",
+      processingErrors: [],
+      items: [{
+        id: SAVED_ITEM_ID,
+        kind: "subtitle_row",
+        status: "ready",
+        capturedAt: "2026-08-21T00:00:00.000Z",
+        startSeconds: 62,
+        rawText: "保留的原始字幕",
+        englishTranslation: "Preserved raw subtitle.",
+        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=62s",
+      }],
+      artifacts: [
+        {
+          artifactId: ARTIFACT_ID,
+          savedItemId: SAVED_ITEM_ID,
+          type: "saved_item_analysis",
+          promptVersion: "analyze-saved-item-v1",
+          content: { candidates: [candidate({ expression: "旧但有效" })] },
+        },
+        {
+          artifactId: "99999999-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          savedItemId: SAVED_ITEM_ID,
+          type: "saved_item_analysis",
+          promptVersion: "analyze-saved-item-v2",
+          content: { candidates: [candidate({ expression: "错误版本" })] },
+        },
+      ],
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const { default: SavedVideoPage } = await import("@/app/(app)/saved/[videoSourceId]/page");
+    render(await SavedVideoPage({ params: Promise.resolve({ videoSourceId: "ffffffff-ffff-4fff-8fff-ffffffffffff" }) }));
+
+    expect(screen.getByTestId("raw-text")).toHaveTextContent("保留的原始字幕");
+    expect(screen.queryByRole("button", { name: "Use It Now" })).not.toBeInTheDocument();
+    expect(screen.queryByText("旧但有效")).not.toBeInTheDocument();
+    expect(screen.queryByText("错误版本")).not.toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("keeps ambiguous candidates separate and posts only the three frozen identifiers", async () => {
@@ -165,6 +309,7 @@ describe("Saved candidate expressions", () => {
       artifact={{
         artifactId: ARTIFACT_ID,
         savedItemId: invalid.savedItemId ?? SAVED_ITEM_ID,
+        promptVersion: "analyze-saved-item-v1",
         content: invalid.content,
       }}
     />);

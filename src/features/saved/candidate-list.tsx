@@ -7,6 +7,7 @@ import { z } from "zod";
 import { CandidateExpressionListSchema } from "@/contracts/knowledge";
 import { PracticeTaskSchema } from "@/contracts/practice";
 import { apiSuccessSchema } from "@/contracts/api";
+import { ANALYZE_SAVED_ITEM_PROMPT_VERSION } from "@/server/ai/prompts/analyze-saved-item.v1";
 import { CandidateExpressionCard } from "./candidate-expression";
 
 const ArtifactContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema });
@@ -14,6 +15,7 @@ const ArtifactContentSchema = z.strictObject({ candidates: CandidateExpressionLi
 type CandidateArtifact = {
   readonly artifactId: string;
   readonly savedItemId: string;
+  readonly promptVersion: string;
   readonly content: unknown;
 };
 
@@ -40,6 +42,7 @@ export function CandidateList({
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const [recoveryState, setRecoveryState] = useState<"idle" | "pending" | "gateway" | "error">("idle");
   const parsed = artifact?.savedItemId === savedItemId
+    && artifact.promptVersion === ANALYZE_SAVED_ITEM_PROMPT_VERSION
     ? ArtifactContentSchema.safeParse(artifact.content)
     : null;
   const candidates = parsed?.success ? parsed.data.candidates : null;

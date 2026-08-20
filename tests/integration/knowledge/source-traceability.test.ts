@@ -2,6 +2,32 @@ import { createCandidateHttpHandlers, createCandidateService } from "@/server/do
 import { createSupabaseExpressionRepository } from "@/server/repositories/expression-repository";
 import { createSupabaseSavedItemAnalysisRegistrar } from "@/server/jobs/process-jobs";
 
+const productionRouteHarness = vi.hoisted(() => ({
+  client: null as unknown,
+}));
+
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    getAll: () => [{ name: "sb-project-auth-token", value: "session" }],
+    set: () => undefined,
+  }),
+}));
+
+vi.mock("@supabase/ssr", () => ({
+  createServerClient: () => ({
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: "11111111-1111-4111-8111-111111111111" } },
+        error: null,
+      }),
+    },
+  }),
+}));
+
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: () => productionRouteHarness.client,
+}));
+
 const USER_A = "11111111-1111-4111-8111-111111111111";
 const USER_B = "22222222-2222-4222-8222-222222222222";
 const SOURCE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -178,6 +204,69 @@ describe("source-grounded candidate route", () => {
     expect(nonEmpty.status).toBe(400);
     expect(repo.read).not.toHaveBeenCalled();
   });
+
+  it.each([undefined, "text/plain", "application/json-seq"])(
+    "rejects missing or wrong recovery media type %s before repository work",
+    async (contentType) => {
+      const repo = repository(context({ artifact: null }));
+      const headers = new Headers({ Origin: "https://popcorn.example" });
+      if (contentType) headers.set("Content-Type", contentType);
+      const response = await handlers(repo).post(new Request(
+        `https://popcorn.example/api/v1/saved-items/${SAVE_ID}/candidates`,
+        { method: "POST", headers, body: "{}" },
+      ), SAVE_ID);
+
+      expect(response.status).toBe(400);
+      expect(repo.read).not.toHaveBeenCalled();
+    },
+  );
+
+  it("accepts application/json with charset for bounded empty recovery", async () => {
+    const repo = repository();
+    const response = await handlers(repo).post(new Request(
+      `https://popcorn.example/api/v1/saved-items/${SAVE_ID}/candidates`,
+      {
+        method: "POST",
+        headers: {
+          Origin: "https://popcorn.example",
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: "{}",
+      },
+    ), SAVE_ID);
+
+    expect(response.status).toBe(200);
+    expect(repo.read).toHaveBeenCalledExactlyOnceWith(USER_A, SAVE_ID);
+  });
+
+  it("cancels an undeclared chunked body as soon as it crosses 256 bytes before repository work", async () => {
+    const repo = repository(context({ artifact: null }));
+    let cancelled = false;
+    let pullCount = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pullCount += 1;
+        if (pullCount <= 3) controller.enqueue(new Uint8Array(129).fill(32));
+        else controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const response = await handlers(repo).post(new Request(
+      `https://popcorn.example/api/v1/saved-items/${SAVE_ID}/candidates`,
+      {
+        method: "POST",
+        headers: { Origin: "https://popcorn.example", "Content-Type": "application/json" },
+        body: stream,
+        duplex: "half",
+      } as RequestInit & { duplex: "half" },
+    ), SAVE_ID);
+
+    expect(response.status).toBe(400);
+    expect(cancelled).toBe(true);
+    expect(repo.read).not.toHaveBeenCalled();
+  });
 });
 
 describe("production candidate repository query boundaries", () => {
@@ -221,6 +310,149 @@ describe("production candidate repository query boundaries", () => {
       `generated_artifacts:eq:video_source_id:${SOURCE_ID}`,
       `generated_artifacts:eq:saved_item_id:${SAVE_ID}`,
       `generated_artifacts:eq:artifact_type:saved_item_analysis`,
+      `generated_artifacts:order:created_at:${JSON.stringify({ ascending: false })}`,
+      `generated_artifacts:order:id:${JSON.stringify({ ascending: false })}`,
     ]));
+  });
+});
+
+function productionClient(artifact: Record<string, unknown> | null) {
+  const calls: string[] = [];
+  const rows: Record<string, unknown> = {
+    saved_items: {
+      id: SAVE_ID,
+      user_id: USER_A,
+      video_source_id: SOURCE_ID,
+      snapshot_id: SNAPSHOT_ID,
+      youtube_video_id: "dQw4w9WgXcQ",
+    },
+    video_sources: {
+      id: SOURCE_ID,
+      user_id: USER_A,
+      youtube_video_id: "dQw4w9WgXcQ",
+      canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    },
+    video_snapshots: {
+      id: SNAPSHOT_ID,
+      user_id: USER_A,
+      video_source_id: SOURCE_ID,
+      transcript_hash: TRANSCRIPT_HASH,
+    },
+    generated_artifacts: artifact,
+  };
+  const rpc = vi.fn(async (name: string) => {
+    calls.push(`rpc:${name}`);
+    if (name === "resolve_active_user_model_gateway_pin") {
+      return {
+        data: [{
+          config_id: CONFIG_ID,
+          revision: 4,
+          config_fingerprint: FINGERPRINT,
+          model: "other/model",
+        }],
+        error: null,
+      };
+    }
+    return {
+      data: [{ knowledge_job_id: JOB_ID, status: "pending", created: true }],
+      error: null,
+    };
+  });
+  const client = {
+    from(table: string) {
+      const query = {
+        select(columns: string) { calls.push(`${table}:select:${columns}`); return query; },
+        eq(column: string, value: string) { calls.push(`${table}:eq:${column}:${value}`); return query; },
+        order(column: string, options: unknown) { calls.push(`${table}:order:${column}:${JSON.stringify(options)}`); return query; },
+        limit(value: number) { calls.push(`${table}:limit:${value}`); return query; },
+        maybeSingle() { calls.push(`${table}:maybeSingle`); return Promise.resolve({ data: rows[table], error: null }); },
+      };
+      return query;
+    },
+    rpc,
+  };
+  return { client, calls, rpc };
+}
+
+describe("production candidate route exports and assembly", () => {
+  const originalEnvironment = { ...process.env };
+
+  beforeEach(() => {
+    Object.assign(process.env, {
+      NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      APP_URL: "https://popcorn.example",
+    });
+  });
+
+  afterAll(() => {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, originalEnvironment);
+  });
+
+  it("exports only GET and POST and production GET is read-only", async () => {
+    const fake = productionClient({
+      id: ARTIFACT_ID,
+      user_id: USER_A,
+      video_source_id: SOURCE_ID,
+      saved_item_id: SAVE_ID,
+      artifact_type: "saved_item_analysis",
+      prompt_version: "analyze-saved-item-v1",
+      content: { candidates: [candidate] },
+      created_at: NOW,
+    });
+    productionRouteHarness.client = fake.client;
+    const route = await import("@/app/api/v1/saved-items/[savedItemId]/candidates/route");
+
+    expect(Object.keys(route).sort()).toEqual(["GET", "POST"]);
+    const response = await route.GET(request("GET"), { params: Promise.resolve({ savedItemId: SAVE_ID }) });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({ state: "ready", artifactId: ARTIFACT_ID });
+    expect(fake.rpc).not.toHaveBeenCalled();
+    expect(fake.calls.some((entry) => /insert|update|delete|upsert/i.test(entry))).toBe(false);
+  });
+
+  it("production POST uses the real registrar with exact active pin RPCs and zero provider fetch", async () => {
+    const fake = productionClient(null);
+    productionRouteHarness.client = fake.client;
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const route = await import("@/app/api/v1/saved-items/[savedItemId]/candidates/route");
+    const response = await route.POST(request("POST", {}), {
+      params: Promise.resolve({ savedItemId: SAVE_ID }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(fake.rpc).toHaveBeenNthCalledWith(1, "resolve_active_user_model_gateway_pin", {
+      p_user_id: USER_A,
+    });
+    expect(fake.rpc).toHaveBeenNthCalledWith(2, "register_gateway_learning_artifact_job", {
+      p_user_id: USER_A,
+      p_video_source_id: SOURCE_ID,
+      p_job_type: "analyze_saved_item",
+      p_dedupe_key: expect.stringMatching(/^[a-f0-9]{64}$/),
+      p_input: {
+        kind: "analyze_saved_item",
+        savedItemId: SAVE_ID,
+        snapshotId: SNAPSHOT_ID,
+        transcriptHash: TRANSCRIPT_HASH,
+        promptVersion: "analyze-saved-item-v1",
+        gatewayConfigId: CONFIG_ID,
+        gatewayRevision: 4,
+        gatewayFingerprint: FINGERPRINT,
+      },
+      p_config_id: CONFIG_ID,
+      p_expected_config_revision: 4,
+      p_expected_config_fingerprint: FINGERPRINT,
+      p_now: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect((await response.json()).data).toEqual({
+      state: "processing",
+      jobId: JOB_ID,
+      status: "pending",
+      created: true,
+    });
   });
 });
