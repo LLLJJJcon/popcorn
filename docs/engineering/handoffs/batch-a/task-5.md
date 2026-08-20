@@ -87,6 +87,67 @@ test files, and this handoff. It does not edit `background.js`, Task 6 files,
 shared contracts, database files, root configuration, lockfile, notices, or
 the execution ledger.
 
+## Independent review repair 2
+
+- Review-fix brief:
+  `docs/engineering/briefs/batch-a/task-5-review-fix-2.md`.
+- Original Task 5 baseline: `8c8b2f3`; candidate: `25bea5a`; first repair:
+  `397fcca25cd678115fa442cd65bace36696bd058`.
+- Second repair starts from controller brief commit `fe25f66` in worktree
+  `/private/tmp/popcorn-batch-a-5-fix-2`, branch
+  `codex/popcorn-batch-a-5-fix-2`.
+
+The second independent review found two remaining blockers. First, production
+handlers catch save failures, while several forbidden-dependency doubles only
+threw. A handler could enqueue correctly, call a forbidden dependency, swallow
+that error, and still satisfy the queue assertion. Second, the actual bilingual
+subtitle-selection handler never supplied the English translations already
+shown alongside the selected Chinese evidence.
+
+The real-handler harnesses now record the dependency name and arguments before
+every optional throw. Each actual Save Video, subtitle-row, subtitle-selection,
+Key Quote, AI Explanation, player-overlay, and keyboard test independently
+asserts zero calls for every forbidden double available to that runtime:
+`fetch`, Provider/cloud action, transcript, translation, historical `saveNote`,
+secondary cache persistence, unexpected runtime persistence, and seek. Existing
+literal payload assertions still prove exactly one queue call, and the existing
+playback, navigation, form, and event-propagation assertions remain active.
+
+Forbidden-call mutation RED was demonstrated with a temporary
+production-equivalent Provider call after the real subtitle-row enqueue. The
+handler caught the thrown Provider error, but the new assertion still failed
+with `provider 1 !== 0`. The mutation was then removed and is absent from the
+repair diff.
+
+The bilingual DOM RED exercised the actual selection tooltip handler. Of three
+new single/cross-line cases, the missing-translation fail-closed case already
+passed, while the complete single-line and cross-line cases failed because
+`englishTranslation` was absent. The minimal production change adds the
+optional English field only when the mode is bilingual and every selected
+stable segment has a complete translation in the rendered transcript. Rows are
+matched in displayed stable order and their displayed English is joined with a
+single newline. If any row is absent, reordered, pending, failed, or empty, the
+optional field is omitted. Exact Chinese text, stable IDs, timestamps, and
+UTF-16 offsets are unchanged; English is never inferred, fetched, or selected
+as Chinese evidence.
+
+Second-repair GREEN and risk-calibrated verification:
+
+- focused real-handler/payload suite: 21/21 passed;
+- transcript/translation/release regression: 33/33 passed;
+- provenance: 2 files and 11/11 tests passed;
+- `node --check` for `extension/content.js` and `extension/sidepanel.js`: exit
+  0;
+- no database reset, pgTAP, or production build was run because this repair is
+  limited to extension selection projection and mutation-sensitive tests.
+
+The second repair changes only `extension/sidepanel.js`,
+`extension/tests/digest-button.test.js`,
+`extension/tests/save-payloads.test.js`, and this handoff. It preserves the
+pinned YouTube Digest MIT adaptation in place, copies no LLM Wiki GPLv3
+material, and does not touch Task 6/background, contracts, database, root
+configuration, lockfile, notices, plans/specs, or the execution ledger.
+
 ## RED evidence
 
 Command:

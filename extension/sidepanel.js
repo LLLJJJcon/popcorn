@@ -1231,6 +1231,30 @@ function shownEnglishForSegment(segment) {
   return transcriptParagraphCache.get(transcriptTranslationCacheKey(segment));
 }
 
+function shownEnglishForSelection(segmentIds) {
+  if (currentTranscriptMode !== "bilingual" || !Array.isArray(segmentIds)) {
+    return undefined;
+  }
+  const transcriptList = document.getElementById("transcriptList");
+  if (!transcriptList) return undefined;
+  const selectedIds = new Set(segmentIds);
+  const rows = [...transcriptList.querySelectorAll(".transcript-entry")].filter(
+    (row) => selectedIds.has(row.dataset.segmentId),
+  );
+  if (
+    rows.length !== segmentIds.length ||
+    rows.some((row, index) => row.dataset.segmentId !== segmentIds[index])
+  ) {
+    return undefined;
+  }
+
+  const translations = rows.map((row) => {
+    if (!row.classList.contains("translated")) return "";
+    return row.querySelector(".transcript-translation")?.textContent?.trim() || "";
+  });
+  return translations.every(Boolean) ? translations.join("\n") : undefined;
+}
+
 async function saveTranscriptRow(segment, button) {
   const input = buildSubtitleRowSaveInput({
     videoId: currentVideoId,
@@ -1665,6 +1689,9 @@ function setupExplainFeature() {
         const input = buildSubtitleSelectionSaveInput({
           videoId: currentVideoId,
           evidence: selectedEvidence,
+          englishTranslation: shownEnglishForSelection(
+            selectedEvidence.segmentIds,
+          ),
           ...saveContextForSegmentIds(selectedEvidence.segmentIds),
         });
         await saveWithButton(input, button, "Save");

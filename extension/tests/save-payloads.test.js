@@ -114,6 +114,9 @@ function createSidePanelHandlerHarness() {
   const saveCalls = [];
   const runtimeMessages = [];
   const forbiddenCalls = [];
+  const recordForbiddenCall = (name, args = []) => {
+    forbiddenCalls.push({ name, args: jsonValue(args) });
+  };
   const passive = { addListener() {} };
   const sandbox = {
     console: {
@@ -129,12 +132,12 @@ function createSidePanelHandlerHarness() {
     document,
     window: dom.window,
     navigator: dom.window.navigator,
-    fetch() {
-      forbiddenCalls.push("fetch");
+    fetch(...args) {
+      recordForbiddenCall("fetch", args);
       throw new Error("fetch must not run from a save handler");
     },
-    saveNote() {
-      forbiddenCalls.push("saveNote");
+    saveNote(...args) {
+      recordForbiddenCall("saveNote", args);
       throw new Error("old saveNote must not run");
     },
     chrome: {
@@ -148,6 +151,7 @@ function createSidePanelHandlerHarness() {
           ) {
             return { success: true, response: { currentTime: 42.8 } };
           }
+          recordForbiddenCall("runtimePersistence", [message]);
           throw new Error(`unexpected runtime persistence: ${message?.action}`);
         },
       },
@@ -172,6 +176,7 @@ function createSidePanelHandlerHarness() {
     setInterval: () => 1,
     clearInterval() {},
     __saveCalls: saveCalls,
+    __recordForbiddenCall: recordForbiddenCall,
   };
   sandbox.globalThis = sandbox;
   const context = vm.createContext(sandbox);
@@ -190,20 +195,28 @@ function createSidePanelHandlerHarness() {
       currentVideoDescription = "一段中文访谈。";
       currentVideoDuration = 213.9;
       currentTranscript = ${JSON.stringify(TRANSCRIPT_SEGMENTS)};
-      seekTo = () => { throw new Error("save must not seek"); };
-      sendCloudAction = async () => {
+      seekTo = (...args) => {
+        globalThis.__recordForbiddenCall("seek", args);
+        throw new Error("save must not seek");
+      };
+      sendCloudAction = async (...args) => {
+        globalThis.__recordForbiddenCall("provider", args);
         throw new Error("Provider must not run from a save handler");
       };
-      translateTranscript = async () => {
+      translateTranscript = async (...args) => {
+        globalThis.__recordForbiddenCall("translation", args);
         throw new Error("translation must not run from a save handler");
       };
-      fetchTranscript = async () => {
+      fetchTranscript = async (...args) => {
+        globalThis.__recordForbiddenCall("transcript", args);
         throw new Error("transcript must not run from a save handler");
       };
-      saveToCache = async () => {
+      saveToCache = async (...args) => {
+        globalThis.__recordForbiddenCall("saveToCache", args);
         throw new Error("secondary persistence must not run from a save handler");
       };
-      updateCache = async () => {
+      updateCache = async (...args) => {
+        globalThis.__recordForbiddenCall("updateCache", args);
         throw new Error("secondary persistence must not run from a save handler");
       };
     `,
@@ -240,7 +253,23 @@ async function clickAndFlush(harness, element) {
 }
 
 function assertNoSaveSideEffects(harness) {
-  assert.deepEqual(harness.forbiddenCalls, []);
+  for (const name of [
+    "fetch",
+    "provider",
+    "translation",
+    "transcript",
+    "saveNote",
+    "saveToCache",
+    "updateCache",
+    "runtimePersistence",
+    "seek",
+  ]) {
+    assert.equal(
+      harness.forbiddenCalls.filter((call) => call.name === name).length,
+      0,
+      `${name} must not run from a save handler`,
+    );
+  }
   assert.equal(harness.submitted, 0);
   assert.equal(harness.document.querySelectorAll("form").length, 0);
   assert.equal(
@@ -480,12 +509,17 @@ test("the actual subtitle-row Save click enqueues its displayed bilingual row on
   assertNoSaveSideEffects(harness);
 });
 
-test("the actual subtitle-selection Save click enqueues the exact selected UTF-16 evidence once", async () => {
+test("the actual bilingual single-line selection Save includes displayed English without changing exact Chinese offsets", async () => {
   const harness = createSidePanelHandlerHarness();
   vm.runInContext(
     `
-      currentTranscriptMode = "zh";
-      renderTranscriptModeRows(getActiveTranscriptSegments(), "zh");
+      currentTranscriptMode = "bilingual";
+      const renderedSegments = getActiveTranscriptSegments();
+      transcriptParagraphCache.set(
+        transcriptTranslationCacheKey(renderedSegments[1]),
+        "That is way too absurd."
+      );
+      renderTranscriptModeRows(renderedSegments, "bilingual");
       setupExplainFeature();
     `,
     harness.context,
@@ -518,6 +552,7 @@ test("the actual subtitle-selection Save click enqueues the exact selected UTF-1
       capturedAt: CAPTURED_AT,
       kind: "subtitle_selection",
       originalChinese: "太离谱了",
+      englishTranslation: "That is way too absurd.",
       segmentIds: [SEGMENT_A],
       startSeconds: 42,
       endSeconds: 48,
@@ -528,6 +563,102 @@ test("the actual subtitle-selection Save click enqueues the exact selected UTF-1
     },
   ]);
   assert.deepEqual(harness.runtimeMessages, []);
+  assertNoSaveSideEffects(harness);
+});
+
+test("the actual bilingual cross-line selection Save joins complete displayed English in stable segment order", async () => {
+  const harness = createSidePanelHandlerHarness();
+  vm.runInContext(
+    `
+      currentTranscriptMode = "bilingual";
+      const renderedSegments = getActiveTranscriptSegments();
+      transcriptParagraphCache.set(
+        transcriptTranslationCacheKey(renderedSegments[1]),
+        "That is way too absurd."
+      );
+      transcriptParagraphCache.set(
+        transcriptTranslationCacheKey(renderedSegments[2]),
+        "I never expected that."
+      );
+      renderTranscriptModeRows(renderedSegments, "bilingual");
+      setupExplainFeature();
+    `,
+    harness.context,
+  );
+  const rows = harness.document.querySelectorAll(".transcript-entry");
+  const range = harness.document.createRange();
+  range.setStart(rows[1].querySelector(".transcript-original").firstChild, 2);
+  range.setEnd(rows[2].querySelector(".transcript-original").firstChild, 4);
+  range.getBoundingClientRect = () => ({ bottom: 20, left: 10, width: 40 });
+  const selection = harness.dom.window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  harness.document.dispatchEvent(
+    new harness.dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+
+  await clickAndFlush(
+    harness,
+    harness.document.querySelector(".selection-save-btn"),
+  );
+
+  assert.deepEqual(jsonValue(harness.saveCalls), [
+    {
+      clientEventId: EVENT_ID,
+      youtubeVideoId: VIDEO_ID,
+      capturedAt: CAPTURED_AT,
+      kind: "subtitle_selection",
+      originalChinese: "太离谱了吧。\n我完全没",
+      englishTranslation: "That is way too absurd.\nI never expected that.",
+      segmentIds: [SEGMENT_A, SEGMENT_B],
+      startSeconds: 42,
+      endSeconds: 54,
+      startOffset: 2,
+      endOffset: 13,
+      contextBefore: ["你刚才看到了吗？"],
+      contextAfter: [],
+    },
+  ]);
+  assert.deepEqual(harness.runtimeMessages, []);
+  assertNoSaveSideEffects(harness);
+});
+
+test("the actual bilingual cross-line selection Save omits English when any displayed segment translation is missing", async () => {
+  const harness = createSidePanelHandlerHarness();
+  vm.runInContext(
+    `
+      currentTranscriptMode = "bilingual";
+      const renderedSegments = getActiveTranscriptSegments();
+      transcriptParagraphCache.set(
+        transcriptTranslationCacheKey(renderedSegments[1]),
+        "That is way too absurd."
+      );
+      renderTranscriptModeRows(renderedSegments, "bilingual");
+      setupExplainFeature();
+    `,
+    harness.context,
+  );
+  const rows = harness.document.querySelectorAll(".transcript-entry");
+  const range = harness.document.createRange();
+  range.setStart(rows[1].querySelector(".transcript-original").firstChild, 2);
+  range.setEnd(rows[2].querySelector(".transcript-original").firstChild, 4);
+  range.getBoundingClientRect = () => ({ bottom: 20, left: 10, width: 40 });
+  const selection = harness.dom.window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  harness.document.dispatchEvent(
+    new harness.dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+
+  await clickAndFlush(
+    harness,
+    harness.document.querySelector(".selection-save-btn"),
+  );
+
+  assert.equal(harness.saveCalls.length, 1);
+  assert.equal(harness.saveCalls[0].originalChinese, "太离谱了吧。\n我完全没");
+  assert.equal(harness.saveCalls[0].englishTranslation, undefined);
+  assert.deepEqual(jsonValue(harness.saveCalls[0].segmentIds), [SEGMENT_A, SEGMENT_B]);
   assertNoSaveSideEffects(harness);
 });
 

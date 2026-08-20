@@ -104,6 +104,7 @@ function createHarness({ player = null, playerContainer = null } = {}) {
   const windowListeners = {};
   const observers = [];
   const runtimeMessages = [];
+  const forbiddenCalls = [];
   const timers = new Map();
   let nextTimerId = 1;
 
@@ -152,9 +153,11 @@ function createHarness({ player = null, playerContainer = null } = {}) {
       randomUUID: () => "00000000-0000-4000-8000-000000000101",
     },
     fetch() {
+      forbiddenCalls.push({ name: "fetch", args: [] });
       throw new Error("fetch must not run from a save handler");
     },
     saveNote() {
+      forbiddenCalls.push({ name: "saveNote", args: [] });
       throw new Error("old saveNote must not run");
     },
     document,
@@ -176,6 +179,10 @@ function createHarness({ player = null, playerContainer = null } = {}) {
         onMessage: { addListener() {} },
         async sendMessage(message) {
           runtimeMessages.push(message);
+          forbiddenCalls.push({
+            name: "runtimePersistence",
+            args: [JSON.parse(JSON.stringify(message))],
+          });
           throw new Error(`unexpected runtime persistence: ${message?.action}`);
         },
       },
@@ -212,12 +219,23 @@ function createHarness({ player = null, playerContainer = null } = {}) {
     windowListeners,
     observers,
     runtimeMessages,
+    forbiddenCalls,
     flushTimers() {
       const callbacks = Array.from(timers.values());
       timers.clear();
       callbacks.forEach((callback) => callback());
     },
   };
+}
+
+function assertNoPlayerForbiddenCalls(harness) {
+  for (const name of ["fetch", "saveNote", "runtimePersistence"]) {
+    assert.equal(
+      harness.forbiddenCalls.filter((call) => call.name === name).length,
+      0,
+      `${name} must not run from the player save handler`,
+    );
+  }
 }
 
 function saveEvent() {
@@ -314,6 +332,7 @@ test("the actual player-overlay click handler enqueues one delayed moment withou
   assert.equal(player.pauseCalls, 0);
   assert.equal(player.playCalls, 0);
   assert.deepEqual(harness.runtimeMessages, []);
+  assertNoPlayerForbiddenCalls(harness);
   assert.equal(harness.context.window.location.pathname, "/watch");
   assert.equal(harness.context.window.location.search, "?v=dQw4w9WgXcQ");
 });
@@ -358,6 +377,7 @@ test("the actual player keyboard shortcut enqueues one delayed moment without ch
   assert.equal(player.pauseCalls, 0);
   assert.equal(player.playCalls, 0);
   assert.deepEqual(harness.runtimeMessages, []);
+  assertNoPlayerForbiddenCalls(harness);
   assert.equal(harness.context.window.location.pathname, "/watch");
   assert.equal(harness.context.window.location.search, "?v=dQw4w9WgXcQ");
 });
