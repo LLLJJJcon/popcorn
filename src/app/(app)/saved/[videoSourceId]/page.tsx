@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { createSavedRuntime } from "@/features/saved/api";
+import { CandidateList } from "@/features/saved/candidate-list";
 import { ProcessingState } from "@/features/saved/processing-state";
 import { SavedTimeline } from "@/features/saved/saved-timeline";
 
@@ -34,7 +35,25 @@ export default async function SavedVideoPage({
         <SavedTimeline items={video.items} />
       </section>
 
-      {video.artifacts.map((artifact, index) => (
+      {video.items.map((item) => {
+        const artifact = video.artifacts.find((entry) =>
+          entry.type === "saved_item_analysis" && entry.savedItemId === item.id,
+        );
+        return (
+          <CandidateList
+            key={`candidates-${item.id}`}
+            savedItemId={item.id}
+            youtubeUrl={video.canonicalUrl}
+            artifact={artifact ? {
+              artifactId: artifact.artifactId,
+              savedItemId: artifact.savedItemId!,
+              content: artifact.content,
+            } : null}
+          />
+        );
+      })}
+
+      {video.artifacts.filter(({ type }) => type !== "saved_item_analysis").map((artifact, index) => (
         <section key={`${artifact.type}-${index}`} aria-label={artifactTitle(artifact.type)}>
           <h2>{artifactTitle(artifact.type)}</h2>
           <pre>{JSON.stringify(artifact.content, null, 2)}</pre>

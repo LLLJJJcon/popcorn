@@ -110,7 +110,12 @@ describe("owner-scoped Saved video library", () => {
     expect(detail?.items).toHaveLength(7);
     expect(detail?.items.map((entry) => entry.startSeconds)).toEqual([0, 4, 8, 12, 16, 20, 24]);
     expect(detail?.items[0]).toMatchObject({ rawText: "原文0", englishTranslation: "Translation 0" });
-    expect(detail?.artifacts).toEqual([{ type: "overview", content: { summary: "A bounded overview", chapters: [{ title: "Start", startSeconds: 0 }] } }]);
+    expect(detail?.artifacts).toEqual([{
+      artifactId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      savedItemId: null,
+      type: "overview",
+      content: { summary: "A bounded overview", chapters: [{ title: "Start", startSeconds: 0 }] },
+    }]);
     expect(JSON.stringify(detail)).not.toContain("seg-6\",\"userId");
   });
 
@@ -120,6 +125,16 @@ describe("owner-scoped Saved video library", () => {
 
     await expect(service.detail(USER_B, SOURCE_A)).resolves.toBeNull();
     expect(repo.calls).toEqual([`detail:${USER_B}:${SOURCE_A}`]);
+  });
+
+  it("fails closed when an artifact identity points outside the returned save set", async () => {
+    const base = rows();
+    const leaked = { ...base, artifacts: [{
+      ...base.artifacts[0]!,
+      savedItemId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    }] };
+
+    await expect(createSavedLibraryService(repository(leaked)).detail(USER_A, SOURCE_A)).resolves.toBeNull();
   });
 
   it("maps web sessions to no-store envelopes and never calls detail for an expired session", async () => {

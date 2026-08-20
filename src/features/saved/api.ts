@@ -105,6 +105,8 @@ export type SavedVideoSummary = {
 };
 
 export type SavedArtifactView = {
+  readonly artifactId: string;
+  readonly savedItemId: string | null;
   readonly type: string;
   readonly content: Json;
 };
@@ -259,7 +261,12 @@ function rowsBelongTo(userId: string, rows: SavedLibraryRows, expectedSourceId?:
     row.userId !== userId || !sourceIds.has(row.sourceId)
     || (row.snapshotId !== null && snapshots.get(row.snapshotId)?.sourceId !== row.sourceId)
   )) return false;
-  if (rows.artifacts.some((row) => row.userId !== userId || !sourceIds.has(row.sourceId))) return false;
+  const items = new Map(rows.items.map((item) => [item.id, item]));
+  if (rows.artifacts.some((row) =>
+    row.userId !== userId
+    || !sourceIds.has(row.sourceId)
+    || (row.savedItemId !== null && items.get(row.savedItemId)?.sourceId !== row.sourceId)
+  )) return false;
   if (rows.jobs.some((row) => row.userId !== userId || !sourceIds.has(row.sourceId))) return false;
   if (rows.evidence.some((row) => row.userId !== userId || !snapshots.has(row.snapshotId))) return false;
   return true;
@@ -291,7 +298,7 @@ export function createSavedLibraryService(repository: SavedLibraryRepository) {
         items,
         artifacts: rows.artifacts
           .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
-          .map(({ type, content }) => ({ type, content })),
+          .map(({ id: artifactId, savedItemId, type, content }) => ({ artifactId, savedItemId, type, content })),
         processingErrors: rows.jobs
           .filter(({ status }) => status === "terminal_failed")
           .map(() => "Popcorn could not organize this save. Your original saved text is still available."),

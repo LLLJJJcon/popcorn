@@ -1,0 +1,193 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+import { CandidateList } from "@/features/saved/candidate-list";
+
+const SAVED_ITEM_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const ARTIFACT_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const TASK_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const EXPRESSION_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+const push = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push }),
+}));
+
+function candidate(overrides: Record<string, unknown> = {}) {
+  return {
+    expression: "挺有意思的",
+    englishMeaning: "pretty interesting",
+    englishExplanation: "A casual way to show measured interest.",
+    tone: "warm and understated",
+    communicativeFunction: "expressing interest",
+    register: "conversational",
+    evidenceText: "这个想法挺有意思的",
+    segmentIds: ["seg-1"],
+    startSeconds: 62,
+    endSeconds: 65,
+    confidence: 0.94,
+    ...overrides,
+  };
+}
+
+function artifact(candidates: unknown[]) {
+  return {
+    artifactId: ARTIFACT_ID,
+    savedItemId: SAVED_ITEM_ID,
+    content: { candidates },
+  };
+}
+
+describe("Saved candidate expressions", () => {
+  beforeEach(() => {
+    push.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  it("renders three exact source-grounded candidates without numeric confidence", () => {
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      artifact={artifact([
+        candidate(),
+        candidate({
+          expression: "话虽如此",
+          englishMeaning: "that said",
+          englishExplanation: "Introduces a qualification.",
+          tone: "balanced",
+          communicativeFunction: "qualifying a point",
+          register: "neutral",
+          evidenceText: "话虽如此，我们还是可以试试",
+          segmentIds: ["seg-2"],
+          startSeconds: 125,
+          endSeconds: 129,
+          confidence: 0.69,
+        }),
+        candidate({
+          expression: "说白了",
+          englishMeaning: "to put it plainly",
+          englishExplanation: "Signals a direct summary.",
+          tone: "direct",
+          communicativeFunction: "summarizing plainly",
+          register: "informal",
+          evidenceText: "说白了，这就是时间问题",
+          segmentIds: ["seg-3"],
+          startSeconds: 3661,
+          endSeconds: 3664,
+          confidence: 0.82,
+        }),
+      ])}
+    />);
+
+    const cards = screen.getAllByRole("article");
+    expect(cards).toHaveLength(3);
+    expect(within(cards[0]!).getByText("挺有意思的")).toBeInTheDocument();
+    expect(within(cards[0]!).getByText("pretty interesting")).toBeInTheDocument();
+    expect(within(cards[0]!).getByText("A casual way to show measured interest.")).toBeInTheDocument();
+    expect(within(cards[0]!).getByText("warm and understated")).toBeInTheDocument();
+    expect(within(cards[0]!).getByText("expressing interest")).toBeInTheDocument();
+    expect(within(cards[0]!).getByText("conversational")).toBeInTheDocument();
+    expect(within(cards[0]!).getByText("这个想法挺有意思的")).toBeInTheDocument();
+    expect(within(cards[0]!).getByRole("link", { name: "Watch at 1:02" })).toHaveAttribute(
+      "href",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=62s",
+    );
+    expect(within(cards[2]!).getByRole("link", { name: "Watch at 1:01:01" })).toHaveAttribute(
+      "href",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=3661s",
+    );
+    expect(within(cards[1]!).getByText("Needs your confirmation")).toBeInTheDocument();
+    expect(screen.queryByText(/0\.69|69%|confidence/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps ambiguous candidates separate and posts only the three frozen identifiers", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      data: {
+        id: TASK_ID,
+        userId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        userExpressionId: EXPRESSION_ID,
+        kind: "use_it_now",
+        nativeLanguage: "en",
+        targetLanguage: "zh-CN",
+        targetExpression: "可以说",
+        promptChinese: "请在这个情境中用这个表达。",
+        instructionsEnglish: "Reply in Mandarin.",
+        goalEnglish: "Use the expression naturally.",
+        dueAt: null,
+        createdAt: "2026-08-21T00:00:00.000Z",
+      },
+      requestId: "safe-request",
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    const ambiguous = [
+      candidate({ expression: "可以说", englishMeaning: "one could say", evidenceText: "可以说这是第一次", confidence: 0.6 }),
+      candidate({ expression: "可以说", englishMeaning: "it is permissible to say", evidenceText: "这里不可以说英文", segmentIds: ["seg-2"], startSeconds: 75, endSeconds: 77, confidence: 0.6 }),
+    ];
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      artifact={artifact(ambiguous)}
+    />);
+
+    expect(screen.getAllByText("可以说")).toHaveLength(2);
+    const actions = screen.getAllByRole("button", { name: "Use It Now" });
+    expect(actions).toHaveLength(2);
+    await userEvent.click(actions[1]!);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/practice/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        savedItemId: SAVED_ITEM_ID,
+        candidateArtifactId: ARTIFACT_ID,
+        candidateIndex: 1,
+      }),
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({
+      savedItemId: SAVED_ITEM_ID,
+      candidateArtifactId: ARTIFACT_ID,
+      candidateIndex: 1,
+    });
+    expect(push).toHaveBeenCalledExactlyOnceWith(`/practice/${TASK_ID}`);
+  });
+
+  it.each([
+    { label: "malformed", content: { candidates: [{ expression: "不完整" }] } },
+    { label: "more than three", content: { candidates: [candidate(), candidate(), candidate(), candidate()] } },
+    { label: "wrong saved item", savedItemId: "ffffffff-ffff-4fff-8fff-ffffffffffff", content: { candidates: [candidate()] } },
+  ])("fails closed for $label artifact data", async (invalid) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      artifact={{
+        artifactId: ARTIFACT_ID,
+        savedItemId: invalid.savedItemId ?? SAVED_ITEM_ID,
+        content: invalid.content,
+      }}
+    />);
+
+    expect(screen.queryByRole("button", { name: "Use It Now" })).not.toBeInTheDocument();
+    expect(screen.getByText("Candidate analysis is unavailable.")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the raw-save experience progressive while recovery needs gateway configuration", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      data: { state: "gateway_required" },
+      requestId: "safe-request",
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      artifact={null}
+    />);
+
+    expect(screen.getByText("Expressions are still being organized. Your saved material remains available.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Retry organizing" }));
+    expect(await screen.findByText("Configure a model gateway to organize this save.")).toBeInTheDocument();
+  });
+});
