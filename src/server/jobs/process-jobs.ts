@@ -5,6 +5,7 @@ import {
   type KnowledgeJob,
   type KnowledgeJobType,
 } from "@/contracts/knowledge";
+import { SavedItemKindSchema } from "@/contracts/source";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { failure, success } from "@/server/api/respond";
@@ -14,12 +15,16 @@ import type {
 } from "@/server/transcript/provider";
 import type {
   LearningArtifactEvidence,
-  LearningArtifactJobType,
   ModelGatewayPin,
 } from "@/server/ai/provider";
+import {
+  createSavedItemAnalysisJobKey,
+  SavedItemAnalysisJobInputSchema,
+  type SavedItemAnalysisEvidence,
+} from "@/server/jobs/job-types";
 import type { Database, Json } from "@/types/database.generated";
 
-export const MAX_PROCESS_BATCH_SIZE = 10;
+export const MAX_PROCESS_BATCH_SIZE = 5;
 
 export interface DurableJobStore {
   /**
@@ -57,6 +62,12 @@ export interface DurableJobStore {
     snapshotId: string,
     segmentIds: readonly string[],
   ): Promise<LearningArtifactEvidence | null>;
+  readSavedItemAnalysisEvidence?(
+    expectedUserId: string,
+    savedItemId: string,
+    sourceId: string,
+    snapshotId: string,
+  ): Promise<SavedItemAnalysisEvidence | null>;
   transitionLearningArtifactFailure(
     expectedUserId: string,
     expectedLease: Extract<KnowledgeJob, { status: "leased" }>,
@@ -66,7 +77,7 @@ export interface DurableJobStore {
   completeGatewayLearningArtifact(
     expectedUserId: string,
     expectedLease: Extract<KnowledgeJob, { status: "leased" }>,
-    artifactType: "overview" | "segment_translation" | "selection_explanation",
+    artifactType: "overview" | "segment_translation" | "selection_explanation" | "saved_item_analysis",
     content: Json,
     promptVersion: string,
     model: string,
@@ -213,7 +224,13 @@ export function createInternalProcessRoute(dependencies: InternalProcessDependen
       return Response.json({ ok: false }, { status: 401 });
     }
     const result = await dependencies.processBounded(dependencies.maxBatchSize);
-    return Response.json({ ok: true, ...result }, { status: 200 });
+    return Response.json({
+      ok: true,
+      claimed: result.claimed,
+      completed: result.completed,
+      ...(result.deferred === undefined ? {} : { deferred: result.deferred }),
+      ...(result.failed === undefined ? {} : { failed: result.failed }),
+    }, { status: 200 });
   };
 }
 
@@ -292,6 +309,98 @@ function optionalString(value: Json | undefined, fallback: string): string {
 
 function optionalNumber(value: Json | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function savedItemSegmentIds(payload: Json): readonly string[] | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return [];
+  const one = typeof payload.segmentId === "string" ? [payload.segmentId] : [];
+  const many = Array.isArray(payload.segmentIds)
+    ? payload.segmentIds.filter((value): value is string => typeof value === "string")
+    : [];
+  const ids = [...new Set([...one, ...many])];
+  return ids.length <= 32 ? ids : null;
+}
+
+function savedItemRawText(payload: Json, fallback: string): string {
+  const direct = ["originalChinese", "exactQuote", "selectedChinese", "title"]
+    .map((key) => objectValue(payload, key))
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  return direct ?? fallback;
+}
+
+export type SavedItemAnalysisRegistration = {
+  readonly userId: string;
+  readonly sourceId: string;
+  readonly savedItemId: string;
+  readonly snapshotId: string;
+  readonly transcriptHash: string;
+  readonly promptVersion: string;
+  readonly now: string;
+};
+
+const ActiveGatewayPinRowSchema = z.strictObject({
+  config_id: z.string().uuid(),
+  revision: z.number().int().positive(),
+  config_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  model: z.string().trim().min(1).max(100),
+});
+
+const SavedItemAnalysisRegistrationResultSchema = z.strictObject({
+  knowledge_job_id: z.string().uuid(),
+  status: z.string().trim().min(1).max(100),
+  created: z.boolean(),
+});
+
+export function createSupabaseSavedItemAnalysisRegistrar(client: SupabaseClient<Database>) {
+  return {
+    async register(registration: SavedItemAnalysisRegistration) {
+      const userId = z.string().uuid().parse(registration.userId);
+      const activePin = await client.rpc("resolve_active_user_model_gateway_pin", {
+        p_user_id: userId,
+      });
+      if (activePin.error) throw activePin.error;
+      if (activePin.data.length !== 1) return null;
+      const pin = ActiveGatewayPinRowSchema.parse(activePin.data[0]);
+      const input = SavedItemAnalysisJobInputSchema.parse({
+        kind: "analyze_saved_item",
+        savedItemId: registration.savedItemId,
+        snapshotId: registration.snapshotId,
+        transcriptHash: registration.transcriptHash,
+        promptVersion: registration.promptVersion,
+        gatewayConfigId: pin.config_id,
+        gatewayRevision: pin.revision,
+        gatewayFingerprint: pin.config_fingerprint,
+      });
+      const dedupeKey = createSavedItemAnalysisJobKey({
+        sourceHash: input.transcriptHash,
+        savedItemId: input.savedItemId,
+        snapshotId: input.snapshotId,
+        promptVersion: input.promptVersion,
+        gatewayFingerprint: input.gatewayFingerprint,
+      });
+      const result = await client.rpc("register_gateway_learning_artifact_job", {
+        p_user_id: userId,
+        p_video_source_id: z.string().uuid().parse(registration.sourceId),
+        p_job_type: "analyze_saved_item",
+        p_dedupe_key: dedupeKey,
+        p_input: input,
+        p_config_id: input.gatewayConfigId,
+        p_expected_config_revision: input.gatewayRevision,
+        p_expected_config_fingerprint: input.gatewayFingerprint,
+        p_now: z.string().datetime({ offset: true }).parse(registration.now),
+      });
+      if (result.error) throw result.error;
+      if (result.data.length !== 1) {
+        throw new Error("saved-item analysis registration returned an invalid result");
+      }
+      const parsed = SavedItemAnalysisRegistrationResultSchema.parse(result.data[0]);
+      return {
+        jobId: parsed.knowledge_job_id,
+        status: parsed.status,
+        created: parsed.created,
+      };
+    },
+  };
 }
 
 /** Production adapter. The claim RPC is the sole global queue operation. */
@@ -492,11 +601,90 @@ export function createSupabaseDurableJobStore(
       };
     },
 
+    async readSavedItemAnalysisEvidence(expectedUserId, savedItemId, sourceId, snapshotId) {
+      const item = await client.from("saved_items")
+        .select("id,user_id,video_source_id,snapshot_id,kind,status,start_seconds,payload")
+        .eq("user_id", expectedUserId)
+        .eq("video_source_id", sourceId)
+        .eq("id", savedItemId)
+        .maybeSingle();
+      if (item.error) throw item.error;
+      const kind = SavedItemKindSchema.safeParse(item.data?.kind);
+      if (
+        !item.data ||
+        item.data.user_id !== expectedUserId ||
+        item.data.video_source_id !== sourceId ||
+        item.data.snapshot_id !== snapshotId ||
+        item.data.status !== "ready" ||
+        !kind.success
+      ) return null;
+
+      const snapshot = await client.from("video_snapshots")
+        .select("id,user_id,video_source_id,transcript_hash")
+        .eq("user_id", expectedUserId)
+        .eq("video_source_id", sourceId)
+        .eq("id", snapshotId)
+        .maybeSingle();
+      if (snapshot.error) throw snapshot.error;
+      if (
+        !snapshot.data ||
+        snapshot.data.user_id !== expectedUserId ||
+        snapshot.data.video_source_id !== sourceId
+      ) return null;
+
+      const exactIds = savedItemSegmentIds(item.data.payload);
+      if (exactIds === null) return null;
+      let segmentQuery = client.from("transcript_segments")
+        .select("stable_id,user_id,snapshot_id,original_chinese,start_seconds,end_seconds,position")
+        .eq("user_id", expectedUserId)
+        .eq("snapshot_id", snapshotId);
+      if (exactIds.length > 0) {
+        segmentQuery = segmentQuery.in("stable_id", [...exactIds]);
+      } else if (item.data.start_seconds !== null) {
+        segmentQuery = segmentQuery
+          .gte("end_seconds", Math.max(0, item.data.start_seconds - 30))
+          .lte("start_seconds", item.data.start_seconds + 30);
+      }
+      const segments = await segmentQuery
+        .order("position", { ascending: true })
+        .limit(exactIds.length > 0 ? 32 : 12);
+      if (segments.error) throw segments.error;
+      if (segments.data.some((segment) =>
+        segment.user_id !== expectedUserId || segment.snapshot_id !== snapshotId
+      )) throw new Error("saved-item transcript owner mismatch");
+      if (exactIds.length > 0) {
+        const found = new Set(segments.data.map((segment) => segment.stable_id));
+        if (exactIds.some((id) => !found.has(id))) return null;
+      }
+      if (segments.data.length === 0) return null;
+      const mappedSegments = segments.data.map((segment) => ({
+        stableId: segment.stable_id,
+        originalChinese: segment.original_chinese,
+        startSeconds: segment.start_seconds,
+        endSeconds: segment.end_seconds,
+      }));
+      return {
+        userId: expectedUserId,
+        sourceId,
+        savedItemId,
+        snapshotId,
+        transcriptHash: snapshot.data.transcript_hash,
+        kind: kind.data,
+        rawText: savedItemRawText(
+          item.data.payload,
+          mappedSegments.map((segment) => segment.originalChinese).join("\n"),
+        ),
+        startSeconds: item.data.start_seconds,
+        segments: mappedSegments,
+      };
+    },
+
     async transitionLearningArtifactFailure(expectedUserId, expectedLease, state, clearInput) {
       if (
         expectedLease.userId !== expectedUserId || state.userId !== expectedUserId ||
         state.id !== expectedLease.id || state.attemptCount !== expectedLease.attemptCount ||
-        !(["generate_overview", "translate_segments", "explain_selection"] as readonly LearningArtifactJobType[]).includes(expectedLease.type as LearningArtifactJobType)
+        !(["generate_overview", "translate_segments", "explain_selection", "analyze_saved_item"] as const)
+          .includes(expectedLease.type as "generate_overview" | "translate_segments" | "explain_selection" | "analyze_saved_item")
       ) throw new Error("learning-artifact job owner or lease mismatch");
       const result = await client.rpc("transition_learning_artifact_failure", {
         p_user_id: expectedUserId,
