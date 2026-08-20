@@ -18,7 +18,10 @@ boundary. Split service-role inserts could expose partial Vault/mastery state af
 
 - Create: `supabase/migrations/202608160012_promote_practice_attempt.sql`
 - Create: `supabase/tests/promote_practice_attempt.sql`
+- Create: `tests/contract/practice-promotion-concurrency.sh`
 - Modify: `src/types/database.generated.ts`
+- Modify: `.github/workflows/ci.yml`
+- Modify: `tests/provenance/no-llm-wiki-code.test.ts`
 - Create: `docs/engineering/handoffs/batch-b/controller-practice-promotion-contract.md`
 
 All other paths are forbidden, including application/domain code, existing migrations/tests,
@@ -91,6 +94,7 @@ RED first proves the RPC/receipt are absent. GREEN must prove at least:
 ```bash
 pnpm db:reset
 ./node_modules/.bin/supabase test db supabase/tests/promote_practice_attempt.sql
+tests/contract/practice-promotion-concurrency.sh
 pnpm db:test
 ./node_modules/.bin/supabase gen types typescript --local
 ./node_modules/.bin/tsc --noEmit --pretty false

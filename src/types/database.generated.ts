@@ -1336,6 +1336,25 @@ export type Database = {
         Args: { p_config_id: string; p_user_id: string }
         Returns: boolean
       }
+      promote_valid_practice_draft_attempt: {
+        Args: {
+          p_due_at: string
+          p_interval_days: number
+          p_normalized_expression_text: string
+          p_practice_draft_attempt_id: string
+          p_user_id: string
+        }
+        Returns: {
+          attempt_id: string
+          created: boolean
+          expression_sense_id: string
+          mastery_event_id: string
+          occurrence_id: string
+          practice_task_id: string
+          review_task_id: string
+          user_expression_id: string
+        }[]
+      }
       register_gateway_learning_artifact_job: {
         Args: {
           p_config_id: string

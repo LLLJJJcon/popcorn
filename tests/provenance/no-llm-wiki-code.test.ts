@@ -222,6 +222,7 @@ describe("fixture-only CI freeze gate", () => {
       "pnpm db:reset",
       "pnpm db:test",
       "tests/contract/model-gateway-concurrency.sh",
+      "tests/contract/practice-promotion-concurrency.sh",
       "bash -n scripts/vendor-youtube-digest.sh",
       "git diff --check",
     ]) {

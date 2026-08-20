@@ -54,6 +54,9 @@ jobs:
       - name: Verify model gateway artifact publication concurrency
         run: tests/contract/model-gateway-artifact-concurrency.sh
 
+      - name: Verify atomic practice promotion concurrency
+        run: tests/contract/practice-promotion-concurrency.sh
+
       - name: Check the pinned vendor script syntax
         run: bash -n scripts/vendor-youtube-digest.sh
 
