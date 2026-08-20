@@ -626,9 +626,22 @@ test("auth messages use Chrome sender identity and return only bounded account s
   };
   const handler = auth.createAuthMessageHandler({ chrome: harness.chrome, authClient: client });
   const optionsSender = { id: harness.chrome.runtime.id, url: harness.chrome.runtime.getURL("options.html") };
+  const optionsTabSender = { ...optionsSender, tab: { id: 73, url: optionsSender.url } };
   assert.deepEqual(await handler({ command: "popcorn-auth:session" }, optionsSender), { ok: true, account: { email: "a@example.com" } });
-  await assert.rejects(handler({ command: "popcorn-auth:session" }, { ...optionsSender, tab: { id: 1 } }), /forbidden/i);
-  await assert.rejects(handler({ command: "popcorn-auth:session" }, { ...optionsSender, id: "abcdefghijklmnopabcdefghijklmnop" }), /forbidden/i);
+  assert.deepEqual(await handler({ command: "popcorn-auth:session" }, optionsTabSender), { ok: true, account: { email: "a@example.com" } });
+  for (const sender of [
+    { ...optionsSender, id: "abcdefghijklmnopabcdefghijklmnop" },
+    { ...optionsSender, url: `${optionsSender.url}?debug=1` },
+    { ...optionsSender, url: `${optionsSender.url}#debug` },
+    { ...optionsSender, url: harness.chrome.runtime.getURL("sidepanel.html") },
+    { ...optionsSender, tab: { id: 1 } },
+    { ...optionsSender, tab: { id: 1.5, url: optionsSender.url } },
+    { ...optionsSender, tab: { id: 1, url: `${optionsSender.url}?debug=1` } },
+    { ...optionsSender, tab: { id: 1, url: `${optionsSender.url}#debug` } },
+    { ...optionsSender, tab: { id: 1, url: harness.chrome.runtime.getURL("sidepanel.html") } },
+  ]) {
+    await assert.rejects(handler({ command: "popcorn-auth:session" }, sender), /forbidden/i);
+  }
   assert.deepEqual(await handler({ command: "popcorn-auth:clear-cache" }, optionsSender), { ok: true, clearedCount: 2 });
   await assert.rejects(handler({ command: "popcorn-auth:get-access-token" }, optionsSender), /unsupported/i);
 });

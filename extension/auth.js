@@ -211,7 +211,9 @@ const POPCORN_AUTH = (() => {
   function createAuthMessageHandler({ chrome, authClient }) {
     const optionsUrl = chrome.runtime.getURL("options.html");
     function assertTrustedOptionsSender(sender) {
-      if (!sender || sender.id !== chrome.runtime.id || sender.tab || sender.url !== optionsUrl) {
+      const trustedTab = sender?.tab === undefined ||
+        (Number.isInteger(sender.tab?.id) && sender.tab.url === optionsUrl);
+      if (!sender || sender.id !== chrome.runtime.id || sender.url !== optionsUrl || !trustedTab) {
         throw new Error("Forbidden auth sender.");
       }
     }

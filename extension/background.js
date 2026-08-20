@@ -24,14 +24,21 @@ async function getPopcornAccessToken() {
   return popcornAuthClient.getAccessToken();
 }
 
+function isTrustedExtensionPageSender(sender, page) {
+  const pageUrl = chrome.runtime.getURL(page);
+  return !!sender &&
+    sender.id === chrome.runtime.id &&
+    sender.url === pageUrl &&
+    (sender.tab === undefined ||
+      (Number.isInteger(sender.tab?.id) && sender.tab.url === pageUrl));
+}
+
 function isPopcornAuthSender(sender) {
-  return !!sender && sender.id === chrome.runtime.id && !sender.tab &&
-    sender.url === chrome.runtime.getURL("options.html");
+  return isTrustedExtensionPageSender(sender, "options.html");
 }
 
 function isTrustedSidePanelSender(sender) {
-  return !!sender && sender.id === chrome.runtime.id && !sender.tab &&
-    sender.url === chrome.runtime.getURL("sidepanel.html");
+  return isTrustedExtensionPageSender(sender, "sidepanel.html");
 }
 
 function isYoutubeWatchUrl(value) {

@@ -277,6 +277,8 @@ function loadBackgroundMessageRouter() {
     setOptions: [],
     open: [],
     broadcast: [],
+    openOptions: [],
+    authMessages: [],
   };
   let onMessage;
   const passiveListener = { addListener() {} };
@@ -317,7 +319,9 @@ function loadBackgroundMessageRouter() {
           calls.broadcast.push(message);
           return Promise.resolve();
         },
-        openOptionsPage() {},
+        openOptionsPage() {
+          calls.openOptions.push(true);
+        },
       },
       tabs: {
         onUpdated: passiveListener,
@@ -331,7 +335,10 @@ function loadBackgroundMessageRouter() {
     YTD_SETTINGS: { DEFAULTS: { boundedCachePrefix: "popcorn:test" } },
     POPCORN_AUTH: {
       createAuthClient: () => ({ initialize: async () => {}, getAccessToken: async () => "token" }),
-      createAuthMessageHandler: () => async () => ({ ok: true }),
+      createAuthMessageHandler: () => async (message) => {
+        calls.authMessages.push(message.command);
+        return { ok: true };
+      },
     },
   };
   sandbox.globalThis = sandbox;
@@ -375,5 +382,76 @@ test("only the exact YouTube watch content sender can open the side panel and st
     assert.deepEqual(rejected.calls.open, []);
     assert.deepEqual(rejected.calls.broadcast, []);
     assert.deepEqual(plain(responses), [{ success: false, error: "forbidden" }]);
+  }
+});
+
+test("exact Options and Side Panel pages stay trusted when Chrome supplies a tab sender", async () => {
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  const optionsUrl = "chrome-extension://extension-id/options.html";
+  const sidePanelUrl = "chrome-extension://extension-id/sidepanel.html";
+
+  const options = loadBackgroundMessageRouter();
+  const optionsResponses = [];
+  assert.equal(options.onMessage(
+    { command: "popcorn-auth:session" },
+    { id: "extension-id", url: optionsUrl, tab: { id: 81, url: optionsUrl } },
+    (response) => optionsResponses.push(response),
+  ), true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(plain(options.calls.authMessages), ["popcorn-auth:session"]);
+  assert.deepEqual(plain(optionsResponses), [{ ok: true }]);
+
+  const sidePanel = loadBackgroundMessageRouter();
+  const sidePanelResponses = [];
+  assert.equal(sidePanel.onMessage(
+    { action: "openOptions" },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: 82, url: sidePanelUrl } },
+    (response) => sidePanelResponses.push(response),
+  ), false);
+  assert.deepEqual(plain(sidePanel.calls.openOptions), [true]);
+  assert.deepEqual(plain(sidePanelResponses), [{ success: true }]);
+
+  const rejectedOptionsSenders = [
+    { id: "other-extension", url: optionsUrl, tab: { id: 83, url: optionsUrl } },
+    { id: "extension-id", url: `${optionsUrl}?debug=1`, tab: { id: 83, url: `${optionsUrl}?debug=1` } },
+    { id: "extension-id", url: `${optionsUrl}#debug`, tab: { id: 83, url: `${optionsUrl}#debug` } },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: 83, url: sidePanelUrl } },
+    { id: "extension-id", url: optionsUrl, tab: { id: 83.5, url: optionsUrl } },
+    { id: "extension-id", url: optionsUrl, tab: { id: 83, url: `${optionsUrl}?debug=1` } },
+    { id: "extension-id", url: optionsUrl, tab: { id: 83, url: `${optionsUrl}#debug` } },
+    { id: "extension-id", url: optionsUrl, tab: { id: 83, url: sidePanelUrl } },
+  ];
+  for (const sender of rejectedOptionsSenders) {
+    const rejected = loadBackgroundMessageRouter();
+    const responses = [];
+    assert.equal(rejected.onMessage(
+      { command: "popcorn-auth:session" },
+      sender,
+      (response) => responses.push(response),
+    ), false);
+    assert.deepEqual(rejected.calls.authMessages, []);
+    assert.deepEqual(plain(responses), [{ ok: false, error: "forbidden" }]);
+  }
+
+  const rejectedSidePanelSenders = [
+    { id: "other-extension", url: sidePanelUrl, tab: { id: 84, url: sidePanelUrl } },
+    { id: "extension-id", url: `${sidePanelUrl}?debug=1`, tab: { id: 84, url: `${sidePanelUrl}?debug=1` } },
+    { id: "extension-id", url: `${sidePanelUrl}#debug`, tab: { id: 84, url: `${sidePanelUrl}#debug` } },
+    { id: "extension-id", url: optionsUrl, tab: { id: 84, url: optionsUrl } },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: 84.5, url: sidePanelUrl } },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: 84, url: `${sidePanelUrl}?debug=1` } },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: 84, url: `${sidePanelUrl}#debug` } },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: 84, url: optionsUrl } },
+  ];
+  for (const sender of rejectedSidePanelSenders) {
+    const rejected = loadBackgroundMessageRouter();
+    const responses = [];
+    assert.equal(rejected.onMessage(
+      { action: "openOptions" },
+      sender,
+      (response) => responses.push(response),
+    ), false);
+    assert.deepEqual(rejected.calls.openOptions, []);
+    assert.deepEqual(responses, []);
   }
 });
