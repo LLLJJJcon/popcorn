@@ -12,6 +12,8 @@ const ATTEMPT = "33333333-3333-4333-8333-333333333333";
 const EXPRESSION = "44444444-4444-4444-8444-444444444444";
 const NOW = "2026-08-21T02:03:04.000Z";
 const DUE = "2026-08-22T02:03:04.000Z";
+const POSTGREST_NOW = "2026-08-20T22:35:31.562+00:00";
+const POSTGREST_DUE = "2026-08-21T22:35:31.562Z";
 
 const draft: PracticeDraftRecord = {
   id: DRAFT,
@@ -89,6 +91,35 @@ describe("valid original promotion service", () => {
       dueAt: DUE,
       intervalDays: 1,
     });
+  });
+
+  test("canonicalizes a persisted PostgREST UTC offset before deterministic scheduling", async () => {
+    const repository: PracticePromotionRepository = { promote: vi.fn(async () => promoted) };
+    const service = createRecordValidAttemptService({ repository });
+
+    await expect(service.promote(
+      USER,
+      draft,
+      attempt({ submittedAt: POSTGREST_NOW }),
+    )).resolves.toEqual(promoted);
+    expect(repository.promote).toHaveBeenCalledExactlyOnceWith({
+      userId: USER,
+      practiceDraftAttemptId: ATTEMPT,
+      normalizedExpressionText: "太离谱了",
+      dueAt: POSTGREST_DUE,
+      intervalDays: 1,
+    });
+  });
+
+  test.each([
+    ["an invalid persisted timestamp", "not-a-timestamp"],
+    ["a timezone-less persisted timestamp", "2026-08-20T22:35:31.562"],
+  ])("refuses %s before promotion", async (_label, submittedAt) => {
+    const repository: PracticePromotionRepository = { promote: vi.fn(async () => promoted) };
+    const service = createRecordValidAttemptService({ repository });
+
+    await expect(service.promote(USER, draft, attempt({ submittedAt }))).rejects.toThrow();
+    expect(repository.promote).not.toHaveBeenCalled();
   });
 
   test.each([

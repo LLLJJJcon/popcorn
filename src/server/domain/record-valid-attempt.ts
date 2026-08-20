@@ -32,6 +32,19 @@ function normalizeTarget(value: string): string {
   return TargetChineseTextSchema.max(200).parse(value.normalize("NFKC").trim());
 }
 
+function canonicalizePersistedInstant(value: string): string {
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    throw new RangeError("persisted instant must include an explicit UTC offset");
+  }
+
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) {
+    throw new RangeError("persisted instant must be valid");
+  }
+
+  return new Date(milliseconds).toISOString();
+}
+
 export function createRecordValidAttemptService({
   repository,
 }: {
@@ -52,7 +65,10 @@ export function createRecordValidAttemptService({
         advanceMastery(null, { kind: "valid_original_attempt" }) !== "tried"
       ) throw new TypeError("attempt is not eligible for promotion");
 
-      const schedule = scheduleReview({ kind: "first_tried", now: attempt.submittedAt });
+      const schedule = scheduleReview({
+        kind: "first_tried",
+        now: canonicalizePersistedInstant(attempt.submittedAt),
+      });
       if (schedule.intervalDays !== 1) throw new TypeError("invalid initial review schedule");
       return repository.promote({
         userId,
