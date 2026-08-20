@@ -80,3 +80,62 @@ use focused tests and do not need to repeat those broad database gates.
   manual check after local product acceptance.
 - Nullable provenance is retained for legacy and deterministic fixture-created rows;
   model-backed Task 4 writes must always provide the complete group.
+
+## Independent review repair 1
+
+- Repair baseline: `8b74df6`; reviewed contract candidate: `31a923c`.
+- Repair brief:
+  `docs/engineering/briefs/batch-b/controller-ai-contract-fix-1.md`.
+- Worktree: `/private/tmp/popcorn-batch-b-ai-contract-fix-1`; branch:
+  `codex/popcorn-batch-b-ai-contract-fix-1`.
+
+The review identified two PostgreSQL provenance gaps. A populated practice or
+attempt group missing only its fingerprint evaluated its `CHECK` expression to
+`NULL`, which PostgreSQL accepts, while the default `MATCH SIMPLE` foreign key
+skipped validation. Separately, the immutable provenance key and foreign keys
+did not include `model`, so a row could name an invented model beside a real
+owner/config/revision/fingerprint tuple.
+
+Focused tests now prove that both `practice_tasks` and `attempts` reject a group
+missing only fingerprint and reject a model that differs from the exact gateway
+configuration revision. Two related queue regressions also prove that initial
+analysis registration rejects a same-owner saved item attached to another
+YouTube source, and that revoking the pinned gateway terminalizes pending
+`analyze_saved_item` work while atomically clearing its private input.
+
+Review-repair RED:
+
+```text
+supabase test db supabase/tests/batch_b_ai_contract.sql
+Files=1, Tests=26, Failed=4, Result: FAIL
+```
+
+Only the four new provenance assertions failed: practice and attempt each
+accepted a missing fingerprint and an invented model (`caught: no exception`).
+The same-owner/different-source and revocation cleanup regressions passed against
+the existing queue implementation, confirming those paths were preserved rather
+than reimplemented.
+
+The minimal unpublished migration-010 repair makes all five fields explicitly
+non-null in each populated branch while retaining the unchanged all-null legacy
+branch. It extends the existing immutable configuration unique key and both
+practice/attempt foreign keys with `model`; there is no trigger, RPC, column, or
+generated-type change.
+
+Review-repair GREEN:
+
+```text
+supabase test db supabase/tests/batch_b_ai_contract.sql
+Files=1, Tests=26, Result: PASS
+```
+
+The local database already contained the earlier unpublished migration 010, so
+the five modified constraints were transactionally replaced in place before the
+focused GREEN run. No reset, full pgTAP, typecheck, or build was run, as required
+by the risk-calibrated repair brief. The controller should exercise one clean
+migration replay at the later shared-contract integration gate.
+
+This repair changes only migration 010, its focused pgTAP file, and this handoff.
+It stores no API key, Vault ID, origin, URL, header, prompt/request body, or other
+transport secret. It uses no upstream code and copies no LLM Wiki GPLv3 material.
+Independent re-review remains required; this repair does not self-approve.

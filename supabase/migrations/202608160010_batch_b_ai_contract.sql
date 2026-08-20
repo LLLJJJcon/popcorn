@@ -1,6 +1,6 @@
 alter table public.user_model_gateway_configs
   add constraint user_model_gateway_config_provenance_key
-  unique (id, user_id, revision, config_fingerprint);
+  unique (id, user_id, revision, config_fingerprint, model);
 
 alter table public.practice_tasks
   add column activation_prompt_version text,
@@ -15,19 +15,23 @@ alter table public.practice_tasks
       and activation_gateway_revision is null
       and activation_gateway_fingerprint is null)
     or
-    (length(activation_prompt_version) between 1 and 100
+    (activation_prompt_version is not null
+      and activation_model is not null
+      and activation_gateway_config_id is not null
+      and activation_gateway_revision is not null
+      and activation_gateway_fingerprint is not null
+      and length(activation_prompt_version) between 1 and 100
       and activation_prompt_version = btrim(activation_prompt_version)
       and length(activation_model) between 1 and 100
       and activation_model = btrim(activation_model)
-      and activation_gateway_config_id is not null
       and activation_gateway_revision > 0
       and activation_gateway_fingerprint ~ '^[a-f0-9]{64}$')
   ),
   add constraint practice_task_activation_gateway_fk foreign key (
     activation_gateway_config_id, user_id, activation_gateway_revision,
-    activation_gateway_fingerprint
+    activation_gateway_fingerprint, activation_model
   ) references public.user_model_gateway_configs (
-    id, user_id, revision, config_fingerprint
+    id, user_id, revision, config_fingerprint, model
   ) on delete restrict;
 
 alter table public.attempts
@@ -43,19 +47,23 @@ alter table public.attempts
       and evaluation_gateway_revision is null
       and evaluation_gateway_fingerprint is null)
     or
-    (length(evaluation_prompt_version) between 1 and 100
+    (evaluation_prompt_version is not null
+      and evaluation_model is not null
+      and evaluation_gateway_config_id is not null
+      and evaluation_gateway_revision is not null
+      and evaluation_gateway_fingerprint is not null
+      and length(evaluation_prompt_version) between 1 and 100
       and evaluation_prompt_version = btrim(evaluation_prompt_version)
       and length(evaluation_model) between 1 and 100
       and evaluation_model = btrim(evaluation_model)
-      and evaluation_gateway_config_id is not null
       and evaluation_gateway_revision > 0
       and evaluation_gateway_fingerprint ~ '^[a-f0-9]{64}$')
   ),
   add constraint attempt_evaluation_gateway_fk foreign key (
     evaluation_gateway_config_id, user_id, evaluation_gateway_revision,
-    evaluation_gateway_fingerprint
+    evaluation_gateway_fingerprint, evaluation_model
   ) references public.user_model_gateway_configs (
-    id, user_id, revision, config_fingerprint
+    id, user_id, revision, config_fingerprint, model
   ) on delete restrict;
 
 create or replace function public.register_learning_artifact_job(

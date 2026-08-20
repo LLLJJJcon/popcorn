@@ -7,9 +7,11 @@ select extensions.no_plan();
 \set user_b '0a000000-0000-4000-8000-00000000b002'
 \set source_a '0a100000-0000-4000-8000-000000000001'
 \set source_b '0a100000-0000-4000-8000-000000000002'
+\set source_a_other '0a100000-0000-4000-8000-000000000003'
 \set save_a '0a200000-0000-4000-8000-000000000001'
 \set save_a2 '0a200000-0000-4000-8000-000000000003'
 \set save_b '0a200000-0000-4000-8000-000000000002'
+\set save_a_other '0a200000-0000-4000-8000-000000000004'
 \set origin_id '0a300000-0000-4000-8000-000000000001'
 \set config_a '0a400000-0000-4000-8000-000000000001'
 \set config_b '0a400000-0000-4000-8000-000000000002'
@@ -68,7 +70,8 @@ insert into auth.users (
 insert into public.profiles (user_id) values (:'user_a'), (:'user_b');
 insert into public.video_sources (id,user_id,youtube_video_id,canonical_url) values
   (:'source_a', :'user_a', 'dQw4w9WgXcQ', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'),
-  (:'source_b', :'user_b', 'M7lc1UVf-VE', 'https://www.youtube.com/watch?v=M7lc1UVf-VE');
+  (:'source_b', :'user_b', 'M7lc1UVf-VE', 'https://www.youtube.com/watch?v=M7lc1UVf-VE'),
+  (:'source_a_other', :'user_a', '9bZkp7q19f0', 'https://www.youtube.com/watch?v=9bZkp7q19f0');
 insert into public.saved_items (
   id,user_id,video_source_id,client_event_id,youtube_video_id,kind,status,
   captured_at,start_seconds,payload
@@ -81,7 +84,10 @@ insert into public.saved_items (
    '{"segmentId":"seg-a-2","originalChinese":"我完全没想到。","startSeconds":20,"endSeconds":22,"contextBefore":[],"contextAfter":[]}'::jsonb),
   (:'save_b', :'user_b', :'source_b', '0ae00000-0000-4000-8000-000000000002',
    'M7lc1UVf-VE','subtitle_row','saved','2026-08-20 10:00:00+00',10,
-   '{"segmentId":"seg-b-1","originalChinese":"我完全没想到。","startSeconds":10,"endSeconds":12,"contextBefore":[],"contextAfter":[]}'::jsonb);
+   '{"segmentId":"seg-b-1","originalChinese":"我完全没想到。","startSeconds":10,"endSeconds":12,"contextBefore":[],"contextAfter":[]}'::jsonb),
+  (:'save_a_other', :'user_a', :'source_a_other', '0ae00000-0000-4000-8000-000000000004',
+   '9bZkp7q19f0','subtitle_row','saved','2026-08-20 10:00:02+00',30,
+   '{"segmentId":"seg-a-other","originalChinese":"另一个视频。","startSeconds":30,"endSeconds":32,"contextBefore":[],"contextAfter":[]}'::jsonb);
 insert into public.model_gateway_origins (
   id,slug,display_name,canonical_origin,base_path,adapter_kind,state
 ) values (
@@ -177,6 +183,18 @@ select extensions.throws_ok(
       where id='0a400000-0000-4000-8000-000000000001'),
     '2026-08-20 10:01:02+00')$$,
   '22023', null, 'analysis rejects a cross-owner saved item'
+);
+select extensions.throws_ok(
+  $$select * from public.register_gateway_learning_artifact_job(
+    '0a000000-0000-4000-8000-00000000a001',
+    '0a100000-0000-4000-8000-000000000001','analyze_saved_item',repeat('d',64),
+    '{"savedItemId":"0a200000-0000-4000-8000-000000000004"}',
+    '0a400000-0000-4000-8000-000000000001',1,
+    (select config_fingerprint from public.user_model_gateway_configs
+      where id='0a400000-0000-4000-8000-000000000001'),
+    '2026-08-20 10:01:03+00')$$,
+  '22023', null,
+  'initial analysis registration rejects a same-owner saved item from another source'
 );
 
 reset role;
@@ -292,6 +310,31 @@ select extensions.throws_ok(
     :'user_a', :'expression_a', :'config_b', :'config_b'),
   '23503', null, 'practice metadata rejects another owner configuration'
 );
+select extensions.throws_ok(
+  format($sql$insert into public.practice_tasks (
+    user_id,user_expression_id,kind,native_language,target_language,target_expression,
+    prompt_chinese,instructions_english,goal_english,
+    activation_prompt_version,activation_model,activation_gateway_config_id,
+    activation_gateway_revision,activation_gateway_fingerprint
+  ) values (%L::uuid,%L::uuid,'use_it_now','en','zh-CN','太离谱了','请回应朋友。',
+    'Reply naturally.','Use the target expression.','activate-v1','provider/model-v1',
+    %L::uuid,1,null)$sql$, :'user_a', :'expression_a', :'config_a'),
+  '23514', null,
+  'practice activation rejects a populated provenance group missing only fingerprint'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_tasks (
+    user_id,user_expression_id,kind,native_language,target_language,target_expression,
+    prompt_chinese,instructions_english,goal_english,
+    activation_prompt_version,activation_model,activation_gateway_config_id,
+    activation_gateway_revision,activation_gateway_fingerprint
+  ) values (%L::uuid,%L::uuid,'use_it_now','en','zh-CN','太离谱了','请回应朋友。',
+    'Reply naturally.','Use the target expression.','activate-v1','invented/model',
+    %L::uuid,1,(select config_fingerprint from public.user_model_gateway_configs
+      where id=%L::uuid))$sql$, :'user_a', :'expression_a', :'config_a', :'config_a'),
+  '23503', null,
+  'practice activation model must match the exact gateway configuration revision'
+);
 
 select extensions.lives_ok(
   format($sql$insert into public.attempts (
@@ -319,6 +362,35 @@ select extensions.throws_ok(
     :'user_a', :'practice_a', :'expression_a'),
   '23514', null, 'partial evaluation metadata is rejected'
 );
+select extensions.throws_ok(
+  format($sql$insert into public.attempts (
+    user_id,practice_task_id,user_expression_id,response_chinese,passed,
+    accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,
+    contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at,
+    evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,
+    evaluation_gateway_revision,evaluation_gateway_fingerprint
+  ) values (%L::uuid,%L::uuid,%L::uuid,'这也太离谱了吧。',true,
+    5,'Accurate use.',5,'Natural response.',5,'Fits the situation.',true,'none',
+    '2026-08-20 10:32:00+00','evaluate-v1','provider/model-v1',%L::uuid,1,null)$sql$,
+    :'user_a', :'practice_a', :'expression_a', :'config_a'),
+  '23514', null,
+  'attempt evaluation rejects a populated provenance group missing only fingerprint'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.attempts (
+    user_id,practice_task_id,user_expression_id,response_chinese,passed,
+    accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,
+    contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at,
+    evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,
+    evaluation_gateway_revision,evaluation_gateway_fingerprint
+  ) values (%L::uuid,%L::uuid,%L::uuid,'这也太离谱了吧。',true,
+    5,'Accurate use.',5,'Natural response.',5,'Fits the situation.',true,'none',
+    '2026-08-20 10:33:00+00','evaluate-v1','invented/model',%L::uuid,1,
+    (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
+    :'user_a', :'practice_a', :'expression_a', :'config_a', :'config_a'),
+  '23503', null,
+  'attempt evaluation model must match the exact gateway configuration revision'
+);
 
 select extensions.ok(
   not has_column_privilege('anon','public.practice_tasks','activation_gateway_config_id','select')
@@ -326,6 +398,34 @@ select extensions.ok(
     and not has_column_privilege('anon','public.attempts','evaluation_gateway_config_id','select')
     and has_column_privilege('authenticated','public.attempts','evaluation_gateway_config_id','select'),
   'new non-secret metadata inherits existing owner-readable table grants without anonymous access'
+);
+
+set local role service_role;
+insert into analysis_jobs
+select 'revoked', result.*
+from public.register_gateway_learning_artifact_job(
+  :'user_b', :'source_b', 'analyze_saved_item', repeat('e',64),
+  jsonb_build_object('savedItemId', :'save_b', 'evidence', 'private'),
+  :'config_b', 1,
+  (select config_fingerprint from public.user_model_gateway_configs where id=:'config_b'),
+  '2026-08-20 10:40:00+00'
+) as result;
+select public.revoke_user_model_gateway_config(
+  :'user_b', :'config_b', '2026-08-20 10:41:00+00'
+);
+select extensions.results_eq(
+  $$select job.status,job.next_attempt_at,job.lease_expires_at,job.last_error_code,
+      internal.input
+    from public.knowledge_jobs as job
+    join public.knowledge_job_internal as internal
+      on internal.knowledge_job_id=job.id and internal.user_id=job.user_id
+    join analysis_jobs as a on a.knowledge_job_id=job.id
+    where a.label='revoked'$$,
+  $$values (
+    'terminal_failed'::text,null::timestamptz,null::timestamptz,
+    'MODEL_GATEWAY_REVOKED'::text,'{}'::jsonb
+  )$$,
+  'revoking a pinned gateway terminalizes pending analysis and clears private input'
 );
 
 select * from extensions.finish();
