@@ -1,26 +1,17 @@
 import { createLearningArtifactProviderResolver } from "@/server/ai/model-gateway";
-import type { LearningArtifactProviderResolver } from "@/server/ai/provider";
 import { createAnalyzeSavedItemFixtureGateway } from "@/server/ai/prompts/analyze-saved-item.v1";
-import {
-  createStructuredJsonGatewayResolver,
-  type StructuredJsonGatewayResolver,
-} from "@/server/ai/structured-json-gateway";
+import { createStructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
 import { ServerEnvSchema } from "@/server/env";
-import { createAnalyzeSavedItemHandler } from "@/server/jobs/handlers/analyze-saved-item";
-import { createExplainSelectionHandler } from "@/server/jobs/handlers/explain-selection";
-import { createGenerateOverviewHandler } from "@/server/jobs/handlers/generate-overview";
-import { createResolveSnapshotHandler } from "@/server/jobs/handlers/resolve-snapshot";
-import { createTranslateSegmentsHandler } from "@/server/jobs/handlers/translate-segments";
 import {
   MAX_PROCESS_BATCH_SIZE,
   createInternalProcessRoute,
   createJobProcessor,
+  createProcessorHandlers,
   createServiceJobClient,
   createSupabaseDurableJobStore,
 } from "@/server/jobs/process-jobs";
 import { createProcessorScopedGatewayResolver } from "@/server/jobs/provider-cache";
 import { createSupabaseModelGatewayRuntimeResolver } from "@/server/model-gateway/runtime-resolver";
-import type { TranscriptProvider } from "@/server/transcript/provider";
 import { createSupadataTranscriptProvider } from "@/server/transcript/supadata-provider";
 
 const ProcessorEnvSchema = ServerEnvSchema.pick({
@@ -29,38 +20,6 @@ const ProcessorEnvSchema = ServerEnvSchema.pick({
   SUPADATA_API_KEY: true,
   INTERNAL_JOB_SECRET: true,
 });
-
-export function createProcessorHandlers({
-  store,
-  transcriptProvider,
-  learningProviderResolver,
-  analysisGatewayResolver,
-}: {
-  readonly store: ReturnType<typeof createSupabaseDurableJobStore>;
-  readonly transcriptProvider: TranscriptProvider;
-  readonly learningProviderResolver: LearningArtifactProviderResolver;
-  readonly analysisGatewayResolver: StructuredJsonGatewayResolver;
-}) {
-  return {
-    resolve_snapshot: createResolveSnapshotHandler({ store, provider: transcriptProvider }),
-    generate_overview: createGenerateOverviewHandler({
-      store,
-      providerResolver: learningProviderResolver,
-    }),
-    translate_segments: createTranslateSegmentsHandler({
-      store,
-      providerResolver: learningProviderResolver,
-    }),
-    explain_selection: createExplainSelectionHandler({
-      store,
-      providerResolver: learningProviderResolver,
-    }),
-    analyze_saved_item: createAnalyzeSavedItemHandler({
-      store,
-      gatewayResolver: analysisGatewayResolver,
-    }),
-  };
-}
 
 function runtimeRoute() {
   const environment = ProcessorEnvSchema.parse(process.env);

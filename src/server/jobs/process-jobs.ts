@@ -11,12 +11,20 @@ import { z } from "zod";
 import { failure, success } from "@/server/api/respond";
 import type {
   NativeTranscriptSnapshot,
+  TranscriptProvider,
   TranscriptRouteStore,
 } from "@/server/transcript/provider";
 import type {
   LearningArtifactEvidence,
+  LearningArtifactProviderResolver,
   ModelGatewayPin,
 } from "@/server/ai/provider";
+import type { StructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
+import { createAnalyzeSavedItemHandler } from "@/server/jobs/handlers/analyze-saved-item";
+import { createExplainSelectionHandler } from "@/server/jobs/handlers/explain-selection";
+import { createGenerateOverviewHandler } from "@/server/jobs/handlers/generate-overview";
+import { createResolveSnapshotHandler } from "@/server/jobs/handlers/resolve-snapshot";
+import { createTranslateSegmentsHandler } from "@/server/jobs/handlers/translate-segments";
 import {
   createSavedItemAnalysisJobKey,
   SavedItemAnalysisJobInputSchema,
@@ -95,6 +103,38 @@ export type JobHandler = (
 ) => Promise<JobHandlerResult>;
 
 type HandlerMap = Partial<Record<KnowledgeJobType, JobHandler>>;
+
+export function createProcessorHandlers({
+  store,
+  transcriptProvider,
+  learningProviderResolver,
+  analysisGatewayResolver,
+}: {
+  readonly store: ReturnType<typeof createSupabaseDurableJobStore>;
+  readonly transcriptProvider: TranscriptProvider;
+  readonly learningProviderResolver: LearningArtifactProviderResolver;
+  readonly analysisGatewayResolver: StructuredJsonGatewayResolver;
+}) {
+  return {
+    resolve_snapshot: createResolveSnapshotHandler({ store, provider: transcriptProvider }),
+    generate_overview: createGenerateOverviewHandler({
+      store,
+      providerResolver: learningProviderResolver,
+    }),
+    translate_segments: createTranslateSegmentsHandler({
+      store,
+      providerResolver: learningProviderResolver,
+    }),
+    explain_selection: createExplainSelectionHandler({
+      store,
+      providerResolver: learningProviderResolver,
+    }),
+    analyze_saved_item: createAnalyzeSavedItemHandler({
+      store,
+      gatewayResolver: analysisGatewayResolver,
+    }),
+  };
+}
 
 export type ProcessSummary = {
   readonly claimed: number;

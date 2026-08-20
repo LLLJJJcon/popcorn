@@ -4,11 +4,12 @@ import { KnowledgeJobSchema, type KnowledgeJob } from "@/contracts/knowledge";
 import { ModelGatewayError } from "@/server/ai/provider";
 import { createAnalyzeSavedItemFixtureGateway } from "@/server/ai/prompts/analyze-saved-item.v1";
 import { createStructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
-import { createProcessorHandlers } from "@/app/api/internal/jobs/process/route";
+import * as processRouteModule from "@/app/api/internal/jobs/process/route";
 import { nextJobFailure } from "@/server/domain/lease-job";
 import { createAnalyzeSavedItemHandler } from "@/server/jobs/handlers/analyze-saved-item";
 import {
   createInternalProcessRoute,
+  createProcessorHandlers,
   createSupabaseSavedItemAnalysisRegistrar,
   createSupabaseDurableJobStore,
   type DurableJobStore,
@@ -20,6 +21,10 @@ import {
 } from "@/server/jobs/job-types";
 
 describe("bounded internal knowledge-job endpoint", () => {
+  test("exports only App Router HTTP entrypoints", () => {
+    expect(Object.keys(processRouteModule).sort()).toEqual(["POST"]);
+  });
+
   test("requires the exact bearer, processes five, and returns counts only", async () => {
     const processBounded = vi.fn(async () => ({
       claimed: 5,

@@ -52,6 +52,21 @@ TypeScript noEmit: exit 0
 git diff --check: exit 0
 ```
 
+Controller integration then exposed an App Router boundary failure at baseline
+`26a525b`: plain `tsc` passed without generated route types, while the fixed-environment
+Next build failed because `route.ts` exported the testable `createProcessorHandlers`
+factory. The route-export regression was written first and failed with the actual module
+exports `["POST", "createProcessorHandlers"]` instead of `["POST"]`. The minimal repair
+moved the factory without copying logic into `process-jobs.ts` and changed the tests to
+import it from that server module. Fresh repair GREEN evidence:
+
+```text
+route-export regression: 1 passed
+4 focused test files: 53/53 passed (52 retained + 1 regression)
+TypeScript noEmit with generated Next route types: exit 0
+fixed-environment Next production build: exit 0; 19/19 static pages generated
+```
+
 ## Implementation
 
 - The processor and authenticated internal route now enforce a maximum batch of five and
@@ -106,7 +121,8 @@ git diff --check: exit 0
 - Timestamp-near evidence is bounded and owner/snapshot scoped when a save has no explicit
   segment ID. It is not a whole-video ingest, but candidate quality for very sparse subtitles
   remains provider-dependent and still passes through exact grounding validation.
-- Per the personal-product verification calibration and the brief, no DB reset, full pgTAP,
-  full suite, production build, or unrelated security gate was repeated.
+- Per the personal-product verification calibration, no DB reset, full pgTAP, full suite,
+  or unrelated security gate was repeated. A focused production build was necessary for this
+  repair because generated App Router types were the exact integration failure surface.
 
 Independent review is still required; this handoff is not self-approval.
