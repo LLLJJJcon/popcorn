@@ -44,6 +44,13 @@ type SavedEvent = {
   readonly [key: string]: unknown;
 };
 
+type ArtifactRequestCounts = Readonly<{
+  transcript: number;
+  translation: number;
+  overview: number;
+  explanation: number;
+}>;
+
 const transcriptSegments = [
   {
     stableId: SEGMENT_ONE_ID,
@@ -70,12 +77,30 @@ const json = (route: Route, body: unknown, status = 200) =>
     body: JSON.stringify(body),
   });
 
+function immutableClone<T>(value: T): Readonly<T> {
+  const clone = structuredClone(value);
+  const freeze = (candidate: unknown): void => {
+    if (!candidate || typeof candidate !== "object" || Object.isFrozen(candidate)) return;
+    for (const nested of Object.values(candidate)) freeze(nested);
+    Object.freeze(candidate);
+  };
+  freeze(clone);
+  return clone;
+}
+
 export class MockPopcornCloud {
   private dropSyncResponses = false;
   private readonly rows = new Map<string, { savedItemId: string; event: SavedEvent }>();
   private readonly attempts = new Map<string, number>();
+  private readonly successfulAcks = new Map<string, number>();
   private readonly videoParents = new Map<string, string>();
   private readonly unexpectedOrigins: string[] = [];
+  private readonly artifactCounts = {
+    transcript: 0,
+    translation: 0,
+    overview: 0,
+    explanation: 0,
+  };
 
   noteRequest(url: string) {
     const parsed = new URL(url);
@@ -96,6 +121,11 @@ export class MockPopcornCloud {
     const request = route.request();
     const url = new URL(request.url());
     const pathName = url.pathname;
+
+    if (pathName === `/api/v1/youtube/${VIDEO_ID}/transcript`) this.artifactCounts.transcript += 1;
+    if (pathName === `/api/v1/youtube/${VIDEO_ID}/translations`) this.artifactCounts.translation += 1;
+    if (pathName === `/api/v1/youtube/${VIDEO_ID}/overview`) this.artifactCounts.overview += 1;
+    if (pathName === "/api/v1/explanations") this.artifactCounts.explanation += 1;
 
     if (pathName === "/api/v1/extension/session/exchange") {
       return json(route, {
@@ -161,7 +191,7 @@ export class MockPopcornCloud {
                 quote: "这也太离谱了吧。",
                 englishMeaning: "That is way too absurd.",
                 timestampSeconds: 10,
-                sourceSegmentIds: ["seg-popcorn-1"],
+                sourceSegmentIds: [SEGMENT_ONE_ID],
               },
               {
                 quote: "我完全没想到。",
@@ -231,6 +261,12 @@ export class MockPopcornCloud {
           error: { code: "SYNC_RETRYING", message: "Fixture dropped acknowledgement", retryable: true },
         }, 503);
       }
+      events.forEach((event) => {
+        this.successfulAcks.set(
+          event.clientEventId,
+          (this.successfulAcks.get(event.clientEventId) ?? 0) + 1,
+        );
+      });
       return json(route, { ok: true, data: { results } });
     }
 
@@ -242,6 +278,29 @@ export class MockPopcornCloud {
 
   savedKinds() {
     return [...new Set([...this.rows.values()].map(({ event }) => event.kind))].sort();
+  }
+
+  capturedEventsByKind(): Readonly<Record<string, readonly Readonly<SavedEvent>[]>> {
+    const events: Record<string, Readonly<SavedEvent>[]> = {};
+    for (const { event } of this.rows.values()) {
+      const captured = immutableClone(event);
+      (events[event.kind] ??= []).push(captured);
+    }
+    return Object.freeze(Object.fromEntries(
+      Object.entries(events).map(([kind, captured]) => [kind, Object.freeze(captured)]),
+    ));
+  }
+
+  artifactRequestCounts(): ArtifactRequestCounts {
+    return Object.freeze({ ...this.artifactCounts });
+  }
+
+  attemptCount(clientEventId: string) {
+    return this.attempts.get(clientEventId) ?? 0;
+  }
+
+  successfulAckCount(clientEventId: string) {
+    return this.successfulAcks.get(clientEventId) ?? 0;
   }
 
   videoParentCount() {
@@ -289,6 +348,7 @@ export class PopcornExtensionHarness {
   readonly options: Page;
   readonly youtube: Page;
   panel!: Page;
+  private readonly dialogMessages: string[] = [];
 
   constructor(
     readonly context: BrowserContext,
@@ -299,6 +359,16 @@ export class PopcornExtensionHarness {
   ) {
     this.options = options;
     this.youtube = youtube;
+    this.watchDialogs(options);
+    this.watchDialogs(youtube);
+    this.context.on("page", (page) => this.watchDialogs(page));
+  }
+
+  private watchDialogs(page: Page) {
+    page.on("dialog", (dialog) => {
+      this.dialogMessages.push(dialog.message());
+      void dialog.dismiss();
+    });
   }
 
   private extensionUrl(pathName: string) {
@@ -378,8 +448,107 @@ export class PopcornExtensionHarness {
     await expect(this.panel.locator("#explainTooltip")).toBeVisible();
   }
 
-  private async waitForKind(kind: string) {
-    await expect.poll(() => this.cloud.savedKinds()).toContain(kind);
+  private async saveWithoutSideEffects(kind: string, action: () => Promise<void>) {
+    const beforeEvents = this.cloud.capturedEventsByKind()[kind] ?? [];
+    const beforeArtifacts = this.cloud.artifactRequestCounts();
+    const beforeYoutubeUrl = this.youtube.url();
+    const beforePanelUrl = this.panel.url();
+    const beforePageCount = this.context.pages().length;
+    const beforeDialogCount = this.dialogMessages.length;
+    const beforeVisibleForms =
+      await this.youtube.locator("form:visible").count() +
+      await this.panel.locator("form:visible").count();
+    const beforePlayback = await this.youtube.locator("video").evaluate((video: HTMLVideoElement) => ({
+      currentTime: video.currentTime,
+      paused: video.paused,
+    }));
+    const navigations: string[] = [];
+    const openedPages: Page[] = [];
+    const formWatchKey = `__popcorn_form_watch_${crypto.randomUUID().replaceAll("-", "_")}`;
+    const beginFormWatch = (page: Page) => page.evaluate((key) => {
+      const forms = () => [...document.querySelectorAll("form")];
+      const isVisible = (form: HTMLFormElement) => {
+        const style = getComputedStyle(form);
+        return !form.hidden && style.display !== "none" && style.visibility !== "hidden";
+      };
+      const baselineCount = forms().length;
+      const baselineVisibleCount = forms().filter(isVisible).length;
+      const state = { detected: false };
+      const inspect = () => {
+        const currentForms = forms();
+        if (
+          currentForms.length > baselineCount ||
+          currentForms.filter(isVisible).length > baselineVisibleCount
+        ) {
+          state.detected = true;
+        }
+      };
+      const observer = new MutationObserver(inspect);
+      observer.observe(document.documentElement, {
+        attributes: true,
+        childList: true,
+        subtree: true,
+      });
+      (window as unknown as Record<string, unknown>)[key] = { observer, state };
+    }, formWatchKey);
+    const endFormWatch = (page: Page) => page.evaluate((key) => {
+      const watches = window as unknown as Record<string, {
+        observer: MutationObserver;
+        state: { detected: boolean };
+      } | undefined>;
+      const watch = watches[key];
+      if (!watch) return false;
+      watch.observer.disconnect();
+      delete watches[key];
+      return watch.state.detected;
+    }, formWatchKey);
+    await Promise.all([beginFormWatch(this.youtube), beginFormWatch(this.panel)]);
+    const trackYoutubeNavigation = (frame: import("@playwright/test").Frame) => {
+      if (frame === this.youtube.mainFrame()) navigations.push(frame.url());
+    };
+    const trackPanelNavigation = (frame: import("@playwright/test").Frame) => {
+      if (frame === this.panel.mainFrame()) navigations.push(frame.url());
+    };
+    const trackOpenedPage = (page: Page) => openedPages.push(page);
+    this.youtube.on("framenavigated", trackYoutubeNavigation);
+    this.panel.on("framenavigated", trackPanelNavigation);
+    this.context.on("page", trackOpenedPage);
+
+    let saved: Readonly<SavedEvent> | undefined;
+    let formOpened = false;
+    try {
+      await action();
+      await expect.poll(() => (this.cloud.capturedEventsByKind()[kind] ?? []).length)
+        .toBe(beforeEvents.length + 1);
+      saved = this.cloud.capturedEventsByKind()[kind]?.at(-1);
+      if (!saved) throw new Error(`fixture did not capture ${kind}`);
+      await expect.poll(() => this.cloud.successfulAckCount(saved!.clientEventId)).toBeGreaterThan(0);
+    } finally {
+      this.youtube.off("framenavigated", trackYoutubeNavigation);
+      this.panel.off("framenavigated", trackPanelNavigation);
+      this.context.off("page", trackOpenedPage);
+      const formResults = await Promise.all([endFormWatch(this.youtube), endFormWatch(this.panel)]);
+      formOpened = formResults.some(Boolean);
+    }
+
+    expect(this.cloud.artifactRequestCounts()).toEqual(beforeArtifacts);
+    expect(this.youtube.url()).toBe(beforeYoutubeUrl);
+    expect(this.panel.url()).toBe(beforePanelUrl);
+    expect(navigations).toEqual([]);
+    expect(openedPages).toEqual([]);
+    expect(this.context.pages()).toHaveLength(beforePageCount);
+    expect(this.dialogMessages).toHaveLength(beforeDialogCount);
+    expect(formOpened).toBe(false);
+    expect(
+      await this.youtube.locator("form:visible").count() +
+      await this.panel.locator("form:visible").count(),
+    ).toBe(beforeVisibleForms);
+    const afterPlayback = await this.youtube.locator("video").evaluate((video: HTMLVideoElement) => ({
+      currentTime: video.currentTime,
+      paused: video.paused,
+    }));
+    expect(afterPlayback).toEqual(beforePlayback);
+    return saved;
   }
 
   async saveAllSixKindsWithoutChangingPlayback() {
@@ -388,31 +557,37 @@ export class PopcornExtensionHarness {
       paused: video.paused,
     }));
 
-    await this.panel.locator("#saveVideoBtn").click();
-    await this.waitForKind("video");
+    await this.saveWithoutSideEffects("video", async () => {
+      await this.panel.locator("#saveVideoBtn").click();
+    });
 
-    await this.youtube.locator("#movie_player").hover();
-    await this.youtube.locator("#ytd-note-button").click();
-    await this.waitForKind("player_moment");
+    await this.saveWithoutSideEffects("player_moment", async () => {
+      await this.youtube.locator("#movie_player").hover();
+      await this.youtube.locator("#ytd-note-button").click();
+    });
 
-    await this.panel.locator(".transcript-save-btn").first().click();
-    await this.waitForKind("subtitle_row");
+    await this.saveWithoutSideEffects("subtitle_row", async () => {
+      await this.panel.locator(".transcript-save-btn").first().click();
+    });
 
     await this.selectFirstChineseRow();
-    await this.panel.locator(".selection-save-btn").click();
-    await this.waitForKind("subtitle_selection");
+    await this.saveWithoutSideEffects("subtitle_selection", async () => {
+      await this.panel.locator(".selection-save-btn").click();
+    });
 
     await this.panel.locator('.tab[data-tab="overview"]').click();
     await this.panel.locator(".quote-save-note-btn").first().waitFor();
-    await this.panel.locator(".quote-save-note-btn").first().click();
-    await this.waitForKind("key_quote");
+    await this.saveWithoutSideEffects("key_quote", async () => {
+      await this.panel.locator(".quote-save-note-btn").first().click();
+    });
 
     await this.panel.locator('.tab[data-tab="transcript"]').click();
     await this.selectFirstChineseRow();
     await this.panel.locator(".explain-btn").click();
     await this.panel.locator(".explanation-save-btn").waitFor();
-    await this.panel.locator(".explanation-save-btn").click();
-    await this.waitForKind("ai_explanation");
+    await this.saveWithoutSideEffects("ai_explanation", async () => {
+      await this.panel.locator(".explanation-save-btn").click();
+    });
 
     const after = await this.youtube.locator("video").evaluate((video: HTMLVideoElement) => ({
       currentTime: video.currentTime,
@@ -422,12 +597,24 @@ export class PopcornExtensionHarness {
   }
 
   async queueRapidMomentsWithDroppedResponses() {
+    const beforeIds = new Set(
+      (this.cloud.capturedEventsByKind().player_moment ?? []).map((event) => event.clientEventId),
+    );
     this.cloud.setDropSyncResponses(true);
     await this.youtube.bringToFront();
     await this.youtube.locator("video").evaluate((video: HTMLVideoElement) => { video.currentTime = 51; });
     await this.youtube.keyboard.press("n");
     await this.youtube.keyboard.press("n");
     await expect.poll(() => this.pendingCount()).toBeGreaterThanOrEqual(2);
+    await expect.poll(() =>
+      (this.cloud.capturedEventsByKind().player_moment ?? [])
+        .filter((event) => !beforeIds.has(event.clientEventId)).length,
+    ).toBe(2);
+    const rapidIds = (this.cloud.capturedEventsByKind().player_moment ?? [])
+      .filter((event) => !beforeIds.has(event.clientEventId))
+      .map((event) => event.clientEventId);
+    await expect.poll(() => rapidIds.every((id) => this.cloud.attemptCount(id) >= 1)).toBe(true);
+    return Object.freeze(rapidIds);
   }
 
   private async activeWorker(): Promise<Worker> {
