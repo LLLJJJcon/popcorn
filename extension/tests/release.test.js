@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
@@ -269,4 +270,110 @@ test("extension delegates AI artifacts only to short Popcorn background requests
   assert.match(background, /translateSegments/);
   assert.match(background, /explainSelection/);
   assert.match(background, /apiFetch/);
+});
+
+function loadBackgroundMessageRouter() {
+  const calls = {
+    setOptions: [],
+    open: [],
+    broadcast: [],
+  };
+  let onMessage;
+  const passiveListener = { addListener() {} };
+  const sandbox = {
+    console,
+    URL,
+    AbortController,
+    fetch,
+    importScripts() {},
+    setTimeout(callback) {
+      callback();
+      return 1;
+    },
+    chrome: {
+      storage: {
+        local: {
+          setAccessLevel: async () => {},
+          get: async () => ({}),
+        },
+      },
+      action: { onClicked: passiveListener },
+      sidePanel: {
+        setPanelBehavior() {},
+        setOptions(options) {
+          calls.setOptions.push(options);
+          return Promise.resolve();
+        },
+        open(options) {
+          calls.open.push(options);
+          return Promise.resolve();
+        },
+      },
+      runtime: {
+        id: "extension-id",
+        getURL: (resourcePath) => `chrome-extension://extension-id/${resourcePath}`,
+        onMessage: { addListener(listener) { onMessage = listener; } },
+        sendMessage(message) {
+          calls.broadcast.push(message);
+          return Promise.resolve();
+        },
+        openOptionsPage() {},
+      },
+      tabs: {
+        onUpdated: passiveListener,
+        onActivated: passiveListener,
+        get: async () => ({ url: "https://www.youtube.com/watch?v=abc123XYZ00" }),
+        query: async () => [],
+        sendMessage: async () => ({}),
+      },
+      scripting: { executeScript: async () => [] },
+    },
+    YTD_SETTINGS: { DEFAULTS: { boundedCachePrefix: "popcorn:test" } },
+    POPCORN_AUTH: {
+      createAuthClient: () => ({ initialize: async () => {}, getAccessToken: async () => "token" }),
+      createAuthMessageHandler: () => async () => ({ ok: true }),
+    },
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(read("background.js"), sandbox);
+  return { calls, onMessage };
+}
+
+test("only the exact YouTube watch content sender can open the side panel and start digest", async () => {
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  const watchUrl = "https://www.youtube.com/watch?v=abc123XYZ00";
+  const trusted = loadBackgroundMessageRouter();
+  const trustedResponses = [];
+  assert.equal(trusted.onMessage(
+    { action: "openSidePanel" },
+    { id: "extension-id", url: watchUrl, tab: { id: 73, url: watchUrl } },
+    (response) => trustedResponses.push(response),
+  ), false);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(plain(trusted.calls.setOptions), [{ tabId: 73, path: "sidepanel.html", enabled: true }]);
+  assert.deepEqual(plain(trusted.calls.open), [{ tabId: 73 }]);
+  assert.deepEqual(plain(trusted.calls.broadcast), [{ action: "startDigestFromButton" }]);
+  assert.deepEqual(plain(trustedResponses), [{ success: true }]);
+
+  const rejectedSenders = [
+    { id: "extension-id", url: "chrome-extension://extension-id/sidepanel.html" },
+    { id: "extension-id", url: "https://attacker.example/watch?v=abc123XYZ00", tab: { id: 74, url: "https://attacker.example/watch?v=abc123XYZ00" } },
+    { id: "extension-id", url: "https://www.youtube.com/results?search_query=mandarin", tab: { id: 75, url: "https://www.youtube.com/results?search_query=mandarin" } },
+  ];
+  for (const sender of rejectedSenders) {
+    const rejected = loadBackgroundMessageRouter();
+    const responses = [];
+    assert.equal(rejected.onMessage(
+      { action: "openSidePanel" },
+      sender,
+      (response) => responses.push(response),
+    ), false);
+    await Promise.resolve();
+    assert.deepEqual(rejected.calls.setOptions, []);
+    assert.deepEqual(rejected.calls.open, []);
+    assert.deepEqual(rejected.calls.broadcast, []);
+    assert.deepEqual(plain(responses), [{ success: false, error: "forbidden" }]);
+  }
 });

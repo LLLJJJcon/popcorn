@@ -481,15 +481,15 @@ export function validateOverviewContent(value: unknown, evidence: LearningArtifa
     }
   }
   for (const quote of parsed.keyQuotes) {
-    const referencedIds = new Set(quote.sourceSegmentIds);
-    const referencedText = evidence.segments
-      .filter((segment) => referencedIds.has(segment.stableId))
-      .map((segment) => segment.originalChinese)
-      .join("\n")
-      .normalize("NFKC")
-      .replace(/\s+/gu, "");
     const normalizedQuote = quote.quote.normalize("NFKC").replace(/\s+/gu, "");
-    if (!referencedText.includes(normalizedQuote)) {
+    const groundedInOneSegment = quote.sourceSegmentIds.some((id) => {
+      const segment = segmentsById.get(id);
+      return !!segment &&
+        quote.timestampSeconds >= segment.startSeconds &&
+        quote.timestampSeconds <= segment.endSeconds &&
+        segment.originalChinese.normalize("NFKC").replace(/\s+/gu, "").includes(normalizedQuote);
+    });
+    if (!groundedInOneSegment) {
       throw new Error("key quote is not native evidence");
     }
   }

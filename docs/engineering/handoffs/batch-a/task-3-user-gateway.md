@@ -91,3 +91,58 @@ instead of being repeated in this isolated worktree.
   behavior.
 - Root configuration, lockfile, database migrations, generated database types,
   and execution ledger were not modified by this task.
+
+## Independent review fix: content launch and exact grounding
+
+An independent review of candidate `e32c40f7b5d990d29868f92acee4c5d0597dd522`
+returned FAIL on three bounded behaviors. The repair used worktree
+`/private/tmp/popcorn-batch-a-3-fix` and branch
+`codex/popcorn-batch-a-3-fix`; it did not reopen the gateway, route, database,
+authentication, or content-script contracts.
+
+### RED evidence
+
+- `node --test --test-name-pattern='only the exact YouTube watch content sender' extension/tests/release.test.js`
+  exited 1 with 1/1 expected failure: the trusted content sender opened the
+  panel zero times because the background router had no `openSidePanel`
+  branch.
+- `NODE_PATH=/private/tmp/popcorn-youtube-learning/node_modules node --test --test-name-pattern='bilingual English selection' extension/tests/transcript-selection.test.js`
+  exited 1 with 1/1 expected failure: an English translation range projected
+  to the complete native Chinese row instead of failing closed.
+- `./node_modules/.bin/vitest run tests/integration/youtube/learning-artifacts.test.ts`
+  exited 1 with 2 expected failures and 60 passing tests: a quote assembled
+  across two segments and a quote whose text/timestamp came from different
+  segments were both accepted.
+
+### Minimal repair
+
+- `background.js` now accepts `openSidePanel` only from this extension's
+  content script on an exact HTTPS `www.youtube.com/watch` URL with a canonical
+  11-character video ID. It synchronously enables and opens the panel for that
+  sender tab, then broadcasts `startDigestFromButton` once after open. Extension
+  pages, non-YouTube tabs, and non-watch YouTube pages receive only `forbidden`.
+  Existing auth, Side Panel, storage-access, and Popcorn API gates are unchanged.
+- `validateOverviewContent` now requires one referenced segment to contain the
+  complete normalized quote and contain its timestamp. It no longer grounds a
+  quote using text concatenated across segments or a timestamp from another
+  segment.
+- `projectTranscriptSelection` now returns `null` unless both DOM Range
+  boundaries are inside their corresponding native Chinese elements. Exact
+  single-line and cross-line Chinese UTF-16 projection is retained.
+
+### GREEN and proportional verification
+
+- Focused extension command covering release, transcript selection, and
+  translation: 33/33 passed.
+- Focused server learning-artifact suite: 62/62 passed.
+- One broad Vitest run: 26 files, 467/467 passed.
+- One `tsc --noEmit` run: passed with no diagnostics.
+- Project-standard `eslint . --max-warnings 0`: passed. An earlier explicit
+  extension-file invocation exited only because those vendored JS paths are
+  intentionally ignored and `--max-warnings 0` promoted the ignore notices;
+  no lint error was reported.
+- `git diff --check`: passed.
+
+Per the personal-product risk decision, this review repair did not repeat a
+database reset, pgTAP, or application build: it changes no database, route,
+runtime resolver, root configuration, dependency, or build-facing interface.

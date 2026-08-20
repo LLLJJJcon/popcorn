@@ -773,6 +773,40 @@ describe("complete source-grounded Overview validation", () => {
   test("accepts chapters and 3-5 quotes grounded to their exact referenced ranges", () => {
     expect(validateOverviewContent(validOverview, evidence)).toEqual(validOverview);
   });
+
+  test("rejects a quote assembled across two referenced segments", () => {
+    const content = {
+      ...validOverview,
+      keyQuotes: [
+        {
+          ...validOverview.keyQuotes[0],
+          quote: "自然。你可以",
+          sourceSegmentIds: [SEGMENT_A, SEGMENT_B],
+        },
+        ...validOverview.keyQuotes.slice(1),
+      ],
+    };
+    expect(() => validateOverviewContent(content, evidence)).toThrow();
+  });
+
+  test("rejects a quote whose text and timestamp are grounded by different segments", () => {
+    const content = {
+      ...validOverview,
+      keyQuotes: [
+        {
+          ...validOverview.keyQuotes[0],
+          timestampSeconds: 3,
+          sourceSegmentIds: [SEGMENT_A, SEGMENT_B],
+        },
+        ...validOverview.keyQuotes.slice(1),
+      ],
+    };
+    expect(() => validateOverviewContent(content, evidence)).toThrow();
+  });
+
+  test("accepts a quote fully contained at its timestamp in one referenced segment", () => {
+    expect(validateOverviewContent(validOverview, evidence)).toEqual(validOverview);
+  });
 });
 
 describe("CONTRACT-009 Supabase adapters", () => {

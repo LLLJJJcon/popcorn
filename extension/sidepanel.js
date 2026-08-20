@@ -1307,8 +1307,7 @@ function projectTranscriptSelection(range, transcriptList) {
     range.endContainer,
     range.endOffset,
   );
-  if (localStart === null) localStart = 0;
-  if (localEnd === null) localEnd = last.nativeText.length;
+  if (localStart === null || localEnd === null) return null;
 
   const context = completeRows.map((row) => row.nativeText).join("\n");
   const utf16Start = localStart;

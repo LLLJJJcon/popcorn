@@ -33,6 +33,26 @@ function isTrustedSidePanelSender(sender) {
     sender.url === chrome.runtime.getURL("sidepanel.html");
 }
 
+function isYoutubeWatchUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      url.hostname === "www.youtube.com" &&
+      url.pathname === "/watch" &&
+      /^[A-Za-z0-9_-]{11}$/.test(url.searchParams.get("v") || "");
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedYoutubeContentSender(sender) {
+  return !!sender &&
+    sender.id === chrome.runtime.id &&
+    Number.isInteger(sender.tab?.id) &&
+    isYoutubeWatchUrl(sender.url) &&
+    isYoutubeWatchUrl(sender.tab?.url);
+}
+
 chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" })
   .catch(() => {});
 
@@ -199,6 +219,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return respondFrom(popcornAuthMessages(message, sender), sendResponse);
   }
 
+  if (message?.action === "openSidePanel") {
+    if (!isTrustedYoutubeContentSender(sender)) {
+      sendResponse({ success: false, error: "forbidden" });
+      return false;
+    }
+    const tabId = sender.tab.id;
+    chrome.sidePanel.setOptions({
+      tabId,
+      path: "sidepanel.html",
+      enabled: true,
+    });
+    chrome.sidePanel.open({ tabId }).then(() => {
+      setTimeout(() => {
+        chrome.runtime.sendMessage({ action: "startDigestFromButton" }).catch(() => {});
+      }, 300);
+    }).catch(() => {});
+    sendResponse({ success: true });
+    return false;
+  }
+
   if (["fetchTranscript", "requestOverview", "translateSegments", "explainSelection"].includes(message?.action)) {
     if (!isTrustedSidePanelSender(sender)) {
       sendResponse({ success: false, error: "forbidden" });
@@ -269,6 +309,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 globalThis.__POPCORN_CLOUD_TESTING__ = {
   apiFetch,
   isTrustedSidePanelSender,
+  isTrustedYoutubeContentSender,
   handleFetchTranscript,
   pollTranscriptJob,
   requestOverview,
