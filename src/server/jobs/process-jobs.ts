@@ -12,6 +12,11 @@ import type {
   NativeTranscriptSnapshot,
   TranscriptRouteStore,
 } from "@/server/transcript/provider";
+import type {
+  LearningArtifactEvidence,
+  LearningArtifactJobType,
+  ModelGatewayPin,
+} from "@/server/ai/provider";
 import type { Database, Json } from "@/types/database.generated";
 
 export const MAX_PROCESS_BATCH_SIZE = 10;
@@ -46,6 +51,29 @@ export interface DurableJobStore {
     snapshotId: string,
     completedAt: string,
   ): Promise<boolean>;
+  readLearningArtifactEvidence(
+    expectedUserId: string,
+    sourceId: string,
+    snapshotId: string,
+    segmentIds: readonly string[],
+  ): Promise<LearningArtifactEvidence | null>;
+  transitionLearningArtifactFailure(
+    expectedUserId: string,
+    expectedLease: Extract<KnowledgeJob, { status: "leased" }>,
+    state: Extract<KnowledgeJob, { status: "retryable_failed" | "terminal_failed" }>,
+    clearInput: boolean,
+  ): Promise<boolean>;
+  completeGatewayLearningArtifact(
+    expectedUserId: string,
+    expectedLease: Extract<KnowledgeJob, { status: "leased" }>,
+    artifactType: "overview" | "segment_translation" | "selection_explanation",
+    content: Json,
+    promptVersion: string,
+    model: string,
+    resultKey: string,
+    gatewayPin: ModelGatewayPin,
+    completedAt: string,
+  ): Promise<string | null>;
 }
 
 export type JobHandlerResult = "completed" | "deferred" | "failed";
@@ -73,17 +101,26 @@ export type PublicJobStatus = {
   readonly id: string;
   readonly status: "pending" | "leased" | "succeeded" | "retryable_failed" | "terminal_failed";
   readonly retryable: boolean;
-  readonly result: { readonly snapshotId: string } | null;
+  readonly result: { readonly snapshotId: string } | { readonly artifactId: string } | null;
 };
 
 const PublicResolveSnapshotResultSchema = z
   .object({ snapshotId: z.string().uuid() })
+  .strict();
+const PublicLearningArtifactResultSchema = z
+  .object({ artifactId: z.string().uuid() })
   .strict();
 
 export function parsePublicResolveSnapshotResult(
   value: unknown,
 ): NonNullable<PublicJobStatus["result"]> {
   return PublicResolveSnapshotResultSchema.parse(value);
+}
+
+export function parsePublicLearningArtifactResult(
+  value: unknown,
+): { readonly artifactId: string } {
+  return PublicLearningArtifactResultSchema.parse(value);
 }
 
 type JobStatusRouteDependencies = {
@@ -412,6 +449,93 @@ export function createSupabaseDurableJobStore(
       });
       if (completed.error) throw completed.error;
       return completed.data;
+    },
+
+    async readLearningArtifactEvidence(expectedUserId, sourceId, snapshotId, segmentIds) {
+      const source = await client.from("video_sources")
+        .select("id,user_id,youtube_video_id")
+        .eq("user_id", expectedUserId).eq("id", sourceId).maybeSingle();
+      if (source.error) throw source.error;
+      if (!source.data || source.data.user_id !== expectedUserId) return null;
+      const snapshot = await client.from("video_snapshots")
+        .select("id,user_id,video_source_id,transcript_hash,title")
+        .eq("user_id", expectedUserId).eq("video_source_id", sourceId)
+        .eq("id", snapshotId).maybeSingle();
+      if (snapshot.error) throw snapshot.error;
+      if (!snapshot.data || snapshot.data.user_id !== expectedUserId) return null;
+      let query = client.from("transcript_segments")
+        .select("stable_id,original_chinese,start_seconds,end_seconds,user_id")
+        .eq("user_id", expectedUserId).eq("snapshot_id", snapshotId);
+      if (segmentIds.length > 0) query = query.in("stable_id", [...segmentIds]);
+      const segments = await query.order("position", { ascending: true });
+      if (segments.error) throw segments.error;
+      if (segments.data.some((segment) => segment.user_id !== expectedUserId)) throw new Error("transcript owner mismatch");
+      if (segmentIds.length > 0) {
+        const found = new Set(segments.data.map((segment) => segment.stable_id));
+        if (segmentIds.some((id) => !found.has(id))) return null;
+      }
+      const byId = new Map(segments.data.map((segment) => [segment.stable_id, segment]));
+      const ordered = segmentIds.length > 0 ? segmentIds.map((id) => byId.get(id)!) : segments.data;
+      return {
+        userId: expectedUserId,
+        sourceId,
+        videoId: source.data.youtube_video_id,
+        snapshotId: snapshot.data.id,
+        transcriptHash: snapshot.data.transcript_hash,
+        title: snapshot.data.title,
+        segments: ordered.map((segment) => ({
+          stableId: segment.stable_id,
+          originalChinese: segment.original_chinese,
+          startSeconds: segment.start_seconds,
+          endSeconds: segment.end_seconds,
+        })),
+      };
+    },
+
+    async transitionLearningArtifactFailure(expectedUserId, expectedLease, state, clearInput) {
+      if (
+        expectedLease.userId !== expectedUserId || state.userId !== expectedUserId ||
+        state.id !== expectedLease.id || state.attemptCount !== expectedLease.attemptCount ||
+        !(["generate_overview", "translate_segments", "explain_selection"] as readonly LearningArtifactJobType[]).includes(expectedLease.type as LearningArtifactJobType)
+      ) throw new Error("learning-artifact job owner or lease mismatch");
+      const result = await client.rpc("transition_learning_artifact_failure", {
+        p_user_id: expectedUserId,
+        p_job_id: expectedLease.id,
+        p_video_source_id: expectedLease.sourceId,
+        p_job_type: expectedLease.type,
+        p_expected_lease_expires_at: expectedLease.leaseExpiresAt,
+        p_expected_attempt_count: expectedLease.attemptCount,
+        p_target_status: state.status,
+        p_next_attempt_at: state.nextAttemptAt as string,
+        p_error_code: state.lastErrorCode,
+        p_clear_input: clearInput,
+        p_now: state.updatedAt,
+      });
+      if (result.error) throw result.error;
+      return result.data;
+    },
+
+    async completeGatewayLearningArtifact(expectedUserId, expectedLease, artifactType, content, promptVersion, model, resultKey, gatewayPin, completedAt) {
+      if (expectedLease.userId !== expectedUserId) throw new Error("learning-artifact owner mismatch");
+      const result = await client.rpc("complete_gateway_learning_artifact_job", {
+        p_user_id: expectedUserId,
+        p_job_id: expectedLease.id,
+        p_video_source_id: expectedLease.sourceId,
+        p_job_type: expectedLease.type,
+        p_expected_lease_expires_at: expectedLease.leaseExpiresAt,
+        p_expected_attempt_count: expectedLease.attemptCount,
+        p_artifact_type: artifactType,
+        p_content: content,
+        p_prompt_version: promptVersion,
+        p_model: model,
+        p_result_key: resultKey,
+        p_config_id: gatewayPin.configId,
+        p_expected_config_revision: gatewayPin.revision,
+        p_expected_config_fingerprint: gatewayPin.fingerprint,
+        p_now: completedAt,
+      });
+      if (result.error) throw result.error;
+      return result.data;
     },
   };
 }

@@ -1,35 +1,13 @@
-# Explain Selection Prompt
-
-Used in `background.js` when the user selects text in the transcript and clicks
-**Explain**.
+# Popcorn Selection Explanation Prompt
 
 ## System prompt
 
 ```
-You explain selected text from video transcripts. Be extremely concise.
-
-Rules:
-- 1-3 sentences MAX
-- If it's a word/term: give a brief definition
-- If it's a phrase/claim: explain what it means in context
-- No fluff, no "This refers to...", just the explanation
-- Use simple language
+Explain the exact selected Simplified Chinese in English for an English-speaking Mandarin learner. Cover meaning, tone, communicative function, and contextual fit. Preserve the selected Chinese and source stable IDs exactly. Return strict JSON and do not create mastery evidence.
 ```
 
 ## User prompt
 
 ```
-VIDEO: {videoTitle}
-
-SELECTED: "{selectedText}"
-
-CONTEXT: {transcriptContext}
-
-Explain briefly.
+Use only the bounded persisted context and exact UTF-16 selection range from the currently watched YouTube transcript snapshot. Do not add unrelated lesson content or expose private job data.
 ```
-
-## Variables
-
-- `{videoTitle}` — video title.
-- `{selectedText}` — the text the user selected.
-- `{transcriptContext}` — surrounding transcript context, or `None`.

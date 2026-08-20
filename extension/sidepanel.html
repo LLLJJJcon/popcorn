@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>YouTube Digest</title>
+    <title>Popcorn</title>
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
@@ -32,7 +32,7 @@
       <div class="tabs" id="tabsNav" style="display: none">
         <button class="tab active" data-tab="transcript">Transcript</button>
         <button class="tab" data-tab="overview">Overview</button>
-        <button class="tab" data-tab="notes">Notes</button>
+        <button class="tab" data-tab="saved">Saved</button>
       </div>
     </div>
 
@@ -41,7 +41,7 @@
       <!-- WELCOME STATE -->
       <div id="welcomeState" class="welcome-container">
         <div class="welcome-icon">&#9655;</div>
-        <div class="welcome-title">Ready to Digest</div>
+        <div class="welcome-title">Learn Mandarin with Popcorn</div>
         <div class="welcome-desc">
           Navigate to a YouTube video and click the extension icon to get an
           AI-powered digest.
@@ -90,21 +90,21 @@
                   <button
                     class="transcript-mode-btn active"
                     type="button"
-                    data-transcript-mode="original"
+                    data-transcript-mode="zh"
                     aria-pressed="true"
-                  >Original</button>
+                  >中文</button>
                   <button
                     class="transcript-mode-btn"
                     type="button"
-                    data-transcript-mode="zh"
+                    data-transcript-mode="en"
                     aria-pressed="false"
-                  >中文</button>
+                  >English</button>
                   <button
                     class="transcript-mode-btn"
                     type="button"
                     data-transcript-mode="bilingual"
                     aria-pressed="false"
-                  >双语</button>
+                  >Bilingual</button>
                   <span
                     class="translation-spinner"
                     id="langSpinner"
@@ -114,9 +114,6 @@
               </div>
               <div class="transcript-actions">
                 <button class="enhance-btn" id="copyTranscriptBtn">Copy</button>
-                <button class="enhance-btn" id="exportTranscriptBtn">
-                  Export
-                </button>
               </div>
             </div>
             <div id="transcriptList"></div>
@@ -125,6 +122,13 @@
 
         <!-- TAB: Overview (chapters + key quotes) - requires LLM -->
         <div class="tab-panel" data-panel="overview">
+          <div class="section">
+            <div class="section-title">Overview</div>
+            <div id="overviewText" class="overview-text">
+              Overview will appear here
+            </div>
+          </div>
+
           <!-- Chapters -->
           <div class="section">
             <div class="section-title">Chapters</div>
@@ -162,11 +166,11 @@
           </div>
         </div>
 
-        <!-- TAB: Notes -->
-        <div class="tab-panel" data-panel="notes">
+        <!-- TAB: Saved -->
+        <div class="tab-panel" data-panel="saved">
           <div class="section">
             <div class="section-header">
-              <div class="section-title">Saved Notes</div>
+              <div class="section-title">Saved to Popcorn</div>
               <div class="notes-filter">
                 <button
                   class="enhance-btn active"

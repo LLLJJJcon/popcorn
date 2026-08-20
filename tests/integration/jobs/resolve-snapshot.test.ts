@@ -137,6 +137,15 @@ function storeFixture(initial: KnowledgeJob): DurableJobStore & {
       });
       return true;
     },
+    async readLearningArtifactEvidence() {
+      throw new Error("not used by resolve_snapshot fixtures");
+    },
+    async transitionLearningArtifactFailure() {
+      throw new Error("not used by resolve_snapshot fixtures");
+    },
+    async completeGatewayLearningArtifact() {
+      throw new Error("not used by resolve_snapshot fixtures");
+    },
   };
 }
 

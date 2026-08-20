@@ -1,8 +1,7 @@
 /**
  * SIDE PANEL LOGIC
  *
- * Handles the UI for YouTube Digest: video detection, transcript analysis,
- * rendering results, and export features.
+ * Handles the pinned YouTube Digest UI adapted for Popcorn cloud learning.
  */
 
 const DEBUG = false;
@@ -21,6 +20,8 @@ let currentTranscript = null;
 let currentTranscriptText = null; // Plain text (for display/export)
 let currentTranscriptTimestamped = null; // With timestamps for AI analysis
 let currentTranscriptLanguage = null;
+let currentSnapshotId = null;
+let currentTranscriptHash = null;
 let currentVideoTitle = "";
 let currentChannelName = "";
 let currentVideoDescription = "";
@@ -30,9 +31,8 @@ let youtubeTabId = null; // Store the YouTube tab ID for reliable messaging
 let errorAction = null;
 
 // --- Translation state ---
-// The public transcript control intentionally supports only the original
-// subtitles, Chinese, and an aligned source + Chinese view.
-let currentTranscriptMode = "original";
+// Native Chinese is immediate; English is requested only when explicitly shown.
+let currentTranscriptMode = "zh";
 let translationGeneration = 0; // Invalidates responses from older UI modes/videos.
 let translationWorkCount = 0;
 let transcriptScrollObserver = null;
@@ -67,7 +67,7 @@ function sendTranslationMessage(message) {
 
     let messagePromise;
     try {
-      messagePromise = chrome.runtime.sendMessage(message);
+      messagePromise = sendCloudAction(message);
     } catch (error) {
       finish(reject, error);
       return;
@@ -78,6 +78,15 @@ function sendTranslationMessage(message) {
       (error) => finish(reject, error),
     );
   });
+}
+
+async function sendCloudAction(message, maxPolls = 4) {
+  let result = await chrome.runtime.sendMessage(message);
+  for (let poll = 0; result?.success && result.pending && poll < maxPolls; poll += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    result = await chrome.runtime.sendMessage({ ...message, jobId: result.jobId });
+  }
+  return result;
 }
 
 // --- Auto-scroll state (follow video playback in transcript) ---
@@ -143,6 +152,19 @@ function splitOversizedThought(text, maxChars) {
  * row while punctuation remains the preferred boundary.
  */
 function groupTranscriptEntries(entries, limits = TRANSCRIPT_SEGMENT_LIMITS) {
+  if (Array.isArray(entries) && entries.length > 0 && entries.every((entry) =>
+    typeof (entry.stableId || entry.id) === "string" &&
+    /^[a-f0-9]{64}$/.test(entry.stableId || entry.id))) {
+    return entries.map((entry) => ({
+      id: entry.stableId || entry.id,
+      sourceStableIds: [entry.stableId || entry.id],
+      start: Number(entry.start) || 0,
+      end:
+        (Number(entry.start) || 0) + Math.max(0, Number(entry.duration) || 0),
+      text: normalizeCaptionText(entry.text),
+      texts: [normalizeCaptionText(entry.text)],
+    }));
+  }
   if (!Array.isArray(entries) || entries.length === 0) return [];
 
   const pieces = [];
@@ -232,16 +254,6 @@ function groupTranscriptEntries(entries, limits = TRANSCRIPT_SEGMENT_LIMITS) {
 document.addEventListener("DOMContentLoaded", async () => {
   setupEventListeners();
   await evictOldCacheEntries(20);
-
-  const configStatus = await chrome.runtime.sendMessage({
-    action: "checkConfig",
-  });
-
-  if (!configStatus.hasSupadataKey || !configStatus.hasAiKey) {
-    showConfigError(configStatus);
-    return;
-  }
-
   await checkCurrentTab();
 });
 
@@ -375,9 +387,6 @@ function setupEventListeners() {
   document
     .getElementById("copyTranscriptBtn")
     ?.addEventListener("click", copyTranscript);
-  document
-    .getElementById("exportTranscriptBtn")
-    ?.addEventListener("click", exportTranscript);
   document.querySelectorAll(".transcript-mode-btn").forEach((button) => {
     button.addEventListener("click", () => {
       handleTranscriptModeChange(button.dataset.transcriptMode);
@@ -552,6 +561,8 @@ async function startDigest(videoId, videoUrl) {
     currentTranscriptText = cached.transcriptText;
     currentTranscriptTimestamped = cached.transcriptTimestamped;
     currentTranscriptLanguage = cached.transcriptLanguage || null;
+    currentSnapshotId = cached.snapshotId;
+    currentTranscriptHash = cached.transcriptHash;
     isAnalysisLoading = false;
 
     // Restore semantic-segment translations from persistent storage.
@@ -580,12 +591,9 @@ async function startDigest(videoId, videoUrl) {
     showState("results");
     document.getElementById("tabsNav").style.display = "flex";
 
-    // Load notes for this video
-    loadNotes(videoId);
-
     // Setup explain feature
     setupExplainFeature();
-    if (currentTranscriptMode !== "original") translateTranscript();
+    if (currentTranscriptMode !== "zh") translateTranscript();
     return;
   }
 
@@ -596,6 +604,8 @@ async function startDigest(videoId, videoUrl) {
   currentTranscriptText = null;
   currentTranscriptTimestamped = null;
   currentTranscriptLanguage = null;
+  currentSnapshotId = null;
+  currentTranscriptHash = null;
   isAnalysisLoading = false;
 
   if (currentVideoTitle || currentChannelName) {
@@ -608,23 +618,21 @@ async function startDigest(videoId, videoUrl) {
   showState("loading");
   updateLoading("Fetching transcript", "");
 
-  const transcriptResult = await chrome.runtime.sendMessage({
+  const transcriptResult = await sendCloudAction({
     action: "fetchTranscript",
     videoId: videoId,
   });
 
   if (!transcriptResult.success) {
-    if (transcriptResult.error === "NO_SUPADATA_KEY") {
-      showError(
-        "API key missing",
-        "Add your Supadata API key in YouTube Digest Settings.",
-      );
-      return;
-    }
     showError(
       "No transcript found",
       transcriptResult.message || transcriptResult.error,
     );
+    return;
+  }
+  if (transcriptResult.pending) {
+    showError("Transcript is still processing", "Try again shortly; Popcorn will resume the durable job.");
+    errorAction = () => startDigest(videoId, videoUrl);
     return;
   }
 
@@ -632,18 +640,17 @@ async function startDigest(videoId, videoUrl) {
   currentTranscriptText = transcriptResult.transcriptText;
   currentTranscriptTimestamped = transcriptResult.transcriptTextTimestamped;
   currentTranscriptLanguage = transcriptResult.language || null;
+  currentSnapshotId = transcriptResult.snapshotId;
+  currentTranscriptHash = transcriptResult.transcriptHash;
 
   // Render transcript immediately (no LLM needed)
   renderTranscript();
   showState("results");
   document.getElementById("tabsNav").style.display = "flex";
 
-  // Load notes for this video
-  loadNotes(videoId);
-
   // Setup explain feature for text selection
   setupExplainFeature();
-  if (currentTranscriptMode !== "original") translateTranscript();
+  if (currentTranscriptMode !== "zh") translateTranscript();
 
   // Save transcript to cache (without analysis)
   await saveToCache(videoId);
@@ -658,9 +665,23 @@ async function startDigest(videoId, videoUrl) {
 
 /**
  * Renders the analysis results into the Overview tab.
- * Shows chapters and key quotes only.
+ * Shows complete prose, chapters, and key quotes.
  */
+function formatTimestampSeconds(value) {
+  const totalSeconds = Math.max(0, Math.floor(Number(value) || 0));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function renderAnalysisResults(analysis) {
+  const overviewText = document.getElementById("overviewText");
+  if (overviewText) overviewText.textContent = analysis.overview || "";
+
   // Chapters
   const chapterList = document.getElementById("chapterList");
   chapterList.innerHTML = "";
@@ -669,7 +690,7 @@ function renderAnalysisResults(analysis) {
     li.className = "chapter-item";
     li.dataset.seconds = chapter.timestampSeconds;
     li.innerHTML = `
-      <span class="chapter-timestamp">${escapeHtml(chapter.timestamp)}</span>
+      <span class="chapter-timestamp">${formatTimestampSeconds(chapter.timestampSeconds)}</span>
       <div class="chapter-content">
         <span class="chapter-title">${escapeHtml(chapter.title)}</span>
         <span class="chapter-summary">${escapeHtml(chapter.summary || "")}</span>
@@ -678,7 +699,7 @@ function renderAnalysisResults(analysis) {
     li.addEventListener("click", () => {
       debugLog(
         "[YouTube Digest Panel] Chapter clicked:",
-        chapter.timestamp,
+        formatTimestampSeconds(chapter.timestampSeconds),
         chapter.timestampSeconds,
       );
       seekTo(chapter.timestampSeconds);
@@ -698,8 +719,9 @@ function renderAnalysisResults(analysis) {
     div.dataset.seconds = quote.timestampSeconds;
     div.innerHTML = `
       <div class="quote-text">${escapeHtml(quote.quote)}</div>
+      <div class="quote-meaning">${escapeHtml(quote.englishMeaning)}</div>
       <div class="quote-meta">
-        <span class="quote-timestamp">${escapeHtml(quote.timestamp)}</span>
+        <span class="quote-timestamp">${formatTimestampSeconds(quote.timestampSeconds)}</span>
         <div class="quote-actions">
           <button class="quote-save-note-btn" title="Save this quote as a note">📝 Note</button>
           <button class="quote-copy-btn" title="Copy this quote">⧉ Copy</button>
@@ -709,7 +731,7 @@ function renderAnalysisResults(analysis) {
     div.addEventListener("click", () => {
       debugLog(
         "[YouTube Digest Panel] Quote clicked:",
-        quote.timestamp,
+        formatTimestampSeconds(quote.timestampSeconds),
         quote.timestampSeconds,
       );
       seekTo(quote.timestampSeconds);
@@ -849,6 +871,8 @@ function renderTranscript() {
     const div = document.createElement("div");
     div.className = "transcript-entry";
     div.dataset.seconds = group.start;
+    div.dataset.endSeconds = group.end;
+    div.dataset.segmentId = group.id;
 
     const minutes = Math.floor(group.start / 60);
     const seconds = Math.floor(group.start % 60);
@@ -871,31 +895,6 @@ function renderTranscript() {
 
 function copyTranscript() {
   copyToClipboardWithFeedback(currentTranscriptText || "", "copyTranscriptBtn");
-}
-
-function exportTranscript() {
-  const transcriptContent = currentTranscriptText || "";
-  const videoUrl = `https://youtube.com/watch?v=${currentVideoId}`;
-
-  let exportText = "";
-  exportText += `TRANSCRIPT\n`;
-  exportText += `${"=".repeat(60)}\n\n`;
-  exportText += `Title: ${currentVideoTitle || "Unknown"}\n`;
-  exportText += `Channel: ${currentChannelName || "Unknown"}\n`;
-  exportText += `URL: ${videoUrl}\n`;
-  exportText += `\n${"—".repeat(60)}\n\n`;
-
-  if (currentVideoDescription) {
-    exportText += `DESCRIPTION:\n${currentVideoDescription}\n`;
-    exportText += `\n${"—".repeat(60)}\n\n`;
-  }
-
-  exportText += `TRANSCRIPT:\n\n${transcriptContent}\n`;
-  exportText += `\n${"—".repeat(60)}\n`;
-  exportText += `Exported by YouTube Digest\n`;
-
-  const filename = `${sanitizeFilename(currentVideoTitle)}-transcript.txt`;
-  downloadTextFile(exportText, filename);
 }
 
 // ============================================================
@@ -937,19 +936,6 @@ function showError(title, message) {
   document.getElementById("errorTitle").textContent = title;
   document.getElementById("errorMessage").textContent = message;
   document.getElementById("errorBtn").textContent = "Try Again";
-}
-
-function showConfigError(configStatus) {
-  const missingKeys = [];
-  if (!configStatus.hasSupadataKey) missingKeys.push("Supadata");
-  if (!configStatus.hasAiKey) missingKeys.push("AI provider");
-
-  showState("error");
-  document.getElementById("errorTitle").textContent = "API Keys Missing";
-  document.getElementById("errorMessage").textContent =
-    `Add your ${missingKeys.join(" and ")} API key${missingKeys.length === 1 ? "" : "s"} in YouTube Digest Settings.`;
-  document.getElementById("errorBtn").textContent = "Open Settings";
-  errorAction = () => chrome.runtime.sendMessage({ action: "openOptions" });
 }
 
 // ============================================================
@@ -1000,13 +986,10 @@ async function triggerAnalysis() {
       '<div class="quote-item" style="color: var(--text-muted); border-left-color: var(--border);">Loading quotes...</div>';
 
   try {
-    const analysisResult = await chrome.runtime.sendMessage({
-      action: "analyzeTranscript",
-      transcriptText: currentTranscriptTimestamped,
-      videoTitle: currentVideoTitle,
-      channelName: currentChannelName,
-      videoDescription: currentVideoDescription,
-      videoDuration: currentVideoDuration,
+    const analysisResult = await sendCloudAction({
+      action: "requestOverview",
+      videoId: currentVideoId,
+      snapshotId: currentSnapshotId,
     });
 
     if (!analysisResult.success) {
@@ -1015,8 +998,13 @@ async function triggerAnalysis() {
       isAnalysisLoading = false;
       return;
     }
+    if (analysisResult.pending) {
+      if (chapterList) chapterList.innerHTML = '<li class="chapter-item" style="color: var(--text-muted); border: none;">Overview is still processing. Reopen this tab shortly.</li>';
+      isAnalysisLoading = false;
+      return;
+    }
 
-    currentAnalysis = analysisResult.analysis;
+    currentAnalysis = analysisResult.content;
     renderAnalysisResults(currentAnalysis);
     highlightMomentsOnPage(currentAnalysis.keyMoments);
 
@@ -1195,7 +1183,7 @@ function setupExplainFeature() {
   tooltip.style.display = "none";
   document.body.appendChild(tooltip);
 
-  let selectedText = "";
+  let selectedEvidence = null;
 
   // Interacting with Explain must preserve the transcript selection and stay
   // isolated from document/row click behavior.
@@ -1213,23 +1201,27 @@ function setupExplainFeature() {
   // Listen for text selection
   document.addEventListener("mouseup", (e) => {
     const selection = window.getSelection();
-    const text = selection.toString().trim();
+    const text = selection?.toString().trim() || "";
 
     // Only show if selecting within transcript
-    const isInTranscript = transcriptList.contains(selection.anchorNode);
+    const isInTranscript = selection && transcriptList.contains(selection.anchorNode);
 
     // Allow any selection length (removed 10+ char requirement)
     if (text.length > 0 && isInTranscript) {
-      selectedText = text;
-
       // Position the tooltip near the selection
       const range = selection.getRangeAt(0);
+      selectedEvidence = projectTranscriptSelection(range, transcriptList);
+      if (!selectedEvidence) {
+        tooltip.style.display = "none";
+        return;
+      }
       const rect = range.getBoundingClientRect();
 
       tooltip.style.display = "block";
       tooltip.style.top = `${rect.bottom + window.scrollY + 8}px`;
       tooltip.style.left = `${rect.left + rect.width / 2}px`;
     } else {
+      selectedEvidence = null;
       tooltip.style.display = "none";
     }
   });
@@ -1247,17 +1239,116 @@ function setupExplainFeature() {
     .addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (!selectedText) return;
+      if (!selectedEvidence) return;
 
       tooltip.style.display = "none";
-      await showExplanation(selectedText);
+      await showExplanation(selectedEvidence);
     });
+}
+
+function nativeTextElement(row) {
+  return row.querySelector(".transcript-text, .transcript-original");
+}
+
+function utf16OffsetWithin(element, container, offset) {
+  if (!element.contains(container)) return null;
+  const prefix = element.ownerDocument.createRange();
+  prefix.selectNodeContents(element);
+  prefix.setEnd(container, offset);
+  return prefix.toString().length;
+}
+
+/**
+ * Projects a DOM Range onto persisted transcript rows. Context joins complete
+ * native rows with one newline, so UTF-16 offsets remain deterministic across
+ * DOM wrappers and across line boundaries.
+ */
+function projectTranscriptSelection(range, transcriptList) {
+  if (!range || range.collapsed || !transcriptList) return null;
+  const rows = [...transcriptList.querySelectorAll(".transcript-entry")].filter(
+    (row) => range.intersectsNode(row),
+  );
+  if (rows.length === 0 || rows.length > 32) return null;
+
+  const projectedRows = rows.map((row) => {
+    const nativeText = nativeTextElement(row);
+    const stableId = row.dataset.segmentId || "";
+    const startSeconds = Number(row.dataset.seconds);
+    const endSeconds = Number(row.dataset.endSeconds);
+    if (
+      !nativeText ||
+      !/^[a-f0-9]{64}$/.test(stableId) ||
+      !Number.isFinite(startSeconds) ||
+      !Number.isFinite(endSeconds) ||
+      endSeconds < startSeconds
+    ) {
+      return null;
+    }
+    return {
+      stableId,
+      startSeconds,
+      endSeconds,
+      nativeText: nativeText.textContent || "",
+      element: nativeText,
+    };
+  });
+  if (projectedRows.some((row) => row === null)) return null;
+
+  const completeRows = projectedRows;
+  const first = completeRows[0];
+  const last = completeRows[completeRows.length - 1];
+  let localStart = utf16OffsetWithin(
+    first.element,
+    range.startContainer,
+    range.startOffset,
+  );
+  let localEnd = utf16OffsetWithin(
+    last.element,
+    range.endContainer,
+    range.endOffset,
+  );
+  if (localStart === null) localStart = 0;
+  if (localEnd === null) localEnd = last.nativeText.length;
+
+  const context = completeRows.map((row) => row.nativeText).join("\n");
+  const utf16Start = localStart;
+  const utf16End = completeRows
+    .slice(0, -1)
+    .reduce((length, row) => length + row.nativeText.length + 1, 0) + localEnd;
+  if (context.length > 16_000 || utf16End <= utf16Start) return null;
+
+  let adjustedStart = utf16Start;
+  let adjustedEnd = utf16End;
+  while (/\s/u.test(context.charAt(adjustedStart))) adjustedStart += 1;
+  while (/\s/u.test(context.charAt(adjustedEnd - 1))) adjustedEnd -= 1;
+  const selectedChinese = context.slice(adjustedStart, adjustedEnd);
+  if (!selectedChinese || selectedChinese.length > 2_000) return null;
+
+  return {
+    selectedChinese,
+    segmentIds: [...new Set(completeRows.map((row) => row.stableId))],
+    utf16Start: adjustedStart,
+    utf16End: adjustedEnd,
+    startSeconds: Math.min(...completeRows.map((row) => row.startSeconds)),
+    endSeconds: Math.max(...completeRows.map((row) => row.endSeconds)),
+    context,
+  };
+}
+
+function createExplanationMessage(selectionEvidence, identity) {
+  return {
+    action: "explainSelection",
+    videoId: identity.videoId,
+    snapshotId: identity.snapshotId,
+    ...selectionEvidence,
+  };
 }
 
 /**
  * Shows the explanation modal and fetches it from the configured AI provider.
  */
-async function showExplanation(selectedText) {
+async function showExplanation(selectionEvidence) {
+  const selectedText = selectionEvidence.selectedChinese;
   // Create modal
   const modal = document.createElement("div");
   modal.id = "explainModal";
@@ -1288,21 +1379,25 @@ async function showExplanation(selectedText) {
     if (e.target === modal) modal.remove();
   });
 
-  // Get some context around the selection from the transcript
-  const transcriptContext = getTranscriptContext(selectedText);
-
   // Fetch explanation
   try {
-    const result = await chrome.runtime.sendMessage({
-      action: "explainSelection",
-      selectedText: selectedText,
-      transcriptContext: transcriptContext,
-      videoTitle: currentVideoTitle,
-    });
+    const result = await sendCloudAction(createExplanationMessage(selectionEvidence, {
+      videoId: currentVideoId,
+      snapshotId: currentSnapshotId,
+    }));
 
     const contentDiv = document.getElementById("explanationContent");
-    if (result.success) {
-      contentDiv.innerHTML = `<div class="explain-text">${escapeHtml(result.explanation).replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>")}</div>`;
+    if (result.success && !result.pending) {
+      const explanation = result.content;
+      const text = [
+        `Meaning: ${explanation.meaning}`,
+        `Tone: ${explanation.tone}`,
+        `Communicative function: ${explanation.communicativeFunction}`,
+        `Contextual fit: ${explanation.contextualFit}`,
+      ].join("\n\n");
+      contentDiv.innerHTML = `<div class="explain-text">${escapeHtml(text).replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>")}</div>`;
+    } else if (result.pending) {
+      contentDiv.innerHTML = '<div class="explain-loading">Explanation is still processing. Try Explain again shortly.</div>';
     } else {
       contentDiv.innerHTML = `<div class="explain-error">Failed to get explanation: ${escapeHtml(result.error)}</div>`;
     }
@@ -1332,48 +1427,8 @@ function getTranscriptContext(selectedText) {
 // CACHING
 // ============================================================
 
-/**
- * Saves the current digest results to persistent local storage.
- * Results survive browser restarts — reopening the same video loads from cache
- * without consuming API tokens or Supadata calls.
- * Cache expires after 30 days. Oldest entries evicted when > 20 videos cached.
- */
-async function saveToCache(videoId) {
-  if (!videoId || !currentTranscript) return;
-
-  try {
-    // Persist semantic-segment translations for this video.
-    const paragraphCacheForVideo = {};
-    for (const [key, value] of transcriptParagraphCache.entries()) {
-      if (key.startsWith(`${videoId}:`)) {
-        paragraphCacheForVideo[key] = value;
-      }
-    }
-
-    const cacheData = {
-      analysis: currentAnalysis, // May be null if not yet analyzed
-      transcript: currentTranscript,
-      transcriptText: currentTranscriptText,
-      transcriptTimestamped: currentTranscriptTimestamped,
-      transcriptLanguage: currentTranscriptLanguage,
-      videoTitle: currentVideoTitle,
-      channelName: currentChannelName,
-      paragraphCache: paragraphCacheForVideo,
-      timestamp: Date.now(),
-    };
-
-    await chrome.storage.local.set({ [`digest_${videoId}`]: cacheData });
-    debugLog(
-      "Saved to cache:",
-      videoId,
-      currentAnalysis ? "(with analysis)" : "(transcript only)",
-    );
-
-    // Evict old entries if we have more than 20 videos cached
-    await evictOldCacheEntries(20);
-  } catch (error) {
-    console.error("Cache save error:", error);
-  }
+async function saveToCache() {
+  // Cloud transcript/artifact payloads are intentionally not persisted locally.
 }
 
 /**
@@ -1423,35 +1478,15 @@ async function evictOldCacheEntries(maxEntries) {
  * Returns null if not cached or expired (30-day expiry).
  */
 async function loadFromCache(videoId) {
-  if (!videoId) return null;
-
-  try {
-    const result = await chrome.storage.local.get(`digest_${videoId}`);
-    const cached = result[`digest_${videoId}`];
-
-    if (!cached) return null;
-
-    // Cache expires after 30 days
-    const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
-    if (Date.now() - cached.timestamp > THIRTY_DAYS) {
-      await chrome.storage.local.remove(`digest_${videoId}`);
-      return null;
-    }
-
-    return cached;
-  } catch (error) {
-    console.error("Cache load error:", error);
-    return null;
-  }
+  void videoId;
+  return null;
 }
 
 /**
  * Updates the cache after enhance or translation operations.
  */
 async function updateCache() {
-  if (currentVideoId) {
-    await saveToCache(currentVideoId);
-  }
+  await saveToCache();
 }
 
 // ============================================================
@@ -1738,10 +1773,7 @@ function onContentAreaScroll() {
 // ============================================================
 
 function getOriginalTranscriptLabel() {
-  const language = String(currentTranscriptLanguage || "").trim();
-  return /^[A-Za-z0-9-]{1,20}$/.test(language)
-    ? `Original (${language})`
-    : "Original";
+  return "Native Simplified Chinese";
 }
 
 function getActiveTranscriptSegments() {
@@ -1749,7 +1781,7 @@ function getActiveTranscriptSegments() {
 }
 
 function transcriptTranslationCacheKey(segment) {
-  return `${currentVideoId}:zh:semantic:${segment.id}`;
+  return `${currentVideoId}:en:semantic:${segment.id}`;
 }
 
 function setTranscriptModeButtons(mode) {
@@ -1761,7 +1793,7 @@ function setTranscriptModeButtons(mode) {
 }
 
 async function handleTranscriptModeChange(mode) {
-  if (!["original", "zh", "bilingual"].includes(mode)) return;
+  if (!["zh", "en", "bilingual"].includes(mode)) return;
   if (mode === currentTranscriptMode) return;
 
   currentTranscriptMode = mode;
@@ -1772,7 +1804,7 @@ async function handleTranscriptModeChange(mode) {
   transcriptScrollObserver = null;
   setTranscriptModeButtons(mode);
 
-  if (mode === "original") {
+  if (mode === "zh") {
     renderTranscript();
     return;
   }
@@ -1791,6 +1823,9 @@ function renderTranscriptSegmentContent(segment, mode, translated, error) {
     translationHtml = "Waiting for translation…";
   }
 
+  if (mode === "zh") {
+    return `<span class="transcript-copy"><span class="transcript-original">${original}</span></span>`;
+  }
   if (mode === "bilingual") {
     return `<span class="transcript-copy"><span class="transcript-original">${original}</span><span class="transcript-translation ${translated ? "" : error ? "translation-error" : "translation-pending"}">${translationHtml}</span></span>`;
   }
@@ -1811,8 +1846,8 @@ function renderTranscriptModeRows(segments, mode) {
   const originalLabel = getOriginalTranscriptLabel();
   const modeLabel =
     mode === "bilingual"
-      ? `${originalLabel} + 简体中文`
-      : `简体中文 · translated from ${originalLabel}`;
+      ? `${originalLabel} + English`
+      : `English · translated from ${originalLabel}`;
   badge.innerHTML = `<span class="source-dot source-dot--subs"></span> From video subtitles · ${modeLabel}`;
   transcriptList.parentElement.insertBefore(badge, transcriptList);
 
@@ -1824,6 +1859,7 @@ function renderTranscriptModeRows(segments, mode) {
     );
     div.className = `transcript-entry ${cached ? "translated" : "translating"}`;
     div.dataset.seconds = segment.start;
+    div.dataset.endSeconds = segment.end;
     div.dataset.segmentId = segment.id;
     div.dataset.segmentIndex = index;
 
@@ -1851,16 +1887,20 @@ function renderTranscriptModeRows(segments, mode) {
  */
 function alignTranslatedSegmentBatch(sourceSegments, responseSegments) {
   const translatedById = new Map();
+  const duplicateIds = new Set();
   if (Array.isArray(responseSegments)) {
     responseSegments.forEach((item) => {
-      if (!item || typeof item.id !== "string" || typeof item.text !== "string")
+      if (!item || typeof item.id !== "string" || typeof item.english !== "string")
         return;
-      const text = item.text.trim();
-      if (text && !translatedById.has(item.id)) {
+      const text = item.english.trim();
+      if (translatedById.has(item.id)) {
+        duplicateIds.add(item.id);
+      } else if (text) {
         translatedById.set(item.id, text);
       }
     });
   }
+  duplicateIds.forEach((id) => translatedById.delete(id));
 
   return sourceSegments.map((segment) => ({
     id: segment.id,
@@ -1925,13 +1965,10 @@ async function requestTranscriptTranslationBatch(
   setTranslatingSpinner(true);
   try {
     const result = await sendTranslationMessage({
-      action: "translateContent",
-      content: {
-        segments: sourceBatch.map(({ id, text }) => ({ id, text })),
-      },
-      contentType: "transcriptBatch",
-      targetLanguage: "zh",
-      videoTitle: currentVideoTitle,
+      action: "translateSegments",
+      videoId: currentVideoId,
+      snapshotId: currentSnapshotId,
+      segmentIds: sourceBatch.map(({ id }) => id),
     });
 
     const isStale =
@@ -1941,7 +1978,7 @@ async function requestTranscriptTranslationBatch(
     if (isStale) return;
 
     const responseSegments = result?.success
-      ? result.translatedContent?.segments
+      ? result.content?.segments
       : [];
     const aligned = alignTranslatedSegmentBatch(sourceBatch, responseSegments);
     aligned.forEach((item, batchIndex) => {
@@ -1994,7 +2031,7 @@ function retryTranslationSegment(index, generation) {
  */
 async function translateTranscript() {
   const segments = getActiveTranscriptSegments();
-  if (!segments.length || currentTranscriptMode === "original") return;
+  if (!segments.length || currentTranscriptMode === "zh") return;
 
   translationGeneration += 1;
   const generation = translationGeneration;
@@ -2082,4 +2119,8 @@ globalThis.__YTD_TRANSCRIPT_TESTING__ = {
   alignTranslatedSegmentBatch,
   renderSubtitleInlineMarkup,
   renderTranscriptSegmentContent,
+  projectTranscriptSelection,
+  createExplanationMessage,
+  renderAnalysisResults,
+  formatTimestampSeconds,
 };

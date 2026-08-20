@@ -5,6 +5,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getServerEnv } from "@/server/env";
 import {
   createJobStatusRoute,
+  parsePublicLearningArtifactResult,
   parsePublicResolveSnapshotResult,
   type PublicJobStatus,
 } from "@/server/jobs/process-jobs";
@@ -54,7 +55,7 @@ function createStatusReader(
   return async (expectedUserId, jobId) => {
     const result = await client
       .from("knowledge_jobs")
-      .select("id,user_id,status")
+      .select("id,user_id,status,job_type")
       .eq("user_id", expectedUserId)
       .eq("id", jobId)
       .maybeSingle();
@@ -72,7 +73,9 @@ function createStatusReader(
       if (internal.error || internal.data.user_id !== expectedUserId) {
         throw internal.error ?? new Error("private job owner mismatch");
       }
-      publicResult = parsePublicResolveSnapshotResult(internal.data.result);
+      publicResult = result.data.job_type === "resolve_snapshot"
+        ? parsePublicResolveSnapshotResult(internal.data.result)
+        : parsePublicLearningArtifactResult(internal.data.result);
     }
     return {
       id: result.data.id,

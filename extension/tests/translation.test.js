@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { JSDOM } = require("jsdom");
 
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
@@ -11,8 +12,19 @@ function loadSidepanelHelpers({
   sendMessage = () => Promise.resolve({}),
   setTimeoutImpl = () => 0,
   clearTimeoutImpl = () => {},
+  documentImpl,
+  windowImpl,
 } = {}) {
   const listeners = { addListener() {} };
+  const injectedDocument = documentImpl
+    ? new Proxy(documentImpl, {
+      get(target, property) {
+        if (property === "addEventListener") return () => {};
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    })
+    : null;
   const sandbox = {
     console,
     URL,
@@ -24,8 +36,8 @@ function loadSidepanelHelpers({
     clearInterval() {},
     IntersectionObserver: class {},
     CSS: { escape: (value) => value },
-    window: { getSelection: () => null, close() {} },
-    document: {
+    window: windowImpl || { getSelection: () => null, close() {} },
+    document: injectedDocument || {
       addEventListener() {},
       querySelectorAll: () => [],
       querySelector: () => null,
@@ -59,12 +71,7 @@ function loadSidepanelHelpers({
 }
 
 function loadBackgroundHelpers({
-  settings = {
-    provider: "deepseek",
-    aiApiKey: "test-key",
-    aiBaseUrl: "https://api.deepseek.com",
-    aiModel: "deepseek-v4-flash",
-  },
+  accessToken = "popcorn-access-token",
   fetchImpl = fetch,
   setTimeoutImpl = () => 0,
   clearTimeoutImpl = () => {},
@@ -84,7 +91,7 @@ function loadBackgroundHelpers({
       storage: {
         local: {
           setAccessLevel: () => Promise.resolve(),
-          get: async () => ({ ytd_settings: settings }),
+          get: async () => ({}),
         },
       },
       action: { onClicked: listeners },
@@ -96,85 +103,43 @@ function loadBackgroundHelpers({
         onInstalled: listeners,
         onMessage: listeners,
         openOptionsPage() {},
+        id: "extension-id",
         getURL: (resourcePath) => `chrome-extension://test/${resourcePath}`,
       },
-      tabs: { onUpdated: listeners, onActivated: listeners },
+      tabs: {
+        onUpdated: listeners,
+        onActivated: listeners,
+        get: async () => ({ url: "https://www.youtube.com/watch?v=abc123XYZ00" }),
+        query: async () => [],
+        sendMessage: async () => ({}),
+      },
+      scripting: { executeScript: async () => [] },
     },
     YTD_SETTINGS: {
-      STORAGE_KEY: "ytd_settings",
-      normalize: (value) => value,
-      chatCompletionsUrl: (baseUrl) => `${baseUrl}/chat/completions`,
+      DEFAULTS: { boundedCachePrefix: "popcorn:test" },
+    },
+    POPCORN_AUTH: {
+      createAuthClient: () => ({
+        initialize: async () => {},
+        getAccessToken: async () => accessToken,
+      }),
+      createAuthMessageHandler: () => async () => ({ ok: true }),
     },
   };
   sandbox.globalThis = sandbox;
   vm.runInNewContext(read("background.js"), sandbox);
-  return sandbox.__YTD_TRANSLATION_TESTING__;
+  return sandbox.__POPCORN_CLOUD_TESTING__;
 }
 
-function createFakeTimers() {
-  let nextId = 1;
-  const timers = new Map();
-  return {
-    setTimeout(callback, delay) {
-      const id = nextId++;
-      timers.set(id, { callback, delay, active: true });
-      return id;
-    },
-    clearTimeout(id) {
-      const timer = timers.get(id);
-      if (timer) timer.active = false;
-    },
-    fireActive(delay) {
-      const match = [...timers.entries()].find(
-        ([, timer]) => timer.active && timer.delay === delay,
-      );
-      assert.ok(match, `Expected an active ${delay}ms timer`);
-      match[1].active = false;
-      match[1].callback();
-    },
-    activeCount(delay) {
-      return [...timers.values()].filter(
-        (timer) => timer.active && timer.delay === delay,
-      ).length;
-    },
-    createdCount(delay) {
-      return [...timers.values()].filter((timer) => timer.delay === delay).length;
-    },
-  };
-}
-
-function streamingResponse(chunks, { ok = true, status = 200 } = {}) {
-  let index = 0;
-  return {
-    ok,
-    status,
-    body: {
-      getReader() {
-        return {
-          async read() {
-            if (index >= chunks.length) return { done: true };
-            return { done: false, value: chunks[index++] };
-          },
-          async cancel() {},
-        };
-      },
-    },
-  };
-}
-
-const encode = (value) => new TextEncoder().encode(value);
-const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
-
-test("Transcript header exposes and wires Original, Chinese, and bilingual modes", () => {
+test("Transcript header exposes and wires Chinese, English, and bilingual modes", () => {
   const html = read("sidepanel.html");
   const js = read("sidepanel.js");
-  assert.match(html, /data-transcript-mode="original"[\s\S]*?>Original</);
   assert.match(html, /data-transcript-mode="zh"[\s\S]*?>\u4e2d\u6587</);
-  assert.match(html, /data-transcript-mode="bilingual"[\s\S]*?>\u53cc\u8bed</);
+  assert.match(html, /data-transcript-mode="en"[\s\S]*?>English</);
+  assert.match(html, /data-transcript-mode="bilingual"[\s\S]*?>Bilingual</);
   assert.match(js, /handleTranscriptModeChange\(button\.dataset\.transcriptMode\)/);
-  assert.match(js, /contentType: "transcriptBatch"/);
-  assert.doesNotMatch(js, /English \+ Chinese/);
-  assert.match(js, /Original \(\$\{language\}\)/);
+  assert.match(js, /action: "translateSegments"/);
+  assert.doesNotMatch(js, /English \+ Chinese|Original \(\$\{language\}\)/);
 });
 
 test("semantic segmentation rebuilds sentences across caption boundaries", () => {
@@ -228,55 +193,43 @@ test("Chinese sentence and clause punctuation creates semantic guardrails", () =
 
 test("structured translation batches align by stable ID and expose missing fallback", () => {
   const sidepanel = loadSidepanelHelpers();
-  const background = loadBackgroundHelpers();
   const source = [
     { id: "segment-0-0", text: "A complete first sentence." },
     { id: "segment-1-5000", text: "A complete second sentence." },
   ];
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(background.validateTranscriptBatchRequest({ segments: source }))),
-    source,
-  );
-
-  const normalized = background.normalizeTranslatedSegmentBatch(
-    {
-      segments: [
-        { id: "unknown", text: "\u5ffd\u7565" },
-        { id: "segment-1-5000", text: "\u7b2c\u4e8c\u4e2a\u5b8c\u6574\u53e5\u5b50\u3002" },
-      ],
-    },
-    source,
-  );
   const aligned = sidepanel.alignTranslatedSegmentBatch(
     source,
-    normalized.segments,
+    [
+      { id: "unknown", english: "Ignored" },
+      { id: "segment-1-5000", english: "A complete second sentence." },
+    ],
   );
   assert.equal(aligned[0].id, source[0].id);
   assert.equal(aligned[0].text, "");
   assert.match(aligned[0].error, /unavailable/i);
-  assert.equal(aligned[1].text, "\u7b2c\u4e8c\u4e2a\u5b8c\u6574\u53e5\u5b50\u3002");
+  assert.equal(aligned[1].text, "A complete second sentence.");
 });
 
-test("translated-only omits English while bilingual renders aligned English and Chinese", () => {
+test("English-only omits Chinese while bilingual renders aligned Chinese and English", () => {
   const { renderTranscriptSegmentContent } = loadSidepanelHelpers();
-  const segment = { id: "segment-0-0", text: "Original English sentence." };
+  const segment = { id: "segment-0-0", text: "原始中文句子。" };
   const translatedOnly = renderTranscriptSegmentContent(
     segment,
-    "zh",
-    "\u4e2d\u6587\u8bd1\u6587\u3002",
+    "en",
+    "Natural English translation.",
     "",
   );
   const bilingual = renderTranscriptSegmentContent(
     segment,
     "bilingual",
-    "\u4e2d\u6587\u8bd1\u6587\u3002",
+    "Natural English translation.",
     "",
   );
-  assert.doesNotMatch(translatedOnly, /Original English sentence/);
-  assert.match(translatedOnly, /\u4e2d\u6587\u8bd1\u6587/);
+  assert.doesNotMatch(translatedOnly, /原始中文句子/);
+  assert.match(translatedOnly, /Natural English translation/);
   assert.match(bilingual, /transcript-original/);
-  assert.match(bilingual, /Original English sentence/);
-  assert.match(bilingual, /\u4e2d\u6587\u8bd1\u6587/);
+  assert.match(bilingual, /原始中文句子/);
+  assert.match(bilingual, /Natural English translation/);
 });
 
 test("subtitle formatting tags render in original and translated segment text", () => {
@@ -309,225 +262,99 @@ test("subtitle markup renderer keeps attributed and arbitrary HTML escaped", () 
   assert.doesNotMatch(html, /<img\b|<i\s+onclick|<script\b/);
 });
 
-test("background rejects unsupported language fallthrough and malformed batches", () => {
+test("background exposes only fixed Popcorn learning-artifact actions", () => {
   const source = read("background.js");
-  const { validateTranscriptBatchRequest } = loadBackgroundHelpers();
-  assert.match(source, /targetLanguage !== "zh"/);
-  assert.throws(
-    () => validateTranscriptBatchRequest({ segments: [] }),
-    /1 to 4 segments/,
-  );
-  assert.throws(
-    () =>
-      validateTranscriptBatchRequest({
-        segments: [
-          { id: "duplicate", text: "first" },
-          { id: "duplicate", text: "second" },
-        ],
-      }),
-    /unique and stable/,
-  );
+  const helpers = loadBackgroundHelpers();
+  assert.equal(typeof helpers.requestOverview, "function");
+  assert.equal(typeof helpers.translateSegments, "function");
+  assert.equal(typeof helpers.explainSelection, "function");
+  assert.doesNotMatch(source, /requestAiCompletion|callAiTranslation|providerHost|chat\/completions/);
 });
 
-test("all AI product requests use DeepSeek non-thinking and JSON behavior", async () => {
-  const deepSeekRequests = [];
-  const successfulFetch = (requests) => async (_url, options) => {
-    requests.push(JSON.parse(options.body));
-    return {
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: "translated" } }],
-      }),
-    };
-  };
-
-  const deepSeek = loadBackgroundHelpers({
-    fetchImpl: successfulFetch(deepSeekRequests),
-  });
-  const deepSeekResult = await deepSeek.requestAiCompletion({
-    maxTokens: 128,
-    responseFormat: { type: "json_object" },
-    messages: [{ role: "user", content: "Hello." }],
-  });
-  assert.equal(deepSeekResult.text, "translated");
-  assert.deepEqual(deepSeekRequests[0].thinking, { type: "disabled" });
-  assert.deepEqual(deepSeekRequests[0].response_format, {
-    type: "json_object",
-  });
-
-  const backgroundSource = read("background.js");
-  assert.equal(
-    (backgroundSource.match(/await requestAiCompletion\(\{/g) || []).length,
-    4,
-  );
-  assert.doesNotMatch(backgroundSource, /disableThinking/);
-  for (const callPath of [
-    "handleAnalyzeTranscript",
-    "cleanupNoteText",
-    "handleExplainSelection",
-    "callAiTranslation",
-  ]) {
-    assert.match(
-      backgroundSource,
-      new RegExp(`async function ${callPath}\\([\\s\\S]*?requestAiCompletion\\(\\{`),
-    );
-  }
-});
-
-test("blank-line chunks reset provider idle timeout and valid JSON succeeds", async () => {
-  const timers = createFakeTimers();
-  const helpers = loadBackgroundHelpers({
-    setTimeoutImpl: timers.setTimeout,
-    clearTimeoutImpl: timers.clearTimeout,
-    fetchImpl: async () =>
-      streamingResponse([
-        encode("\n"),
-        encode("\n"),
-        encode('{"choices":[{"message":{"content":"translated"}}]}'),
-      ]),
-  });
-
-  const result = await helpers.callAiTranslation("Translate.", "Hello.");
-  assert.equal(result.success, true);
-  assert.equal(result.text, "translated");
-  assert.equal(timers.createdCount(50_000), 5);
-  assert.equal(timers.activeCount(50_000), 0);
-  assert.equal(timers.activeCount(120_000), 0);
-});
-
-test("provider idle silence aborts with a distinct Retry-able error", async () => {
-  const timers = createFakeTimers();
-  const helpers = loadBackgroundHelpers({
-    setTimeoutImpl: timers.setTimeout,
-    clearTimeoutImpl: timers.clearTimeout,
-    fetchImpl: async (_url, { signal }) => ({
-      ok: true,
-      status: 200,
-      body: {
-        getReader: () => ({
-          read: () =>
-            new Promise((_resolve, reject) => {
-              signal.addEventListener("abort", () => {
-                const error = new Error("aborted");
-                error.name = "AbortError";
-                reject(error);
-              });
-            }),
-        }),
-      },
-    }),
-  });
-
-  const request = helpers.callAiTranslation("Translate.", "Hello.");
-  await nextTurn();
-  timers.fireActive(50_000);
-  const result = await request;
-  assert.equal(result.success, false);
-  assert.equal(result.code, "AI_IDLE_TIMEOUT");
-  assert.match(result.error, /inactive for 50 seconds.*Retry/i);
-  assert.equal(timers.activeCount(120_000), 0);
-});
-
-test("blank-line keepalives cannot evade the provider hard cap", async () => {
-  const timers = createFakeTimers();
-  let releaseRead;
-  let signal;
-  const helpers = loadBackgroundHelpers({
-    setTimeoutImpl: timers.setTimeout,
-    clearTimeoutImpl: timers.clearTimeout,
-    fetchImpl: async (_url, options) => {
-      signal = options.signal;
-      return {
-        ok: true,
-        status: 200,
-        body: {
-          getReader: () => ({
-            read: () =>
-              new Promise((resolve, reject) => {
-                releaseRead = () => resolve({ done: false, value: encode("\n") });
-                signal.addEventListener("abort", () => {
-                  const error = new Error("aborted");
-                  error.name = "AbortError";
-                  reject(error);
-                }, { once: true });
-              }),
-          }),
-        },
-      };
-    },
-  });
-
-  const request = helpers.callAiTranslation("Translate.", "Hello.");
-  await nextTurn();
-  releaseRead();
-  await nextTurn();
-  releaseRead();
-  await nextTurn();
-  assert.equal(timers.activeCount(50_000), 1);
-  timers.fireActive(120_000);
-  const result = await request;
-  assert.equal(result.success, false);
-  assert.equal(result.code, "AI_HARD_TIMEOUT");
-  assert.match(result.error, /120-second limit.*Retry/i);
-  assert.equal(timers.activeCount(50_000), 0);
-});
-
-test("provider response reader accepts leading whitespace before JSON", async () => {
-  const helpers = loadBackgroundHelpers({
-    fetchImpl: async () =>
-      streamingResponse([
-        encode('  \n\t{"choices":[{"message":{"content":"ok"}}]}'),
-      ]),
-  });
-  const result = await helpers.callAiTranslation("Translate.", "Hello.");
-  assert.equal(result.success, true);
-  assert.equal(result.text, "ok");
-});
-
-test("provider response reader rejects bodies over 2 MiB", async () => {
-  const helpers = loadBackgroundHelpers({
-    fetchImpl: async () =>
-      streamingResponse([new Uint8Array(2 * 1024 * 1024 + 1)]),
-  });
-  const result = await helpers.callAiTranslation("Translate.", "Hello.");
-  assert.equal(result.success, false);
-  assert.equal(result.code, "AI_RESPONSE_TOO_LARGE");
-  assert.match(result.error, /2 MiB limit/);
-});
-
-test("DeepSeek retries one empty transcript JSON response without response_format", async () => {
+test("all AI product requests use authenticated fixed Popcorn routes", async () => {
   const requests = [];
   const helpers = loadBackgroundHelpers({
     fetchImpl: async (url, options) => {
-      if (url.startsWith("chrome-extension://")) {
-        return { ok: true, text: async () => read("prompts/translation.md") };
-      }
-      requests.push(JSON.parse(options.body));
-      return {
-        ok: true,
-        json: async () => ({
-          choices: [{
-            message: {
-              content: requests.length === 1
-                ? ""
-                : '{"segments":[{"id":"segment-0-0","text":"\u4e2d\u6587\u8bd1\u6587\u3002"}]}',
-            },
-          }],
-        }),
-      };
+      requests.push({ url, options });
+      return { status: 202, json: async () => ({ ok: true, data: { jobId: "job-1", status: "pending" } }) };
     },
   });
-  const result = await helpers.handleTranslateContent(
-    { segments: [{ id: "segment-0-0", text: "English source sentence." }] },
-    "transcriptBatch",
-    "zh",
-    "Video",
+  await helpers.requestOverview({ videoId: "abc123XYZ00", snapshotId: "snapshot-1" });
+  await helpers.translateSegments({ videoId: "abc123XYZ00", snapshotId: "snapshot-1", segmentIds: ["segment-1"] });
+  await helpers.explainSelection({
+    videoId: "abc123XYZ00", snapshotId: "snapshot-1", selectedChinese: "你好",
+    segmentIds: ["segment-1"], utf16Start: 0, utf16End: 2,
+    startSeconds: 0, endSeconds: 1, context: "你好",
+  });
+  assert.deepEqual(requests.map(({ url }) => url), [
+    "https://app.popcorn.local/api/v1/youtube/abc123XYZ00/overview",
+    "https://app.popcorn.local/api/v1/youtube/abc123XYZ00/translations",
+    "https://app.popcorn.local/api/v1/explanations",
+  ]);
+  assert.ok(requests.every(({ options }) => options.headers.Authorization === "Bearer popcorn-access-token"));
+});
+
+test("a registration response returns pending without in-process provider polling", async () => {
+  let fetches = 0;
+  const helpers = loadBackgroundHelpers({ fetchImpl: async () => {
+    fetches += 1;
+    return { status: 202, json: async () => ({ ok: true, data: { jobId: "job-1", status: "pending" } }) };
+  } });
+  assert.deepEqual(JSON.parse(JSON.stringify(await helpers.requestOverview({ videoId: "abc123XYZ00", snapshotId: "snapshot-1" }))), {
+    success: true, pending: true, jobId: "job-1", status: "pending",
+  });
+  assert.equal(fetches, 1);
+});
+
+test("one status poll is one independent short Popcorn request", async () => {
+  const paths = [];
+  const helpers = loadBackgroundHelpers({ fetchImpl: async (url) => {
+    paths.push(url);
+    return { status: 200, json: async () => ({ ok: true, data: { status: "retryable_failed" } }) };
+  } });
+  assert.deepEqual(await helpers.pollTranscriptJob("job-1"), { status: "retryable_failed" });
+  assert.deepEqual(paths, ["https://app.popcorn.local/api/v1/jobs/job-1"]);
+});
+
+test("artifact polling never accepts a Provider URL from the message", async () => {
+  const paths = [];
+  const helpers = loadBackgroundHelpers({ fetchImpl: async (url) => {
+    paths.push(url);
+    return { status: 202, json: async () => ({ ok: true, data: { jobId: "job-1", status: "pending" } }) };
+  } });
+  await helpers.translateSegments({
+    videoId: "abc123XYZ00", snapshotId: "snapshot-1", segmentIds: ["segment-1"],
+    url: "https://attacker.example", provider: "attacker", apiKey: "secret",
+  });
+  assert.deepEqual(paths, ["https://app.popcorn.local/api/v1/youtube/abc123XYZ00/translations"]);
+});
+
+test("Popcorn API errors expose only bounded public error fields", async () => {
+  const helpers = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 503,
+    json: async () => ({ ok: false, error: { code: "PROVIDER_UNAVAILABLE", message: "Unavailable", retryable: true } }),
+  }) });
+  await assert.rejects(
+    helpers.requestOverview({ videoId: "abc123XYZ00", snapshotId: "snapshot-1" }),
+    (error) => error.code === "PROVIDER_UNAVAILABLE" && error.retryable === true,
   );
-  assert.equal(result.success, true);
-  assert.equal(requests.length, 2);
-  assert.deepEqual(requests[0].response_format, { type: "json_object" });
-  assert.equal(Object.hasOwn(requests[1], "response_format"), false);
-  assert.equal(requests[0].max_tokens, 1536);
+});
+
+test("extension background contains no Provider response reader or byte stream parser", () => {
+  const source = read("background.js");
+  assert.doesNotMatch(source, /readBoundedAiResponse|getReader\(\)|AI_PROVIDER_MAX_RESPONSE_BYTES/);
+});
+
+test("translation sends stable IDs once and leaves retry policy to durable jobs", async () => {
+  const bodies = [];
+  const helpers = loadBackgroundHelpers({ fetchImpl: async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return { status: 202, json: async () => ({ ok: true, data: { jobId: "job-1", status: "pending" } }) };
+  } });
+  await helpers.translateSegments({
+    videoId: "abc123XYZ00", snapshotId: "snapshot-1", segmentIds: ["segment-a", "segment-b"],
+  });
+  assert.deepEqual(bodies, [{ snapshotId: "snapshot-1", segmentIds: ["segment-a", "segment-b"] }]);
 });
 
 test("translation message watchdog rejects, clears its timer, and ignores late replies", async () => {
@@ -587,10 +414,62 @@ test("translation message watchdog rejects, clears its timer, and ignores late r
   assert.equal(successClearCount, 1);
 });
 
-test("Chinese prompt preserves natural bilingual-learning style rules", () => {
+test("a real two-row Range projects exact UTF-16 cross-line explanation evidence", () => {
+  const dom = new JSDOM(`
+    <div id="transcriptList">
+      <div class="transcript-entry" data-segment-id="${"a".repeat(64)}" data-seconds="10" data-end-seconds="16">
+        <span class="transcript-time">0:10</span><span class="transcript-text">甲乙第一行结尾</span>
+      </div>
+      <div class="transcript-entry" data-segment-id="${"b".repeat(64)}" data-seconds="18" data-end-seconds="24">
+        <span class="transcript-time">0:18</span><span class="transcript-text">第二行开头丙丁</span>
+      </div>
+    </div>
+  `);
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+  });
+  const transcriptList = dom.window.document.getElementById("transcriptList");
+  const nativeTexts = transcriptList.querySelectorAll(".transcript-text");
+  const range = dom.window.document.createRange();
+  range.setStart(nativeTexts[0].firstChild, 2);
+  range.setEnd(nativeTexts[1].firstChild, 5);
+
+  const evidence = helpers.projectTranscriptSelection(range, transcriptList);
+  assert.deepEqual(JSON.parse(JSON.stringify(evidence)), {
+    selectedChinese: "第一行结尾\n第二行开头",
+    segmentIds: ["a".repeat(64), "b".repeat(64)],
+    utf16Start: 2,
+    utf16End: 13,
+    startSeconds: 10,
+    endSeconds: 24,
+    context: "甲乙第一行结尾\n第二行开头丙丁",
+  });
+});
+
+test("cross-line projection rejects incomplete row evidence instead of guessing", () => {
+  const dom = new JSDOM(`
+    <div id="transcriptList">
+      <div class="transcript-entry" data-segment-id="${"a".repeat(64)}" data-seconds="10" data-end-seconds="16"><span class="transcript-text">第一行</span></div>
+      <div class="transcript-entry" data-segment-id="bad" data-seconds="18"><span class="transcript-text">第二行</span></div>
+    </div>
+  `);
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+  });
+  const transcriptList = dom.window.document.getElementById("transcriptList");
+  const texts = transcriptList.querySelectorAll(".transcript-text");
+  const range = dom.window.document.createRange();
+  range.setStart(texts[0].firstChild, 1);
+  range.setEnd(texts[1].firstChild, 2);
+  assert.equal(helpers.projectTranscriptSelection(range, transcriptList), null);
+});
+
+test("translation prompt preserves Chinese-to-English learning direction", () => {
   const prompt = read("prompts/translation.md");
-  assert.match(prompt, /Translate the complete thought/);
-  assert.match(prompt, /Use 你, never 您/);
-  assert.match(prompt, /spaces between Chinese and adjacent English words or digits/);
-  assert.match(prompt, /source-language `text`/);
+  assert.match(prompt, /Simplified Chinese/i);
+  assert.match(prompt, /English/i);
+  assert.match(prompt, /stable ID/i);
+  assert.doesNotMatch(prompt, /DeepSeek|API key|provider/i);
 });

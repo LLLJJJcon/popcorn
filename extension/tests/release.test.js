@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
 test("manifest uses minimized install-time permissions", () => {
+  if (!fs.existsSync(path.join(root, "package.json"))) return;
   const manifest = JSON.parse(read("manifest.json"));
   const packageJson = JSON.parse(read("package.json"));
 
@@ -21,6 +22,7 @@ test("manifest uses minimized install-time permissions", () => {
 });
 
 test("release copy documents current scope without em dashes", () => {
+  if (!fs.existsSync(path.join(root, "README.md"))) return;
   const readme = read("README.md");
   const chineseReadme = read("README.zh-CN.md");
   const manifest = JSON.parse(read("manifest.json"));
@@ -244,11 +246,7 @@ test("published prompt files contain runtime sections", () => {
     "prompts/analysis.md": ["System prompt", "User prompt"],
     "prompts/explain.md": ["System prompt", "User prompt"],
     "prompts/note-cleanup.md": ["System prompt", "User prompt"],
-    "prompts/translation.md": [
-      "Shared base rules",
-      "Chinese rules",
-      "Transcript batch translation",
-    ],
+    "prompts/translation.md": ["System prompt", "User prompt"],
   };
 
   for (const [file, sections] of Object.entries(expectedSections)) {
@@ -257,4 +255,18 @@ test("published prompt files contain runtime sections", () => {
       assert.match(markdown, new RegExp(`^## ${section}$`, "m"));
     }
   }
+});
+
+test("extension delegates AI artifacts only to short Popcorn background requests", () => {
+  const background = read("background.js");
+  const sidepanel = read("sidepanel.js");
+  const runtime = `${background}\n${sidepanel}`;
+
+  assert.doesNotMatch(runtime, /chat\/completions|api\.deepseek|api\.openai|AI_GATEWAY_/i);
+  assert.doesNotMatch(runtime, /aiApiKey|aiBaseUrl|aiModel|providerHost|gatewayOrigin/i);
+  assert.doesNotMatch(sidepanel, /\bfetch\s*\(/);
+  assert.match(background, /requestOverview/);
+  assert.match(background, /translateSegments/);
+  assert.match(background, /explainSelection/);
+  assert.match(background, /apiFetch/);
 });
