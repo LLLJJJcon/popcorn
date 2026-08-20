@@ -718,7 +718,8 @@ test("the actual AI Explanation Save click enqueues the exact shown explanation 
   );
   await harness.context.showExplanation(evidence);
   vm.runInContext(
-    `sendCloudAction = async () => {
+    `sendCloudAction = async (...args) => {
+      globalThis.__recordForbiddenCall("provider", args);
       throw new Error("Provider must not run from a save handler");
     }`,
     harness.context,
@@ -753,6 +754,11 @@ test("the actual AI Explanation Save click enqueues the exact shown explanation 
     },
   ]);
   assert.deepEqual(harness.runtimeMessages, []);
+  assert.equal(
+    harness.forbiddenCalls.filter((call) => call.name === "provider").length,
+    0,
+    "the AI Explanation Save handler must not call the Provider",
+  );
   assertNoSaveSideEffects(harness);
 });
 

@@ -148,6 +148,41 @@ pinned YouTube Digest MIT adaptation in place, copies no LLM Wiki GPLv3
 material, and does not touch Task 6/background, contracts, database, root
 configuration, lockfile, notices, plans/specs, or the execution ledger.
 
+## Independent review repair 3
+
+- Review-fix brief:
+  `docs/engineering/briefs/batch-a/task-5-review-fix-3.md`.
+- Original Task 5 baseline: `8c8b2f3`; candidate: `25bea5a`; prior repairs:
+  `397fcca25cd678115fa442cd65bace36696bd058` and
+  `9d90e74d183618ce595f9c286450202ed54355f5`.
+- Third repair starts from controller brief commit `2cb54ba` in worktree
+  `/private/tmp/popcorn-batch-a-5-fix-3`, branch
+  `codex/popcorn-batch-a-5-fix-3`.
+
+The final review blocker was isolated to the AI Explanation actual-handler
+harness. It replaced `sendCloudAction` after rendering the explanation with a
+double that threw but did not record. Because the production Save handler
+catches its errors, an illegal Provider call after the queue boundary could be
+swallowed while the exact-payload and one-enqueue assertions remained green.
+
+The replacement double now records its arguments in the shared forbidden-call
+ledger before throwing. After the real Save button click, the test explicitly
+asserts that the AI Explanation Save handler made exactly zero Provider calls;
+the existing shared no-side-effect assertion remains active as a second check.
+
+Mutation RED was demonstrated by temporarily adding a production-equivalent
+`sendCloudAction` call immediately after the real explanation enqueue. The
+handler caught the thrown error, but the focused suite failed only the AI
+Explanation handler test with `provider 1 !== 0` (20/21 passed). The temporary
+mutation was removed and is absent from this repair diff. With production
+restored, the focused suite passed 21/21.
+
+This third repair changes only `extension/tests/save-payloads.test.js` and this
+handoff. It makes no production, contract, database, configuration, lockfile,
+license, notice, plan/spec, or ledger change. Per the risk-calibrated brief, it
+does not run a database reset, pgTAP, or production build and does not
+self-approve; the complete Task 5 diff still requires independent review.
+
 ## RED evidence
 
 Command:
