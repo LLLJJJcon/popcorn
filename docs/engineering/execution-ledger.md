@@ -2,12 +2,12 @@
 
 ## Current position
 
-- Stage: batch-a
-- Next task: execute controller-owned Batch A Task 7 extension-to-cloud integration gate
+- Stage: batch-b
+- Next task: dispatch Batch B first wave Tasks 1, 2, and 4 in separate worktrees
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `d1199bf` (Batch A Tasks 5+6 combined extension gate: exact-save 21/21, Task 3 regression 33/33, queue/restart 18/18, auth 19/19, provenance 11/11, syntax/diff/status gates; no DB/server/root change, so DB reset/pgTAP/build intentionally not repeated)
+- Last verified commit: `a93d599` (Batch A Task 7 and exit gate: persistent Chromium 1/1, extension 92/92, capture/transcript 29/29, provenance 11/11, pgTAP 461/461, ESLint, TypeScript, production build, diff/status; final E2E proof passed independent re-review after mutation-sensitive repairs)
 
 ## Preflight
 
@@ -19,6 +19,13 @@
 - YouTube Digest pin verified: `d03e1f61e017b032159ffd1821cac6e7693ce0c7` is `main`/`HEAD`.
 - LLM Wiki pin verified: tag `v0.6.9` peels to `723e259309aea5e3850265b631f80224f66dd9f6`.
 - Plan conflict scan: no blocking conflict; the user's latest fixed batch schedule governs where orchestration/runbook wording differs.
+
+## Verification policy
+
+- This is a personal-use product. Normal feature/fix iterations run focused RED/GREEN and directly related regression tests only.
+- One broad suite is run at a Batch candidate gate. Database reset/pgTAP, full application suite, and production build are repeated only for database/shared-contract/auth-secret/queue/final-integration changes or when a concrete risk justifies them.
+- Core boundaries are never waived: write-only API keys and nonleaking errors/logs, owner/RLS isolation, revocation stopping future egress, save-path provider independence, and durable queue recovery.
+- The user authorized the Popcorn server worker to use the API key stored in the user's active model-gateway configuration. CI remains fixture-only; live Provider smoke is a Delivery step after local acceptance and exact-origin configuration.
 
 ## Completed tasks
 
@@ -46,6 +53,7 @@
 | Batch A | 3 | `codex/popcorn-gateway-learning-artifacts` plus `codex/popcorn-batch-a-3-fix` | `0399f9a` | `e32c40f` + `6d48d08`; integrated as `d157b4b` + `4e67831` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved exact YouTube Side Panel sender gating, same-segment Overview quote/timestamp grounding, fail-closed bilingual English selection, owner/config revision/fingerprint pins, fixture-first resolution, minimal bounded Provider egress, MIT reuse, and GPL isolation | Extension focused 33/33; server focused 108/108; application 467/467; ESLint, TypeScript, webpack production build, diff/status passed. No database or shared-contract changes, so DB reset/pgTAP was not repeated. |
 | Batch A | 6 | `codex/popcorn-batch-a-6` plus `codex/popcorn-batch-a-6-fix` | `8c8b2f3` | `5ef6eee` + repair `eb7f9e5`; integrated through `b2d7102` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved storage-first owner-bound persistence, bounded quota/retry, event-driven worker recovery, exact acknowledgements, account isolation, no automatic legacy-data deletion, and serialized enqueue/ack/retry/discard mutations with failure release | Queue/restart focused 18/18; auth/worker/release 27/27; syntax and diff/status passed. Candidate and baseline full-extension failure sets matched exactly (9 stale options-language + 3 stale settings); no candidate regression. No DB/server/root changes, so DB reset/pgTAP/build was not repeated. |
 | Batch A | 5 | `codex/popcorn-batch-a-5` plus three isolated repair branches | `8c8b2f3` | `25bea5a` + repairs `397fcca`, `9d90e74`, `40d700a`; integrated through `d1199bf` | PASS after three independent FAIL/fresh TDD repair loops; final reviewer approved real production handler coverage, mutation-sensitive zero-forbidden-call ledgers, exact six-kind payloads, player reaction delay, no playback/navigation/form side effects, and complete displayed Bilingual selection English with fail-closed omission | Exact-save focused 21/21; Task 3 regression 33/33; queue/restart 18/18; auth 19/19; provenance 11/11; syntax and diff/status passed. No DB/server/root changes, so DB reset/pgTAP/build was not repeated. |
+| Batch A | 7 | controller integration branch plus isolated sender, obsolete-test, and E2E-proof repair worktrees | `5f1151d` | integrated through `a93d599` | PASS after real Chromium found the legitimate internal-tab sender defect and final review found two E2E proof gaps; all received scoped TDD/mutation repairs and fresh independent re-review. Final approval covers exact six payloads, per-save zero artifact calls and side effects, both rapid original-ID retries/ACKs, transient form detection, cross-user/service-owner refusal, pinned upstream reuse, MIT attribution, and GPLv3 isolation. | Persistent Chromium 1/1; extension 92/92; capture/transcript 29/29; provenance 11/11; cross-user 3/3; pgTAP 461/461; ESLint, TypeScript and production build passed. Database reset was not repeated because Task 7 changed no migration. |
 
 ## Open concerns
 
@@ -84,5 +92,5 @@
 
 ## Next dispatch
 
-- Batch A Tasks 5 and 6 are independently accepted and jointly integrated through `d1199bf`; their combined focused extension gates are green.
-- The controller now executes Task 7 and the Batch A end-to-end gate, including persistent Chromium, six save kinds, cross-user isolation, worker termination/alarm recovery, rapid consecutive saves, upstream execution-log evidence, and one proportionate full Batch A verification.
+- Batch A Tasks 1–7 are independently accepted and integrated through `a93d599`; the Batch A exit gate is green.
+- Dispatch Batch B first wave in three non-overlapping worktrees: Task 1 durable processor, Task 2 Home/Saved library, and Task 4 Use It Now evaluation using the frozen candidate-expression fixture and the owner-pinned user model gateway.
