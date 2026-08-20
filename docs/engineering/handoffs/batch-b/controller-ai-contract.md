@@ -139,3 +139,48 @@ This repair changes only migration 010, its focused pgTAP file, and this handoff
 It stores no API key, Vault ID, origin, URL, header, prompt/request body, or other
 transport secret. It uses no upstream code and copies no LLM Wiki GPLv3 material.
 Independent re-review remains required; this repair does not self-approve.
+
+## Independent review repair 2
+
+- Repair baseline: `f48ac13`; contract repair ancestor: `446e145`.
+- Repair brief:
+  `docs/engineering/briefs/batch-b/controller-ai-contract-fix-2.md`.
+- Worktree: `/private/tmp/popcorn-batch-b-ai-contract-fix-2`; branch:
+  `codex/popcorn-batch-b-ai-contract-fix-2`.
+
+The second re-review found one mechanical consistency blocker: migration 010's
+repaired practice and attempt provenance foreign keys contain five columns, but
+the committed generated TypeScript still described their earlier four-column
+forms.
+
+RED was captured by generating TypeScript directly from the repaired local
+schema into a temporary file and diffing it against the committed contract. The
+only semantic differences were:
+
+- `attempt_evaluation_gateway_fk` needed
+  `evaluation_model -> user_model_gateway_configs.model`;
+- `practice_task_activation_gateway_fk` needed
+  `activation_model -> user_model_gateway_configs.model`.
+
+The generator also emitted one extra final blank line. The generated output was
+copied mechanically to `src/types/database.generated.ts`; only that final blank
+line was normalized. No hand-authored type, migration, SQL test, application,
+root configuration, or lockfile change was made.
+
+GREEN regenerated the same schema into a fresh temporary file, applied the same
+documented final-blank-line normalization, and compared it with the committed
+type:
+
+```text
+diff -u src/types/database.generated.ts <normalized generated file>
+exit 0; no output
+
+git diff --check
+exit 0
+```
+
+Per the focused repair brief, no database reset, pgTAP, full suite, typecheck, or
+build was run. This change has no runtime behavior, egress, API-key, RLS, queue,
+prompt, UI, or license effect. The controller still owns the later clean
+migration replay and full shared-contract integration gate. Independent
+re-review remains required; this repair does not self-approve.

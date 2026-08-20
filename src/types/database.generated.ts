@@ -112,6 +112,7 @@ export type Database = {
               "user_id",
               "evaluation_gateway_revision",
               "evaluation_gateway_fingerprint",
+              "evaluation_model",
             ]
             isOneToOne: false
             referencedRelation: "user_model_gateway_configs"
@@ -120,6 +121,7 @@ export type Database = {
               "user_id",
               "revision",
               "config_fingerprint",
+              "model",
             ]
           },
           {
@@ -596,6 +598,7 @@ export type Database = {
               "user_id",
               "activation_gateway_revision",
               "activation_gateway_fingerprint",
+              "activation_model",
             ]
             isOneToOne: false
             referencedRelation: "user_model_gateway_configs"
@@ -604,6 +607,7 @@ export type Database = {
               "user_id",
               "revision",
               "config_fingerprint",
+              "model",
             ]
           },
           {
