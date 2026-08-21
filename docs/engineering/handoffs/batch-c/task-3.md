@@ -1,5 +1,13 @@
 # Batch C Task 3 handoff — evidence-based Progress
 
+## WIP checkpoint — review repair 1
+
+- Checkpoint stage: repair tests drafted only; production repair has not started.
+- Drafted coverage for a detectable 500-row product bound, complete task/event owner graph failures, fetching all referenced task/event rows, and generic retryable HTTP repository failures.
+- The focused test command has not been run at this checkpoint. The suite is expected to remain RED because the row interfaces and repository/HTTP implementation have not yet been updated for the new assertions.
+- Remaining work: capture RED evidence, implement typed Supabase queries and exact graph validation, map repository errors, capture GREEN evidence, run the brief's focused lint/type/diff checks, update this handoff with final evidence, and obtain independent review.
+- This WIP checkpoint is not a completion or review-pass claim.
+
 ## Assignment
 
 - Plan: `docs/superpowers/plans/2026-08-16-popcorn-batch-c-progress-chinese.md`, Task 3.
