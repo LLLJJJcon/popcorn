@@ -3,11 +3,11 @@
 ## Current position
 
 - Stage: batch-c
-- Next task: integrate reviewed Batch C Task 1, dispatch Task 2 against frozen CONTRACT-015, and repair/re-review Task 3 against the same generated schema
+- Next task: dispatch Batch C Task 2 against frozen CONTRACT-015 and repair/re-review Task 3 against the same generated schema
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `07b1436` (CONTRACT-015: independent re-review PASS after NULL-safe graph and fixed-duration DST TDD repair; clean migrations 001–014, focused 33/33, full pgTAP 624/624, two-session replay counts 1/1/1, exact generated types, TypeScript, and diff/status clean)
+- Last verified commit: `8b4fde8` (Batch C Task 1 integrated after independent repair re-review PASS; focused repository/UI/Vault/Home integration 21/21, TypeScript, diff/status clean; frozen CONTRACT-015 database gate remains 624/624)
 
 ## Preflight
 
@@ -66,6 +66,7 @@
 | Batch B controller atomic promotion gate | pre-Task 5 | `codex/popcorn-youtube-learning` plus `codex/popcorn-promotion-review-fix` | `4b5d9f5`; candidate parent `da23aba` | candidate `812067a`; repair `719f977`; integrated through `1bc81f1` | PASS after one independent FAIL and fresh mutation TDD repair/re-review; final reviewer approved exact evaluation feedback mapping, atomic final-step rollback, replay/concurrent same IDs, owner/RLS/service-only fences, deterministic first schedule, exact source/candidate/provenance, no silent merge, key nonstorage, and GPL isolation | Initial RED 2/2 absent contract; focused 37/37; real two-session concurrency PASS; clean seeded reset through migration 012; full pgTAP 570/570; provenance 6/6; exact generated types, TypeScript, fixed-environment 21-page build, shell/diff checks passed. |
 | Batch C controller expression-search gate | pre-Task 1 | `codex/popcorn-youtube-learning` | `0974be1`; brief `93809e8` | candidate `a022399`; review-proof `129357e`; repair `72a57c4` | PASS after one independent FAIL and controller TDD repair; final reviewer approved shared query/stored normalization, exact→prefix→substring→indexed trigram→metadata→recency order before limit, deterministic ties, composed filters, owner/source-count isolation, bounded validation, service-only grants, method-only provenance, and GPL isolation | Initial RED missing RPC; candidate focused 16/16; strengthened real-format RED 4/20 and permission RED 1/21; clean reset applied migrations 001–013; focused 21/21; full pgTAP 591/591; exact generated types, TypeScript, and diff/status checks passed. |
 | Batch C controller atomic due-completion gate | pre-Task 2 | `codex/popcorn-youtube-learning` | `8d4ec2c`; brief `9bcd42b` | candidate `11d80bc`; repair `07b1436` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved NULL-safe linked due graph, exact fixed-duration scheduling across DST, service-only atomic completion, row-lock/receipt idempotency, owner/stale fences, persisted mastery evidence, rollback, non-secret provenance, no synchronous Provider work, and GPL isolation | Initial RED missing lifecycle/RPC; candidate focused 30/30; two-session concurrent replay returned the same IDs with attempt/event/receipt 1/1/1; repair RED 3/33 then GREEN 33/33; clean reset applied migrations 001–014; full pgTAP 624/624; exact generated types, TypeScript, and diff/status checks passed. |
+| Batch C | 1 | `codex/popcorn-batch-c-1` | `8d4ec2c`; brief `e7ea90f` | candidate `c64dc63`; repair `91e965e`; handoff `9878b68`; integrated through `8b4fde8` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved sole frozen RPC call and preserved DB ordering, authenticated filters/limits, Vault compatibility, accessible search states, request-generation fencing, same-filter retry, scope, owner isolation, and GPL isolation | Candidate focused 18/18; repair RED 3/7 then GREEN 7/7; final reviewer 12/12 plus lint/TypeScript; controller integration repository/UI/Vault/Home 21/21, TypeScript, diff/status clean. No DB rerun because CONTRACT-014/015 were separately frozen. |
 
 ## Open concerns
 
@@ -121,4 +122,4 @@
 - Batch B Task 6 is independently accepted and integrated through `a2659ce`; the fixture-backed AI matrix and complete Saved-to-Practice browser flow are repeatable without database reset, and Batch B is green.
 - CONTRACT-014 expression search is frozen through `72a57c4`; Batch C Task 1 may consume it without altering migrations or ranking.
 - CONTRACT-015 atomic due completion is frozen through `07b1436`; Batch C Task 2 may consume only its RPC and Task 3 may consume its generated lifecycle fields.
-- Batch C Task 1 passed independent repair re-review at `9878b68` and is ready for controller integration.
+- Batch C Task 1 is independently accepted and integrated through `8b4fde8`; Vault now has bounded Chinese search with stable request ordering and same-filter retry.
