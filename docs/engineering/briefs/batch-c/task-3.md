@@ -1,0 +1,15 @@
+# Batch C Task 3 implementation brief
+
+- Plan/task: `docs/superpowers/plans/2026-08-16-popcorn-batch-c-progress-chinese.md`, Task 3.
+- Baseline commit: `0974be1943db1c981ba62eed2b59ee7e474d4e33`.
+- Worktree: `/private/tmp/popcorn-batch-c-3`.
+- Allowed modifications: `src/server/repositories/progress-repository.ts`, `src/features/progress/schema.ts`, `src/features/progress/progress-dashboard.tsx`, `src/app/api/v1/progress/route.ts`, `src/app/(app)/progress/page.tsx`, `tests/integration/progress/progress-summary.test.ts`, `src/features/progress/progress-dashboard.test.tsx`, and `docs/engineering/handoffs/batch-c/task-3.md` only.
+- Forbidden modifications: shared contracts, migrations, generated database types, root configuration, lockfile, navigation/layout, other features/tests, model gateway/Provider code, extension, and execution ledger.
+- Consumed interfaces: existing authenticated web-session pattern; owner-scoped `attempts`, `review_tasks`, `user_expressions`, and append-only `mastery_events`; mastery states exactly `tried`, `reused`, `owned`.
+- Produced interfaces: a bounded owner-scoped progress repository and GET route returning weekly attempt count, due completion count, independent reuse count, due Practice count, and current `tried/reused/owned` distribution; minimal Progress page/dashboard using that DTO.
+- RED expectation: fixed-UTC tests fail before implementation for week boundaries, assisted attempt exclusion from independent reuse, saves/explanation views not affecting metrics, distinction between current highest mastery and recent performance, due completion semantics, and cross-user isolation; dashboard tests fail for missing four summaries and three-state distribution.
+- GREEN constraints: aggregate only persisted learning evidence; every database query carries `user_id`; no saved-volume achievement, streaks, health scores, leaderboards, advanced graphs, client counters, pgvector, or AI calls. Bound rows/time range and fail closed on malformed/cross-owner data.
+- Verification commands: `pnpm vitest run tests/integration/progress/progress-summary.test.ts src/features/progress/progress-dashboard.test.tsx`; scoped ESLint; `pnpm typecheck`; `git diff --check`. No database reset/pgTAP/build unless a concrete dependency requires it, because this task may not alter DB/shared contracts/root config.
+- Upstream reuse: no code is needed from YouTube Digest for this web aggregation task; preserve the pinned adaptation at `zarazhangrui/youtube-digest@d03e1f61e017b032159ffd1821cac6e7693ce0c7` and do not create extension alternatives. Apply only the staged-evidence method learned from `nashsu/llm_wiki@723e259309aea5e3850265b631f80224f66dd9f6`; do not copy GPLv3 code, tests, prompts, components, or assets.
+- License: preserve project licensing, existing MIT notices, and strict GPLv3 method-only isolation.
+- Handoff: commit implementation and `docs/engineering/handoffs/batch-c/task-3.md`; return commit SHA, RED/GREEN evidence, verification results, risks, and report path.
