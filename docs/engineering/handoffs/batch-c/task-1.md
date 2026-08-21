@@ -70,3 +70,42 @@ the RPC and this task did not change SQL or generated types.
 - Trigram behavior and the 0.2 similarity threshold remain the frozen database
   contract. Personal usage may motivate later tuning, but this feature does not
   duplicate or override that ranking.
+
+## Review repair 1 — request ordering and retry
+
+- Repair brief baseline: `e437d297058d720dd858223a06241b6e9342367d`.
+- Implementation commit: `91e965e191e2195a4d9d5d717ed38cb64ba5c995`.
+- Added deterministic coverage for a newer request resolving before an older
+  success, a newer success followed by an older failure, and retrying the
+  initial empty-filter request with exactly the same URL.
+- Added an effect-lifetime cancellation fence. A request whose filters were
+  replaced, whose retry generation was replaced, or whose component unmounted
+  cannot publish loading, results, or error state.
+- Added an accessible `Retry search` action. Retry changes only an internal
+  generation counter, so the existing filter values and server ordering remain
+  unchanged.
+
+Repair RED command:
+
+```bash
+CI=true pnpm vitest run src/features/vault/vault-search.test.tsx
+```
+
+Repair RED result: exit 1, with 3 expected failures. The old success replaced
+the newer result, the old failure replaced the newer result with the generic
+error, and no accessible `Retry search` button existed.
+
+Repair GREEN and verification:
+
+```bash
+CI=true pnpm vitest run src/features/vault/vault-search.test.tsx
+./node_modules/.bin/eslint src/features/vault/vault-search.tsx src/features/vault/vault-search.test.tsx
+./node_modules/.bin/tsc --noEmit
+git diff --check
+```
+
+The focused suite passed 1 file / 7 tests. Scoped ESLint, TypeScript, and
+diff-check each exited 0. The repair changed only the two allowed Vault search
+files plus this handoff; no repository, route, contract, database, generated
+type, root configuration, lockfile, Provider, gateway, extension, or upstream
+adaptation changed.
