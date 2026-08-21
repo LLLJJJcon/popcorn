@@ -43,7 +43,7 @@ insert into public.expression_senses (
 ) values
   ('0d200000-0000-4000-8000-000000000001',:'user_a',:'source_a1','太离谱了','太离谱了',
    'absurd','Used as a reaction to something unreasonable.','surprised','reaction','informal','2026-08-01','2026-08-01'),
-  ('0d200000-0000-4000-8000-000000000002',:'user_a',:'source_a2','太 离谱了。','太离谱了',
+  ('0d200000-0000-4000-8000-000000000002',:'user_a',:'source_a2','太 离谱了。','太 离谱了。',
    'outrageous','A spaced source rendering of the same expression.','surprised','reaction','informal','2026-08-02','2026-08-02'),
   ('0d200000-0000-4000-8000-000000000003',:'user_a',:'source_a1','太离谱了吧','太离谱了吧',
    'that is outrageous','A longer reaction.','surprised','reaction','informal','2026-08-03','2026-08-03'),
@@ -61,7 +61,7 @@ insert into public.expression_senses (
 insert into public.user_expressions (
   id,user_id,expression_sense_id,mastery_state,created_at,updated_at
 ) values
-  ('0d300000-0000-4000-8000-000000000001',:'user_a','0d200000-0000-4000-8000-000000000001','tried','2026-08-01','2026-08-01'),
+  ('0d300000-0000-4000-8000-000000000001',:'user_a','0d200000-0000-4000-8000-000000000001','tried','2026-08-01','2026-08-02'),
   ('0d300000-0000-4000-8000-000000000002',:'user_a','0d200000-0000-4000-8000-000000000002','reused','2026-08-02','2026-08-02'),
   ('0d300000-0000-4000-8000-000000000003',:'user_a','0d200000-0000-4000-8000-000000000003','tried','2026-08-03','2026-08-03'),
   ('0d300000-0000-4000-8000-000000000004',:'user_a','0d200000-0000-4000-8000-000000000004','owned','2026-08-04','2026-08-04'),
@@ -85,6 +85,28 @@ select extensions.ok(
     'execute'),
   'client roles cannot execute service-owned expression search'
 );
+select extensions.ok(
+  has_function_privilege('service_role',
+    'private.normalize_expression_search_text(text)', 'execute')
+  and not has_function_privilege('authenticated',
+    'private.normalize_expression_search_text(text)', 'execute')
+  and not has_function_privilege('anon',
+    'private.normalize_expression_search_text(text)', 'execute'),
+  'only the service role can maintain the normalized-expression index'
+);
+select extensions.ok(
+  pg_catalog.strpos(
+    pg_catalog.pg_get_functiondef(
+      'public.search_expressions(uuid,text,text,text,uuid,text,timestamptz,timestamptz,integer)'::regprocedure
+    ),
+    'OPERATOR(extensions.%)'
+  ) > 0
+  and pg_catalog.strpos(
+    pg_catalog.pg_get_indexdef('public.expression_senses_normalized_text_trgm_idx'::regclass),
+    'private.normalize_expression_search_text(normalized_expression_text)'
+  ) > 0,
+  'the actual trigram predicate and expression index use the same stored normalization'
+);
 
 set local role service_role;
 
@@ -92,8 +114,8 @@ select extensions.results_eq(
   $$select expression_text,match_reason from public.search_expressions(
       '0d000000-0000-4000-8000-00000000a001','太离谱了',null,null,null,null,null,null,10)$$,
   $$values
-    ('太 离谱了。'::text,'exact'::text),
     ('太离谱了'::text,'exact'::text),
+    ('太 离谱了。'::text,'exact'::text),
     ('太离谱了吧'::text,'prefix'::text),
     ('这太离谱了'::text,'substring'::text),
     ('太离普了'::text,'trigram'::text)$$,
@@ -104,9 +126,18 @@ select extensions.results_eq(
   $$select expression_text,source_count,match_reason from public.search_expressions(
       '0d000000-0000-4000-8000-00000000a001','　太 离谱了！',null,null,null,null,null,null,2)$$,
   $$values
-    ('太 离谱了。'::text,2::bigint,'exact'::text),
-    ('太离谱了'::text,2::bigint,'exact'::text)$$,
+    ('太离谱了'::text,2::bigint,'exact'::text),
+    ('太 离谱了。'::text,2::bigint,'exact'::text)$$,
   'source overlap counts distinct owned videos for the same normalized expression'
+);
+
+select extensions.results_eq(
+  $$select user_expression_id from public.search_expressions(
+      '0d000000-0000-4000-8000-00000000a001','太离谱了',null,null,null,null,null,null,2)$$,
+  $$values
+    ('0d300000-0000-4000-8000-000000000001'::uuid),
+    ('0d300000-0000-4000-8000-000000000002'::uuid)$$,
+  'equal-rank equal-recency results use UUID as a deterministic tie break'
 );
 
 select extensions.results_eq(
@@ -116,6 +147,23 @@ select extensions.results_eq(
     ('莫名其妙'::text,'english_meaning'::text),
     ('太离谱了'::text,'english_meaning'::text)$$,
   'English meaning search is bounded and owner scoped'
+);
+
+select extensions.results_eq(
+  $$select expression_text,match_reason from public.search_expressions(
+      '0d000000-0000-4000-8000-00000000a001','casual',null,null,null,null,null,null,10)$$,
+  $$values ('莫名其妙'::text,'register'::text)$$,
+  'register text search returns the frozen register match reason'
+);
+
+select extensions.results_eq(
+  $$select expression_text,match_reason from public.search_expressions(
+      '0d000000-0000-4000-8000-00000000a001','reaction','reaction',null,null,null,null,null,3)$$,
+  $$values
+    ('太离普了'::text,'communicative_function'::text),
+    ('这太离谱了'::text,'communicative_function'::text),
+    ('太离谱了吧'::text,'communicative_function'::text)$$,
+  'non-null communicative-function filter composes with text matching and limit'
 );
 
 select extensions.results_eq(

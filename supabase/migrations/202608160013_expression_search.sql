@@ -15,10 +15,11 @@ as $$
 $$;
 
 revoke all on function private.normalize_expression_search_text(text) from public;
+grant execute on function private.normalize_expression_search_text(text) to service_role;
 
 create index expression_senses_normalized_text_trgm_idx
   on public.expression_senses
-  using gin (normalized_expression_text extensions.gin_trgm_ops);
+  using gin ((private.normalize_expression_search_text(normalized_expression_text)) extensions.gin_trgm_ops);
 
 create function public.search_expressions(
   p_user_id uuid,
@@ -46,6 +47,7 @@ returns table (
 language plpgsql
 security definer
 set search_path = pg_catalog
+set pg_trgm.similarity_threshold = 0.2
 as $$
 declare
   v_query text;
@@ -90,10 +92,10 @@ begin
       ue.updated_at as candidate_updated_at,
       case
         when v_query = '' then 7
-        when v_target_query <> '' and es.normalized_expression_text = v_target_query then 0
-        when v_target_query <> '' and pg_catalog.starts_with(es.normalized_expression_text, v_target_query) then 1
-        when v_target_query <> '' and pg_catalog.strpos(es.normalized_expression_text, v_target_query) > 0 then 2
-        when v_target_query <> '' and extensions.similarity(es.normalized_expression_text, v_target_query) >= 0.2 then 3
+        when v_target_query <> '' and private.normalize_expression_search_text(es.normalized_expression_text) = v_target_query then 0
+        when v_target_query <> '' and pg_catalog.starts_with(private.normalize_expression_search_text(es.normalized_expression_text), v_target_query) then 1
+        when v_target_query <> '' and pg_catalog.strpos(private.normalize_expression_search_text(es.normalized_expression_text), v_target_query) > 0 then 2
+        when v_target_query <> '' and private.normalize_expression_search_text(es.normalized_expression_text) OPERATOR(extensions.%) v_target_query then 3
         when pg_catalog.strpos(pg_catalog.lower(es.english_meaning), v_english_query) > 0 then 4
         when pg_catalog.strpos(pg_catalog.lower(es.communicative_function), v_english_query) > 0 then 5
         when pg_catalog.strpos(pg_catalog.lower(es.register), v_english_query) > 0 then 6
@@ -101,17 +103,17 @@ begin
       end as match_rank,
       case
         when v_query = '' then 'recent'
-        when v_target_query <> '' and es.normalized_expression_text = v_target_query then 'exact'
-        when v_target_query <> '' and pg_catalog.starts_with(es.normalized_expression_text, v_target_query) then 'prefix'
-        when v_target_query <> '' and pg_catalog.strpos(es.normalized_expression_text, v_target_query) > 0 then 'substring'
-        when v_target_query <> '' and extensions.similarity(es.normalized_expression_text, v_target_query) >= 0.2 then 'trigram'
+        when v_target_query <> '' and private.normalize_expression_search_text(es.normalized_expression_text) = v_target_query then 'exact'
+        when v_target_query <> '' and pg_catalog.starts_with(private.normalize_expression_search_text(es.normalized_expression_text), v_target_query) then 'prefix'
+        when v_target_query <> '' and pg_catalog.strpos(private.normalize_expression_search_text(es.normalized_expression_text), v_target_query) > 0 then 'substring'
+        when v_target_query <> '' and private.normalize_expression_search_text(es.normalized_expression_text) OPERATOR(extensions.%) v_target_query then 'trigram'
         when pg_catalog.strpos(pg_catalog.lower(es.english_meaning), v_english_query) > 0 then 'english_meaning'
         when pg_catalog.strpos(pg_catalog.lower(es.communicative_function), v_english_query) > 0 then 'communicative_function'
         when pg_catalog.strpos(pg_catalog.lower(es.register), v_english_query) > 0 then 'register'
         else null
       end as candidate_match_reason,
       case when v_target_query = '' then 0::real
-        else extensions.similarity(es.normalized_expression_text, v_target_query)
+        else extensions.similarity(private.normalize_expression_search_text(es.normalized_expression_text), v_target_query)
       end as trigram_score
     from public.user_expressions as ue
     join public.expression_senses as es
@@ -126,6 +128,18 @@ begin
       and (p_mastery_state is null or ue.mastery_state = p_mastery_state)
       and (p_created_from is null or ue.created_at >= p_created_from)
       and (p_created_before is null or ue.created_at < p_created_before)
+      and (
+        v_query = ''
+        or (v_target_query <> '' and (
+          private.normalize_expression_search_text(es.normalized_expression_text) = v_target_query
+          or pg_catalog.starts_with(private.normalize_expression_search_text(es.normalized_expression_text), v_target_query)
+          or pg_catalog.strpos(private.normalize_expression_search_text(es.normalized_expression_text), v_target_query) > 0
+          or private.normalize_expression_search_text(es.normalized_expression_text) OPERATOR(extensions.%) v_target_query
+        ))
+        or pg_catalog.strpos(pg_catalog.lower(es.english_meaning), v_english_query) > 0
+        or pg_catalog.strpos(pg_catalog.lower(es.communicative_function), v_english_query) > 0
+        or pg_catalog.strpos(pg_catalog.lower(es.register), v_english_query) > 0
+      )
   )
   select
     candidate.candidate_user_expression_id,
@@ -139,7 +153,8 @@ begin
       select pg_catalog.count(distinct sibling.video_source_id)
       from public.expression_senses as sibling
       where sibling.user_id = p_user_id
-        and sibling.normalized_expression_text = owned_sense.normalized_expression_text
+        and private.normalize_expression_search_text(sibling.normalized_expression_text)
+          = private.normalize_expression_search_text(owned_sense.normalized_expression_text)
     ),
     candidate.candidate_updated_at,
     candidate.candidate_match_reason
