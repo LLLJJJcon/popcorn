@@ -54,11 +54,14 @@ export function VaultSearch() {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [results, setResults] = useState<readonly ExpressionSearchResult[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [retryGeneration, setRetryGeneration] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRefs = useRef<Array<HTMLAnchorElement | null>>([]);
 
   useEffect(() => {
+    let active = true;
     const timeout = window.setTimeout(async () => {
+      if (!active) return;
       setState("loading");
       try {
         const response = await fetch(searchUrl(filters), {
@@ -67,16 +70,21 @@ export function VaultSearch() {
         });
         if (!response.ok) throw new Error("search failed");
         const parsed = ExpressionSearchApiSuccessSchema.parse(await response.json());
+        if (!active) return;
         setResults(parsed.data);
         resultRefs.current = resultRefs.current.slice(0, parsed.data.length);
         setState("ready");
       } catch {
+        if (!active) return;
         setResults([]);
         setState("error");
       }
     }, 250);
-    return () => window.clearTimeout(timeout);
-  }, [filters]);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [filters, retryGeneration]);
 
   function update<K extends keyof Filters>(key: K, value: Filters[K]) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -143,7 +151,14 @@ export function VaultSearch() {
       </form>
 
       {state === "loading" && <p role="status">Searching your Vault…</p>}
-      {state === "error" && <p role="alert">Vault search is unavailable. Try again.</p>}
+      {state === "error" && (
+        <div role="alert">
+          <p>Vault search is unavailable. Try again.</p>
+          <button type="button" onClick={() => setRetryGeneration((current) => current + 1)}>
+            Retry search
+          </button>
+        </div>
+      )}
       {state === "ready" && results.length === 0 && <p>No learned expressions match these filters.</p>}
       {state === "ready" && results.length > 0 && (
         <ul aria-label="Vault search results">

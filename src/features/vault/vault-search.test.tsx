@@ -25,6 +25,16 @@ function apiResponse(data: unknown) {
   return Response.json({ ok: true, data, requestId: "search-request" });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -131,5 +141,81 @@ describe("VaultSearch", () => {
 
     rerender(<VaultSearch key="retry" />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Vault search is unavailable. Try again.");
+  });
+
+  test("does not let an older successful request replace newer search results", async () => {
+    vi.useFakeTimers();
+    const older = deferred<Response>();
+    const newer = deferred<Response>();
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<VaultSearch />);
+
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    fireEvent.change(screen.getByLabelText("Search expressions"), { target: { value: "麻烦" } });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => newer.resolve(apiResponse([
+      result({
+        userExpressionId: "66666666-6666-4666-8666-666666666666",
+        expressionSenseId: "77777777-7777-4777-8777-777777777777",
+        expressionText: "麻烦你了",
+      }),
+    ])));
+    expect(screen.getByText("麻烦你了")).toBeInTheDocument();
+
+    await act(async () => older.resolve(apiResponse([result()])));
+    expect(screen.getByText("麻烦你了")).toBeInTheDocument();
+    expect(screen.queryByText("太离谱了")).not.toBeInTheDocument();
+  });
+
+  test("does not let an older failed request replace newer search results", async () => {
+    vi.useFakeTimers();
+    const older = deferred<Response>();
+    const newer = deferred<Response>();
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<VaultSearch />);
+
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    fireEvent.change(screen.getByLabelText("Search expressions"), { target: { value: "麻烦" } });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    await act(async () => newer.resolve(apiResponse([
+      result({
+        userExpressionId: "66666666-6666-4666-8666-666666666666",
+        expressionSenseId: "77777777-7777-4777-8777-777777777777",
+        expressionText: "麻烦你了",
+      }),
+    ])));
+    expect(screen.getByText("麻烦你了")).toBeInTheDocument();
+
+    await act(async () => older.reject(new Error("older request failed")));
+    expect(screen.getByText("麻烦你了")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  test("retries a failed search with exactly the same filters", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({}, { status: 500 }))
+      .mockResolvedValueOnce(apiResponse([result()]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<VaultSearch />);
+
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    fireEvent.click(screen.getByRole("button", { name: "Retry search" }));
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/vault?search=1&q=&limit=20",
+      "/api/v1/vault?search=1&q=&limit=20",
+    ]);
+    expect(screen.getByText("太离谱了")).toBeInTheDocument();
   });
 });
