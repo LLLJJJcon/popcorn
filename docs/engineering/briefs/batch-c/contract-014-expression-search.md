@@ -1,0 +1,16 @@
+# CONTRACT-014 expression search brief
+
+- Requested by: Batch C Task 1 dependency audit.
+- Baseline commit: `0974be1943db1c981ba62eed2b59ee7e474d4e33`.
+- Worktree/branch: `/private/tmp/popcorn-youtube-learning`, `codex/popcorn-youtube-learning`; controller-owned implementation.
+- Plan/task: prerequisite for `docs/superpowers/plans/2026-08-16-popcorn-batch-c-progress-chinese.md`, Task 1.
+- Allowed modifications: one new migration `supabase/migrations/202608160013_expression_search.sql`, one new pgTAP file `supabase/tests/expression_search.sql`, `src/types/database.generated.ts`, this brief, `docs/engineering/handoffs/batch-c/contract-014-expression-search.md`, and after acceptance `docs/engineering/execution-ledger.md`.
+- Forbidden modifications: feature repositories/UI/routes, existing migrations/contracts, root config, lockfile, Provider/gateway/extension code.
+- Consumed interfaces: `pg_trgm`; `expression_senses.normalized_expression_text`; owner-bound `user_expressions`, `expression_occurrences`, and `video_sources`; mastery states `tried|reused|owned`.
+- Produced interface: service-role-only `public.search_expressions(...)` returning bounded owner-scoped Vault results. Exact, prefix, substring, trigram, English meaning, communicative function, and register matches are ranked deterministically before the limit; empty query returns recent filtered results. Returned `match_reason` is one of `exact|prefix|substring|trigram|english_meaning|communicative_function|register|recent`.
+- Security/ownership: `SECURITY DEFINER`, fixed `pg_catalog` search path, fully qualified relations/operators/functions, explicit `p_user_id` on every candidate/source aggregation, no dynamic SQL, no authenticated/anon/public execute grant, and literal treatment of `%`/`_`.
+- Parameter contract: non-null owner; query trimmed and at most 200 characters; limit 1–50; optional function/register filters are trimmed bounded values; mastery only the frozen three states; optional source is owner-scoped; date interval is `[created_from, created_before)` with strict ordering.
+- RED expectation: pgTAP fails because the RPC is absent, while fixtures demand exact→prefix/substring→trigram order, stable recency/UUID ties, punctuation/whitespace normalization without changing meaningful Han, English/function/register matches and filters, source/mastery/date filters, bounded empty-query recency, literal wildcard behavior, source-count isolation, cross-user exclusion, validation errors, and execute-grant isolation.
+- GREEN expectation: implement the smallest SQL function plus normalized-expression trigram index; no new table/column. Existing shared behavior remains unchanged.
+- Verification: clean local database reset, focused `expression_search.sql`, full pgTAP, generated type regeneration/exact comparison, `pnpm typecheck`, `git diff --check`; no full app suite/build unless generated types or route compilation exposes a concrete need.
+- Upstream reuse/license: relational staged retrieval is a method-only adaptation of `nashsu/llm_wiki@723e259309aea5e3850265b631f80224f66dd9f6`; copy no GPLv3 code/tests/prompts/components/assets. Preserve `zarazhangrui/youtube-digest@d03e1f61e017b032159ffd1821cac6e7693ce0c7` MIT adaptation and notices; no extension changes.
