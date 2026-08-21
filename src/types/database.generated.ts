@@ -1451,6 +1451,31 @@ export type Database = {
         }
         Returns: boolean
       }
+      search_expressions: {
+        Args: {
+          p_communicative_function?: string
+          p_created_before?: string
+          p_created_from?: string
+          p_limit?: number
+          p_mastery_state?: string
+          p_query?: string
+          p_register?: string
+          p_user_id: string
+          p_video_source_id?: string
+        }
+        Returns: {
+          communicative_function: string
+          english_meaning: string
+          expression_sense_id: string
+          expression_text: string
+          mastery_state: string
+          match_reason: string
+          register: string
+          source_count: number
+          updated_at: string
+          user_expression_id: string
+        }[]
+      }
       transition_learning_artifact_failure: {
         Args: {
           p_clear_input: boolean
