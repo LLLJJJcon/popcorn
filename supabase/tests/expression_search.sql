@@ -90,8 +90,7 @@ set local role service_role;
 
 select extensions.results_eq(
   $$select expression_text,match_reason from public.search_expressions(
-      '0d000000-0000-4000-8000-00000000a001','太离谱了',null,null,null,null,null,null,10)
-    order by array_position(array['exact','prefix','substring','trigram'],match_reason),updated_at desc,user_expression_id$$,
+      '0d000000-0000-4000-8000-00000000a001','太离谱了',null,null,null,null,null,null,10)$$,
   $$values
     ('太 离谱了。'::text,'exact'::text),
     ('太离谱了'::text,'exact'::text),
@@ -103,8 +102,7 @@ select extensions.results_eq(
 
 select extensions.results_eq(
   $$select expression_text,source_count,match_reason from public.search_expressions(
-      '0d000000-0000-4000-8000-00000000a001','　太 离谱了！',null,null,null,null,null,null,2)
-    order by updated_at desc,user_expression_id$$,
+      '0d000000-0000-4000-8000-00000000a001','　太 离谱了！',null,null,null,null,null,null,2)$$,
   $$values
     ('太 离谱了。'::text,2::bigint,'exact'::text),
     ('太离谱了'::text,2::bigint,'exact'::text)$$,
@@ -113,8 +111,7 @@ select extensions.results_eq(
 
 select extensions.results_eq(
   $$select expression_text,match_reason from public.search_expressions(
-      '0d000000-0000-4000-8000-00000000a001','absurd',null,null,null,null,null,null,10)
-    order by updated_at desc,user_expression_id$$,
+      '0d000000-0000-4000-8000-00000000a001','absurd',null,null,null,null,null,null,10)$$,
   $$values
     ('莫名其妙'::text,'english_meaning'::text),
     ('太离谱了'::text,'english_meaning'::text)$$,
@@ -131,8 +128,7 @@ select extensions.results_eq(
 
 select extensions.results_eq(
   $$select expression_text,match_reason from public.search_expressions(
-      '0d000000-0000-4000-8000-00000000a001','',null,null,null,null,null,null,3)
-    order by updated_at desc,user_expression_id$$,
+      '0d000000-0000-4000-8000-00000000a001','',null,null,null,null,null,null,3)$$,
   $$values
     ('麻烦你了'::text,'recent'::text),
     ('莫名其妙'::text,'recent'::text),
