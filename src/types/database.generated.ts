@@ -773,6 +773,7 @@ export type Database = {
           activation_gateway_revision: number | null
           activation_model: string | null
           activation_prompt_version: string | null
+          context_fingerprint: string
           created_at: string
           due_at: string | null
           goal_english: string
@@ -781,6 +782,7 @@ export type Database = {
           kind: string
           native_language: string
           prompt_chinese: string
+          review_task_id: string | null
           target_expression: string
           target_language: string
           user_expression_id: string
@@ -792,6 +794,7 @@ export type Database = {
           activation_gateway_revision?: number | null
           activation_model?: string | null
           activation_prompt_version?: string | null
+          context_fingerprint: string
           created_at?: string
           due_at?: string | null
           goal_english: string
@@ -800,6 +803,7 @@ export type Database = {
           kind: string
           native_language: string
           prompt_chinese: string
+          review_task_id?: string | null
           target_expression: string
           target_language: string
           user_expression_id: string
@@ -811,6 +815,7 @@ export type Database = {
           activation_gateway_revision?: number | null
           activation_model?: string | null
           activation_prompt_version?: string | null
+          context_fingerprint?: string
           created_at?: string
           due_at?: string | null
           goal_english?: string
@@ -819,6 +824,7 @@ export type Database = {
           kind?: string
           native_language?: string
           prompt_chinese?: string
+          review_task_id?: string | null
           target_expression?: string
           target_language?: string
           user_expression_id?: string
@@ -851,6 +857,13 @@ export type Database = {
             referencedRelation: "user_expressions"
             referencedColumns: ["id", "user_id"]
           },
+          {
+            foreignKeyName: "practice_task_review_owner_fk"
+            columns: ["review_task_id", "user_id", "user_expression_id"]
+            isOneToOne: false
+            referencedRelation: "review_tasks"
+            referencedColumns: ["id", "user_id", "user_expression_id"]
+          },
         ]
       }
       profiles: {
@@ -879,6 +892,8 @@ export type Database = {
       }
       review_tasks: {
         Row: {
+          completed_at: string | null
+          completed_attempt_id: string | null
           consecutive_successes: number
           created_at: string
           due_at: string
@@ -891,6 +906,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          completed_at?: string | null
+          completed_attempt_id?: string | null
           consecutive_successes: number
           created_at?: string
           due_at: string
@@ -903,6 +920,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          completed_at?: string | null
+          completed_attempt_id?: string | null
           consecutive_successes?: number
           created_at?: string
           due_at?: string
@@ -915,6 +934,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "review_task_completed_attempt_owner_fk"
+            columns: ["completed_attempt_id", "user_id", "user_expression_id"]
+            isOneToOne: false
+            referencedRelation: "attempts"
+            referencedColumns: ["id", "user_id", "user_expression_id"]
+          },
           {
             foreignKeyName: "review_task_expression_owner_fk"
             columns: ["user_expression_id", "user_id"]
@@ -1267,6 +1293,41 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      complete_due_practice: {
+        Args: {
+          p_accuracy_feedback_english: string
+          p_accuracy_score: number
+          p_assistance_level: string
+          p_completed_at: string
+          p_contextual_fit_feedback_english: string
+          p_contextual_fit_score: number
+          p_evaluation_gateway_config_id?: string
+          p_evaluation_gateway_fingerprint?: string
+          p_evaluation_gateway_revision?: number
+          p_evaluation_model?: string
+          p_evaluation_prompt_version?: string
+          p_naturalness_feedback_english: string
+          p_naturalness_score: number
+          p_passed: boolean
+          p_practice_task_id: string
+          p_request_key: string
+          p_response_chinese: string
+          p_review_task_id: string
+          p_user_id: string
+        }
+        Returns: {
+          attempt_id: string
+          created: boolean
+          interval_days: number
+          mastery_event_id: string
+          new_state: string
+          next_due_at: string
+          next_review_task_id: string
+          practice_task_id: string
+          prior_state: string
+          review_task_id: string
+        }[]
       }
       complete_gateway_learning_artifact_job: {
         Args: {
