@@ -254,7 +254,7 @@ begin
   for update;
   if v_expression.id is null or v_task.id is null
     or v_task.kind<>'due_practice'
-    or v_task.review_task_id<>v_review.id
+    or v_task.review_task_id is distinct from v_review.id
     or v_task.user_expression_id<>v_review.user_expression_id
     or v_task.due_at is distinct from v_review.due_at
     or v_review.mastery_state<>v_expression.mastery_state then
@@ -309,7 +309,7 @@ begin
     v_evidence_kind:='owned_threshold_met';
     v_interval:=30;
   end if;
-  v_next_due:=p_completed_at+pg_catalog.make_interval(days=>v_interval);
+  v_next_due:=p_completed_at+pg_catalog.make_interval(hours=>v_interval*24);
   v_successes:=case
     when not v_independent then 0
     when v_review.consecutive_successes>=1000 then 1000

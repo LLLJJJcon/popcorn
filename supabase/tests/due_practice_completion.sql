@@ -59,7 +59,11 @@ insert into public.expression_senses(
   ('0e200000-0000-4000-8000-000000000004',:'user_a',:'source_a','说实话','说实话','honestly','Frames an opinion.','neutral','opinion','informal'),
   ('0e200000-0000-4000-8000-000000000005',:'user_a',:'source_a','别客气','别客气','you are welcome','Polite response.','warm','polite response','polite'),
   ('0e200000-0000-4000-8000-000000000006',:'user_b',:'source_b','太离谱了','太离谱了','absurd','Other owner.','surprised','reaction','informal'),
-  ('0e200000-0000-4000-8000-000000000007',:'user_a',:'source_a','慢慢来','慢慢来','take your time','Reassuring response.','warm','reassurance','informal');
+  ('0e200000-0000-4000-8000-000000000007',:'user_a',:'source_a','慢慢来','慢慢来','take your time','Reassuring response.','warm','reassurance','informal'),
+  ('0e200000-0000-4000-8000-000000000008',:'user_a',:'source_a','别着急','别着急','do not worry','Reassuring response.','warm','reassurance','informal'),
+  ('0e200000-0000-4000-8000-000000000009',:'user_a',:'source_a','太夸张了','太夸张了','too exaggerated','Strong reaction.','surprised','reaction','informal'),
+  ('0e200000-0000-4000-8000-000000000010',:'user_a',:'source_a','没关系','没关系','it is okay','Warm response.','warm','reassurance','informal'),
+  ('0e200000-0000-4000-8000-000000000011',:'user_a',:'source_a','不用担心','不用担心','do not worry','Reassuring response.','warm','reassurance','informal');
 insert into public.user_expressions(id,user_id,expression_sense_id,mastery_state,created_at,updated_at) values
   ('0e300000-0000-4000-8000-000000000001',:'user_a','0e200000-0000-4000-8000-000000000001','tried','2026-08-16','2026-08-16'),
   ('0e300000-0000-4000-8000-000000000002',:'user_a','0e200000-0000-4000-8000-000000000002','tried','2026-08-16','2026-08-16'),
@@ -67,7 +71,11 @@ insert into public.user_expressions(id,user_id,expression_sense_id,mastery_state
   ('0e300000-0000-4000-8000-000000000004',:'user_a','0e200000-0000-4000-8000-000000000004','reused','2026-08-16','2026-08-20'),
   ('0e300000-0000-4000-8000-000000000005',:'user_a','0e200000-0000-4000-8000-000000000005','owned','2026-08-16','2026-08-20'),
   ('0e300000-0000-4000-8000-000000000006',:'user_b','0e200000-0000-4000-8000-000000000006','owned','2026-08-16','2026-08-20'),
-  ('0e300000-0000-4000-8000-000000000007',:'user_a','0e200000-0000-4000-8000-000000000007','owned','2026-08-16','2026-08-20');
+  ('0e300000-0000-4000-8000-000000000007',:'user_a','0e200000-0000-4000-8000-000000000007','owned','2026-08-16','2026-08-20'),
+  ('0e300000-0000-4000-8000-000000000008',:'user_a','0e200000-0000-4000-8000-000000000008','tried','2026-08-16','2026-08-20'),
+  ('0e300000-0000-4000-8000-000000000009',:'user_a','0e200000-0000-4000-8000-000000000009','tried','2026-08-16','2026-08-20'),
+  ('0e300000-0000-4000-8000-000000000010',:'user_a','0e200000-0000-4000-8000-000000000010','owned','2026-08-16','2026-08-20'),
+  ('0e300000-0000-4000-8000-000000000011',:'user_a','0e200000-0000-4000-8000-000000000011','owned','2026-08-16','2026-08-20');
 
 -- Historical independent due evidence for ownership threshold fixtures.
 insert into public.review_tasks(
@@ -104,7 +112,11 @@ insert into public.review_tasks(
   ('0e400000-0000-4000-8000-000000000003',:'user_a','0e300000-0000-4000-8000-000000000003','reused','pending','2026-08-20 00:00+00',7,1),
   ('0e400000-0000-4000-8000-000000000004',:'user_a','0e300000-0000-4000-8000-000000000004','reused','pending','2026-08-20 00:00+00',7,1),
   ('0e400000-0000-4000-8000-000000000005',:'user_a','0e300000-0000-4000-8000-000000000005','owned','pending','2026-08-20 00:00+00',30,3),
-  ('0e400000-0000-4000-8000-000000000007',:'user_a','0e300000-0000-4000-8000-000000000007','owned','pending','2026-08-20 00:00+00',30,3);
+  ('0e400000-0000-4000-8000-000000000007',:'user_a','0e300000-0000-4000-8000-000000000007','owned','pending','2026-08-20 00:00+00',30,3),
+  ('0e400000-0000-4000-8000-000000000008',:'user_a','0e300000-0000-4000-8000-000000000008','tried','pending','2026-08-20 00:00+00',1,0),
+  ('0e400000-0000-4000-8000-000000000009',:'user_a','0e300000-0000-4000-8000-000000000009','tried','pending','2026-10-31 00:00-04',1,0),
+  ('0e400000-0000-4000-8000-000000000010',:'user_a','0e300000-0000-4000-8000-000000000010','owned','pending','2026-10-31 00:00-04',30,3),
+  ('0e400000-0000-4000-8000-000000000011',:'user_a','0e300000-0000-4000-8000-000000000011','owned','pending','2026-10-31 00:00-04',30,3);
 insert into public.practice_tasks(
   id,user_id,user_expression_id,review_task_id,kind,native_language,target_language,
   target_expression,prompt_chinese,instructions_english,goal_english,due_at,created_at
@@ -114,7 +126,11 @@ insert into public.practice_tasks(
   ('0e500000-0000-4000-8000-000000000003',:'user_a','0e300000-0000-4000-8000-000000000003','0e400000-0000-4000-8000-000000000003','due_practice','en','zh-CN','挺有意思','同学提出一个新的学习方法，你会怎么回应？','Reply in Mandarin.','Use the expression naturally.','2026-08-20 00:00+00','2026-08-20 01:00+00'),
   ('0e500000-0000-4000-8000-000000000004',:'user_a','0e300000-0000-4000-8000-000000000004','0e400000-0000-4000-8000-000000000004','due_practice','en','zh-CN','说实话','朋友问你对一部电影的看法，你会怎么说？','Reply in Mandarin.','Use the expression naturally.','2026-08-20 00:00+00','2026-08-20 01:00+00'),
   ('0e500000-0000-4000-8000-000000000005',:'user_a','0e300000-0000-4000-8000-000000000005','0e400000-0000-4000-8000-000000000005','due_practice','en','zh-CN','别客气','朋友感谢你的帮助，你会怎么回应？','Reply in Mandarin.','Use the expression naturally.','2026-08-20 00:00+00','2026-08-20 01:00+00'),
-  ('0e500000-0000-4000-8000-000000000007',:'user_a','0e300000-0000-4000-8000-000000000007','0e400000-0000-4000-8000-000000000007','due_practice','en','zh-CN','慢慢来','朋友因为进度慢而着急，你会怎么回应？','Reply in Mandarin.','Use the expression naturally.','2026-08-20 00:00+00','2026-08-20 01:00+00');
+  ('0e500000-0000-4000-8000-000000000007',:'user_a','0e300000-0000-4000-8000-000000000007','0e400000-0000-4000-8000-000000000007','due_practice','en','zh-CN','慢慢来','朋友因为进度慢而着急，你会怎么回应？','Reply in Mandarin.','Use the expression naturally.','2026-08-20 00:00+00','2026-08-20 01:00+00'),
+  ('0e500000-0000-4000-8000-000000000008',:'user_a','0e300000-0000-4000-8000-000000000008',null,'due_practice','en','zh-CN','别着急','朋友担心迟到，你会怎么安慰？','Reply in Mandarin.','Use the expression naturally.','2026-08-20 00:00+00','2026-08-20 01:00+00'),
+  ('0e500000-0000-4000-8000-000000000009',:'user_a','0e300000-0000-4000-8000-000000000009','0e400000-0000-4000-8000-000000000009','due_practice','en','zh-CN','太夸张了','朋友说商品价格涨了十倍，你会怎么回应？','Reply in Mandarin.','Use the expression naturally.','2026-10-31 00:00-04','2026-10-31 01:00-04'),
+  ('0e500000-0000-4000-8000-000000000010',:'user_a','0e300000-0000-4000-8000-000000000010','0e400000-0000-4000-8000-000000000010','due_practice','en','zh-CN','没关系','朋友为一个小错误道歉，你会怎么回应？','Reply in Mandarin.','Use the expression naturally.','2026-10-31 00:00-04','2026-10-31 01:00-04'),
+  ('0e500000-0000-4000-8000-000000000011',:'user_a','0e300000-0000-4000-8000-000000000011','0e400000-0000-4000-8000-000000000011','due_practice','en','zh-CN','不用担心','朋友担心明天的安排，你会怎么安慰？','Reply in Mandarin.','Use the expression naturally.','2026-10-31 00:00-04','2026-10-31 01:00-04');
 
 select extensions.throws_ok(
   $$insert into public.practice_tasks(user_id,user_expression_id,review_task_id,kind,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,due_at)
@@ -122,6 +138,34 @@ select extensions.throws_ok(
   '23505',null,'the same expression context cannot create a second task'
 );
 
+set local role service_role;
+select extensions.throws_ok(
+  $$select * from public.complete_due_practice(
+    '0e000000-0000-4000-8000-00000000a001','0e400000-0000-4000-8000-000000000008','0e500000-0000-4000-8000-000000000008',repeat('8',64),
+    '别着急，我们还有时间。','none',true,5,'Accurate.',5,'Natural.',5,'Fits.','2026-08-20 12:00+00',null,null,null,null,null)$$,
+  '22023',null,'an unlinked legacy due task cannot complete a pending review'
+);
+reset role;
+select extensions.is(
+  (select r.status || '|' || u.mastery_state || '|' ||
+      (select count(*) from public.attempts where practice_task_id='0e500000-0000-4000-8000-000000000008')::text || '|' ||
+      (select count(*) from public.mastery_events where user_expression_id='0e300000-0000-4000-8000-000000000008')::text || '|' ||
+      (select count(*) from private.due_practice_completion_receipts where review_task_id='0e400000-0000-4000-8000-000000000008')::text
+    from public.review_tasks r join public.user_expressions u on u.id=r.user_expression_id
+    where r.id='0e400000-0000-4000-8000-000000000008'),
+  'pending|tried|0|0|0',
+  'an unlinked task failure leaves review, mastery, attempt, event, and receipt state unchanged'
+);
+-- Baseline succeeds incorrectly, so restore the fixture before later independent assertions.
+delete from private.due_practice_completion_receipts where review_task_id='0e400000-0000-4000-8000-000000000008';
+delete from public.mastery_events where user_expression_id='0e300000-0000-4000-8000-000000000008';
+delete from public.review_tasks where user_expression_id='0e300000-0000-4000-8000-000000000008'
+  and id<>'0e400000-0000-4000-8000-000000000008';
+update public.review_tasks set status='pending',completed_attempt_id=null,completed_at=null,updated_at='2026-08-20'
+where id='0e400000-0000-4000-8000-000000000008';
+delete from public.attempts where practice_task_id='0e500000-0000-4000-8000-000000000008';
+update public.user_expressions set mastery_state='tried',updated_at='2026-08-20'
+where id='0e300000-0000-4000-8000-000000000008';
 set local role service_role;
 create temp table tried_result as select * from public.complete_due_practice(
   :'user_a','0e400000-0000-4000-8000-000000000001','0e500000-0000-4000-8000-000000000001',repeat('a',64),
@@ -282,6 +326,31 @@ select extensions.is(
   'owned is absorbing while successful independent maintenance schedules thirty days'
 );
 
+set local time zone 'America/New_York';
+create temp table dst_seven_result as select * from public.complete_due_practice(
+  :'user_a','0e400000-0000-4000-8000-000000000009','0e500000-0000-4000-8000-000000000009',repeat('9',64),
+  '这个价格太夸张了。','none',true,5,'Accurate.',5,'Natural.',5,'Fits.','2026-10-31 12:00-04',null,null,null,null,null
+);
+create temp table dst_one_result as select * from public.complete_due_practice(
+  :'user_a','0e400000-0000-4000-8000-000000000010','0e500000-0000-4000-8000-000000000010',repeat('0',64),
+  '没关系。','hint',true,4,'Accurate.',4,'Natural.',4,'Fits.','2026-10-31 12:00-04',null,null,null,null,null
+);
+create temp table dst_thirty_result as select * from public.complete_due_practice(
+  :'user_a','0e400000-0000-4000-8000-000000000011','0e500000-0000-4000-8000-000000000011',repeat('1',64),
+  '不用担心，我们准备好了。','none',true,5,'Accurate.',5,'Natural.',5,'Fits.','2026-10-31 12:00-04',null,null,null,null,null
+);
+select extensions.results_eq(
+  $$select interval_days,(extract(epoch from next_due_at-'2026-10-31 12:00-04'::timestamptz))::bigint
+    from (
+      select interval_days,next_due_at from dst_one_result
+      union all select interval_days,next_due_at from dst_seven_result
+      union all select interval_days,next_due_at from dst_thirty_result
+    ) schedules order by interval_days$$,
+  $$values (1,86400::bigint),(7,604800::bigint),(30,2592000::bigint)$$,
+  'one, seven, and thirty day schedules remain exact 24-hour durations across New York DST'
+);
+set local time zone 'UTC';
+
 select extensions.throws_ok(
   $$select * from public.complete_due_practice(
     '0e000000-0000-4000-8000-00000000b002','0e400000-0000-4000-8000-000000000003','0e500000-0000-4000-8000-000000000003',repeat('1',64),
@@ -296,6 +365,6 @@ select extensions.throws_ok(
 );
 
 reset role;
-select extensions.is((select count(*) from private.due_practice_completion_receipts),6::bigint,'one immutable receipt exists per completed review');
+select extensions.is((select count(*) from private.due_practice_completion_receipts),9::bigint,'one immutable receipt exists per completed review');
 select * from extensions.finish();
 rollback;
