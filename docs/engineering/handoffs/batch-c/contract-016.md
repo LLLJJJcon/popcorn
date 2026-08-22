@@ -30,7 +30,7 @@ the added regression first failed because NULL deleted an unpracticed source,
 then passed after the RPC explicitly rejected NULL before mutation
 
 supabase test db
-9 files, 656/656 passed
+9 files, 657/657 passed after the NULL-mode regression was added
 
 supabase gen types typescript --local --schema public,private
 generated output matched src/types/database.generated.ts after normalizing the CLI's extra blank EOF line
