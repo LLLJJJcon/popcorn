@@ -1,5 +1,10 @@
 # Popcorn Batch C Retrieval, Progress, and Resilience Implementation Plan
 
+> **Revised for uncompleted Tasks 2-6 on 2026-08-22:** Use
+> `2026-08-22-popcorn-batch-c-school-demo-revision.md`. Task 1 remains accepted;
+> conflicting account-deletion, full-site accessibility, repeated full-suite,
+> and duplicate E2E requirements below are no longer current gates.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Complete reliable Chinese expression retrieval, independent reuse, basic evidence-based Progress, explicit deletion, and cross-surface resilience without expanding first-release scope.

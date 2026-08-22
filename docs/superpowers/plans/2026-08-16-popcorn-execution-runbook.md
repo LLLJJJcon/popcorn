@@ -15,21 +15,26 @@
 Read these files completely before implementation:
 
 1. `docs/superpowers/specs/2026-08-16-popcorn-desktop-web-design.md`
-2. `docs/superpowers/plans/2026-08-16-popcorn-foundation-contracts.md`
-3. `docs/superpowers/plans/2026-08-16-popcorn-batch-a-platform-capabilities.md`
-4. `docs/superpowers/plans/2026-08-16-popcorn-batch-b-learning-loop.md`
-5. `docs/superpowers/plans/2026-08-16-popcorn-batch-c-progress-chinese.md`
-6. `docs/superpowers/plans/2026-08-16-popcorn-delivery-demo.md`
-7. `docs/superpowers/plans/2026-08-16-popcorn-agent-orchestration.md`
-8. This runbook.
+2. `docs/superpowers/specs/2026-08-22-popcorn-local-first-school-demo-design.md`
+3. `docs/superpowers/plans/2026-08-16-popcorn-foundation-contracts.md`
+4. `docs/superpowers/plans/2026-08-16-popcorn-batch-a-platform-capabilities.md`
+5. `docs/superpowers/plans/2026-08-16-popcorn-batch-b-learning-loop.md`
+6. `docs/superpowers/plans/2026-08-16-popcorn-batch-c-progress-chinese.md`
+7. `docs/superpowers/plans/2026-08-16-popcorn-delivery-demo.md`
+8. `docs/superpowers/plans/2026-08-22-popcorn-local-first-amendments.md`
+9. `docs/superpowers/plans/2026-08-22-popcorn-batch-c-school-demo-revision.md`
+10. `docs/superpowers/plans/2026-08-22-popcorn-github-delivery-revision.md`
+11. `docs/superpowers/plans/2026-08-16-popcorn-agent-orchestration.md`
+12. This runbook.
 
 Resolve conflicts in this order:
 
 1. The user's latest explicit instruction.
-2. The approved product design.
-3. The task's module plan.
-4. The orchestration plan and this runbook.
-5. An implementer's interpretation.
+2. The approved 2026-08-22 local-first design addendum.
+3. The original product design.
+4. The task's approved 2026-08-22 overlay plan, then its original module plan.
+5. The orchestration plan and this runbook.
+6. An implementer's interpretation.
 
 If levels 1–3 disagree, stop and present the exact conflict. Do not silently choose.
 
@@ -105,7 +110,7 @@ Before implementing a task that touches acquisition, Side Panel UX, transcript b
 ```text
 Execute the approved Popcorn YouTube learning plans in this repository.
 
-Read the product design, all five module plans, agent orchestration plan, and execution runbook in full. Use superpowers:using-git-worktrees before implementation, superpowers:executing-plans to execute tasks, superpowers:test-driven-development for every feature or fix, superpowers:requesting-code-review at integration gates, and superpowers:verification-before-completion before completion claims.
+Read both product design documents, all original module plans, all three 2026-08-22 overlay plans, the agent orchestration plan, and the execution runbook in full. Use superpowers:using-git-worktrees before implementation, superpowers:subagent-driven-development to execute tasks, superpowers:test-driven-development for every feature or fix, superpowers:requesting-code-review at integration gates, and superpowers:verification-before-completion before completion claims.
 
 Do not work directly on main. Begin with a read-only preflight and create an isolated feature worktree. Execute Foundation Tasks 1–5 sequentially. Then follow the exact dependency schedule in the orchestration plan. Shared contracts, migrations, root configuration, lockfiles, and integration routes remain controller-owned.
 
@@ -113,7 +118,7 @@ For every task, create a durable brief that includes exact upstream repository, 
 
 Keep the first release restricted to the currently watched YouTube video. Save learning-material snapshots in the background from video, player moment, subtitle row/selection, key quote, and AI explanation. Do not pause playback, open the web app, call providers in the save request, or store the video file. Keep mastery exactly tried -> reused -> owned. Do not add pgvector or deferred inputs.
 
-Use one fresh implementation context per numbered task when delegation is available. Require RED/GREEN test evidence, a commit, a handoff report, and review before integration. Update the execution ledger after each accepted task. Resume from Git, the ledger, checkpoints, and handoffs rather than conversation history. Continue until the release acceptance suite passes or an external dependency or genuine specification conflict blocks progress.
+Use one fresh implementation context per numbered task when delegation is available. Require RED/GREEN test evidence, a commit, a handoff report, and review before integration. Update the execution ledger after each accepted task. Resume from Git, the ledger, checkpoints, and handoffs rather than conversation history. Treat local Next.js + local Supabase + the generated unpacked extension as the sole required release topology. Continue until its acceptance suite and one real local Provider smoke pass, or an external credential/service or genuine specification conflict blocks progress.
 ```
 
 ## 5. Read-only preflight
@@ -237,6 +242,9 @@ The authoritative task counts are:
 - Batch C: Tasks 1–6.
 - Delivery: Tasks 1–6.
 
+For remaining work, the 2026-08-22 overlays replace conflicting uncompleted
+steps in the original Batch C and Delivery plans.
+
 ### Foundation
 
 Run Tasks 1–5 sequentially. Freeze contracts only after all foundation tests, provenance checks, migrations, RLS tests, and CI pass.
@@ -271,16 +279,25 @@ Gate B must prove snapshot to knowledge candidate to learner reuse to due practi
 
 After Gate B:
 
-- Tasks 1, 2, and 3 may proceed concurrently only if migrations/contracts are already controller-owned and file paths are disjoint.
-- Task 4 follows the source ownership contracts.
-- Task 5 may proceed alongside Task 4 on disjoint recovery/accessibility paths.
-- Task 6 is the sequential integration gate.
+- Task 1 is accepted.
+- Primary executes Local-First Task 1; a feature agent may repair Batch C Task 3
+  concurrently because file ownership does not overlap.
+- Batch C Task 2 waits for Local-First Task 1 and the final user-configured
+  gateway interface.
+- Local-First Tasks 2-4 run in order; Tasks 3-4 may not overlap extension files.
+- Batch C Task 4 waits for Tasks 2 and 3 and implements source deletion only.
+- Batch C Task 5 waits for Task 4 and Local-First Task 4.
+- Primary executes Task 6 as one returning-learner integration gate.
 
 Gate C must prove lexical Chinese retrieval, three-state evidence advancement, basic progress, deletion isolation, retry/recovery behavior, and keyboard/accessibility behavior.
 
 ### Delivery
 
-Run Tasks 1–6 sequentially. Do not deploy until packaging/license audit, deterministic demo data, observability, production RLS/Cron/auth configuration, and the complete local acceptance suite pass. Fixture-based CI is mandatory; real-service verification is a separate release check and must never expose credentials.
+Run revised GitHub Delivery Tasks 1–6 sequentially. There is no required cloud
+deployment. Complete packaging/license audit, deterministic demo data, the
+fresh-clone guide, and fixture acceptance before one real local YouTube/model
+smoke. Only after those pass may the primary integrate to GitHub main and tag
+the demo release. Real-service verification must never expose credentials.
 
 ## 9. Review and integration gate
 
@@ -290,7 +307,8 @@ For each task:
 2. Diff from the recorded baseline, not `HEAD~1`.
 3. Confirm changed paths match ownership.
 4. Confirm the provenance section names exact upstream paths and actions.
-5. Re-run focused tests and one relevant broader suite.
+5. Re-run the focused tests and only the broader command explicitly required by
+   the authoritative overlay task; do not invent a full-suite gate.
 6. Review specification compliance before code quality.
 7. Send Critical or Important findings back for a tested fix.
 8. Re-review the complete baseline-to-head diff.
@@ -331,26 +349,43 @@ Providers may return another language when Chinese is unavailable. Validate the 
 
 ### Deletion and jobs
 
-Source deletion removes the user's dependent snapshots/items/candidates/cards/evidence according to the plan, without touching another user's data. Pending/running jobs re-check source ownership before writing and end safely when the source was deleted.
+Source deletion removes the owner's raw source identity/content/locators. For a
+practiced source it retains tombstoned canonical learning, attempts, mastery,
+reviews, and immutable replay IDs exactly as CONTRACT-016 specifies, without
+touching another user's data. Pending/running jobs re-check source ownership
+before writing and end safely when the source was deleted.
 
 ### Secrets and external state
 
 Provider and service keys stay server-side and out of logs, fixtures, extension storage, handoffs, and commits. Missing production credentials or provider access can block real-service verification, but cannot justify weakening local fixture tests.
 
+The public Supabase anon key may appear in generated extension configuration.
+`SUPADATA_API_KEY` remains a separate server-only prerequisite. The user's model
+gateway key is entered only in authenticated Web settings and resolved only by
+the owner-bound worker. Global `OPENAI_API_KEY` and `OPENAI_MODEL` are retired.
+
+### Proportionate verification
+
+Use focused RED/GREEN commands and the independent reviewer for every task.
+Repeat full pgTAP, concurrency, full application, build, or browser suites only
+when the task changes the boundary they prove. Run one Batch C candidate build
+and one final clean-checkout release gate. Do not add load, quota, SLO,
+multi-environment, WAF, backup-drill, or commercial compliance gates.
+
 ## 11. Verification commands by gate
 
-Use the exact commands declared by each task plan. At minimum, from the implementation root:
+The command lists in the 2026-08-22 overlay plans are authoritative for the
+remaining local-first, Batch C, and Delivery gates. Previously recorded broad
+gates remain evidence and are not repeated solely for ceremony.
 
-```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm test:e2e
-pnpm build
-git diff --check
-```
-
-Also run the plan-specific provenance, migration/RLS, extension, queue-restart, job-leasing, retrieval, deletion, packaging, and real-service smoke commands. Record exit codes and concise output in checkpoints. A skipped required check is not a pass; record it as blocked with the missing dependency.
+Use exactly the commands declared by the authoritative overlay task. A typical
+feature task runs its RED/GREEN tests, scoped lint where declared, TypeScript,
+and `git diff --check`; it does not automatically run full lint/test/E2E/build.
+Migration/shared-contract/auth-secret/queue tasks run their named broader
+boundary gate. Batch C runs its one candidate build, and Delivery runs the one
+final broad clean-checkout gate. Record exit codes and concise output in
+checkpoints. A skipped command that the overlay explicitly requires is not a
+pass; record it as blocked with the missing dependency.
 
 ## 12. Resume protocol
 

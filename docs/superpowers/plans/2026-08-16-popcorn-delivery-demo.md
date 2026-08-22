@@ -1,5 +1,10 @@
 # Popcorn Chrome Extension and Web Delivery Implementation Plan
 
+> **Superseded for uncompleted work on 2026-08-22:** Use
+> `2026-08-22-popcorn-github-delivery-revision.md`. This file remains historical
+> context only; Vercel, preview/production, observability-platform, and
+> commercial operations requirements below are not current acceptance gates.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Package, deploy, seed, observe, and verify the complete YouTube-to-owned Popcorn product through a repeatable live demonstration.

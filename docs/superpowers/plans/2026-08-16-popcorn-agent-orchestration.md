@@ -10,8 +10,9 @@
 
 ## Global Constraints
 
+- Approved local-first addendum: `docs/superpowers/specs/2026-08-22-popcorn-local-first-school-demo-design.md`. It supersedes production-scale Delivery and remaining Batch C verification scope where the older plans conflict.
 - Canonical spec: `docs/superpowers/specs/2026-08-16-popcorn-desktop-web-design.md` at commit `ec5785e` or its reviewed successor.
-- Plan execution order: Foundation -> Batch A -> Gate A -> Batch B -> Gate B -> Batch C -> Gate C -> Delivery.
+- Remaining execution order after accepted Batch C Task 1: Local-First amendments -> revised Batch C Tasks 2-6 -> revised GitHub Delivery Tasks 1-6.
 - Only the primary agent modifies contracts, root configuration, migrations, generated database types, vendor scripts, upstream notices, or integration-ledger state.
 - Feature agents may not regenerate upstream YouTube Digest functionality when a named pinned function exists.
 - `nashsu/llm_wiki` is method-only provenance; copying GPLv3 implementation code is a blocking review failure.
@@ -28,6 +29,12 @@
 | 3 | `2026-08-16-popcorn-batch-b-learning-loop.md` | job processing, Saved, candidate knowledge, Use It Now, Vault, Practice |
 | 4 | `2026-08-16-popcorn-batch-c-progress-chinese.md` | retrieval, reuse mastery, Progress, deletion, resilience |
 | 5 | `2026-08-16-popcorn-delivery-demo.md` | packaging, seed, operations, deployment, acceptance, release evidence |
+| 6 | `2026-08-22-popcorn-local-first-amendments.md` | user gateway URL, local account auth, worker trigger, generated extension |
+| 7 | `2026-08-22-popcorn-batch-c-school-demo-revision.md` | authoritative remaining Batch C Tasks 2-6 |
+| 8 | `2026-08-22-popcorn-github-delivery-revision.md` | authoritative personal self-host/GitHub Delivery Tasks 1-6 |
+
+Rows 6-8 are approved overlays. They replace conflicting uncompleted work in
+rows 4-5; accepted historical work remains evidence.
 
 ## Dependency Graph
 
@@ -55,17 +62,20 @@ Batch B
                                       B6 integration gate
         |
         v
-Batch C
-  C1 retrieval     C2 due mastery     C3 Progress
-        \              |              /
-         +-------- C4 deletion ------+
-                      |
-                C5 resilience
-                      |
-                C6 integration gate
+C1 retrieval (accepted)
         |
-        v
-Delivery Tasks 1-6 (sequential environment ownership)
+        +---- Local L1 gateway contract ----> C2 due mastery
+        |                                      |
+        +---- C3 Progress repair --------------+
+        |
+        +---- Local L2 worker/env -> L3 auth -> L4 extension config
+                                               |
+                          C4 source deletion -> C5 demo recovery
+                                               |
+                                         C6 integration gate
+                                               |
+                                               v
+GitHub Delivery D1-D6 (sequential local ownership)
 ```
 
 ## Foundation Schedule
@@ -134,18 +144,26 @@ After A3/A4 pass:
 
 ## Batch C Ownership and Schedule
 
-### Parallel wave C1
+The approved 2026-08-22 overlay governs all uncompleted Batch C work.
 
-- **Agent A — Retrieval:** Task C1; owns expression search repository/UI/tests.
-- **Agent B — Due mastery:** Task C2; owns transfer/completion domain, due routes/UI/tests.
-- **Agent C — Progress:** Task C3; owns progress repository/schema/page/tests.
-- **Primary:** Confirms all queries carry explicit user scope and no vector dependency appears.
+### Current wave
 
-### Sequential integration C2
+- Task C1 retrieval is accepted and integrated.
+- Primary executes Local-First Task L1 because it changes the gateway contract,
+  migration, generated types, and shared settings interfaces.
+- One feature agent may repair C3 Progress in parallel because it owns no L1
+  files.
+- C2 Due mastery starts after L1 review PASS so it consumes the final user URL
+  gateway interface.
+- Local L2-L4 execute in order; L3 and L4 own overlapping extension auth/runtime
+  files and cannot run concurrently.
 
-- Task C4 deletion runs after retrieval/mastery/progress because it must audit every dependent row.
-- Task C5 owns shared extension/web state files and therefore runs without competing UI agents.
-- Primary executes C6 complete mastery/deletion/recovery gates.
+### Sequential integration
+
+- C4 implements source deletion only after C2 and C3 are accepted.
+- C5 starts after C4 and Local L4 because it owns shared extension state files.
+- Primary executes C6 as one returning-learner gate and reuses accepted
+  queue/restart evidence.
 
 ### Gate C review checklist
 
@@ -154,20 +172,28 @@ After A3/A4 pass:
 - [ ] Progress excludes save counts from mastery evidence.
 - [ ] Deletion preview matches actual cascade/retention.
 - [ ] Offline/auth-expired worker recovery syncs exactly once.
-- [ ] Full extension, browser, database, build, and provenance commands pass.
+- [ ] Revised C2-C5 focused suites, existing queue/restart regressions, one
+  returning-learner browser scenario, TypeScript, build, and diff checks pass.
+- [ ] CONTRACT-016 owns the sole new deletion database/full-pgTAP gate;
+  accepted CONTRACT-014/015 and provenance evidence are cited rather than
+  rerun without a changed boundary.
 
 ## Delivery Schedule
 
-Delivery is sequential because extension package identity, deployment origins, Supabase migrations/Cron/Vault, demo seed, and production state overlap.
+The approved GitHub personal-use revision replaces production deployment.
+Delivery remains sequential because extension identity, seed, documentation,
+acceptance evidence, and GitHub release state overlap.
 
-- [ ] **D1:** Package allowlisted extension and audit provenance/license/secrets.
-- [ ] **D2:** Seed deterministic demo account/video/cache.
-- [ ] **D3:** Add minimal authenticated job observability and recovery docs; no learner-facing health feature.
-- [ ] **D4:** Configure preview/production auth, RLS, Cron, providers, and complete terms gate.
-- [ ] **D5:** Run fixture-backed complete local acceptance.
-- [ ] **D6:** Deploy, run real-provider smoke tests, and record release evidence.
+- [ ] **D1:** Package/license the exact local extension and audit provenance/secrets.
+- [ ] **D2:** Seed one short deterministic owner-bound classroom demonstration.
+- [ ] **D3:** Publish and execute the fresh-clone local self-host guide.
+- [ ] **D4:** Run fixture-backed clean-checkout acceptance and slim fixture CI.
+- [ ] **D5:** Run one real Mandarin YouTube plus user gateway smoke locally.
+- [ ] **D6:** Primary runs the final gate, integrates to GitHub main, and tags the demo release.
 
-Investigation agents may diagnose independent failures, but only the primary changes shared environment configuration or declares delivery ready.
+There is no Vercel, preview/production matrix, observability API, load test,
+formal backup drill, or commercial terms/compliance gate. Only the primary
+changes shared environment configuration or declares delivery ready.
 
 ## Required Agent Brief
 
