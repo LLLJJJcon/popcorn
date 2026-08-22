@@ -706,23 +706,153 @@ function saveSuccessLabel(result) {
     : "Saved locally; sign in to sync";
 }
 
-async function saveWithButton(input, button, idleLabel = "Save") {
-  if (!button) return saveController.save(input);
+const SAVE_STATUS_COPY = Object.freeze({
+  saving: "Saving this learning moment…",
+  saved: "Saved locally. Queued to sync.",
+  retrying: "Saved locally. Offline; queued and retrying automatically.",
+  "sign-in-required": "Saved locally. Sign in required; your save stays queued.",
+  organizing: "Saved to Popcorn. Organizing your learning material…",
+  failed: "Your saved learning text is still available. Popcorn could not organize it.",
+  "save-failed": "This save was not completed. Try again when Popcorn is ready.",
+  unsupported: "Popcorn works only with the YouTube video you are currently watching.",
+});
+
+function savedRawText(input) {
+  for (const key of ["originalChinese", "selectedChinese", "exactQuote", "title"]) {
+    if (typeof input?.[key] === "string" && input[key].trim()) return input[key];
+  }
+  return "";
+}
+
+function createSaveStatusPresenter(doc, appUrl = "") {
+  const surface = doc?.getElementById("saveStatus");
+  const message = doc?.getElementById("saveStatusMessage");
+  const raw = doc?.getElementById("saveRawText");
+  const retryButton = doc?.getElementById("saveRetryBtn");
+  const recoveryLink = doc?.getElementById("saveRecoveryLink");
+  let retryAction = null;
+
+  retryButton?.addEventListener("click", async () => {
+    if (!retryAction) return;
+    const action = retryAction;
+    retryButton.disabled = true;
+    show({ state: "retrying" });
+    try {
+      await action();
+    } catch (_error) {
+      // The retry action restores the fixed failed state without exposing details.
+    } finally {
+      retryButton.disabled = false;
+    }
+  });
+
+  function show({ state, rawText = "", retry = null }) {
+    if (!surface || !message || !(state in SAVE_STATUS_COPY)) return;
+    surface.hidden = false;
+    surface.dataset.state = state;
+    message.textContent = SAVE_STATUS_COPY[state];
+    retryAction = typeof retry === "function" ? retry : null;
+
+    if (raw) {
+      const showsRawText = state === "failed" && Boolean(rawText);
+      raw.hidden = !showsRawText;
+      raw.textContent = showsRawText ? rawText : "";
+    }
+    if (retryButton) {
+      retryButton.hidden = !["failed", "save-failed"].includes(state) || !retryAction;
+    }
+    if (recoveryLink) {
+      recoveryLink.hidden = true;
+      recoveryLink.removeAttribute("href");
+      if (state === "failed" && appUrl) {
+        try {
+          recoveryLink.href = new URL("/saved", appUrl).href;
+          recoveryLink.hidden = false;
+        } catch (_error) {
+          // Invalid build-time public configuration leaves the link absent.
+        }
+      }
+    }
+  }
+
+  return { show };
+}
+
+function saveStateForResult(result) {
+  if (result?.status === "failed") return "failed";
+  if (result?.code === "AUTH_REQUIRED" && result?.pending) return "sign-in-required";
+  if (result?.code === "SYNC_RETRYING") return "retrying";
+  if (result?.status === "saved") return "saved";
+  if (result?.status === "organizing" || result?.synced) return "organizing";
+  return "saved";
+}
+
+const saveStatusPresenter = createSaveStatusPresenter(
+  document,
+  globalThis.POPCORN_RUNTIME_CONFIG?.appUrl || "",
+);
+
+async function saveWithFeedback({
+  input,
+  button,
+  idleLabel = "Save",
+  save,
+  presenter,
+  scheduleReset = setTimeout,
+}) {
+  if (!button) return save(input);
   button.disabled = true;
   button.textContent = "Saving…";
+  presenter.show({ state: "saving" });
+  const retry = () => saveWithFeedback({
+    input,
+    button,
+    idleLabel,
+    save,
+    presenter,
+    scheduleReset,
+  });
   try {
-    const result = await saveController.save(input);
-    button.textContent = saveSuccessLabel(result);
+    const result = await save(input);
+    const state = saveStateForResult(result);
+    button.textContent = state === "failed" ? "Retry save" : saveSuccessLabel(result);
+    presenter.show({
+      state,
+      rawText: savedRawText(input),
+      retry: state === "failed" ? retry : null,
+    });
     return result;
   } catch (error) {
     button.textContent = "Retry save";
+    presenter.show({ state: "save-failed", retry });
     throw error;
   } finally {
-    setTimeout(() => {
+    scheduleReset(() => {
       button.textContent = idleLabel;
       button.disabled = false;
     }, 1800);
   }
+}
+
+async function saveWithButton(input, button, idleLabel = "Save") {
+  return saveWithFeedback({
+    input,
+    button,
+    idleLabel,
+    save: (savedInput) => saveController.save(savedInput),
+    presenter: saveStatusPresenter,
+  });
+}
+
+function showUnsupportedYouTube() {
+  showState("welcome");
+  const title = document.getElementById("welcomeTitle");
+  const description = document.getElementById("welcomeDescription");
+  if (title) title.textContent = "Open a YouTube video";
+  if (description) {
+    description.textContent = "Popcorn supports the video on a youtube.com/watch page. Open one to continue.";
+  }
+  saveStatusPresenter.show({ state: "unsupported" });
 }
 
 async function saveCurrentVideo(button) {
@@ -893,7 +1023,7 @@ async function checkCurrentTab() {
       startDigest(videoId, tab.url);
     } else {
       document.getElementById("saveVideoBtn").style.display = "none";
-      showState("welcome");
+      showUnsupportedYouTube();
     }
   } catch (error) {
     console.error("Tab check error:", error);
@@ -2618,4 +2748,7 @@ globalThis.__YTD_SAVE_TESTING__ = {
   buildAiExplanationSaveInput,
   assertExactSavedItemInput,
   createSaveController,
+  createSaveStatusPresenter,
+  saveWithFeedback,
+  showUnsupportedYouTube,
 };

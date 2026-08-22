@@ -172,6 +172,63 @@ body {
   background: var(--accent-dim);
 }
 
+.save-status {
+  margin: 10px 20px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-heavy);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-sm);
+  font: 600 12px/1.5 var(--font-body);
+}
+
+.save-status[hidden],
+.save-status-raw[hidden],
+.save-status-actions [hidden] {
+  display: none;
+}
+
+.save-status-raw {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: 400 13px/1.55 var(--font-reading);
+  overflow-wrap: anywhere;
+}
+
+.save-status-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.save-status-retry,
+.save-status-actions a {
+  color: var(--accent-hover);
+  font: 600 12px/1.4 var(--font-body);
+}
+
+.save-status-retry {
+  padding: 5px 10px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-pill);
+  background: transparent;
+  cursor: pointer;
+}
+
+.save-status-retry:focus-visible,
+.save-status-actions a:focus-visible,
+.error-btn:focus-visible,
+.translation-retry-btn:focus-visible {
+  outline: 3px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+
 /* ============================================================
    TAB NAVIGATION — pill tabs on the white header.
    No background "track": the header is white and the content below is cream,

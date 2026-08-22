@@ -47,13 +47,33 @@
       </div>
     </div>
 
+    <section
+      class="save-status"
+      id="saveStatus"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      hidden
+    >
+      <p id="saveStatusMessage"></p>
+      <blockquote class="save-status-raw" id="saveRawText" hidden></blockquote>
+      <div class="save-status-actions">
+        <button class="save-status-retry" id="saveRetryBtn" type="button" hidden>
+          Retry save
+        </button>
+        <a id="saveRecoveryLink" target="_blank" rel="noopener noreferrer" hidden>
+          Open Saved in Popcorn
+        </a>
+      </div>
+    </section>
+
     <!-- MAIN CONTENT -->
     <div class="content" id="contentArea">
       <!-- WELCOME STATE -->
       <div id="welcomeState" class="welcome-container">
         <div class="welcome-icon">&#9655;</div>
-        <div class="welcome-title">Learn Mandarin with Popcorn</div>
-        <div class="welcome-desc">
+        <div class="welcome-title" id="welcomeTitle">Learn Mandarin with Popcorn</div>
+        <div class="welcome-desc" id="welcomeDescription">
           Navigate to a YouTube video and click the extension icon to get an
           AI-powered digest.
         </div>
@@ -219,6 +239,7 @@
       Follow playback
     </button>
 
+    <script src="runtime-config.js"></script>
     <script src="settings.js"></script>
     <script src="sidepanel.js"></script>
   </body>

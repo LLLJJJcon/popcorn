@@ -58,9 +58,15 @@ const YTD_OPTIONS = (() => {
       if (signUp) signUp.hidden = !!account;
       signOut.hidden = !account;
       const summary = await sendQueueCommand("getSyncSummary");
-      syncStatus.textContent = account
-        ? (summary.pendingCount ? `${summary.pendingCount} saved moment${summary.pendingCount === 1 ? "" : "s"} waiting to sync.` : "Ready to sync saved moments.")
-        : "Sign in to sync saved moments.";
+      if (!account && summary.requiresSignIn) {
+        syncStatus.textContent = "Saved moments remain queued on this device. Sign in to retry sync.";
+      } else if (account && summary.pendingCount && summary.nextRetryAt) {
+        syncStatus.textContent = `${summary.pendingCount} saved moment${summary.pendingCount === 1 ? "" : "s"} queued; retrying automatically.`;
+      } else {
+        syncStatus.textContent = account
+          ? (summary.pendingCount ? `${summary.pendingCount} saved moment${summary.pendingCount === 1 ? "" : "s"} waiting to sync.` : "Ready to sync saved moments.")
+          : "Sign in to sync saved moments.";
+      }
     }
     async function submitPassword(command, successText, failureText) {
       const credentials = { email: authEmail?.value ?? "", password: authPassword?.value ?? "" };
@@ -100,7 +106,10 @@ const YTD_OPTIONS = (() => {
         dataStatus.textContent = "Could not clear the bounded cache.";
       }
     });
-    void renderSession().catch(() => { authStatus.textContent = "Could not check Popcorn sign-in."; });
+    void renderSession().catch(() => {
+      authStatus.textContent = "Could not check Popcorn sign-in.";
+      syncStatus.textContent = "Saved moments already queued remain on this device. Popcorn will retry.";
+    });
   }
 
   return { createStorageAdapter, initialize };
