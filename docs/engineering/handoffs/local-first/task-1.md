@@ -1,8 +1,10 @@
 # Local-First Task 1 Handoff
 
-Status: candidate implementation complete; independent review pending.
+Status: repair candidate implementation complete; independent review pending.
 
 Baseline: `60f388879fc41dfd0a89a9aa9e4b774c198796dd`.
+
+Repair baseline: `b7de300348a2cf93711cf547c70c0b4bfc8f6a7d`.
 
 ## Implemented
 
@@ -26,6 +28,23 @@ Baseline: `60f388879fc41dfd0a89a9aa9e4b774c198796dd`.
 - Two-session gateway concurrency: `model gateway concurrency invariant passed`.
 - TypeScript, scoped ESLint, and diff check passed before handoff; rerun after review fixes.
 
+## Repair 1 evidence
+
+- RED: the focused contract suite had 1 expected failure (21 passed):
+  `https://example.1a/v1` was accepted by TypeScript while the existing direct
+  configuration SQL validation rejected the same final DNS label.
+- GREEN: the focused contract suite passed 22 tests after TypeScript required the
+  final DNS label to begin with an ASCII letter; the SQL public-host boundary was
+  not changed.
+- Focused pgTAP: `supabase/tests/model_gateway.sql` passed 73 tests, including
+  direct creation rejection for `https://example.1a`.
+- Generated types: the local Supabase generator output was written to
+  `/tmp/popcorn-database.generated.ts`, normalized with
+  `perl -0pi -e 's/\n\n\z/\n/'` for the pinned CLI's extra empty EOF line, and
+  then matched `src/types/database.generated.ts` with an empty `diff -u`.
+- TypeScript and scoped ESLint passed; the repair diff check is rerun before
+  commit.
+
 ## Compatibility and risk
 
 Legacy catalog callers may still submit the historical bare origin to the service-only
@@ -34,5 +53,9 @@ requests must consent to the exact full URL. Direct destinations remain delibera
 limited to public HTTPS DNS hosts and the existing OpenAI-compatible adapter. DNS rebinding
 protection is not added because this is a local personal school project; the bounded URL
 contract, key nonleakage, owner isolation, Vault boundary, and durable queue guarantees stay.
+
+This repair makes the TypeScript canonical-origin contract match the existing SQL
+requirement that the final DNS label begins with an ASCII letter. It does not widen
+the database or public-host acceptance boundary.
 
 No GPLv3 code was copied.

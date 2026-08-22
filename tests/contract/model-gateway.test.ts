@@ -34,6 +34,10 @@ describe("user model gateway contracts", () => {
     }
   });
 
+  it("rejects a numeric final DNS label that the database rejects", () => {
+    expect(() => ModelGatewayBaseUrlSchema.parse("https://example.1a/v1")).toThrow();
+  });
+
   it("accepts only the closed adapter and an exact canonical HTTPS origin view", () => {
     expect(ModelGatewayOriginViewSchema.parse(origin)).toEqual(origin);
 

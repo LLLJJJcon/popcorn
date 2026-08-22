@@ -468,6 +468,12 @@ select extensions.throws_ok(
   '22023', null, 'direct gateway creation rejects private and IP destinations'
 );
 select extensions.throws_ok(
+  $$select * from public.create_user_model_gateway_config(
+    '00000000-0000-4000-8000-00000000a001',gen_random_uuid(),
+    'https://example.1a','/v1','Unsafe','model','secret',now())$$,
+  '22023', null, 'direct gateway creation rejects a numeric final DNS label'
+);
+select extensions.throws_ok(
   $$select public.activate_user_model_gateway_config(
     '00000000-0000-4000-8000-00000000a001',
     '81000000-0000-4000-8000-00000000a015',

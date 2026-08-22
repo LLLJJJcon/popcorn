@@ -32,4 +32,3 @@ Required verification: focused Vitest, full pgTAP, TypeScript, scoped ESLint,
 This contract task does not need YouTube Digest code. No LLM Wiki GPLv3 source, tests,
 prompts, components, or assets are copied; only the already-approved provider-agnostic
 gateway method is retained. New project code is intended for the repository's MIT license.
-

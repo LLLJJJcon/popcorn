@@ -18,7 +18,7 @@ export const CanonicalModelGatewayOriginSchema = z
   .string()
   .max(253)
   .regex(
-    /^https:\/\/(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
+    /^https:\/\/(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
     "Expected an exact lowercase HTTPS domain origin without port, path, query, or fragment",
   )
   .refine((value) => {
