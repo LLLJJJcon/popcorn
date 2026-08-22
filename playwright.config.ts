@@ -22,7 +22,8 @@ export default defineConfig({
   projects: [
     {
       name: "chromium-extension",
-      testMatch: /extension\/.*\.spec\.ts/,
+      testMatch: /(?:extension\/.*|demo-acceptance)\.spec\.ts/,
+      use: { baseURL: appUrl },
     },
     {
       name: "chromium-web",

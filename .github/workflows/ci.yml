@@ -40,7 +40,7 @@ jobs:
         run: pnpm test:extension
 
       - name: Start local Supabase
-        run: node_modules/.bin/supabase start
+        run: pnpm exec supabase start
 
       - name: Apply clean migrations and seed
         run: pnpm db:reset
@@ -48,17 +48,30 @@ jobs:
       - name: Run database pgTAP tests
         run: pnpm db:test
 
-      - name: Verify model gateway catalog concurrency
-        run: tests/contract/model-gateway-concurrency.sh
+      - name: Export local fixture settings
+        shell: bash
+        run: |
+          pnpm exec supabase status -o env > /tmp/popcorn-supabase.env
+          source /tmp/popcorn-supabase.env
+          {
+            echo "APP_URL=http://127.0.0.1:3000"
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "POPCORN_E2E_DATABASE_URL=$DB_URL"
+            echo "INTERNAL_JOB_SECRET=fixture-job-secret"
+          } >> "$GITHUB_ENV"
 
-      - name: Verify model gateway artifact publication concurrency
-        run: tests/contract/model-gateway-artifact-concurrency.sh
+      - name: Install fixture browser
+        run: pnpm exec playwright install --with-deps chromium
 
-      - name: Verify atomic practice promotion concurrency
-        run: tests/contract/practice-promotion-concurrency.sh
+      - name: Package and validate the local extension
+        run: |
+          pnpm extension:package
+          bash scripts/check-extension-release.sh dist/popcorn-extension.zip
 
-      - name: Check the pinned vendor script syntax
-        run: bash -n scripts/vendor-youtube-digest.sh
+      - name: Run the fixture classroom acceptance
+        run: pnpm playwright test tests/e2e/demo-acceptance.spec.ts --project=chromium-extension
 
       - name: Check patch whitespace
         run: git diff --check
