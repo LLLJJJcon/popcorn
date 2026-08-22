@@ -2,12 +2,12 @@
 
 ## Current position
 
-- Stage: Local-First Task 1 and Batch C Task 3 accepted
-- Next task: controller starts Local-First Task 2 while a new isolated Agent implements revised Batch C Task 2; files are disjoint
+- Stage: Local-First Tasks 1–2 and Batch C Task 3 accepted
+- Next task: start Local-First Task 3 from the accepted worker baseline while revised Batch C Task 2 is independently reviewed; files are disjoint
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `6686135` (Local-First Task 1 accepted after repair/re-review; controller final model-gateway Vitest 75/75, gateway/job pgTAP 130/130, generated types, TypeScript, ESLint, and diff checks passed)
+- Last verified commit: `3067f6c` (Local-First Task 2 accepted after one focused abort repair/re-review; controller final worker/environment/job Vitest 60/60, TypeScript, Node syntax, ESLint, and diff checks passed)
 - Approved scope revision: `docs/superpowers/specs/2026-08-22-popcorn-local-first-school-demo-design.md` plus the three 2026-08-22 overlay plans; approved by the user and committed as `60f3888` on 2026-08-22.
 
 ## Preflight
@@ -72,6 +72,7 @@
 | Batch C | 1 | `codex/popcorn-batch-c-1` | `8d4ec2c`; brief `e7ea90f` | candidate `c64dc63`; repair `91e965e`; handoff `9878b68`; integrated through `8b4fde8` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved sole frozen RPC call and preserved DB ordering, authenticated filters/limits, Vault compatibility, accessible search states, request-generation fencing, same-filter retry, scope, owner isolation, and GPL isolation | Candidate focused 18/18; repair RED 3/7 then GREEN 7/7; final reviewer 12/12 plus lint/TypeScript; controller integration repository/UI/Vault/Home 21/21, TypeScript, diff/status clean. No DB rerun because CONTRACT-014/015 were separately frozen. |
 | Batch C | 3 | `codex/popcorn-batch-c-3` | `7e977cf`; briefs through `59b0f55` | candidate `33c13b9`; repairs through `8578dae`; integrated through `41e7d46` | PASS after two independent FAIL/fresh TDD repair/re-review loops; final reviewer approved generated-type owner queries, explicit 500/501 bounds, complete task/review/attempt/event graph validation, legitimate double-query deduplication, taskless due reviews, real failed/assisted completion graphs, generic no-store errors, and GPL isolation | Final focused Progress 22/22; scoped ESLint, TypeScript, baseline diff allowlist, controller integration diff/status passed. No migration or shared contract changed, so database/build/browser gates were not repeated. |
 | Local-First | 1 / CONTRACT-008C | controller integration plus `codex/popcorn-local-gateway-fix-1` | `60f3888`; candidate `5a26d64` | repair integrated as `6686135` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved exact user base URL DTO/consent, TS/SQL public-host parity, legacy/direct normalization, owner/RLS/Vault boundaries, one-active/revoke cleanup, immutable revision/fingerprint/pins, durable worker compatibility, normalized generated types, and GPL isolation | Initial RED 6 failures; final focused model-gateway Vitest 75/75; fresh full pgTAP reviewer gate 635/635; controller gateway/job pgTAP 130/130; two-session concurrency, generated types, TypeScript, scoped ESLint, and diff checks passed. |
+| Local-First | 2 | controller integration plus `codex/popcorn-local-worker-fix-1` | `f7de4b6`; candidate `aadc88d` | repair integrated as `3067f6c` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved retired global OpenAI environment, existing-endpoint-only sequential triggering, secret/body nonlogging, transient recovery, and active-fetch abort without a misleading failure or second cycle | Initial RED proved the missing module and legacy env requirements; repair RED proved a hanging request stayed stuck; final worker/environment/job Vitest 60/60, TypeScript, Node syntax, scoped ESLint, and diff checks passed. No DB/build/full-app gate was repeated because this task changed no migration, shared contract, or application bundle boundary. |
 
 ## Open concerns
 
@@ -132,4 +133,4 @@
 - CONTRACT-015 atomic due completion is frozen through `07b1436`; Batch C Task 2 may consume only its RPC and Task 3 may consume its generated lifecycle fields.
 - Batch C Task 1 is independently accepted and integrated through `8b4fde8`; Vault now has bounded Chinese search with stable request ordering and same-filter retry.
 - The user approved the local-first school-demo addendum on 2026-08-22. The original remaining Batch C and production Delivery instructions are superseded by `2026-08-22-popcorn-local-first-amendments.md`, `2026-08-22-popcorn-batch-c-school-demo-revision.md`, and `2026-08-22-popcorn-github-delivery-revision.md` where they conflict.
-- Local-First Task 1 / CONTRACT-008C is accepted through `6686135`; Batch C Task 3 is accepted through `41e7d46`. Dispatch revised Batch C Task 2 from the latest clean integration HEAD while the controller executes Local-First Task 2; the file sets are disjoint.
+- Local-First Task 1 / CONTRACT-008C is accepted through `6686135`; Local-First Task 2 is accepted through `3067f6c`; Batch C Task 3 is accepted through `41e7d46`. Revised Batch C Task 2 candidate `5c80564` is under independent review. Start Local-First Task 3 from `3067f6c`; its auth/extension files are disjoint from the Due Practice review.
