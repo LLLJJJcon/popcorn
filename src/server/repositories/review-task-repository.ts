@@ -172,13 +172,19 @@ export function createSupabaseReviewTaskRepository(
     owned(expressions, userId);
     if (expressions.length === 0) return [];
     const senseIds = expressions.map((row) => text(row, "expression_sense_id"));
-    const expressionIds = expressions.map((row) => text(row, "id"));
 
     const senses = rows(await db.from("expression_senses")
       .select("id,user_id,video_source_id,source_deleted_at,expression_text,normalized_expression_text,english_meaning,english_explanation,tone,communicative_function,register")
       .eq("user_id", userId).in("id", senseIds).order("id", { ascending: true }).limit(100));
     owned(senses, userId);
     const activeSenseIds = senses.filter((row) => row.source_deleted_at === null)
+      .map((row) => text(row, "id"));
+    const activeSenseIdSet = new Set(activeSenseIds);
+    const tombstonedSenseIdSet = new Set(senses.filter((row) => typeof row.source_deleted_at === "string")
+      .map((row) => text(row, "id")));
+    const activeExpressionIds = expressions.filter((row) => activeSenseIdSet.has(text(row, "expression_sense_id")))
+      .map((row) => text(row, "id"));
+    const tombstonedExpressionIds = expressions.filter((row) => tombstonedSenseIdSet.has(text(row, "expression_sense_id")))
       .map((row) => text(row, "id"));
     const occurrences = activeSenseIds.length === 0 ? [] : rows(await db.from("expression_occurrences")
       .select("id,user_id,video_source_id,expression_sense_id,evidence_text,segment_ids,start_seconds,end_seconds,created_at")
@@ -190,11 +196,15 @@ export function createSupabaseReviewTaskRepository(
     const sources = sourceIds.length === 0 ? [] : rows(await db.from("video_sources")
       .select("id,user_id,canonical_url").eq("user_id", userId).in("id", sourceIds)
       .order("id", { ascending: true }).limit(100));
-    const attempts = rows(await db.from("attempts")
+    const canonicalAttempts = tombstonedExpressionIds.length === 0 ? [] : rows(await db.from("attempts")
       .select("id,user_id,user_expression_id,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,submitted_at")
-      .eq("user_id", userId).in("user_expression_id", expressionIds)
+      .eq("user_id", userId).in("user_expression_id", tombstonedExpressionIds)
       .order("submitted_at", { ascending: true }).order("id", { ascending: true }).limit(500));
-    [occurrences, sources, attempts].forEach((value) => owned(value, userId));
+    const draftAttempts = activeExpressionIds.length === 0 ? [] : rows(await db.from("practice_draft_attempts")
+      .select("id,user_id,future_user_expression_id,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,submitted_at")
+      .eq("user_id", userId).in("future_user_expression_id", activeExpressionIds)
+      .order("submitted_at", { ascending: true }).order("id", { ascending: true }).limit(500));
+    [occurrences, sources, canonicalAttempts, draftAttempts].forEach((value) => owned(value, userId));
 
     return expressions.map((expression) => {
       const sense = senses.find((row) => row.id === expression.expression_sense_id);
@@ -208,6 +218,9 @@ export function createSupabaseReviewTaskRepository(
         (sourceDeleted && (sense.video_source_id !== null || occurrence || source)) ||
         (!sourceDeleted && (!occurrence || !source || occurrence.video_source_id !== sense.video_source_id))
       ) throw new Error("incomplete expression evidence graph");
+      const expressionAttempts = sourceDeleted
+        ? canonicalAttempts.filter((row) => row.user_expression_id === expression.id)
+        : draftAttempts.filter((row) => row.future_user_expression_id === expression.id);
       const sourceOccurrence = sourceDeleted ? null : (() => {
         const startSeconds = numberValue(occurrence!, "start_seconds");
         const canonicalUrl = text(source!, "canonical_url");
@@ -230,7 +243,7 @@ export function createSupabaseReviewTaskRepository(
         masteryState: text(expression, "mastery_state") as MasteryState,
         sourceDeleted,
         occurrence: sourceOccurrence,
-        attempts: attempts.filter((row) => row.user_expression_id === expression.id).map((row) => ({
+        attempts: expressionAttempts.map((row) => ({
           id: text(row, "id"),
           responseChinese: text(row, "response_chinese"),
           passed: row.passed === true,

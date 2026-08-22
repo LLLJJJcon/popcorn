@@ -153,16 +153,16 @@ describe("Vault and due Practice boundaries", () => {
       { table: "video_sources", data: [{
         id: USER, user_id: USER, canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       }] },
-      { table: "attempts", data: [
+      { table: "practice_draft_attempts", data: [
         {
-          id: card.attempts[0]!.id, user_id: USER, user_expression_id: EXPRESSION,
+          id: card.attempts[0]!.id, user_id: USER, future_user_expression_id: EXPRESSION,
           response_chinese: card.attempts[0]!.responseChinese, passed: true,
           accuracy_score: 5, accuracy_feedback_english: "Accurate.", naturalness_score: 4,
           naturalness_feedback_english: "Natural.", contextual_fit_score: 5,
           contextual_fit_feedback_english: "Fits.", submitted_at: NOW,
         },
         {
-          id: OTHER, user_id: USER, user_expression_id: EXPRESSION,
+          id: OTHER, user_id: USER, future_user_expression_id: EXPRESSION,
           response_chinese: "真的太离谱了。", passed: true,
           accuracy_score: 5, accuracy_feedback_english: "Accurate.", naturalness_score: 5,
           naturalness_feedback_english: "Natural.", contextual_fit_score: 5,
@@ -180,8 +180,100 @@ describe("Vault and due Practice boundaries", () => {
       ["eq", "expression_senses", "user_id", USER],
       ["eq", "expression_occurrences", "user_id", USER],
       ["eq", "video_sources", "user_id", USER],
+      ["eq", "practice_draft_attempts", "user_id", USER],
+      ["in", "practice_draft_attempts", "future_user_expression_id", [EXPRESSION]],
+    ]));
+  });
+
+  test("keeps active draft revisions separate from tombstoned canonical evidence in one Vault read", async () => {
+    const tombstonedSenseId = SIMILAR_EXPRESSION;
+    const tombstonedSense = {
+      ...senseRow(tombstonedSenseId, "说来话长", "It is a long story.", NOW),
+      video_source_id: null,
+    };
+    const harness = queryClient([
+      { table: "user_expressions", data: [
+        expressionRow(EXPRESSION, OTHER),
+        expressionRow(EXACT_EXPRESSION, tombstonedSenseId),
+      ] },
+      { table: "expression_senses", data: [
+        senseRow(OTHER, card.expression, card.englishMeaning),
+        tombstonedSense,
+      ] },
+      { table: "expression_occurrences", data: [occurrenceRow(OTHER, OTHER)] },
+      { table: "video_sources", data: [{
+        id: USER,
+        user_id: USER,
+        canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      }] },
+      { table: "attempts", data: [{
+        id: ZERO_EXPRESSION,
+        user_id: USER,
+        user_expression_id: EXACT_EXPRESSION,
+        response_chinese: "这件事说来话长。",
+        passed: true,
+        accuracy_score: 5,
+        accuracy_feedback_english: "Accurate.",
+        naturalness_score: 5,
+        naturalness_feedback_english: "Natural.",
+        contextual_fit_score: 5,
+        contextual_fit_feedback_english: "Fits.",
+        submitted_at: NOW,
+      }] },
+      { table: "practice_draft_attempts", data: [
+        {
+          id: card.attempts[0]!.id,
+          user_id: USER,
+          future_user_expression_id: EXPRESSION,
+          response_chinese: "这个表达真的很常见。",
+          passed: true,
+          accuracy_score: 5,
+          accuracy_feedback_english: "Accurate.",
+          naturalness_score: 4,
+          naturalness_feedback_english: "Natural.",
+          contextual_fit_score: 5,
+          contextual_fit_feedback_english: "Fits.",
+          submitted_at: NOW,
+        },
+        {
+          id: OTHER,
+          user_id: USER,
+          future_user_expression_id: EXPRESSION,
+          response_chinese: "我觉得这个表达在口语里很自然。",
+          passed: true,
+          accuracy_score: 5,
+          accuracy_feedback_english: "Accurate.",
+          naturalness_score: 5,
+          naturalness_feedback_english: "Natural.",
+          contextual_fit_score: 5,
+          contextual_fit_feedback_english: "Fits.",
+          submitted_at: "2026-08-21T02:04:04.000Z",
+        },
+      ] },
+    ]);
+
+    const result = await createSupabaseReviewTaskRepository(harness.client as never).listVault(USER);
+    expect(result.map((entry) => ({
+      userExpressionId: entry.userExpressionId,
+      sourceDeleted: entry.sourceDeleted,
+      attempts: entry.attempts.map((attempt) => attempt.responseChinese),
+    }))).toEqual([
+      {
+        userExpressionId: EXPRESSION,
+        sourceDeleted: false,
+        attempts: ["这个表达真的很常见。", "我觉得这个表达在口语里很自然。"],
+      },
+      {
+        userExpressionId: EXACT_EXPRESSION,
+        sourceDeleted: true,
+        attempts: ["这件事说来话长。"],
+      },
+    ]);
+    expect(harness.calls).toEqual(expect.arrayContaining([
+      ["eq", "practice_draft_attempts", "user_id", USER],
+      ["in", "practice_draft_attempts", "future_user_expression_id", [EXPRESSION]],
       ["eq", "attempts", "user_id", USER],
-      ["in", "attempts", "user_expression_id", [EXPRESSION]],
+      ["in", "attempts", "user_expression_id", [EXACT_EXPRESSION]],
     ]));
   });
 
@@ -253,7 +345,7 @@ describe("Vault and due Practice boundaries", () => {
       { table: "expression_senses", data: [targetSense] },
       { table: "expression_occurrences", data: [occurrenceRow(OTHER, OTHER)] },
       { table: "video_sources", data: [source] },
-      { table: "attempts", data: [] },
+      { table: "practice_draft_attempts", data: [] },
       { table: "user_expressions", data: [
         expressionRow(EXPRESSION, OTHER),
         expressionRow(EXACT_EXPRESSION, exactSense),
@@ -268,7 +360,7 @@ describe("Vault and due Practice boundaries", () => {
         occurrenceRow(ZERO_EXPRESSION, zeroSense),
       ] },
       { table: "video_sources", data: [source] },
-      { table: "attempts", data: [] },
+      { table: "practice_draft_attempts", data: [] },
     ]);
 
     const detail = await createSupabaseReviewTaskRepository(harness.client as never)
