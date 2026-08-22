@@ -16,6 +16,9 @@ Implementation Agent may:
 - create `tests/e2e/demo-acceptance.spec.ts`;
 - create `docs/operations/demo-checklist.md`;
 - create `tests/release/ci-scope.test.ts`;
+- minimally modify `tests/e2e/extension/fixtures.ts` so the harness loads the
+  generated `dist/popcorn-extension` and derives its allowed app/Supabase
+  fixture origins from the current local runtime configuration;
 - create or append `docs/engineering/handoffs/delivery/task-4.md`;
 - modify this brief only to correct a factual path/command error.
 
@@ -24,7 +27,7 @@ Controller exclusively owns and will modify, after the Agent supplies RED eviden
 - `.github/workflows/ci.yml`;
 - `playwright.config.ts` if required to select the new top-level acceptance spec and load the packaged extension.
 
-All other files are forbidden, including application/extension code, package manifests, lockfiles, migrations, generated database types, existing E2E specs/helpers, fixtures, seeds, and deployment files. The implementation Agent must not commit Controller-owned edits; the Controller will commit those separately before the Agent's GREEN run.
+All other files are forbidden, including application/extension code, package manifests, lockfiles, migrations, generated database types, existing E2E specs/helpers other than the one explicitly allowed fixture, seeds, and deployment files. The implementation Agent must not commit Controller-owned edits; the Controller will commit those separately before the Agent's GREEN run.
 
 ## Consumed interfaces
 
@@ -54,6 +57,10 @@ RED must be caused by missing CI/Playwright wiring or missing acceptance/checkli
 ## Minimal GREEN implementation
 
 - Reuse accepted E2E modules/helpers. Do not duplicate their fixture payloads, SQL graphs, queue implementation, or assertions into a new parallel suite.
+- The fixture adaptation must fail clearly if `dist/popcorn-extension` has not
+  been generated, load that directory rather than `extension/`, and preserve a
+  closed HTTP(S) allow-list of the configured local app/Supabase origins plus
+  the fixture YouTube origin. It must not weaken unexpected-egress assertions.
 - The acceptance entry may compose the accepted specs, but its selected tests and checklist must jointly make the required path explicit and deterministic.
 - Keep one complete fixture-backed happy path and one worker restart/recovery proof. Do not add deletion, arbitrary URL/text/image inputs, multi-video, offline, load, live-network, or browser-matrix tests.
 - CI must remain one bounded job for a personal project. It may package/check the extension and run the single acceptance entry after Supabase reset/pgTAP; it must not add quotas, security scanners, hosted deployment, or concurrency/load stages.
