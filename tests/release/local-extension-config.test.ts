@@ -242,3 +242,11 @@ test("keeps exact local values out of the source template and source runtime fil
     expect(source).not.toContain(ANON_KEY);
   }
 });
+
+test("exposes the documented local extension build command", () => {
+  const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+
+  expect(packageJson.scripts["extension:local"]).toBe(
+    "node scripts/build-local-extension.mjs",
+  );
+});
