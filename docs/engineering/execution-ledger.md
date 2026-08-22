@@ -2,13 +2,13 @@
 
 ## Current position
 
-- Stage: approved local-first amendment before remaining Batch C
-- Next task: controller executes Local-First Task 1 user-configured gateway URL contract; Batch C Task 3 repair may run concurrently in its isolated worktree; Batch C Task 2 waits for the amended gateway interface
+- Stage: Local-First Task 1 independent review; Batch C Task 3 accepted
+- Next task: finish the Local-First Task 1 review gate, then dispatch Batch C Task 2 against the accepted user-configured gateway interface
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `8b4fde8` (Batch C Task 1 integrated after independent repair re-review PASS; focused repository/UI/Vault/Home integration 21/21, TypeScript, diff/status clean; frozen CONTRACT-015 database gate remains 624/624)
-- Approved scope revision: `docs/superpowers/specs/2026-08-22-popcorn-local-first-school-demo-design.md` plus the three 2026-08-22 overlay plans; approved by the user on 2026-08-22 and awaiting the planning-doc commit.
+- Last verified commit: `41e7d46` (Batch C Task 3 integrated after two independent repair/re-review loops; focused Progress 22/22, ESLint, TypeScript, and diff checks passed)
+- Approved scope revision: `docs/superpowers/specs/2026-08-22-popcorn-local-first-school-demo-design.md` plus the three 2026-08-22 overlay plans; approved by the user and committed as `60f3888` on 2026-08-22.
 
 ## Preflight
 
@@ -70,6 +70,7 @@
 | Batch C controller expression-search gate | pre-Task 1 | `codex/popcorn-youtube-learning` | `0974be1`; brief `93809e8` | candidate `a022399`; review-proof `129357e`; repair `72a57c4` | PASS after one independent FAIL and controller TDD repair; final reviewer approved shared query/stored normalization, exact→prefix→substring→indexed trigram→metadata→recency order before limit, deterministic ties, composed filters, owner/source-count isolation, bounded validation, service-only grants, method-only provenance, and GPL isolation | Initial RED missing RPC; candidate focused 16/16; strengthened real-format RED 4/20 and permission RED 1/21; clean reset applied migrations 001–013; focused 21/21; full pgTAP 591/591; exact generated types, TypeScript, and diff/status checks passed. |
 | Batch C controller atomic due-completion gate | pre-Task 2 | `codex/popcorn-youtube-learning` | `8d4ec2c`; brief `9bcd42b` | candidate `11d80bc`; repair `07b1436` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved NULL-safe linked due graph, exact fixed-duration scheduling across DST, service-only atomic completion, row-lock/receipt idempotency, owner/stale fences, persisted mastery evidence, rollback, non-secret provenance, no synchronous Provider work, and GPL isolation | Initial RED missing lifecycle/RPC; candidate focused 30/30; two-session concurrent replay returned the same IDs with attempt/event/receipt 1/1/1; repair RED 3/33 then GREEN 33/33; clean reset applied migrations 001–014; full pgTAP 624/624; exact generated types, TypeScript, and diff/status checks passed. |
 | Batch C | 1 | `codex/popcorn-batch-c-1` | `8d4ec2c`; brief `e7ea90f` | candidate `c64dc63`; repair `91e965e`; handoff `9878b68`; integrated through `8b4fde8` | PASS after one independent FAIL and fresh TDD repair/re-review; final reviewer approved sole frozen RPC call and preserved DB ordering, authenticated filters/limits, Vault compatibility, accessible search states, request-generation fencing, same-filter retry, scope, owner isolation, and GPL isolation | Candidate focused 18/18; repair RED 3/7 then GREEN 7/7; final reviewer 12/12 plus lint/TypeScript; controller integration repository/UI/Vault/Home 21/21, TypeScript, diff/status clean. No DB rerun because CONTRACT-014/015 were separately frozen. |
+| Batch C | 3 | `codex/popcorn-batch-c-3` | `7e977cf`; briefs through `59b0f55` | candidate `33c13b9`; repairs through `8578dae`; integrated through `41e7d46` | PASS after two independent FAIL/fresh TDD repair/re-review loops; final reviewer approved generated-type owner queries, explicit 500/501 bounds, complete task/review/attempt/event graph validation, legitimate double-query deduplication, taskless due reviews, real failed/assisted completion graphs, generic no-store errors, and GPL isolation | Final focused Progress 22/22; scoped ESLint, TypeScript, baseline diff allowlist, controller integration diff/status passed. No migration or shared contract changed, so database/build/browser gates were not repeated. |
 
 ## Open concerns
 
@@ -130,4 +131,4 @@
 - CONTRACT-015 atomic due completion is frozen through `07b1436`; Batch C Task 2 may consume only its RPC and Task 3 may consume its generated lifecycle fields.
 - Batch C Task 1 is independently accepted and integrated through `8b4fde8`; Vault now has bounded Chinese search with stable request ordering and same-filter retry.
 - The user approved the local-first school-demo addendum on 2026-08-22. The original remaining Batch C and production Delivery instructions are superseded by `2026-08-22-popcorn-local-first-amendments.md`, `2026-08-22-popcorn-batch-c-school-demo-revision.md`, and `2026-08-22-popcorn-github-delivery-revision.md` where they conflict.
-- Next controller-owned work is Local-First Task 1 / CONTRACT-008C. The existing Batch C Task 3 repair worktree may proceed concurrently because it owns no gateway, migration, generated-type, root-config, or extension file. Batch C Task 2 starts after Local-First Task 1 review PASS.
+- Local-First Task 1 / CONTRACT-008C is implemented at candidate `5a26d64` and under independent review. Batch C Task 3 is accepted and integrated through `41e7d46`; Batch C Task 2 starts after Local-First Task 1 review PASS.
