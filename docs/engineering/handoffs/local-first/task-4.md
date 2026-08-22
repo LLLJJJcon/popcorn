@@ -137,3 +137,47 @@ baseline before implementation; generated pollution was moved, not deleted,
 to `/private/tmp/popcorn-local-extension-fix-2-quarantine-scripts` and
 `/private/tmp/popcorn-local-extension-fix-2-quarantine-extension-icons`.
 Post-recovery diff inspection showed only this task's allowed files changed.
+
+## Final review P1 canonical-path repair
+
+The replacement guard now resolves existing output paths through filesystem
+aliases before checking them. For an output that does not exist yet, it finds
+the nearest existing parent, resolves that parent through symlinks, and then
+appends the missing path segments. This closes `/tmp` versus `/private/tmp`
+aliases and temporary symlinks to the repository or one of its ancestors
+before the build can call recursive `rm`. The system temporary root and the
+two conventional macOS spellings are rejected explicitly, so this remains true
+when a downloaded repository lives outside `/private/tmp`.
+
+All new RED cases exercised the exported validator only. Symlinks were created
+only beneath directories returned by `mkdtemp`; the filesystem root,
+repository, repository ancestors, and system temporary roots were never passed
+to `buildLocalExtension`.
+
+RED:
+
+```text
+node_modules/.bin/vitest run tests/release/local-extension-config.test.ts
+1 file failed; 4 failed and 27 passed
+
+Failures: macOS /tmp alias, symlink to repository, symlink to repository
+ancestor, and a nonexistent descendant of a symlink to the repository.
+```
+
+GREEN and fresh verification:
+
+```text
+release configuration: 31/31 passed
+extension auth/worker/queue/restart: 32/32 passed
+provenance: 11/11 passed
+tsc --noEmit: passed
+node --check scripts/build-local-extension.mjs: passed
+scoped ESLint: passed
+git diff --check: passed
+```
+
+The exact repository-local `dist/popcorn-extension` output and dedicated
+external `mkdtemp` outputs remain allowed. This personal-use guard does not try
+to defend against an adversarial process retargeting a symlink between
+validation and deletion; it prevents accidental alias and symlink selection in
+the local build workflow.

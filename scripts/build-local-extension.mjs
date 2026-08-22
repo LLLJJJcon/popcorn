@@ -1,6 +1,7 @@
+import { realpathSync } from "node:fs";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -86,16 +87,49 @@ function containsPath(parent, child) {
   );
 }
 
+function resolveCanonicalPath(path) {
+  let existingPath = path;
+  const missingSegments = [];
+
+  while (true) {
+    try {
+      return resolve(realpathSync.native(existingPath), ...missingSegments.reverse());
+    } catch (error) {
+      if (!error || !["ENOENT", "ENOTDIR"].includes(error.code)) throw error;
+      const parent = dirname(existingPath);
+      if (parent === existingPath) throw error;
+      missingSegments.push(basename(existingPath));
+      existingPath = parent;
+    }
+  }
+}
+
+function canonicalTemporaryRoots() {
+  const roots = new Set([realpathSync.native(resolve(tmpdir()))]);
+  for (const candidate of ["/tmp", "/private/tmp"]) {
+    try {
+      roots.add(realpathSync.native(candidate));
+    } catch (error) {
+      if (!error || error.code !== "ENOENT") throw error;
+    }
+  }
+  return roots;
+}
+
 export function resolveOutputDirectory(outputDirectory) {
   if (typeof outputDirectory !== "string" || !outputDirectory || !isAbsolute(outputDirectory)) {
     throw new Error("Extension output directory must be absolute.");
   }
   const output = resolve(outputDirectory);
+  const canonicalOutput = resolveCanonicalPath(output);
+  const canonicalRepositoryRoot = realpathSync.native(repositoryRoot);
+  const canonicalDefaultOutput = join(canonicalRepositoryRoot, "dist", "popcorn-extension");
+  const isExactDefault = output === defaultOutput && canonicalOutput === canonicalDefaultOutput;
   if (
-    output === parse(output).root ||
-    output === resolve(tmpdir()) ||
-    containsPath(output, repositoryRoot) ||
-    (containsPath(repositoryRoot, output) && output !== defaultOutput)
+    canonicalOutput === parse(canonicalOutput).root ||
+    canonicalTemporaryRoots().has(canonicalOutput) ||
+    containsPath(canonicalOutput, canonicalRepositoryRoot) ||
+    (containsPath(canonicalRepositoryRoot, canonicalOutput) && !isExactDefault)
   ) {
     throw new Error("Unsafe extension output directory.");
   }

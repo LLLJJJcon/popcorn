@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { readFileSync, realpathSync } from "node:fs";
+import { mkdtemp, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import vm from "node:vm";
@@ -81,11 +81,65 @@ async function build(directory: string): Promise<void> {
 }
 
 test.each([
+  ["filesystem root", "/"],
+  ["repository root", process.cwd()],
   ["repository ancestor", dirname(process.cwd())],
   ["operating-system temporary root", resolve(tmpdir())],
   ["repository scripts directory", resolve("scripts")],
   ["nested extension source directory", resolve("extension/icons")],
 ])("rejects an unsafe custom output before recursive removal: %s", (_label, directory) => {
+  expect(() => resolveOutputDirectory(directory)).toThrow(
+    "Unsafe extension output directory.",
+  );
+});
+
+test("rejects a repository ancestor whose canonical path is not the operating-system temporary root", () => {
+  const directory = dirname(process.cwd());
+  expect(realpathSync.native(directory)).not.toBe(realpathSync.native(resolve(tmpdir())));
+
+  expect(() => resolveOutputDirectory(directory)).toThrow(
+    "Unsafe extension output directory.",
+  );
+});
+
+test("rejects the macOS /tmp alias of /private/tmp when that alias is present", () => {
+  let shortTemporaryRoot: string;
+  let canonicalTemporaryRoot: string;
+  try {
+    shortTemporaryRoot = realpathSync.native("/tmp");
+    canonicalTemporaryRoot = realpathSync.native("/private/tmp");
+  } catch {
+    return;
+  }
+  if (shortTemporaryRoot !== canonicalTemporaryRoot) return;
+
+  expect(() => resolveOutputDirectory("/tmp")).toThrow(
+    "Unsafe extension output directory.",
+  );
+  expect(() => resolveOutputDirectory("/private/tmp")).toThrow(
+    "Unsafe extension output directory.",
+  );
+});
+
+test.each([
+  ["repository", process.cwd()],
+  ["repository ancestor", dirname(process.cwd())],
+])("rejects a temporary symlink that resolves to the %s", async (_label, target) => {
+  const parent = await mkdtemp(join(tmpdir(), "popcorn-extension-symlink-test-"));
+  const directory = join(parent, "output-link");
+  await symlink(target, directory, "dir");
+
+  expect(() => resolveOutputDirectory(directory)).toThrow(
+    "Unsafe extension output directory.",
+  );
+});
+
+test("rejects a nonexistent output whose nearest existing parent is a symlink to the repository", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "popcorn-extension-parent-symlink-test-"));
+  const repositoryLink = join(parent, "repository-link");
+  await symlink(process.cwd(), repositoryLink, "dir");
+  const directory = join(repositoryLink, "not-created", "unpacked");
+
   expect(() => resolveOutputDirectory(directory)).toThrow(
     "Unsafe extension output directory.",
   );
@@ -99,6 +153,12 @@ test("allows the exact default output directory", () => {
 
 test("allows a dedicated output below a newly-created external temporary directory", async () => {
   const directory = await outputDirectory();
+
+  expect(resolveOutputDirectory(directory)).toBe(directory);
+});
+
+test("allows a newly-created external temporary directory itself", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "popcorn-extension-output-test-"));
 
   expect(resolveOutputDirectory(directory)).toBe(directory);
 });
