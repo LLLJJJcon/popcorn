@@ -1,5 +1,3 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
-
 import { z } from "zod";
 
 import {
@@ -9,26 +7,25 @@ import {
   type WebCookieAdapter,
 } from "./web-session";
 
-const FLOW_COOKIE = "popcorn-auth-flow";
-const FLOW_MAX_AGE_SECONDS = 10 * 60;
 const MAX_FORM_BYTES = 4 * 1024;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const AUTH_CODE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const EmailSchema = z
   .string()
   .max(254)
   .email()
   .refine((value) => value === value.trim());
+const PasswordSchema = z.string().min(6).max(128);
+const IntentSchema = z.enum(["sign-in", "sign-up"]);
 
 type WebAuthClient = {
   readonly auth: {
-    readonly signInWithOtp: (input: {
+    readonly signUp: (input: {
       readonly email: string;
-      readonly options: { readonly emailRedirectTo: string };
+      readonly password: string;
     }) => Promise<{ readonly data: unknown; readonly error: unknown }>;
-    readonly exchangeCodeForSession: (
-      code: string,
-    ) => Promise<{ readonly data: unknown; readonly error: unknown }>;
+    readonly signInWithPassword: (input: {
+      readonly email: string;
+      readonly password: string;
+    }) => Promise<{ readonly data: unknown; readonly error: unknown }>;
     readonly signOut: () => Promise<{ readonly error: unknown }>;
     readonly getUser: () => Promise<{
       readonly data: { readonly user: { readonly id: string } | null };
@@ -95,44 +92,23 @@ async function readBoundedForm(request: Request): Promise<URLSearchParams> {
   return new URLSearchParams(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 }
 
-function equalFlow(left: string, right: string): boolean {
-  if (!UUID_PATTERN.test(left) || !UUID_PATTERN.test(right)) return false;
-  const leftBytes = Buffer.from(left.toLowerCase());
-  const rightBytes = Buffer.from(right.toLowerCase());
-  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
-}
-
 export function createWebAuthFlowHandlers({
   appUrl,
   supabaseUrl,
   anonKey,
   cookieStore,
-  newFlowId = randomUUID,
   clientFactory = (input) => createPopcornSsrServerClient(input) as unknown as WebAuthClient,
 }: {
   readonly appUrl: string;
   readonly supabaseUrl: string;
   readonly anonKey: string;
   readonly cookieStore: NextCookieStore;
-  readonly newFlowId?: () => string;
   readonly clientFactory?: ClientFactory;
 }) {
   const origin = new URL(appUrl).origin;
   const secureCookies = new URL(appUrl).protocol === "https:";
   const cookies = createNextCookieAdapter(cookieStore);
   const client = clientFactory({ supabaseUrl, anonKey, cookies, secureCookies });
-
-  function setFlow(value: string, maxAge: number) {
-    cookieStore.set({
-      name: FLOW_COOKIE,
-      value,
-      httpOnly: true,
-      sameSite: "lax",
-      secure: secureCookies,
-      path: "/auth/callback",
-      maxAge,
-    });
-  }
 
   return {
     async signIn(request: Request): Promise<Response> {
@@ -146,53 +122,36 @@ export function createWebAuthFlowHandlers({
         return genericFailure(400);
       }
       const emails = params.getAll("email");
+      const passwords = params.getAll("password");
+      const intents = params.getAll("intent");
       const parsedEmail = EmailSchema.safeParse(emails[0]);
-      if (params.size !== 1 || emails.length !== 1 || !parsedEmail.success) {
+      const parsedPassword = PasswordSchema.safeParse(passwords[0]);
+      const parsedIntent = IntentSchema.safeParse(intents[0]);
+      if (
+        params.size !== 3 ||
+        emails.length !== 1 ||
+        passwords.length !== 1 ||
+        intents.length !== 1 ||
+        !parsedEmail.success ||
+        !parsedPassword.success ||
+        !parsedIntent.success
+      ) {
         return genericFailure(400);
       }
 
-      const flow = newFlowId();
-      if (!UUID_PATTERN.test(flow)) return genericFailure(500);
-      setFlow(flow, FLOW_MAX_AGE_SECONDS);
       try {
-        await client.auth.signInWithOtp({
+        const credentials = {
           email: parsedEmail.data,
-          options: {
-            emailRedirectTo: new URL(`/auth/callback?flow=${encodeURIComponent(flow)}`, origin).toString(),
-          },
-        });
+          password: parsedPassword.data,
+        };
+        const result = parsedIntent.data === "sign-up"
+          ? await client.auth.signUp(credentials)
+          : await client.auth.signInWithPassword(credentials);
+        if (result.error) return redirectTo(origin, "/sign-in?status=error");
       } catch {
-        // Deliberately return the same response as a successful delivery request.
+        return redirectTo(origin, "/sign-in?status=error");
       }
-      return redirectTo(origin, "/sign-in?status=check-email");
-    },
-
-    async callback(request: Request): Promise<Response> {
-      const url = new URL(request.url);
-      const storedFlows = cookies.getAll().filter(({ name }) => name === FLOW_COOKIE);
-      setFlow("", 0);
-      const codes = url.searchParams.getAll("code");
-      const flows = url.searchParams.getAll("flow");
-      const validQuery =
-        request.method === "GET" &&
-        url.origin === origin &&
-        url.hash === "" &&
-        [...url.searchParams.keys()].every((key) => key === "code" || key === "flow") &&
-        url.searchParams.size === 2 &&
-        codes.length === 1 &&
-        AUTH_CODE_PATTERN.test(codes[0]) &&
-        flows.length === 1 &&
-        storedFlows.length === 1 &&
-        equalFlow(flows[0], storedFlows[0].value);
-      if (!validQuery) return redirectTo(origin, "/sign-in");
-
-      try {
-        const result = await client.auth.exchangeCodeForSession(codes[0]);
-        if (!result.error) return redirectTo(origin, "/settings/model-gateway");
-      } catch {
-        // Fail closed to the fixed sign-in page.
-      }
-      return redirectTo(origin, "/sign-in");
+      return redirectTo(origin, "/settings/model-gateway");
     },
 
     async signOut(request: Request): Promise<Response> {

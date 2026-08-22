@@ -8,10 +8,12 @@ importScripts("sync-queue.js");
 
 const POPCORN_API_ORIGIN = "https://app.popcorn.local";
 const debugLog = () => {};
+const popcornRuntimeConfig = globalThis.POPCORN_RUNTIME_CONFIG;
 
 const popcornAuthClient = POPCORN_AUTH.createAuthClient({
   chrome,
-  appUrl: POPCORN_API_ORIGIN,
+  supabaseUrl: popcornRuntimeConfig?.supabaseUrl,
+  anonKey: popcornRuntimeConfig?.supabaseAnonKey,
   boundedCachePrefix: YTD_SETTINGS.DEFAULTS.boundedCachePrefix,
 });
 const popcornAuthMessages = POPCORN_AUTH.createAuthMessageHandler({
@@ -242,7 +244,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
     const request = popcornAuthMessages(message, sender).then(async (result) => {
-      if (message.command === "popcorn-auth:begin" && result?.ok) {
+      const regainedAuthentication = ![
+        "popcorn-auth:session",
+        "popcorn-auth:sign-out",
+        "popcorn-auth:clear-cache",
+      ].includes(message.command);
+      if (regainedAuthentication && result?.ok) {
         await getPopcornSyncQueue()?.flushPendingEvents("regained-auth");
       }
       return result;

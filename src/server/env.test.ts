@@ -1,15 +1,9 @@
 import {
-  assertExtensionRequestOrigin,
-  deriveExtensionRequestOrigin,
   getModelGatewaySettingsEnv,
   getServerEnv,
   parseModelGatewaySettingsEnv,
   parseServerEnv,
 } from "./env";
-
-const extensionId = "abcdefghijklmnopabcdefghijklmnop";
-const extensionRedirectOrigin = `https://${extensionId}.chromiumapp.org`;
-const extensionRequestOrigin = `chrome-extension://${extensionId}`;
 
 const validEnvironment = {
   NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
@@ -17,7 +11,6 @@ const validEnvironment = {
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
   SUPADATA_API_KEY: "supadata-key",
   APP_URL: "https://popcorn.example",
-  EXTENSION_REDIRECT_ORIGIN: extensionRedirectOrigin,
   INTERNAL_JOB_SECRET: "job-secret",
 };
 
@@ -48,61 +41,18 @@ describe("parseServerEnv", () => {
     ).toThrow();
   });
 
+  it("rejects the retired Chrome Identity redirect configuration", () => {
+    expect(() => parseServerEnv({
+      ...validEnvironment,
+      EXTENSION_REDIRECT_ORIGIN:
+        "https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org",
+    })).toThrow();
+  });
+
   it("selects only declared keys from a process environment", () => {
     expect(getServerEnv({ ...validEnvironment, PATH: "/usr/bin" })).toEqual(validEnvironment);
   });
 
-  it.each([
-    `chrome-extension://${extensionId}`,
-    `https://${extensionId}.chromiumapp.com`,
-    `https://subdomain.${extensionId}.chromiumapp.org`,
-    `https://abcdefghijklmnop.chromiumapp.org`,
-    "https://ABCDEFGHIJKLMNOPABCDEFGHIJKLMNOP.chromiumapp.org",
-    `https://${extensionId}.chromiumapp.org/`,
-    `https://${extensionId}.chromiumapp.org/supabase`,
-    `https://${extensionId}.chromiumapp.org:443`,
-    `https://${extensionId}.chromiumapp.org?state=123`,
-    `https://${extensionId}.chromiumapp.org#callback`,
-    `https://user:password@${extensionId}.chromiumapp.org`,
-    "https://*.chromiumapp.org",
-  ])("rejects an inexact Chrome Identity redirect origin: %s", (origin) => {
-    expect(() =>
-      parseServerEnv({ ...validEnvironment, EXTENSION_REDIRECT_ORIGIN: origin }),
-    ).toThrow();
-  });
-
-  it("derives the trusted extension request origin from the redirect origin", () => {
-    const environment = parseServerEnv(validEnvironment);
-
-    expect(deriveExtensionRequestOrigin(environment.EXTENSION_REDIRECT_ORIGIN)).toBe(
-      extensionRequestOrigin,
-    );
-  });
-
-  it("rejects request origins that do not prove the configured extension identity", () => {
-    const environment = parseServerEnv(validEnvironment);
-
-    expect(() =>
-      assertExtensionRequestOrigin(
-        environment.EXTENSION_REDIRECT_ORIGIN,
-        "chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba",
-      ),
-    ).toThrow();
-
-    expect(() =>
-      assertExtensionRequestOrigin(
-        environment.EXTENSION_REDIRECT_ORIGIN,
-        `${extensionRequestOrigin}/`,
-      ),
-    ).toThrow();
-
-    expect(
-      assertExtensionRequestOrigin(
-        environment.EXTENSION_REDIRECT_ORIGIN,
-        extensionRequestOrigin,
-      ),
-    ).toBe(extensionRequestOrigin);
-  });
 });
 
 describe("parseModelGatewaySettingsEnv", () => {

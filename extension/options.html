@@ -17,8 +17,13 @@
       <section class="card" aria-labelledby="accountHeading">
         <h2 id="accountHeading">Account</h2>
         <p id="accountEmail" class="account-email">Not signed in</p>
+        <label for="authEmail">Email address</label>
+        <input id="authEmail" name="email" type="email" autocomplete="email" maxlength="254" />
+        <label for="authPassword">Password</label>
+        <input id="authPassword" name="password" type="password" autocomplete="current-password" minlength="6" maxlength="128" />
         <div class="form-actions">
-          <button id="signInBtn" class="primary" type="button">Sign in to Popcorn</button>
+          <button id="signInBtn" class="primary" type="button">Sign in</button>
+          <button id="signUpBtn" type="button">Create account</button>
           <button id="signOutBtn" type="button" hidden>Sign out</button>
         </div>
         <p id="authStatus" role="status" aria-live="polite"></p>

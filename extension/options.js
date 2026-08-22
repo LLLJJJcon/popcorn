@@ -28,7 +28,10 @@ const YTD_OPTIONS = (() => {
     const doc = root.document;
     if (!doc || !root.chrome?.runtime?.sendMessage) return;
     const email = doc.getElementById("accountEmail");
+    const authEmail = doc.getElementById("authEmail");
+    const authPassword = doc.getElementById("authPassword");
     const signIn = doc.getElementById("signInBtn");
+    const signUp = doc.getElementById("signUpBtn");
     const signOut = doc.getElementById("signOutBtn");
     const authStatus = doc.getElementById("authStatus");
     const syncStatus = doc.getElementById("syncStatus");
@@ -52,16 +55,37 @@ const YTD_OPTIONS = (() => {
       const { account } = await sendAuthCommand("popcorn-auth:session");
       email.textContent = account?.email ?? "Not signed in";
       signIn.hidden = !!account;
+      if (signUp) signUp.hidden = !!account;
       signOut.hidden = !account;
       const summary = await sendQueueCommand("getSyncSummary");
       syncStatus.textContent = account
         ? (summary.pendingCount ? `${summary.pendingCount} saved moment${summary.pendingCount === 1 ? "" : "s"} waiting to sync.` : "Ready to sync saved moments.")
         : "Sign in to sync saved moments.";
     }
-    signIn.addEventListener("click", async () => {
-      authStatus.textContent = "Opening Popcorn sign-in…";
-      try { await sendAuthCommand("popcorn-auth:begin", { userInitiated: true }); authStatus.textContent = "Signed in."; await renderSession(); } catch (_error) { authStatus.textContent = "Sign-in was not completed."; }
-    });
+    async function submitPassword(command, successText, failureText) {
+      const credentials = { email: authEmail?.value ?? "", password: authPassword?.value ?? "" };
+      authStatus.textContent = "Checking your Popcorn account…";
+      try {
+        await sendAuthCommand(command, credentials);
+        authStatus.textContent = successText;
+        await renderSession();
+      } catch (_error) {
+        authStatus.textContent = failureText;
+      } finally {
+        if (authEmail) authEmail.value = "";
+        if (authPassword) authPassword.value = "";
+      }
+    }
+    signIn.addEventListener("click", () => submitPassword(
+      "popcorn-auth:sign-in",
+      "Signed in.",
+      "Sign-in was not completed.",
+    ));
+    signUp?.addEventListener("click", () => submitPassword(
+      "popcorn-auth:sign-up",
+      "Account created.",
+      "Account request was not completed.",
+    ));
     signOut.addEventListener("click", async () => {
       const result = await sendAuthCommand("popcorn-auth:sign-out");
       if (result.requiresDecision) { signOutChoice.hidden = false; discard.hidden = false; return; }

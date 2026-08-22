@@ -6,7 +6,7 @@ export default function SignInPage() {
       <section aria-labelledby="sign-in-title">
         <p>Popcorn</p>
         <h1 id="sign-in-title">Sign in to your learning settings</h1>
-        <p>We will email you a one-time sign-in link.</p>
+        <p>Use the email and password for your local Popcorn account.</p>
         <SignInForm />
       </section>
     </main>

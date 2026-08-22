@@ -2,13 +2,14 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { webcrypto } = require("node:crypto");
 
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const EXTENSION_ID = "meocnghfgmmcnnjiihpcgjnaameioddp";
-const REDIRECT_ORIGIN = `https://${EXTENSION_ID}.chromiumapp.org`;
 const REQUEST_ORIGIN = `chrome-extension://${EXTENSION_ID}`;
+const SUPABASE_URL = "https://project.supabase.co";
+const ANON_KEY = "public-anon-key";
+
 const getAuth = async () => {
   await import("../auth.js");
   return globalThis.POPCORN_AUTH;
@@ -28,46 +29,37 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function createChrome({ onLaunch, redirectOrigin = REDIRECT_ORIGIN } = {}) {
+function createChrome() {
   const local = {};
   const session = {};
-  const calls = [];
+  const writes = [];
   const area = (values, name) => ({
     async get(keys) {
+      if (keys === null) return { ...values };
       const requested = Array.isArray(keys) ? keys : [keys];
       return Object.fromEntries(
         requested.filter((key) => Object.hasOwn(values, key)).map((key) => [key, values[key]]),
       );
     },
     async set(items) {
-      calls.push(`${name}:set`);
+      writes.push({ area: name, items: structuredClone(items) });
       Object.assign(values, items);
     },
     async remove(keys) {
-      calls.push(`${name}:remove`);
+      writes.push({ area: name, remove: structuredClone(keys) });
       for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key];
     },
     async setAccessLevel({ accessLevel }) {
-      calls.push(`${name}:access:${accessLevel}`);
+      writes.push({ area: name, accessLevel });
     },
   });
 
   return {
     local,
     session,
-    calls,
+    writes,
     chrome: {
       storage: { local: area(local, "local"), session: area(session, "session") },
-      identity: {
-        getRedirectURL(pathname) {
-          calls.push(`redirect:${pathname}`);
-          return `${redirectOrigin}/supabase`;
-        },
-        async launchWebAuthFlow({ url }) {
-          calls.push("launch");
-          return onLaunch(url);
-        },
-      },
       runtime: {
         id: EXTENSION_ID,
         getURL(pathname) {
@@ -78,570 +70,287 @@ function createChrome({ onLaunch, redirectOrigin = REDIRECT_ORIGIN } = {}) {
   };
 }
 
-test("manifest identity and options retain only the Popcorn account surface", () => {
-  const manifest = JSON.parse(read("manifest.json"));
-  const options = read("options.html");
-
-  assert.match(manifest.key, /^[A-Za-z0-9+/=]+$/);
-  assert.equal(manifest.minimum_chrome_version, "116");
-  assert.ok(manifest.permissions.includes("identity"));
-  assert.ok(manifest.permissions.includes("alarms"));
-  for (const permission of ["sidePanel", "storage", "tabs", "scripting"]) {
-    assert.ok(manifest.permissions.includes(permission));
-  }
-  assert.deepEqual(manifest.host_permissions, [
-    "https://www.youtube.com/*",
-    "https://app.popcorn.local/*",
-    "https://project.supabase.co/*",
-  ]);
-  assert.doesNotMatch(JSON.stringify(manifest), /supadata|deepseek|openai/i);
-  for (const control of ["accountEmail", "signInBtn", "signOutBtn", "syncStatus", "clearCacheBtn", "discardPendingBtn"]) {
-    assert.match(options, new RegExp(`id="${control}"`));
-  }
-  assert.doesNotMatch(options, /supadata|deepseek|api.?key|model|provider|customization/i);
-  assert.match(read("options.js"), /chrome\.runtime\.sendMessage/);
-  assert.doesNotMatch(read("options.js"), /createAuthClient|popcorn_session/);
-  assert.doesNotMatch(read("options.js"), /\.get\(null\)/);
-  const authPage = fs.readFileSync(path.resolve(root, "..", "src/app/auth/extension/page.tsx"), "utf8");
-  assert.match(authPage, /auth\/v1\/authorize/);
-  assert.doesNotMatch(authPage, /createBrowserClient|signInWithOAuth/);
-  assert.match(authPage, /code_challenge_method", "s256"/);
-  assert.match(authPage, /redirectTo\.searchParams\.set\("popcorn_state", popcornState\)/);
-  assert.match(authPage, /redirect_to", redirectTo\.toString\(\)/);
-  assert.equal((authPage.match(/authorize\.searchParams\.set\("code_challenge"/g) ?? []).length, 1);
-  assert.doesNotMatch(authPage, /code_verifier/);
-  assert.doesNotMatch(authPage, /authorize\.searchParams\.set\("state"/);
+const providerSession = ({
+  accessToken = "access-token",
+  refreshToken = "refresh-token",
+  userId = "user-a",
+  email = "a@example.com",
+  expiresIn = 3600,
+} = {}) => ({
+  access_token: accessToken,
+  refresh_token: refreshToken,
+  expires_in: expiresIn,
+  user: { id: userId, email, app_metadata: { ignored: true } },
 });
 
-test("interactive sign-in is click-gated, stores PKCE before launch, and stores only a session", async () => {
-  let fetched = 0;
-  const auth = await getAuth();
-  const harness = createChrome({
-    onLaunch(url) {
-      assert.equal(harness.calls.at(-2), "session:set");
-      const start = new URL(url);
-      assert.equal(start.searchParams.get("redirect_uri"), `${REDIRECT_ORIGIN}/supabase`);
-      assert.ok(start.searchParams.get("code_challenge"));
-      assert.equal(start.searchParams.get("code_challenge_method"), "s256");
-      assert.equal(start.searchParams.get("code_verifier"), null);
-      assert.equal(start.searchParams.get("access_token"), null);
-      assert.equal(start.searchParams.get("refresh_token"), null);
-      return `${REDIRECT_ORIGIN}/supabase?popcorn_state=${start.searchParams.get("popcorn_state")}&code=one-time-code&state=gotrue-owned-state`;
-    },
-  });
-  const client = auth.createAuthClient({
+function createClient(auth, harness, fetch, now = () => 1_700_000_000_000) {
+  return auth.createAuthClient({
     chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async (url, init) => {
-      fetched += 1;
-      assert.equal(url, "https://app.popcorn.local/api/v1/extension/session/exchange");
-      assert.deepEqual(Object.keys(JSON.parse(init.body)).sort(), ["code", "codeVerifier", "redirectUri"]);
-      return response({ session: { accessToken: "access", refreshToken: "refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "a@example.com" } } });
-    },
+    fetch,
+    supabaseUrl: SUPABASE_URL,
+    anonKey: ANON_KEY,
+    now,
+  });
+}
+
+test("Options remains the adapted account surface and exposes password controls", () => {
+  const options = read("options.html");
+
+  for (const control of [
+    "accountEmail",
+    "authEmail",
+    "authPassword",
+    "signInBtn",
+    "signUpBtn",
+    "signOutBtn",
+    "syncStatus",
+    "clearCacheBtn",
+    "discardPendingBtn",
+  ]) {
+    assert.match(options, new RegExp(`id="${control}"`));
+  }
+  assert.match(options, /type="password"/);
+  assert.doesNotMatch(options, /google|oauth|magic link|api.?key|model|provider/i);
+  assert.match(read("options.js"), /createStorageAdapter/);
+  assert.match(read("options.js"), /chrome\.runtime\.sendMessage/);
+  assert.doesNotMatch(read("options.js"), /createAuthClient|popcorn_session/);
+});
+
+test("password sign-in calls the exact Supabase endpoint and persists only normalized session data", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  const requests = [];
+  const client = createClient(auth, harness, async (url, init) => {
+    requests.push({ url, init: structuredClone(init) });
+    return response(providerSession());
   });
 
   await client.initialize();
-  await assert.rejects(client.beginInteractiveSignIn(), /user action/i);
-  const session = await client.beginInteractiveSignIn({ userInitiated: true });
+  const session = await client.signInWithPassword({
+    email: "a@example.com",
+    password: "correct-horse",
+  });
 
-  assert.equal(fetched, 1);
-  assert.equal(session.user.email, "a@example.com");
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, `${SUPABASE_URL}/auth/v1/token?grant_type=password`);
+  assert.deepEqual(requests[0].init.headers, {
+    "Content-Type": "application/json",
+    apikey: ANON_KEY,
+  });
+  assert.deepEqual(JSON.parse(requests[0].init.body), {
+    email: "a@example.com",
+    password: "correct-horse",
+  });
+  assert.deepEqual(session, {
+    accessToken: "access-token",
+    refreshToken: "refresh-token",
+    accessExpiresAt: 1_700_003_600_000,
+    user: { id: "user-a", email: "a@example.com" },
+  });
   assert.deepEqual(Object.keys(harness.local), ["popcorn_session"]);
+  assert.doesNotMatch(JSON.stringify(harness.writes), /correct-horse|password/i);
+  assert.doesNotMatch(JSON.stringify(harness.local), /correct-horse|app_metadata|password/i);
   assert.deepEqual(harness.session, {});
-  assert.ok(harness.calls.includes("redirect:supabase"));
-  assert.ok(harness.calls.includes("local:access:TRUSTED_CONTEXTS"));
-  assert.ok(harness.calls.includes("session:access:TRUSTED_CONTEXTS"));
+  assert.ok(harness.writes.some((write) => write.accessLevel === "TRUSTED_CONTEXTS"));
 });
 
-test("invalid, cancelled, and expired callbacks clear transient PKCE material", async () => {
-  const auth = await getAuth();
-  const cancelled = createChrome({ onLaunch: async () => { throw new Error("cancelled"); } });
-  const client = auth.createAuthClient({ chrome: cancelled.chrome, crypto: webcrypto, appUrl: "https://app.popcorn.local", fetch: async () => response({}) });
-  await assert.rejects(client.beginInteractiveSignIn({ userInitiated: true }), /cancelled/);
-  assert.deepEqual(cancelled.session, {});
-
-  const invalid = createChrome({ onLaunch: async () => `${REDIRECT_ORIGIN}/supabase?code=code&popcorn_state=wrong&state=gotrue-owned-state` });
-  const invalidClient = auth.createAuthClient({ chrome: invalid.chrome, crypto: webcrypto, appUrl: "https://app.popcorn.local", fetch: async () => response({}) });
-  await assert.rejects(invalidClient.beginInteractiveSignIn({ userInitiated: true }), /state/i);
-  assert.deepEqual(invalid.session, {});
-
-  invalid.session.popcorn_pkce = { state: "state", verifier: "v", redirectUri: `${REDIRECT_ORIGIN}/supabase`, expiresAt: 0 };
-  await assert.rejects(invalidClient.completeInteractiveSignIn(`${REDIRECT_ORIGIN}/supabase?code=code&popcorn_state=state&state=gotrue-owned-state`), /expired/i);
-  assert.deepEqual(invalid.session, {});
-});
-
-test("digest failures after PKCE persistence clear transient material without launching or exchanging", async () => {
+test("account creation calls Supabase signup and returns the same bounded session shape", async () => {
   const auth = await getAuth();
   const harness = createChrome();
-  let exchanges = 0;
-  const failingCrypto = {
-    getRandomValues: webcrypto.getRandomValues.bind(webcrypto),
-    subtle: {
-      async digest() {
-        throw new Error("digest failed");
-      },
-    },
-  };
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: failingCrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async () => {
-      exchanges += 1;
-      return response({});
-    },
+  const requests = [];
+  const client = createClient(auth, harness, async (url, init) => {
+    requests.push({ url, init: structuredClone(init) });
+    return response(providerSession({ email: "new@example.com" }));
   });
 
-  await assert.rejects(client.beginInteractiveSignIn({ userInitiated: true }), /digest failed/);
+  const session = await client.signUpWithPassword({
+    email: "new@example.com",
+    password: "correct-horse",
+  });
 
-  assert.deepEqual(harness.session, {});
-  assert.equal(harness.calls.includes("launch"), false);
-  assert.equal(exchanges, 0);
+  assert.equal(requests[0].url, `${SUPABASE_URL}/auth/v1/signup`);
+  assert.deepEqual(JSON.parse(requests[0].init.body), {
+    email: "new@example.com",
+    password: "correct-horse",
+  });
+  assert.deepEqual(session.user, { id: "user-a", email: "new@example.com" });
+  assert.doesNotMatch(JSON.stringify(harness.local), /correct-horse|password/i);
 });
 
-test("invalid sign-in URL construction after PKCE persistence clears transient material without launching or exchanging", async () => {
+test("wrong credentials, malformed responses, and provider errors stay generic and do not log secrets", async () => {
   const auth = await getAuth();
-  const harness = createChrome();
-  let exchanges = 0;
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "://invalid-app-url",
-    fetch: async () => {
-      exchanges += 1;
-      return response({});
-    },
-  });
-
-  await assert.rejects(client.beginInteractiveSignIn({ userInitiated: true }), /invalid url/i);
-
-  assert.deepEqual(harness.session, {});
-  assert.equal(harness.calls.includes("launch"), false);
-  assert.equal(exchanges, 0);
-});
-
-test("callbacks require exactly one nested Popcorn state and never accept token URL fields", async () => {
-  const auth = await getAuth();
-  const harness = createChrome();
-  let exchanges = 0;
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    now: () => 1_000,
-    fetch: async () => {
-      exchanges += 1;
-      return response({ session: { accessToken: "access", refreshToken: "refresh", accessExpiresAt: 60_000, user: { id: "user-a", email: "a@example.com" } } });
-    },
-  });
-  const setPkce = () => {
-    harness.session.popcorn_pkce = { state: "popcorn-state", verifier: "verifier", redirectUri: `${REDIRECT_ORIGIN}/supabase`, expiresAt: 2_000 };
-  };
-  for (const suffix of [
-    "code=code&state=gotrue-state",
-    "code=code&state=gotrue-state&popcorn_state=popcorn-state&popcorn_state=duplicate",
-    "code=code&state=gotrue-state&popcorn_state=wrong",
-    "code=code&state=gotrue-state&popcorn_state=popcorn-state&access_token=forbidden",
-  ]) {
-    setPkce();
-    await assert.rejects(client.completeInteractiveSignIn(`${REDIRECT_ORIGIN}/supabase?${suffix}`), /callback|state/i);
-    assert.deepEqual(harness.session, {});
-  }
-  for (const fragment of [
-    "access_token=forbidden",
-    "refresh_token=forbidden",
-    "id_token=forbidden",
-    "arbitrary-non-empty-fragment",
-  ]) {
-    setPkce();
-    await assert.rejects(
-      client.completeInteractiveSignIn(`${REDIRECT_ORIGIN}/supabase?code=code&state=gotrue-state&popcorn_state=popcorn-state#${fragment}`),
-      /callback|fragment/i,
-    );
-    assert.deepEqual(harness.session, {});
-  }
-  assert.equal(exchanges, 0);
-});
-
-test("rejects a syntactically valid extension redirect that is not the configured origin", async () => {
-  const auth = await getAuth();
-  const wrong = createChrome({ redirectOrigin: "https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org" });
-  const client = auth.createAuthClient({ chrome: wrong.chrome, crypto: webcrypto, appUrl: "https://app.popcorn.local", fetch: async () => response({}) });
-  await assert.rejects(client.beginInteractiveSignIn({ userInitiated: true }), /configured redirect/i);
-  assert.equal(wrong.calls.includes("launch"), false);
-  assert.deepEqual(wrong.session, {});
-});
-
-test("simultaneous refreshes share one result and clear the mutex after success or failure", async () => {
-  const auth = await getAuth();
-  const harness = createChrome();
-  harness.local.popcorn_session = { accessToken: "old", refreshToken: "refresh", accessExpiresAt: 0, user: { id: "user-a", email: "a@example.com" } };
-  let refreshCalls = 0;
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async (url, init) => {
-      refreshCalls += 1;
-      assert.equal(url, "https://app.popcorn.local/api/v1/extension/session/refresh");
-      assert.deepEqual(JSON.parse(init.body), { refreshToken: "refresh", userId: "user-a" });
-      if (refreshCalls === 2) return response({ error: "ignored" }, false);
-      return response({ session: { accessToken: `new-${refreshCalls}`, refreshToken: "refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "a@example.com" } } });
-    },
-  });
-
-  const [a, b] = await Promise.all([client.getAccessToken(), client.getAccessToken()]);
-  assert.equal(refreshCalls, 1);
-  assert.equal(a, "new-1");
-  assert.equal(b, "new-1");
-  harness.local.popcorn_session.accessExpiresAt = 0;
-  await assert.rejects(client.getAccessToken(), /refresh/i);
-  harness.local.popcorn_session.accessExpiresAt = 0;
-  assert.equal(await client.getAccessToken(), "new-3");
-  assert.equal(refreshCalls, 3);
-});
-
-test("confirmed sign-out rejects an active refresh before final session removal", async () => {
-  const auth = await getAuth();
-  const harness = createChrome();
-  harness.local.popcorn_session = { accessToken: "old", refreshToken: "refresh", accessExpiresAt: 0, user: { id: "user-a", email: "a@example.com" } };
-  const refreshStarted = deferred();
-  const providerRefresh = deferred();
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async () => {
-      refreshStarted.resolve();
-      return providerRefresh.promise;
-    },
-  });
-
-  const refreshing = client.getAccessToken();
-  await refreshStarted.promise;
-  let signOutSettled = false;
-  const signingOut = client.signOut().then((result) => {
-    signOutSettled = true;
-    return result;
-  });
-  await new Promise((resolve) => setImmediate(resolve));
-  const settledBeforeRefresh = signOutSettled;
-  providerRefresh.resolve(response({ session: { accessToken: "stale-refreshed", refreshToken: "refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "a@example.com" } } }));
-
-  await assert.rejects(refreshing, /invalidated|session/i);
-  assert.deepEqual(await signingOut, { pendingCount: 0, requiresDecision: false });
-  assert.equal(settledBeforeRefresh, false);
-  assert.equal(harness.local.popcorn_session, undefined);
-});
-
-test("refresh rejects when sign-out invalidates between the queue post-check and token return", async () => {
-  const auth = await getAuth();
-  const harness = createChrome();
-  harness.local.popcorn_session = { accessToken: "old", refreshToken: "refresh", accessExpiresAt: 0, user: { id: "user-a", email: "a@example.com" } };
-  const refreshSetStarted = deferred();
-  const releaseRefreshSet = deferred();
-  const pendingReadStarted = deferred();
-  const releasePendingRead = deferred();
-  const originalSet = harness.chrome.storage.local.set;
-  const originalGet = harness.chrome.storage.local.get;
-  harness.chrome.storage.local.set = (items) => {
-    if (items.popcorn_session?.accessToken === "refreshed") {
-      Object.assign(harness.local, items);
-      refreshSetStarted.resolve();
-      return releaseRefreshSet.promise;
-    }
-    return originalSet(items);
-  };
-  harness.chrome.storage.local.get = (keys) => {
-    if (keys === "popcorn_pending_events") {
-      pendingReadStarted.resolve();
-      return releasePendingRead.promise;
-    }
-    return originalGet(keys);
-  };
-  const refreshedSession = { accessToken: "refreshed", refreshToken: "refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "a@example.com" } };
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async () => response({ session: refreshedSession }),
-  });
-
-  const refreshing = client.getAccessToken();
-  await refreshSetStarted.promise;
-  const signingOut = client.signOut();
-  await pendingReadStarted.promise;
-  releaseRefreshSet.resolve();
-  queueMicrotask(() => releasePendingRead.resolve({}));
-
-  await assert.rejects(refreshing, /invalidated|session/i);
-  assert.deepEqual(await signingOut, { pendingCount: 0, requiresDecision: false });
-  assert.equal(harness.local.popcorn_session, undefined);
-});
-
-test("an old deferred refresh rejects after a newly accepted interactive session", async () => {
-  const auth = await getAuth();
-  const harness = createChrome({
-    onLaunch(url) {
-      const start = new URL(url);
-      return `${REDIRECT_ORIGIN}/supabase?popcorn_state=${start.searchParams.get("popcorn_state")}&code=new-login-code&state=gotrue-state`;
-    },
-  });
-  harness.local.popcorn_session = { accessToken: "old", refreshToken: "old-refresh", accessExpiresAt: 0, user: { id: "user-a", email: "old@example.com" } };
-  const refreshStarted = deferred();
-  const providerRefresh = deferred();
-  const newSession = { accessToken: "new-login", refreshToken: "new-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-b", email: "new@example.com" } };
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async (url) => {
-      if (url.endsWith("/refresh")) {
-        refreshStarted.resolve();
-        return providerRefresh.promise;
-      }
-      return response({ session: newSession });
-    },
-  });
-
-  const refreshing = client.getAccessToken();
-  await refreshStarted.promise;
-  assert.deepEqual(await client.beginInteractiveSignIn({ userInitiated: true }), newSession);
-  assert.deepEqual(harness.local.popcorn_session, newSession);
-  providerRefresh.resolve(response({ session: { accessToken: "stale-refreshed", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } } }));
-
-  await assert.rejects(refreshing, /invalidated|session/i);
-  assert.deepEqual(harness.local.popcorn_session, newSession);
-});
-
-test("a queued new login wins when stale refresh storage completes in adversarial order", async () => {
-  const auth = await getAuth();
-  const harness = createChrome({
-    onLaunch(url) {
-      const start = new URL(url);
-      return `${REDIRECT_ORIGIN}/supabase?popcorn_state=${start.searchParams.get("popcorn_state")}&code=new-login-code&state=gotrue-state`;
-    },
-  });
-  harness.local.popcorn_session = { accessToken: "old", refreshToken: "old-refresh", accessExpiresAt: 0, user: { id: "user-a", email: "old@example.com" } };
-  const staleSetStarted = deferred();
-  const releaseStaleSet = deferred();
-  const loginAccepted = deferred();
-  const originalSet = harness.chrome.storage.local.set;
-  harness.chrome.storage.local.set = async (items) => {
-    if (items.popcorn_session?.accessToken === "stale-refreshed") {
-      staleSetStarted.resolve();
-      await releaseStaleSet.promise;
-    }
-    return originalSet(items);
-  };
-  const staleSession = { accessToken: "stale-refreshed", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } };
-  const newSession = { accessToken: "new-login", refreshToken: "new-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-b", email: "new@example.com" } };
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async (url) => {
-      if (url.endsWith("/refresh")) return response({ session: staleSession });
-      return response({
-        get session() {
-          loginAccepted.resolve();
-          return newSession;
+  const originalError = console.error;
+  const originalLog = console.log;
+  const logged = [];
+  console.error = (...values) => logged.push(values);
+  console.log = (...values) => logged.push(values);
+  try {
+    for (const providerResponse of [
+      response({ message: "wrong correct-horse for a@example.com" }, false, 400),
+      response({ access_token: "provider-secret" }),
+    ]) {
+      const harness = createChrome();
+      const client = createClient(auth, harness, async () => providerResponse);
+      await assert.rejects(
+        client.signInWithPassword({ email: "a@example.com", password: "correct-horse" }),
+        (error) => {
+          assert.equal(error.message, "Popcorn sign-in could not be completed.");
+          assert.doesNotMatch(error.message, /correct-horse|a@example|provider-secret/i);
+          return true;
         },
-      });
-    },
-  });
-
-  const refreshing = client.getAccessToken();
-  await staleSetStarted.promise;
-  const signingIn = client.beginInteractiveSignIn({ userInitiated: true });
-  await loginAccepted.promise;
-  releaseStaleSet.resolve();
-
-  await assert.rejects(refreshing, /invalidated|session/i);
-  assert.deepEqual(await signingIn, newSession);
-  assert.deepEqual(harness.local.popcorn_session, newSession);
+      );
+      assert.deepEqual(harness.local, {});
+    }
+  } finally {
+    console.error = originalError;
+    console.log = originalLog;
+  }
+  assert.doesNotMatch(JSON.stringify(logged), /correct-horse|a@example|provider-secret/i);
 });
 
-test("refresh rejects when the stored session no longer identifies its source session", async () => {
+test("expired access tokens refresh once through Supabase and survive a worker restart", async () => {
   const auth = await getAuth();
   const harness = createChrome();
-  harness.local.popcorn_session = { accessToken: "old", refreshToken: "old-refresh", accessExpiresAt: 0, user: { id: "user-a", email: "old@example.com" } };
+  harness.local.popcorn_session = {
+    accessToken: "expired",
+    refreshToken: "refresh-token",
+    accessExpiresAt: 0,
+    user: { id: "user-a", email: "a@example.com" },
+  };
+  let refreshCalls = 0;
+  const fetch = async (url, init) => {
+    refreshCalls += 1;
+    assert.equal(url, `${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`);
+    assert.deepEqual(init.headers, { "Content-Type": "application/json", apikey: ANON_KEY });
+    assert.deepEqual(JSON.parse(init.body), { refresh_token: "refresh-token" });
+    return response(providerSession({ accessToken: "refreshed", refreshToken: "next-refresh" }));
+  };
+
+  const restartedClient = createClient(auth, harness, fetch);
+  const [first, second] = await Promise.all([
+    restartedClient.getAccessToken(),
+    restartedClient.getAccessToken(),
+  ]);
+
+  assert.equal(first, "refreshed");
+  assert.equal(second, "refreshed");
+  assert.equal(refreshCalls, 1);
+  assert.equal(harness.local.popcorn_session.refreshToken, "next-refresh");
+});
+
+test("a confirmed sign-out invalidates an in-flight refresh before removing the session", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  harness.local.popcorn_session = {
+    accessToken: "expired",
+    refreshToken: "refresh-token",
+    accessExpiresAt: 0,
+    user: { id: "user-a", email: "a@example.com" },
+  };
   const refreshStarted = deferred();
   const providerRefresh = deferred();
-  const replacement = { accessToken: "replacement", refreshToken: "replacement-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-b", email: "replacement@example.com" } };
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async () => {
-      refreshStarted.resolve();
-      return providerRefresh.promise;
-    },
+  const client = createClient(auth, harness, async () => {
+    refreshStarted.resolve();
+    return providerRefresh.promise;
   });
 
   const refreshing = client.getAccessToken();
   await refreshStarted.promise;
-  harness.local.popcorn_session = replacement;
-  providerRefresh.resolve(response({ session: { accessToken: "stale-refreshed", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } } }));
+  const signingOut = client.signOut();
+  providerRefresh.resolve(response(providerSession({ accessToken: "stale-refreshed" })));
 
   await assert.rejects(refreshing, /invalidated|session/i);
-  assert.deepEqual(harness.local.popcorn_session, replacement);
-});
-
-test("a newer login survives an older confirmed sign-out with a deferred remove", async () => {
-  const auth = await getAuth();
-  const harness = createChrome({
-    onLaunch(url) {
-      const start = new URL(url);
-      return `${REDIRECT_ORIGIN}/supabase?popcorn_state=${start.searchParams.get("popcorn_state")}&code=new-login-code&state=gotrue-state`;
-    },
-  });
-  harness.local.popcorn_session = { accessToken: "old", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } };
-  const removeStarted = deferred();
-  const releaseRemove = deferred();
-  const loginAccepted = deferred();
-  const originalRemove = harness.chrome.storage.local.remove;
-  harness.chrome.storage.local.remove = async (keys) => {
-    if (keys === "popcorn_session") {
-      removeStarted.resolve();
-      await releaseRemove.promise;
-    }
-    return originalRemove(keys);
-  };
-  const newSession = { accessToken: "new-login", refreshToken: "new-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-b", email: "new@example.com" } };
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async () => response({
-      get session() {
-        loginAccepted.resolve();
-        return newSession;
-      },
-    }),
-  });
-
-  const signingOut = client.signOut();
-  await removeStarted.promise;
-  const signingIn = client.beginInteractiveSignIn({ userInitiated: true });
-  await loginAccepted.promise;
-  releaseRemove.resolve();
-
-  await assert.rejects(signingOut, /invalidated|session/i);
-  assert.deepEqual(await signingIn, newSession);
-  assert.deepEqual(harness.local.popcorn_session, newSession);
-});
-
-test("a newer confirmed sign-out removes an older login with a deferred session write", async () => {
-  const auth = await getAuth();
-  const harness = createChrome({
-    onLaunch(url) {
-      const start = new URL(url);
-      return `${REDIRECT_ORIGIN}/supabase?popcorn_state=${start.searchParams.get("popcorn_state")}&code=older-login-code&state=gotrue-state`;
-    },
-  });
-  harness.local.popcorn_session = { accessToken: "old", refreshToken: "old-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "old@example.com" } };
-  const loginSetStarted = deferred();
-  const releaseLoginSet = deferred();
-  const originalSet = harness.chrome.storage.local.set;
-  harness.chrome.storage.local.set = async (items) => {
-    if (items.popcorn_session?.accessToken === "older-login") {
-      loginSetStarted.resolve();
-      await releaseLoginSet.promise;
-    }
-    return originalSet(items);
-  };
-  const olderLogin = { accessToken: "older-login", refreshToken: "older-refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-b", email: "older@example.com" } };
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async () => response({ session: olderLogin }),
-  });
-
-  const signingIn = client.beginInteractiveSignIn({ userInitiated: true });
-  await loginSetStarted.promise;
-  const signingOut = client.signOut();
-  await new Promise((resolve) => setImmediate(resolve));
-  releaseLoginSet.resolve();
-
-  await assert.rejects(signingIn, /invalidated|session/i);
   assert.deepEqual(await signingOut, { pendingCount: 0, requiresDecision: false });
   assert.equal(harness.local.popcorn_session, undefined);
 });
 
-test("sign-out requiring a pending-event decision does not invalidate an active refresh", async () => {
+test("owner-bound pending events survive sign-out and another account cannot discard them", async () => {
   const auth = await getAuth();
   const harness = createChrome();
-  harness.local.popcorn_session = { accessToken: "old", refreshToken: "refresh", accessExpiresAt: 0, user: { id: "user-a", email: "a@example.com" } };
-  harness.local.popcorn_pending_events = [{ ownerUserId: "user-a", clientEventId: "pending" }];
-  const refreshStarted = deferred();
-  const providerRefresh = deferred();
-  const refreshedSession = { accessToken: "refreshed", refreshToken: "refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "a@example.com" } };
-  const client = auth.createAuthClient({
-    chrome: harness.chrome,
-    crypto: webcrypto,
-    appUrl: "https://app.popcorn.local",
-    fetch: async () => {
-      refreshStarted.resolve();
-      return providerRefresh.promise;
-    },
-  });
-
-  const refreshing = client.getAccessToken();
-  await refreshStarted.promise;
-  assert.deepEqual(await client.signOut(), { pendingCount: 1, requiresDecision: true });
-  providerRefresh.resolve(response({ session: refreshedSession }));
-
-  assert.equal(await refreshing, "refreshed");
-  assert.deepEqual(harness.local.popcorn_session, refreshedSession);
-});
-
-test("owner-bound pending events survive sign-out until explicit discard and never transfer accounts", async () => {
-  const auth = await getAuth();
-  const harness = createChrome();
-  harness.local.popcorn_session = { accessToken: "access", refreshToken: "refresh", accessExpiresAt: Date.now() + 60_000, user: { id: "user-a", email: "a@example.com" } };
-  harness.local.popcorn_pending_events = [{ ownerUserId: "user-a", clientEventId: "a" }, { ownerUserId: "user-b", clientEventId: "b" }];
-  const client = auth.createAuthClient({ chrome: harness.chrome, crypto: webcrypto, appUrl: "https://app.popcorn.local", fetch: async () => response({}) });
+  harness.local.popcorn_session = {
+    accessToken: "access",
+    refreshToken: "refresh",
+    accessExpiresAt: 1_700_003_600_000,
+    user: { id: "user-a", email: "a@example.com" },
+  };
+  harness.local.popcorn_pending_events = [
+    { ownerUserId: "user-a", clientEventId: "a" },
+    { ownerUserId: "user-b", clientEventId: "b" },
+  ];
+  const client = createClient(auth, harness, async () => response({}));
 
   assert.deepEqual(await client.signOut(), { pendingCount: 1, requiresDecision: true });
-  assert.ok(harness.local.popcorn_session);
   assert.equal(harness.local.popcorn_pending_events.length, 2);
-  assert.deepEqual(await client.signOut({ decision: "discard" }), { pendingCount: 1, requiresDecision: false });
+  assert.deepEqual(await client.signOut({ decision: "discard" }), {
+    pendingCount: 1,
+    requiresDecision: false,
+  });
   assert.equal(harness.local.popcorn_session, undefined);
-  assert.deepEqual(harness.local.popcorn_pending_events, [{ ownerUserId: "user-b", clientEventId: "b" }]);
+  assert.deepEqual(harness.local.popcorn_pending_events, [
+    { ownerUserId: "user-b", clientEventId: "b" },
+  ]);
+
+  harness.local.popcorn_session = {
+    accessToken: "other",
+    refreshToken: "other-refresh",
+    accessExpiresAt: 1_700_003_600_000,
+    user: { id: "user-c", email: "c@example.com" },
+  };
+  assert.deepEqual(await client.signOut(), { pendingCount: 0, requiresDecision: false });
+  assert.deepEqual(harness.local.popcorn_pending_events, [
+    { ownerUserId: "user-b", clientEventId: "b" },
+  ]);
 });
 
-test("auth messages use Chrome sender identity and return only bounded account state", async () => {
+test("trusted Options messages return only bounded account state and never password or tokens", async () => {
   const auth = await getAuth();
   const harness = createChrome();
+  const credentials = [];
   const client = {
-    initialize: async () => {},
-    beginInteractiveSignIn: async () => ({ accessToken: "never-return", refreshToken: "never-return", user: { id: "user-a", email: "a@example.com" } }),
+    signInWithPassword: async (input) => {
+      credentials.push(input);
+      return { accessToken: "never-return", refreshToken: "never-return", user: { id: "user-a", email: input.email } };
+    },
+    signUpWithPassword: async (input) => {
+      credentials.push(input);
+      return { accessToken: "never-return", refreshToken: "never-return", user: { id: "user-a", email: input.email } };
+    },
     getSession: async () => ({ user: { id: "user-a", email: "a@example.com" } }),
     signOut: async () => ({ pendingCount: 0, requiresDecision: false }),
     clearBoundedCache: async () => 2,
-    getAccessToken: async () => "never-return",
   };
   const handler = auth.createAuthMessageHandler({ chrome: harness.chrome, authClient: client });
-  const optionsSender = { id: harness.chrome.runtime.id, url: harness.chrome.runtime.getURL("options.html") };
-  const optionsTabSender = { ...optionsSender, tab: { id: 73, url: optionsSender.url } };
-  assert.deepEqual(await handler({ command: "popcorn-auth:session" }, optionsSender), { ok: true, account: { email: "a@example.com" } });
-  assert.deepEqual(await handler({ command: "popcorn-auth:session" }, optionsTabSender), { ok: true, account: { email: "a@example.com" } });
-  for (const sender of [
-    { ...optionsSender, id: "abcdefghijklmnopabcdefghijklmnop" },
-    { ...optionsSender, url: `${optionsSender.url}?debug=1` },
-    { ...optionsSender, url: `${optionsSender.url}#debug` },
-    { ...optionsSender, url: harness.chrome.runtime.getURL("sidepanel.html") },
-    { ...optionsSender, tab: { id: 1 } },
-    { ...optionsSender, tab: { id: 1.5, url: optionsSender.url } },
-    { ...optionsSender, tab: { id: 1, url: `${optionsSender.url}?debug=1` } },
-    { ...optionsSender, tab: { id: 1, url: `${optionsSender.url}#debug` } },
-    { ...optionsSender, tab: { id: 1, url: harness.chrome.runtime.getURL("sidepanel.html") } },
-  ]) {
-    await assert.rejects(handler({ command: "popcorn-auth:session" }, sender), /forbidden/i);
+  const optionsSender = {
+    id: harness.chrome.runtime.id,
+    url: harness.chrome.runtime.getURL("options.html"),
+  };
+
+  for (const command of ["popcorn-auth:sign-in", "popcorn-auth:sign-up"]) {
+    const result = await handler({
+      command,
+      email: "a@example.com",
+      password: "correct-horse",
+    }, optionsSender);
+    assert.deepEqual(result, { ok: true, account: { email: "a@example.com" } });
+    assert.doesNotMatch(JSON.stringify(result), /correct-horse|never-return|accessToken|refreshToken|password/i);
   }
-  assert.deepEqual(await handler({ command: "popcorn-auth:clear-cache" }, optionsSender), { ok: true, clearedCount: 2 });
-  await assert.rejects(handler({ command: "popcorn-auth:get-access-token" }, optionsSender), /unsupported/i);
+  assert.deepEqual(credentials, [
+    { email: "a@example.com", password: "correct-horse" },
+    { email: "a@example.com", password: "correct-horse" },
+  ]);
+  assert.deepEqual(await handler({ command: "popcorn-auth:session" }, optionsSender), {
+    ok: true,
+    account: { email: "a@example.com" },
+  });
+  await assert.rejects(
+    handler({ command: "popcorn-auth:get-access-token" }, optionsSender),
+    /unsupported/i,
+  );
+  await assert.rejects(
+    handler({ command: "popcorn-auth:session" }, {
+      ...optionsSender,
+      url: harness.chrome.runtime.getURL("sidepanel.html"),
+    }),
+    /forbidden/i,
+  );
 });

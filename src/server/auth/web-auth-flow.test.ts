@@ -1,9 +1,12 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { SignInForm } from "@/app/sign-in/sign-in-form";
+
 import type { NextCookieStore, WebCookieAdapter } from "./web-session";
 import { createWebAuthFlowHandlers } from "./web-auth-flow";
 
 const APP_URL = "https://popcorn.example/app/path";
-const FLOW_ID = "11111111-1111-4111-8111-111111111111";
-const AUTH_CODE = "34e770dd-9ff9-416c-87fa-43b31d7ef225";
 
 type CookieWrite = {
   name: string;
@@ -16,28 +19,26 @@ type CookieWrite = {
 };
 
 function harness({
-  initialCookies = [],
-  otpError = null,
-  exchangeError = null,
+  signUpError = null,
+  signInError = null,
   signOutError = null,
   userId = "22222222-2222-4222-8222-222222222222",
 }: {
-  initialCookies?: { name: string; value: string }[];
-  otpError?: Error | null;
-  exchangeError?: Error | null;
+  signUpError?: Error | null;
+  signInError?: Error | null;
   signOutError?: Error | null;
   userId?: string | null;
 } = {}) {
   const writes: CookieWrite[] = [];
   const calls = {
-    otp: [] as unknown[],
-    exchange: [] as string[],
+    signUp: [] as unknown[],
+    signIn: [] as unknown[],
     signOut: 0,
     getUser: 0,
     adapter: null as WebCookieAdapter | null,
   };
   const cookieStore: NextCookieStore = {
-    getAll: () => initialCookies,
+    getAll: () => [],
     set: (cookie) => writes.push(cookie),
   };
   const handlers = createWebAuthFlowHandlers({
@@ -45,18 +46,17 @@ function harness({
     supabaseUrl: "https://project.supabase.co",
     anonKey: "anon-key",
     cookieStore,
-    newFlowId: () => FLOW_ID,
     clientFactory: ({ cookies }) => {
       calls.adapter = cookies;
       return {
         auth: {
-          signInWithOtp: async (input) => {
-            calls.otp.push(input);
-            return { data: {}, error: otpError };
+          signUp: async (input: unknown) => {
+            calls.signUp.push(input);
+            return { data: {}, error: signUpError };
           },
-          exchangeCodeForSession: async (code) => {
-            calls.exchange.push(code);
-            return { data: {}, error: exchangeError };
+          signInWithPassword: async (input: unknown) => {
+            calls.signIn.push(input);
+            return { data: {}, error: signInError };
           },
           signOut: async () => {
             calls.signOut += 1;
@@ -88,164 +88,114 @@ function formRequest(body: string, headers: HeadersInit = {}) {
   });
 }
 
-describe("server-only Web authentication flow", () => {
-  it("uses the shared SSR cookie adapter and a fixed callback for magic-link sign-in", async () => {
-    const { handlers, writes, calls } = harness();
-    const response = await handlers.signIn(formRequest("email=learner%40example.com"));
+describe("local Web password authentication", () => {
+  it("renders dedicated password sign-in and account-creation controls", () => {
+    const html = renderToStaticMarkup(createElement(SignInForm));
+
+    expect(html).toContain('name="email"');
+    expect(html).toContain('name="password"');
+    expect(html).toContain('type="password"');
+    expect(html).toContain('name="intent"');
+    expect(html).toContain('value="sign-in"');
+    expect(html).toContain('value="sign-up"');
+    expect(html).not.toMatch(/magic link|oauth|google/i);
+  });
+
+  it("signs in through the shared SSR cookie client and uses a fixed success redirect", async () => {
+    const { handlers, calls } = harness();
+
+    const response = await handlers.signIn(formRequest(
+      "intent=sign-in&email=learner%40example.com&password=correct-horse",
+    ));
 
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("https://popcorn.example/sign-in?status=check-email");
+    expect(response.headers.get("location")).toBe(
+      "https://popcorn.example/settings/model-gateway",
+    );
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(calls.otp).toEqual([{
+    expect(calls.signIn).toEqual([{
       email: "learner@example.com",
-      options: {
-        emailRedirectTo: `https://popcorn.example/auth/callback?flow=${FLOW_ID}`,
-      },
+      password: "correct-horse",
     }]);
-    expect(writes).toEqual([expect.objectContaining({
-      name: "popcorn-auth-flow",
-      value: FLOW_ID,
-      path: "/auth/callback",
-      httpOnly: true,
-      sameSite: "lax",
-      secure: true,
-      maxAge: 600,
-    })]);
+    expect(calls.signUp).toEqual([]);
     expect(calls.adapter?.getAll()).toEqual([]);
   });
 
+  it("creates an account with the same fixed success redirect", async () => {
+    const { handlers, calls } = harness();
+
+    const response = await handlers.signIn(formRequest(
+      "intent=sign-up&email=new%40example.com&password=correct-horse",
+    ));
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://popcorn.example/settings/model-gateway",
+    );
+    expect(calls.signUp).toEqual([{ email: "new@example.com", password: "correct-horse" }]);
+    expect(calls.signIn).toEqual([]);
+  });
+
+  it("uses the same generic failure for wrong credentials and rejected account creation", async () => {
+    const wrongCredentials = harness({
+      signInError: new Error("Invalid password correct-horse for learner@example.com"),
+    });
+    const rejectedSignUp = harness({
+      signUpError: new Error("User new@example.com already registered"),
+    });
+
+    const [signInResponse, signUpResponse] = await Promise.all([
+      wrongCredentials.handlers.signIn(formRequest(
+        "intent=sign-in&email=learner%40example.com&password=correct-horse",
+      )),
+      rejectedSignUp.handlers.signIn(formRequest(
+        "intent=sign-up&email=new%40example.com&password=correct-horse",
+      )),
+    ]);
+
+    for (const response of [signInResponse, signUpResponse]) {
+      expect(response.status).toBe(303);
+      expect(response.headers.get("location")).toBe(
+        "https://popcorn.example/sign-in?status=error",
+      );
+      expect(await response.text()).not.toMatch(/correct-horse|learner|already|invalid/i);
+    }
+  });
+
   it.each([
-    { name: "missing origin", headers: { Origin: "" }, body: "email=learner%40example.com", status: 403 },
-    { name: "inexact origin", headers: { Origin: "https://evil.example" }, body: "email=learner%40example.com", status: 403 },
-    { name: "wrong content type", headers: { "Content-Type": "application/json" }, body: "email=learner%40example.com", status: 400 },
-    { name: "duplicate email", headers: {}, body: "email=a%40example.com&email=b%40example.com", status: 400 },
-    { name: "extra redirect", headers: {}, body: "email=a%40example.com&next=https%3A%2F%2Fevil.example", status: 400 },
-    { name: "invalid email", headers: {}, body: "email=not-an-email", status: 400 },
-  ])("rejects $name without invoking email delivery", async ({ headers, body, status }) => {
+    { name: "missing origin", headers: { Origin: "" }, body: "intent=sign-in&email=learner%40example.com&password=correct-horse", status: 403 },
+    { name: "inexact origin", headers: { Origin: "https://evil.example" }, body: "intent=sign-in&email=learner%40example.com&password=correct-horse", status: 403 },
+    { name: "wrong content type", headers: { "Content-Type": "application/json" }, body: "intent=sign-in&email=learner%40example.com&password=correct-horse", status: 400 },
+    { name: "duplicate email", headers: {}, body: "intent=sign-in&email=a%40example.com&email=b%40example.com&password=correct-horse", status: 400 },
+    { name: "extra redirect", headers: {}, body: "intent=sign-in&email=a%40example.com&password=correct-horse&next=https%3A%2F%2Fevil.example", status: 400 },
+    { name: "invalid email", headers: {}, body: "intent=sign-in&email=not-an-email&password=correct-horse", status: 400 },
+    { name: "short password", headers: {}, body: "intent=sign-in&email=a%40example.com&password=short", status: 400 },
+    { name: "unknown intent", headers: {}, body: "intent=oauth&email=a%40example.com&password=correct-horse", status: 400 },
+  ])("rejects $name without invoking Supabase password auth", async ({ headers, body, status }) => {
     const { handlers, calls } = harness();
     const response = await handlers.signIn(formRequest(body, headers as HeadersInit));
+
     expect(response.status).toBe(status);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(calls.otp).toEqual([]);
-    expect(await response.text()).not.toMatch(/learner|evil|not-an-email|redirect/i);
+    expect(calls.signIn).toEqual([]);
+    expect(calls.signUp).toEqual([]);
+    expect(await response.text()).not.toMatch(/correct-horse|learner|evil|oauth/i);
   });
 
   it("rejects declared and streamed bodies over 4 KiB", async () => {
     for (const headers of [{ "Content-Length": "4097" }, {}]) {
       const { handlers, calls } = harness();
-      const response = await handlers.signIn(formRequest(`email=${"a".repeat(4_097)}`, headers as HeadersInit));
-      expect(response.status).toBe(400);
-      expect(calls.otp).toEqual([]);
-    }
-  });
-
-  it("returns the same enumeration-safe response when the email provider rejects", async () => {
-    const success = harness();
-    const failure = harness({ otpError: new Error("user does not exist: learner@example.com") });
-    const [successResponse, failureResponse] = await Promise.all([
-      success.handlers.signIn(formRequest("email=learner%40example.com")),
-      failure.handlers.signIn(formRequest("email=learner%40example.com")),
-    ]);
-    expect({ status: failureResponse.status, location: failureResponse.headers.get("location") }).toEqual({
-      status: successResponse.status,
-      location: successResponse.headers.get("location"),
-    });
-    expect(await failureResponse.text()).not.toMatch(/learner|does not exist|example\.com/i);
-  });
-
-  it("exchanges a code once when the UUID flow matches and clears the callback cookie", async () => {
-    const { handlers, writes, calls } = harness({
-      initialCookies: [{ name: "popcorn-auth-flow", value: FLOW_ID }],
-    });
-    const response = await handlers.callback(new Request(
-      `https://popcorn.example/auth/callback?code=${AUTH_CODE}&flow=${FLOW_ID}`,
-    ));
-    expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("https://popcorn.example/settings/model-gateway");
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(calls.exchange).toEqual([AUTH_CODE]);
-    expect(writes).toContainEqual(expect.objectContaining({
-      name: "popcorn-auth-flow",
-      value: "",
-      path: "/auth/callback",
-      maxAge: 0,
-    }));
-  });
-
-  it.each([
-    `https://popcorn.example/auth/callback?code=a&code=b&flow=${FLOW_ID}`,
-    `https://popcorn.example/auth/callback?code=a&flow=${FLOW_ID}&next=https://evil.example`,
-    `https://popcorn.example/auth/callback?code=a&flow=not-a-uuid`,
-    `https://popcorn.example/auth/callback?token=secret&flow=${FLOW_ID}`,
-    `https://popcorn.example/auth/callback?code=a&flow=${FLOW_ID}#access_token=secret`,
-    `https://evil.example/auth/callback?code=a&flow=${FLOW_ID}`,
-  ])("rejects malformed callback query, clears flow state, and never exchanges: %s", async (url) => {
-    const { handlers, writes, calls } = harness({
-      initialCookies: [{ name: "popcorn-auth-flow", value: FLOW_ID }],
-    });
-    const response = await handlers.callback(new Request(url));
-    expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("https://popcorn.example/sign-in");
-    expect(calls.exchange).toEqual([]);
-    expect(writes).toContainEqual(expect.objectContaining({ name: "popcorn-auth-flow", value: "", maxAge: 0 }));
-    expect(await response.text()).not.toMatch(/secret|evil|pkce/i);
-  });
-
-  it.each([
-    { name: "invalid percent text", encodedCode: "%ZZ" },
-    { name: "NUL", encodedCode: "%00" },
-    { name: "control character", encodedCode: "%01" },
-    { name: "newline", encodedCode: "%0A" },
-    { name: "Unicode", encodedCode: "%E4%B8%AD" },
-    { name: "HTML", encodedCode: "%3Cscript%3E" },
-    { name: "metacharacters", encodedCode: "%26next%3Dhttps%3A%2F%2Fevil.example" },
-    { name: "whitespace", encodedCode: `%20${AUTH_CODE}` },
-    { name: "overlength", encodedCode: "a".repeat(4_097) },
-    { name: "uppercase noncanonical UUID", encodedCode: AUTH_CODE.toUpperCase() },
-    { name: "UUID without hyphens", encodedCode: AUTH_CODE.replaceAll("-", "") },
-    { name: "non-v4 UUID", encodedCode: "34e770dd-9ff9-516c-87fa-43b31d7ef225" },
-    { name: "non-RFC variant UUID", encodedCode: "34e770dd-9ff9-416c-77fa-43b31d7ef225" },
-  ])("rejects $name authorization code before exchange and consumes flow state", async ({ encodedCode }) => {
-    const { handlers, writes, calls } = harness({
-      initialCookies: [{ name: "popcorn-auth-flow", value: FLOW_ID }],
-    });
-
-    const response = await handlers.callback(new Request(
-      `https://popcorn.example/auth/callback?code=${encodedCode}&flow=${FLOW_ID}`,
-    ));
-
-    expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("https://popcorn.example/sign-in");
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(calls.exchange).toEqual([]);
-    expect(writes).toContainEqual(expect.objectContaining({
-      name: "popcorn-auth-flow",
-      value: "",
-      maxAge: 0,
-    }));
-  });
-
-  it("rejects a missing or mismatched one-time cookie and does not replay it", async () => {
-    for (const initialCookies of [[], [{ name: "popcorn-auth-flow", value: "33333333-3333-4333-8333-333333333333" }]]) {
-      const { handlers, calls } = harness({ initialCookies });
-      const response = await handlers.callback(new Request(
-        `https://popcorn.example/auth/callback?code=${AUTH_CODE}&flow=${FLOW_ID}`,
+      const response = await handlers.signIn(formRequest(
+        `intent=sign-in&email=a%40example.com&password=${"a".repeat(4_097)}`,
+        headers as HeadersInit,
       ));
-      expect(response.headers.get("location")).toBe("https://popcorn.example/sign-in");
-      expect(calls.exchange).toEqual([]);
+      expect(response.status).toBe(400);
+      expect(calls.signIn).toEqual([]);
     }
   });
 
-  it("fails callback closed on provider error without leaking code or raw text", async () => {
-    const { handlers } = harness({
-      initialCookies: [{ name: "popcorn-auth-flow", value: FLOW_ID }],
-      exchangeError: new Error(`raw ${AUTH_CODE} provider detail`),
-    });
-    const response = await handlers.callback(new Request(
-      `https://popcorn.example/auth/callback?code=${AUTH_CODE}&flow=${FLOW_ID}`,
-    ));
-    expect(response.headers.get("location")).toBe("https://popcorn.example/sign-in");
-    expect(await response.text()).not.toMatch(/34e770dd|provider detail/i);
+  it("retires the callback operation", () => {
+    expect("callback" in harness().handlers).toBe(false);
   });
 
   it("signs out only from an exact-origin POST and always uses the fixed redirect", async () => {
@@ -264,13 +214,13 @@ describe("server-only Web authentication flow", () => {
     expect(calls.signOut).toBe(1);
     expect(allowed.status).toBe(303);
     expect(allowed.headers.get("location")).toBe("https://popcorn.example/sign-in");
-    expect(allowed.headers.get("cache-control")).toBe("no-store");
     expect(await allowed.text()).not.toMatch(/raw|failure/i);
   });
 
-  it("authorizes pages only with verified getUser and never returns identity details", async () => {
+  it("authorizes pages only with verified getUser", async () => {
     const authenticated = harness();
     const anonymous = harness({ userId: null });
+
     await expect(authenticated.handlers.getPageAuthorization()).resolves.toBe(true);
     await expect(anonymous.handlers.getPageAuthorization()).resolves.toBe(false);
     expect(authenticated.calls.getUser).toBe(1);
