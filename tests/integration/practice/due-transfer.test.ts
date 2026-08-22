@@ -38,6 +38,7 @@ vi.mock("@/server/repositories/review-task-repository", () => ({
 const USER = "11111111-1111-4111-8111-111111111111";
 const REVIEW = "22222222-2222-4222-8222-222222222222";
 const REVIEW_TWO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const REVIEW_THREE = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const EXPRESSION = "44444444-4444-4444-8444-444444444444";
 
 function databaseContextFingerprint(input: {
@@ -57,16 +58,17 @@ function databaseContextFingerprint(input: {
 
 function dueRepositoryHarness() {
   const attemptedFingerprints: string[] = [];
-  const reviews = new Map([
+  let failInsert: (() => void) | null = null;
+  const reviews = new Map<string, Record<string, unknown>>([
     [REVIEW, {
       id: REVIEW, user_id: USER, user_expression_id: EXPRESSION, mastery_state: "tried",
       status: "pending", due_at: "2026-08-21T12:00:00.000Z",
-    }],
-    [REVIEW_TWO, {
-      id: REVIEW_TWO, user_id: USER, user_expression_id: EXPRESSION, mastery_state: "reused",
-      status: "pending", due_at: "2026-08-29T12:00:00.000Z",
+      completed_attempt_id: null, completed_at: null,
     }],
   ]);
+  const expressions = new Map<string, Record<string, unknown>>([[EXPRESSION, {
+    id: EXPRESSION, user_id: USER, mastery_state: "tried",
+  }]]);
   const tasks: Array<Record<string, unknown>> = [{
     id: "99999999-9999-4999-8999-999999999999", user_id: USER, user_expression_id: EXPRESSION,
     kind: "use_it_now", native_language: "en", target_language: "zh-CN", target_expression: "太离谱了",
@@ -90,6 +92,12 @@ function dueRepositoryHarness() {
         async maybeSingle() {
           if (inserted) {
             attemptedFingerprints.push(String(inserted.context_fingerprint));
+            if (failInsert) {
+              const beforeFailure = failInsert;
+              failInsert = null;
+              beforeFailure();
+              return { data: null, error: new Error("simulated insert race") };
+            }
             const contextFingerprint = databaseContextFingerprint(inserted as Parameters<typeof databaseContextFingerprint>[0]);
             const duplicate = tasks.some((row) =>
               row.user_id === inserted?.user_id &&
@@ -112,17 +120,31 @@ function dueRepositoryHarness() {
             const row = [...reviews.values()].find((candidate) => matches(candidate));
             return { data: row ?? null, error: null };
           }
+          if (table === "user_expressions") {
+            const row = [...expressions.values()].find((candidate) => matches(candidate));
+            return { data: row ?? null, error: null };
+          }
           if (table === "practice_tasks") {
             return { data: tasks.find(matches) ?? null, error: null };
           }
           throw new Error(`unexpected table ${table}`);
+        },
+        then(resolve: (value: { data: Array<Record<string, unknown>>; error: null }) => unknown) {
+          const matches = (row: Record<string, unknown>) => filters.every(([column, value]) => row[column] === value);
+          return Promise.resolve(resolve({
+            data: table === "practice_tasks" ? tasks.filter(matches) : [],
+            error: null,
+          }));
         },
       };
       return query;
     },
     rpc: vi.fn(),
   };
-  return { repository: createSupabaseDuePracticeRepository(client as never), tasks, attemptedFingerprints };
+  return {
+    repository: createSupabaseDuePracticeRepository(client as never), reviews, expressions, tasks, attemptedFingerprints,
+    failNextInsert(beforeFailure: () => void) { failInsert = beforeFailure; },
+  };
 }
 
 function completedReplayRepositoryHarness() {
@@ -130,14 +152,15 @@ function completedReplayRepositoryHarness() {
   const rows: Record<string, Array<Record<string, unknown>>> = {
     review_tasks: [{
       id: REVIEW, user_id: USER, user_expression_id: EXPRESSION, mastery_state: "tried",
-      status: "completed", due_at: "2026-08-21T12:00:00.000Z",
-      completed_attempt_id: attemptId, completed_at: "2026-08-22T12:00:00.000Z",
+      status: "completed", due_at: "2026-08-21T12:00:00+00:00",
+      completed_attempt_id: attemptId, completed_at: "2026-08-22T12:00:00+00:00",
     }],
+    user_expressions: [{ id: EXPRESSION, user_id: USER, mastery_state: "reused" }],
     practice_tasks: [{
       id: "33333333-3333-4333-8333-333333333333", user_id: USER, user_expression_id: EXPRESSION,
       kind: "due_practice", native_language: "en", target_language: "zh-CN", target_expression: "太离谱了",
       prompt_chinese: "在新的午餐场景里自然回应。", instructions_english: "Reply naturally.",
-      goal_english: "Use the expression independently.", due_at: "2026-08-21T12:00:00.000Z",
+      goal_english: "Use the expression independently.", due_at: "2026-08-21T12:00:00+00:00",
       review_task_id: REVIEW, context_fingerprint: "a".repeat(64), created_at: "2026-08-21T12:00:00.000Z",
       activation_gateway_config_id: null, activation_gateway_fingerprint: null,
       activation_gateway_revision: null, activation_model: null, activation_prompt_version: null,
@@ -149,7 +172,7 @@ function completedReplayRepositoryHarness() {
       independent_use: true, accuracy_score: 5, accuracy_feedback_english: "Accurate.",
       naturalness_score: 4, naturalness_feedback_english: "Natural.",
       contextual_fit_score: 5, contextual_fit_feedback_english: "Fits.",
-      submitted_at: "2026-08-22T12:00:00.000Z",
+      submitted_at: "2026-08-22T12:00:00+00:00",
       evaluation_prompt_version: "evaluate-practice-v1", evaluation_model: "model-a",
       evaluation_gateway_config_id: "55555555-5555-4555-8555-555555555555",
       evaluation_gateway_revision: 2, evaluation_gateway_fingerprint: "f".repeat(64),
@@ -172,7 +195,7 @@ function completedReplayRepositoryHarness() {
     },
     rpc: vi.fn(),
   };
-  return { repository: createSupabaseDuePracticeRepository(client as never), tablesRead };
+  return { repository: createSupabaseDuePracticeRepository(client as never), tablesRead, rows };
 }
 
 describe("due Practice transfer boundary", () => {
@@ -187,15 +210,41 @@ describe("due Practice transfer boundary", () => {
     expect(JSON.stringify(transfer)).not.toContain("这个价格也太离谱了吧");
   });
 
-  test("creates two sequential due transfers through the production repository without a database fingerprint collision", async () => {
+  test("creates sequential due transfers in different everyday situations after the prior review completes", async () => {
     const harness = dueRepositoryHarness();
 
     const first = await harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z");
+    harness.reviews.set(REVIEW, {
+      ...harness.reviews.get(REVIEW)!, status: "completed",
+      completed_attempt_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      completed_at: "2026-08-22T12:00:00.000Z",
+    });
+    harness.expressions.set(EXPRESSION, { id: EXPRESSION, user_id: USER, mastery_state: "reused" });
+    harness.reviews.set(REVIEW_TWO, {
+      id: REVIEW_TWO, user_id: USER, user_expression_id: EXPRESSION, mastery_state: "reused",
+      status: "pending", due_at: "2026-08-29T12:00:00.000Z",
+      completed_attempt_id: null, completed_at: null,
+    });
     const second = await harness.repository.ensureTransferTask(USER, REVIEW_TWO, "2026-08-30T12:00:00.000Z");
+    harness.reviews.set(REVIEW_TWO, {
+      ...harness.reviews.get(REVIEW_TWO)!, status: "completed",
+      completed_attempt_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      completed_at: "2026-08-30T12:00:00.000Z",
+    });
+    harness.expressions.set(EXPRESSION, { id: EXPRESSION, user_id: USER, mastery_state: "owned" });
+    harness.reviews.set(REVIEW_THREE, {
+      id: REVIEW_THREE, user_id: USER, user_expression_id: EXPRESSION, mastery_state: "owned",
+      status: "pending", due_at: "2026-09-29T12:00:00.000Z",
+      completed_attempt_id: null, completed_at: null,
+    });
+    const maintenance = await harness.repository.ensureTransferTask(USER, REVIEW_THREE, "2026-09-30T12:00:00.000Z");
 
     expect(first.id).not.toBe(second.id);
-    expect(first.promptChinese).not.toBe(second.promptChinese);
+    expect(first.promptChinese).toContain("午餐");
+    expect(second.promptChinese).toContain("网购");
+    expect(maintenance.promptChinese).toContain("出行");
     expect(first.contextFingerprint).not.toBe(second.contextFingerprint);
+    expect(new Set([first.contextFingerprint, second.contextFingerprint, maintenance.contextFingerprint]).size).toBe(3);
     expect(harness.attemptedFingerprints).toEqual([
       databaseContextFingerprint({
         target_expression: first.targetExpression,
@@ -209,7 +258,79 @@ describe("due Practice transfer boundary", () => {
         instructions_english: second.instructionsEnglish,
         goal_english: second.goalEnglish,
       }),
+      databaseContextFingerprint({
+        target_expression: maintenance.targetExpression,
+        prompt_chinese: maintenance.promptChinese,
+        instructions_english: maintenance.instructionsEnglish,
+        goal_english: maintenance.goalEnglish,
+      }),
     ]);
+  });
+
+  test.each([
+    { status: "cancelled", dueAt: "2026-08-21T12:00:00.000Z", completedAttemptId: null, completedAt: null },
+    { status: "completed", dueAt: "2026-08-21T12:00:00.000Z", completedAttemptId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", completedAt: "2026-08-22T12:00:00.000Z" },
+    { status: "pending", dueAt: "2026-08-23T12:00:00.000Z", completedAttemptId: null, completedAt: null },
+    { status: "pending", dueAt: "2026-08-21T12:00:00.000Z", completedAttemptId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", completedAt: "2026-08-22T12:00:00.000Z" },
+  ])("rejects an already-created transfer when review eligibility is invalid: $status $dueAt", async ({ status, dueAt, completedAttemptId, completedAt }) => {
+    const harness = dueRepositoryHarness();
+    await harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z");
+    harness.reviews.set(REVIEW, {
+      ...harness.reviews.get(REVIEW)!, status, due_at: dueAt,
+      completed_attempt_id: completedAttemptId, completed_at: completedAt,
+    });
+
+    await expect(harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z"))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  test("rejects an already-created transfer when current expression mastery is stale", async () => {
+    const harness = dueRepositoryHarness();
+    await harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z");
+    harness.expressions.set(EXPRESSION, { id: EXPRESSION, user_id: USER, mastery_state: "reused" });
+
+    await expect(harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z"))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  test("rechecks the review and expression eligibility after an insert race before returning any raced task", async () => {
+    const harness = dueRepositoryHarness();
+    harness.failNextInsert(() => {
+      harness.reviews.set(REVIEW, {
+        ...harness.reviews.get(REVIEW)!, status: "cancelled",
+      });
+    });
+
+    await expect(harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z"))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  test("canonicalizes PostgREST completion instants at the RPC boundary", async () => {
+    const rpc = vi.fn(async (_name: string, input: Record<string, unknown>) => ({
+      data: [{
+        review_task_id: REVIEW, practice_task_id: "33333333-3333-4333-8333-333333333333",
+        attempt_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        mastery_event_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        next_review_task_id: REVIEW_TWO,
+        prior_state: "tried", new_state: "reused", next_due_at: "2026-08-29T12:00:00+00:00",
+        interval_days: 7, created: true,
+      }],
+      error: null,
+      input,
+    }));
+    const repository = createSupabaseDuePracticeRepository({ rpc } as never);
+
+    await expect(repository.completeDuePractice({
+      userId: USER, reviewTaskId: REVIEW, practiceTaskId: "33333333-3333-4333-8333-333333333333",
+      requestKey: "a".repeat(64), responseChinese: "太离谱了。", assistanceLevel: "none", passed: true,
+      accuracyScore: 5, accuracyFeedbackEnglish: "Accurate.", naturalnessScore: 5,
+      naturalnessFeedbackEnglish: "Natural.", contextualFitScore: 5, contextualFitFeedbackEnglish: "Fits.",
+      completedAt: "2026-08-22T12:00:00+00:00", evaluationPromptVersion: null, evaluationModel: null,
+      evaluationGatewayConfigId: null, evaluationGatewayRevision: null, evaluationGatewayFingerprint: null,
+    })).resolves.toMatchObject({ nextDueAt: "2026-08-29T12:00:00.000Z" });
+    expect(rpc).toHaveBeenCalledWith("complete_due_practice", expect.objectContaining({
+      p_completed_at: "2026-08-22T12:00:00.000Z",
+    }));
   });
 
   test("loads an exact completion replay only from owner-scoped public review, task, and attempt rows", async () => {
@@ -217,12 +338,24 @@ describe("due Practice transfer boundary", () => {
 
     await expect(harness.repository.findCompletionState(USER, REVIEW)).resolves.toMatchObject({
       status: "completed",
-      task: { userId: USER, reviewTaskId: REVIEW, masteryState: "tried" },
+      task: {
+        userId: USER, reviewTaskId: REVIEW, masteryState: "tried",
+        dueAt: "2026-08-21T12:00:00.000Z",
+      },
       attempt: {
         responseChinese: "这也太离谱了吧。",
+        submittedAt: "2026-08-22T12:00:00.000Z",
       },
     });
-    expect(harness.tablesRead).toEqual(["review_tasks", "practice_tasks", "attempts"]);
+    expect(harness.tablesRead).toEqual(["review_tasks", "user_expressions", "practice_tasks", "attempts"]);
+  });
+
+  test("fails closed when current expression mastery is not a legal result of the completed review", async () => {
+    const harness = completedReplayRepositoryHarness();
+    harness.rows.user_expressions[0]!.mastery_state = "owned";
+
+    await expect(harness.repository.findCompletionState(USER, REVIEW)).resolves.toBeNull();
+    expect(harness.tablesRead).toEqual(["review_tasks", "user_expressions", "practice_tasks", "attempts"]);
   });
 
   test("keeps public errors generic and no-store without raw provider, database, or gateway detail", async () => {

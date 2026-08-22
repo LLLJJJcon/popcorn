@@ -107,6 +107,47 @@ describe("complete due Practice", () => {
     expect(store.resolveActiveGatewayPin).not.toHaveBeenCalled();
   });
 
+  test("canonicalizes explicit +00:00 instants before the first completion RPC and in the response", async () => {
+    const store = repository();
+    store.findCompletionState = vi.fn(async () => pendingState({
+      ...task,
+      dueAt: "2026-08-21T12:00:00+00:00",
+    }));
+    store.completeDuePractice = vi.fn(async () => ({
+      reviewTaskId: REVIEW, practiceTaskId: TASK,
+      attemptId: "66666666-6666-4666-8666-666666666666",
+      masteryEventId: "77777777-7777-4777-8777-777777777777",
+      nextReviewTaskId: "88888888-8888-4888-8888-888888888888",
+      priorState: "tried" as const, newState: "reused" as const,
+      nextDueAt: "2026-08-29T12:00:00+00:00", intervalDays: 7, created: true,
+    }));
+    const { service: complete } = service(store, { now: () => "2026-08-22T12:00:00+00:00" });
+
+    await expect(complete.complete(USER, REVIEW, {
+      responseChinese: "这也太离谱了吧。", assistanceLevel: "none",
+    })).resolves.toMatchObject({
+      nextDueAt: "2026-08-29T12:00:00.000Z",
+    });
+    expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({
+      completedAt: "2026-08-22T12:00:00.000Z",
+    }));
+  });
+
+  test.each([
+    "2026-08-22T12:00:00",
+    "not-an-instant",
+  ])("fails closed on a non-explicit or invalid completion instant before Provider and RPC: %s", async (now) => {
+    const store = repository();
+    const gateway = { model: "must-not-run", complete: vi.fn(async () => ({})) };
+    const { service: complete } = service(store, { gateway, now: () => now });
+
+    await expect(complete.complete(USER, REVIEW, {
+      responseChinese: "太离谱了。", assistanceLevel: "none",
+    })).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+    expect(gateway.complete).not.toHaveBeenCalled();
+    expect(store.completeDuePractice).not.toHaveBeenCalled();
+  });
+
   test("accepts the RPC-owned transition to owned only with its thirty-day immutable schedule", async () => {
     const store = repository();
     store.findTransferTask = vi.fn(async () => ({ ...task, masteryState: "reused" as const }));
@@ -153,6 +194,20 @@ describe("complete due Practice", () => {
 
     await expect(complete.complete(USER, REVIEW, { responseChinese: "太离谱了。", assistanceLevel: "none" }))
       .rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(gateway.complete).not.toHaveBeenCalled();
+    expect(store.completeDuePractice).not.toHaveBeenCalled();
+  });
+
+  test("stops before gateway resolution, Provider, and RPC when the repository rejects stale mastery evidence", async () => {
+    const store = repository();
+    store.findCompletionState = vi.fn(async () => null);
+    const gateway = { model: "must-not-run", complete: vi.fn(async () => ({})) };
+    const { service: complete } = service(store, { ci: false, gateway });
+
+    await expect(complete.complete(USER, REVIEW, {
+      responseChinese: "太离谱了。", assistanceLevel: "none",
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(store.resolveActiveGatewayPin).not.toHaveBeenCalled();
     expect(gateway.complete).not.toHaveBeenCalled();
     expect(store.completeDuePractice).not.toHaveBeenCalled();
   });
@@ -249,6 +304,36 @@ describe("complete due Practice", () => {
     expect(store.resolveActiveGatewayPin).not.toHaveBeenCalled();
     expect(gateway.complete).not.toHaveBeenCalled();
     expect(store.completeDuePractice).toHaveBeenCalledOnce();
+  });
+
+  test("canonicalizes a persisted +00:00 replay instant before schedule validation and the RPC", async () => {
+    const store = repository();
+    store.findCompletionState = vi.fn(async () => ({
+      status: "completed" as const,
+      task: { ...task, dueAt: "2026-08-21T12:00:00+00:00" },
+      attempt: { ...persistedAttempt, submittedAt: "2026-08-22T12:00:00+00:00" },
+    }));
+    store.completeDuePractice = vi.fn(async () => ({
+      reviewTaskId: REVIEW, practiceTaskId: TASK,
+      attemptId: "66666666-6666-4666-8666-666666666666",
+      masteryEventId: "77777777-7777-4777-8777-777777777777",
+      nextReviewTaskId: "88888888-8888-4888-8888-888888888888",
+      priorState: "tried" as const, newState: "reused" as const,
+      nextDueAt: "2026-08-29T12:00:00+00:00", intervalDays: 7, created: false,
+    }));
+    const gateway = { model: "must-not-run", complete: vi.fn(async () => ({})) };
+    const { service: complete } = service(store, {
+      ci: false, gateway, now: () => "2026-09-01T18:30:00+00:00",
+    });
+
+    await expect(complete.complete(USER, REVIEW, {
+      responseChinese: persistedAttempt.responseChinese,
+      assistanceLevel: persistedAttempt.assistanceLevel,
+    })).resolves.toMatchObject({ nextDueAt: "2026-08-29T12:00:00.000Z", created: false });
+    expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({
+      completedAt: "2026-08-22T12:00:00.000Z",
+    }));
+    expect(gateway.complete).not.toHaveBeenCalled();
   });
 
   test.each([

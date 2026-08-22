@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { MasteryState } from "@/contracts/memory";
+import { MasteryStateSchema, type MasteryState } from "@/contracts/memory";
 import { AssistanceLevelSchema, EvaluationResultSchema, type EvaluationResult, type PracticeTask } from "@/contracts/practice";
 import { TargetChineseTextSchema } from "@/contracts/source";
 import { EVALUATE_PRACTICE_PROMPT_VERSION, buildEvaluatePracticePrompt } from "@/server/ai/prompts/evaluate.v1";
@@ -85,6 +85,7 @@ export type DuePracticeCompletionRepository = {
 };
 
 const UserIdSchema = z.string().uuid();
+const ExplicitInstantSchema = z.string().datetime({ offset: true });
 const DueInputSchema = z.strictObject({
   responseChinese: TargetChineseTextSchema.max(5_000),
   assistanceLevel: AssistanceLevelSchema,
@@ -111,6 +112,15 @@ function requestKey(userId: string, reviewTaskId: string, taskId: string, respon
   return createHash("sha256").update([userId, reviewTaskId, taskId, responseChinese, assistanceLevel].join("\u0000"), "utf8").digest("hex");
 }
 
+function canonicalInstant(value: string): string {
+  if (!ExplicitInstantSchema.safeParse(value).success || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    throw new PracticeError("INTERNAL_ERROR", true);
+  }
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) throw new PracticeError("INTERNAL_ERROR", true);
+  return new Date(milliseconds).toISOString();
+}
+
 function safeEvaluation(value: unknown): EvaluationResult {
   const parsed = EvaluationResultSchema.safeParse(value);
   if (!parsed.success) throw new PracticeError("PROVIDER_FAILED", true);
@@ -134,7 +144,7 @@ function expectedSchedule(result: DuePracticeRpcResult, independent: boolean, co
   return scheduleReview({ kind: "successful_independent_reuse", now: completedAt });
 }
 
-function validateRpcResult(result: DuePracticeRpcResult, task: DueTransferTask, independent: boolean, completedAt: string): void {
+function validateRpcResult(result: DuePracticeRpcResult, task: DueTransferTask, independent: boolean, completedAt: string): DuePracticeRpcResult {
   const legalTransition = independent
     ? task.masteryState === "tried"
       ? result.newState === "reused"
@@ -149,9 +159,11 @@ function validateRpcResult(result: DuePracticeRpcResult, task: DueTransferTask, 
     !legalTransition
   ) throw new PracticeError("INTERNAL_ERROR", true);
   const schedule = expectedSchedule(result, independent, completedAt);
-  if (result.intervalDays !== schedule.intervalDays || result.nextDueAt !== schedule.dueAt) {
+  const nextDueAt = canonicalInstant(result.nextDueAt);
+  if (result.intervalDays !== schedule.intervalDays || nextDueAt !== schedule.dueAt) {
     throw new PracticeError("INTERNAL_ERROR", true);
   }
+  return { ...result, nextDueAt };
 }
 
 export function createDuePracticeCompletionService(dependencies: {
@@ -168,9 +180,9 @@ export function createDuePracticeCompletionService(dependencies: {
       const input = DueInputSchema.safeParse(inputValue);
       if (!userId.success || !reviewTaskId.success || !input.success) throw new PracticeError("VALIDATION_FAILED");
 
-      const requestedAt = dependencies.now();
+      const requestedAt = canonicalInstant(dependencies.now());
       const state = await dependencies.repository.findCompletionState(userId.data, reviewTaskId.data);
-      const task = state?.task;
+      const task = state?.task ? { ...state.task, dueAt: canonicalInstant(state.task.dueAt) } : null;
       if (!state || !task || task.userId !== userId.data || task.reviewTaskId !== reviewTaskId.data) {
         throw new PracticeError("NOT_FOUND");
       }
@@ -190,7 +202,7 @@ export function createDuePracticeCompletionService(dependencies: {
           attempt.assistanceLevel !== input.data.assistanceLevel
         ) throw new PracticeError("REVISION_CONFLICT");
         evaluation = persistedEvaluation(attempt);
-        completedAt = attempt.submittedAt;
+        completedAt = canonicalInstant(attempt.submittedAt);
         evaluationPromptVersion = attempt.evaluationPromptVersion;
         evaluationModel = attempt.evaluationModel;
         evaluationGatewayConfigId = attempt.evaluationGatewayConfigId;
@@ -238,7 +250,7 @@ export function createDuePracticeCompletionService(dependencies: {
       } catch {
         throw new PracticeError("INTERNAL_ERROR", true);
       }
-      validateRpcResult(completed, task, independent, completedAt);
+      completed = validateRpcResult(completed, task, independent, completedAt);
       return {
         ...completed,
         transition: completed.priorState === completed.newState
@@ -316,47 +328,87 @@ function transferRecord(row: Database["public"]["Tables"]["practice_tasks"]["Row
     id: row.id, userId: row.user_id, reviewTaskId: row.review_task_id, userExpressionId: row.user_expression_id,
     targetExpression: row.target_expression, promptChinese: row.prompt_chinese,
     instructionsEnglish: row.instructions_english, goalEnglish: row.goal_english,
-    dueAt: row.due_at, masteryState, contextFingerprint: row.context_fingerprint,
+    dueAt: canonicalInstant(row.due_at), masteryState, contextFingerprint: row.context_fingerprint,
   };
 }
 
 /** Owner-scoped adapter: the only completion mutation is the frozen RPC below. */
 export function createSupabaseDuePracticeRepository(client: SupabaseClient<Database>): DuePracticeCompletionRepository & TransferCreationRepository {
-  async function findTransferTask(userId: string, reviewTaskId: string): Promise<DueTransferTask | null> {
-    const review = await client.from("review_tasks").select("id,user_id,user_expression_id,mastery_state")
+  async function findReviewGraph(userId: string, reviewTaskId: string) {
+    const review = await client.from("review_tasks")
+      .select("id,user_id,user_expression_id,mastery_state,status,due_at,completed_attempt_id,completed_at")
       .eq("user_id", userId).eq("id", reviewTaskId).maybeSingle();
     if (review.error) throw review.error;
     if (!review.data || review.data.user_id !== userId) return null;
+    const expression = await client.from("user_expressions").select("id,user_id,mastery_state")
+      .eq("user_id", userId).eq("id", review.data.user_expression_id).maybeSingle();
+    if (expression.error) throw expression.error;
+    const masteryState = MasteryStateSchema.safeParse(review.data.mastery_state);
+    const expressionMasteryState = MasteryStateSchema.safeParse(expression.data?.mastery_state);
+    if (
+      !expression.data || expression.data.user_id !== userId ||
+      expression.data.id !== review.data.user_expression_id ||
+      !masteryState.success || !expressionMasteryState.success
+    ) return null;
+    return {
+      ...review.data,
+      mastery_state: masteryState.data,
+      expression_mastery_state: expressionMasteryState.data,
+      due_at: canonicalInstant(review.data.due_at),
+      completed_at: review.data.completed_at === null ? null : canonicalInstant(review.data.completed_at),
+    };
+  }
+
+  async function findTaskForReview(userId: string, reviewTaskId: string) {
     const task = await client.from("practice_tasks").select("*")
       .eq("user_id", userId).eq("review_task_id", reviewTaskId).maybeSingle();
     if (task.error) throw task.error;
-    if (!task.data || task.data.user_id !== userId || task.data.user_expression_id !== review.data.user_expression_id) return null;
-    return transferRecord(task.data, review.data.mastery_state as MasteryState);
+    return task.data;
+  }
+
+  function eligiblePendingReview(review: Awaited<ReturnType<typeof findReviewGraph>>, now: string): review is NonNullable<typeof review> {
+    return Boolean(
+      review && review.status === "pending" &&
+      review.expression_mastery_state === review.mastery_state &&
+      review.completed_attempt_id === null && review.completed_at === null &&
+      review.due_at <= now,
+    );
+  }
+
+  function taskForGraph(
+    row: Database["public"]["Tables"]["practice_tasks"]["Row"] | null,
+    review: NonNullable<Awaited<ReturnType<typeof findReviewGraph>>>,
+  ): DueTransferTask | null {
+    if (
+      !row || row.user_id !== review.user_id ||
+      row.review_task_id !== review.id ||
+      row.user_expression_id !== review.user_expression_id ||
+      !row.due_at || canonicalInstant(row.due_at) !== review.due_at
+    ) return null;
+    return transferRecord(row, review.mastery_state);
+  }
+
+  async function findTransferTask(userId: string, reviewTaskId: string): Promise<DueTransferTask | null> {
+    const review = await findReviewGraph(userId, reviewTaskId);
+    if (!review || review.expression_mastery_state !== review.mastery_state) return null;
+    return taskForGraph(await findTaskForReview(userId, reviewTaskId), review);
   }
 
   return {
     findTransferTask,
     async findCompletionState(userId, reviewTaskId) {
-      const review = await client.from("review_tasks")
-        .select("id,user_id,user_expression_id,mastery_state,status,due_at,completed_attempt_id,completed_at")
-        .eq("user_id", userId).eq("id", reviewTaskId).maybeSingle();
-      if (review.error) throw review.error;
-      if (!review.data || review.data.user_id !== userId) return null;
-      const taskResult = await client.from("practice_tasks").select("*")
-        .eq("user_id", userId).eq("review_task_id", reviewTaskId).maybeSingle();
-      if (taskResult.error) throw taskResult.error;
-      if (
-        !taskResult.data || taskResult.data.user_id !== userId ||
-        taskResult.data.user_expression_id !== review.data.user_expression_id ||
-        taskResult.data.due_at !== review.data.due_at
-      ) return null;
-      const task = transferRecord(taskResult.data, review.data.mastery_state as MasteryState);
-      if (!task || !["pending", "completed", "cancelled"].includes(review.data.status)) return null;
-      if (review.data.status !== "completed") {
-        if (review.data.completed_attempt_id !== null || review.data.completed_at !== null) return null;
-        return { status: review.data.status as "pending" | "cancelled", task, attempt: null };
+      const review = await findReviewGraph(userId, reviewTaskId);
+      if (!review) return null;
+      const task = taskForGraph(await findTaskForReview(userId, reviewTaskId), review);
+      if (!task || !["pending", "completed", "cancelled"].includes(review.status)) return null;
+      if (review.status !== "completed") {
+        if (
+          review.expression_mastery_state !== review.mastery_state ||
+          review.completed_attempt_id !== null || review.completed_at !== null
+        ) return null;
+        return { status: review.status as "pending" | "cancelled", task, attempt: null };
       }
-      if (!review.data.completed_attempt_id || !review.data.completed_at) return null;
+      if (!review.completed_attempt_id || !review.completed_at) return null;
       const attemptResult = await client.from("attempts").select([
         "id", "user_id", "user_expression_id", "practice_task_id", "response_chinese",
         "assistance_level", "passed", "independent_use", "accuracy_score", "accuracy_feedback_english",
@@ -364,16 +416,25 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
         "contextual_fit_feedback_english", "submitted_at", "evaluation_prompt_version", "evaluation_model",
         "evaluation_gateway_config_id", "evaluation_gateway_revision", "evaluation_gateway_fingerprint",
       ].join(","))
-        .eq("user_id", userId).eq("id", review.data.completed_attempt_id)
+        .eq("user_id", userId).eq("id", review.completed_attempt_id)
         .eq("practice_task_id", task.id).maybeSingle();
       if (attemptResult.error) throw attemptResult.error;
       const attempt = PersistedAttemptRowSchema.safeParse(attemptResult.data);
       if (
         !attempt.success || attempt.data.user_id !== userId ||
         attempt.data.user_expression_id !== task.userExpressionId ||
-        attempt.data.submitted_at !== review.data.completed_at ||
+        canonicalInstant(attempt.data.submitted_at) !== review.completed_at ||
         attempt.data.independent_use !== (attempt.data.passed && attempt.data.assistance_level === "none")
       ) return null;
+      const independent = attempt.data.passed && attempt.data.assistance_level === "none";
+      const currentMasteryIsConsistent = independent
+        ? review.mastery_state === "tried"
+          ? review.expression_mastery_state === "reused"
+          : review.mastery_state === "reused"
+            ? review.expression_mastery_state === "reused" || review.expression_mastery_state === "owned"
+            : review.expression_mastery_state === "owned"
+        : review.expression_mastery_state === review.mastery_state;
+      if (!currentMasteryIsConsistent) return null;
       return {
         status: "completed",
         task,
@@ -387,7 +448,7 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
           naturalnessFeedbackEnglish: attempt.data.naturalness_feedback_english,
           contextualFitScore: attempt.data.contextual_fit_score,
           contextualFitFeedbackEnglish: attempt.data.contextual_fit_feedback_english,
-          submittedAt: attempt.data.submitted_at,
+          submittedAt: canonicalInstant(attempt.data.submitted_at),
           evaluationPromptVersion: attempt.data.evaluation_prompt_version,
           evaluationModel: attempt.data.evaluation_model,
           evaluationGatewayConfigId: attempt.data.evaluation_gateway_config_id,
@@ -404,26 +465,26 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
       return { configId: row.config_id, revision: row.revision, fingerprint: row.config_fingerprint };
     },
     async ensureTransferTask(userId, reviewTaskId, now) {
-      const existing = await findTransferTask(userId, reviewTaskId);
+      const requestedAt = canonicalInstant(now);
+      const review = await findReviewGraph(userId, reviewTaskId);
+      if (!eligiblePendingReview(review, requestedAt)) throw new PracticeError("NOT_FOUND");
+      const existing = taskForGraph(await findTaskForReview(userId, reviewTaskId), review);
       if (existing) return existing;
-      const review = await client.from("review_tasks")
-        .select("id,user_id,user_expression_id,mastery_state,status,due_at")
-        .eq("user_id", userId).eq("id", reviewTaskId).maybeSingle();
-      if (review.error) throw review.error;
-      if (!review.data || review.data.user_id !== userId || review.data.status !== "pending" || review.data.due_at > now) {
-        throw new PracticeError("NOT_FOUND");
-      }
       const source = await client.from("practice_tasks").select("id,user_id,user_expression_id,target_expression,prompt_chinese")
-        .eq("user_id", userId).eq("user_expression_id", review.data.user_expression_id).eq("kind", "use_it_now")
+        .eq("user_id", userId).eq("user_expression_id", review.user_expression_id).eq("kind", "use_it_now")
         .order("created_at", { ascending: true }).limit(1).maybeSingle();
       if (source.error) throw source.error;
-      if (!source.data || source.data.user_id !== userId || source.data.user_expression_id !== review.data.user_expression_id) {
+      if (!source.data || source.data.user_id !== userId || source.data.user_expression_id !== review.user_expression_id) {
         throw new PracticeError("NOT_FOUND");
       }
+      const priorTransfers = await client.from("practice_tasks").select("id")
+        .eq("user_id", userId).eq("user_expression_id", review.user_expression_id).eq("kind", "due_practice");
+      if (priorTransfers.error) throw priorTransfers.error;
       const built = buildDueTransferTask({
-        id: crypto.randomUUID(), userId, reviewTaskId, userExpressionId: review.data.user_expression_id,
+        id: crypto.randomUUID(), userId, reviewTaskId, userExpressionId: review.user_expression_id,
         targetExpression: source.data.target_expression, originalPromptChinese: source.data.prompt_chinese,
-        dueAt: review.data.due_at, masteryState: review.data.mastery_state as MasteryState,
+        dueAt: review.due_at, masteryState: review.mastery_state,
+        transferOrdinal: priorTransfers.data?.length ?? 0,
       });
       const inserted = await client.from("practice_tasks").insert({
         id: built.id, user_id: built.userId, user_expression_id: built.userExpressionId, kind: "due_practice",
@@ -435,7 +496,9 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
         const record = transferRecord(inserted.data, built.masteryState);
         if (record) return record;
       }
-      const raced = await findTransferTask(userId, reviewTaskId);
+      const racedReview = await findReviewGraph(userId, reviewTaskId);
+      if (!eligiblePendingReview(racedReview, requestedAt)) throw new PracticeError("NOT_FOUND");
+      const raced = taskForGraph(await findTaskForReview(userId, reviewTaskId), racedReview);
       if (raced) return raced;
       throw inserted.error ?? new PracticeError("INTERNAL_ERROR", true);
     },
@@ -446,7 +509,7 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
         p_passed: input.passed, p_accuracy_score: input.accuracyScore, p_accuracy_feedback_english: input.accuracyFeedbackEnglish,
         p_naturalness_score: input.naturalnessScore, p_naturalness_feedback_english: input.naturalnessFeedbackEnglish,
         p_contextual_fit_score: input.contextualFitScore, p_contextual_fit_feedback_english: input.contextualFitFeedbackEnglish,
-        p_completed_at: input.completedAt,
+        p_completed_at: canonicalInstant(input.completedAt),
         ...(input.evaluationPromptVersion === null ? {} : { p_evaluation_prompt_version: input.evaluationPromptVersion }),
         ...(input.evaluationModel === null ? {} : { p_evaluation_model: input.evaluationModel }),
         ...(input.evaluationGatewayConfigId === null ? {} : { p_evaluation_gateway_config_id: input.evaluationGatewayConfigId }),
@@ -459,7 +522,7 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
         reviewTaskId: row.review_task_id, practiceTaskId: row.practice_task_id, attemptId: row.attempt_id,
         masteryEventId: row.mastery_event_id, nextReviewTaskId: row.next_review_task_id,
         priorState: row.prior_state as MasteryState, newState: row.new_state as MasteryState,
-        nextDueAt: row.next_due_at, intervalDays: row.interval_days, created: row.created,
+        nextDueAt: canonicalInstant(row.next_due_at), intervalDays: row.interval_days, created: row.created,
       };
     },
   };

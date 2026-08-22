@@ -74,3 +74,44 @@ After the minimal repair:
 No database/full-build/pgTAP gate was run because this repair cannot change the frozen
 database contract. Remaining risk is limited to final independent review and the
 controller's scoped integration gate.
+
+## Second independent-review repair from `ec07b42`
+
+The second review identified four bounded defects. This repair stayed within the
+approved two domain modules, their focused tests, and this handoff; routes, UI,
+migrations, generated contracts, gateway/Vault code, root configuration, lockfile,
+and ledger remain unchanged.
+
+- Transfer prompts now rotate through deterministic everyday situations (lunch,
+  online shopping, transport, and rain) using the owner-scoped count of existing due
+  tasks as their stable ordinal. The ordinal also changes a learner-visible scenario
+  detail, so maintenance reviews remain generatable and the database's four-field
+  fingerprint stays unique without relying on UTC text as the semantic difference.
+- Every explicit-timezone instant is normalized to canonical ISO `Z` form before
+  comparison, scheduling, replay, RPC input, or public return. Invalid or timezone-less
+  instants fail closed. Both initial completion and exact persisted replay cover
+  PostgREST-style `+00:00` timestamps.
+- Completion-state reads now include owner-scoped `user_expressions` evidence. Pending
+  reviews require exact current mastery; completed replay requires the current mastery
+  to be a legal result of the persisted attempt. A stale graph returns no state before
+  gateway resolution, Provider evaluation, or completion RPC.
+- Transfer GET creation validates pending/due/completion fences, expression mastery,
+  and the full review/task graph before returning an existing task. The same gates are
+  re-read after an insert race.
+
+### Second repair TDD evidence
+
+The focused RED run produced 12 expected failures across 38 tests: `+00:00` values
+failed schedule validation, timezone-less clocks reached evaluation, sequential
+transfers reused one semantic situation, existing ineligible tasks were returned, and
+stale mastery/replay timestamps were accepted without normalization.
+
+Fresh GREEN verification after the minimal repair:
+
+- focused domain/integration/UI: 41/41;
+- `tsc --noEmit`: exit 0;
+- scoped ESLint and `git diff --check`: exit 0.
+
+No database, build, pgTAP, migration, generated-type, or concurrency command was run,
+as required by the repair brief. The remaining risk is limited to independent review
+and the controller's scoped integration gate.
