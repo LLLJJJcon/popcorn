@@ -2,13 +2,14 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import vm from "node:vm";
 
 import {
   buildLocalExtension,
   buildLocalExtensionFromEnvironment,
   parseRuntimeOrigin,
+  resolveOutputDirectory,
 } from "../../scripts/build-local-extension.mjs";
 
 const APP_URL = "http://127.0.0.1:3000";
@@ -78,6 +79,29 @@ async function build(directory: string): Promise<void> {
     outputDirectory: directory,
   });
 }
+
+test.each([
+  ["repository ancestor", dirname(process.cwd())],
+  ["operating-system temporary root", resolve(tmpdir())],
+  ["repository scripts directory", resolve("scripts")],
+  ["nested extension source directory", resolve("extension/icons")],
+])("rejects an unsafe custom output before recursive removal: %s", (_label, directory) => {
+  expect(() => resolveOutputDirectory(directory)).toThrow(
+    "Unsafe extension output directory.",
+  );
+});
+
+test("allows the exact default output directory", () => {
+  const directory = resolve("dist/popcorn-extension");
+
+  expect(resolveOutputDirectory(directory)).toBe(directory);
+});
+
+test("allows a dedicated output below a newly-created external temporary directory", async () => {
+  const directory = await outputDirectory();
+
+  expect(resolveOutputDirectory(directory)).toBe(directory);
+});
 
 test("generates only the explicit runtime allowlist with exact hosts and the stable public identity", async () => {
   const directory = await outputDirectory();

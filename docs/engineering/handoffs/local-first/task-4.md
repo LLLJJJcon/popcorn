@@ -93,3 +93,47 @@ aliases, paths, and other normalized-but-inexact spellings. Users must provide
 the canonical origin shown in `.env.local`. The controller still must add
 `pnpm extension:local` to root `package.json`; this task does not modify root
 configuration or commit a generated `dist/` directory.
+
+## Final review P1 repair
+
+The output-directory guard now treats recursive replacement as a narrow
+capability. It allows the exact repository-local default
+`dist/popcorn-extension` and dedicated paths below newly created external
+temporary directories. It rejects the filesystem root, the operating-system
+temporary root itself, every ancestor of the repository, and every other path
+inside the repository before `rm` can run.
+
+Safe RED evidence used the exported pure path validator; no dangerous path was
+passed to the destructive build function:
+
+```text
+node_modules/.bin/vitest run tests/release/local-extension-config.test.ts
+1 file failed; 4 unsafe-path cases failed because the old validator accepted
+the repository ancestor, OS temporary root, scripts/, and extension/icons/
+```
+
+Focused GREEN after the minimal guard:
+
+```text
+node_modules/.bin/vitest run tests/release/local-extension-config.test.ts
+1 file passed; 23 tests passed
+```
+
+Fresh repair verification:
+
+```text
+release configuration: 23/23 passed
+extension auth/worker/queue/restart: 32/32 passed
+provenance: 11/11 passed
+tsc --noEmit: passed
+node --check scripts/build-local-extension.mjs: passed
+scoped ESLint: passed
+git diff --check: passed
+```
+
+An earlier attempted RED harness did not intercept Node's ESM `rm` binding and
+damaged only this isolated repair worktree. All tracked files were restored to
+baseline before implementation; generated pollution was moved, not deleted,
+to `/private/tmp/popcorn-local-extension-fix-2-quarantine-scripts` and
+`/private/tmp/popcorn-local-extension-fix-2-quarantine-extension-icons`.
+Post-recovery diff inspection showed only this task's allowed files changed.

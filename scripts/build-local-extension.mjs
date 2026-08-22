@@ -1,5 +1,6 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, parse, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -76,15 +77,25 @@ function runtimeConfigFromTemplate(template, values) {
   return result;
 }
 
-function resolveOutputDirectory(outputDirectory) {
+function containsPath(parent, child) {
+  const pathFromParent = relative(parent, child);
+  return pathFromParent === "" || (
+    pathFromParent !== ".." &&
+    !pathFromParent.startsWith(`..${sep}`) &&
+    !isAbsolute(pathFromParent)
+  );
+}
+
+export function resolveOutputDirectory(outputDirectory) {
   if (typeof outputDirectory !== "string" || !outputDirectory || !isAbsolute(outputDirectory)) {
     throw new Error("Extension output directory must be absolute.");
   }
   const output = resolve(outputDirectory);
   if (
     output === parse(output).root ||
-    output === repositoryRoot ||
-    output === extensionSource
+    output === resolve(tmpdir()) ||
+    containsPath(output, repositoryRoot) ||
+    (containsPath(repositoryRoot, output) && output !== defaultOutput)
   ) {
     throw new Error("Unsafe extension output directory.");
   }
