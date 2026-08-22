@@ -82,6 +82,8 @@ pnpm dev
 Open `http://127.0.0.1:3000/sign-in`. Choose **Create account** with an email
 and a 6–128 character password, then use **Sign in**. Local Supabase defaults
 to `enable_confirmations = false`, so this path does not require an email.
+When **Create account** commits successfully, Popcorn automatically initializes
+the fixed default `en → zh-CN` profile before you configure the model gateway.
 Mailpit at `http://127.0.0.1:54324` is only where a confirmation email appears
 if you intentionally enable email confirmation later.
 

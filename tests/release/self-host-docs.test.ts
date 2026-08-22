@@ -14,6 +14,10 @@ async function text(relativePath: string) {
   }
 }
 
+function normalizeMarkdownWhitespace(markdown: string) {
+  return markdown.replace(/\s+/g, " ").trim();
+}
+
 function expectInOrder(haystack: string, needles: string[]) {
   let cursor = -1;
   for (const needle of needles) {
@@ -43,6 +47,7 @@ describe("fresh-clone personal self-host documentation", () => {
 
   test("documents one ordered local startup path and separate Web and worker terminals", async () => {
     const guide = await text("docs/operations/local-self-host.md");
+    const prose = normalizeMarkdownWhitespace(guide);
     for (const command of [
       "pnpm install --frozen-lockfile",
       "pnpm exec supabase start",
@@ -62,29 +67,32 @@ describe("fresh-clone personal self-host documentation", () => {
       "pnpm worker:local",
       "pnpm extension:local",
     ]);
-    expect(guide).toMatch(/(?:separate|another|second)[^\n]{0,80}terminal/i);
-    expect(guide).toMatch(/Web[^\n]{0,80}terminal|terminal[^\n]{0,80}Web/i);
-    expect(guide).toMatch(/worker[^\n]{0,80}terminal|terminal[^\n]{0,80}worker/i);
+    expect(prose).toMatch(/(?:separate|another|second).{0,80}terminal/i);
+    expect(prose).toMatch(/Web.{0,80}terminal|terminal.{0,80}Web/i);
+    expect(prose).toMatch(/worker.{0,80}terminal|terminal.{0,80}worker/i);
   });
 
   test("pins the actual local prerequisites, endpoints, and account path", async () => {
     const guide = await text("docs/operations/local-self-host.md");
+    const prose = normalizeMarkdownWhitespace(guide);
     for (const prerequisite of ["Node.js 20", "pnpm 11.19.0", "Docker", "Chrome 116+"]) {
       expect(guide).toContain(prerequisite);
     }
-    expect(guide).toMatch(/(?:project-local|project dependency|project's dependency)[^\n]{0,100}Supabase CLI|Supabase CLI[^\n]{0,100}(?:project-local|project dependency|project's dependency)/i);
+    expect(prose).toMatch(/(?:project-local|project dependency|project's dependency).{0,100}Supabase CLI|Supabase CLI.{0,100}(?:project-local|project dependency|project's dependency)/i);
     expect(guide).toContain("http://127.0.0.1:54321");
     expect(guide).toContain("http://127.0.0.1:54323");
     expect(guide).toContain("http://127.0.0.1:54324");
     expect(guide).toMatch(/enable_confirmations\s*=\s*false/);
-    expect(guide).toMatch(/Create account/);
-    expect(guide).toMatch(/Sign in/);
-    expect(guide).toMatch(/Mailpit[\s\S]{0,220}(?:if|when)[\s\S]{0,120}confirmation/i);
+    expect(prose).toMatch(/Create account/);
+    expect(prose).toMatch(/Sign in/);
+    expect(prose).toMatch(/Mailpit.{0,220}(?:if|when).{0,120}confirmation/i);
+    expect(prose).toMatch(/Create account.{0,220}(?:automatically|automatic).{0,160}(?:default|fixed).{0,80}en\s*(?:→|->|to)\s*zh-CN.{0,220}(?:before|then).{0,160}(?:gateway|model)/i);
   });
 
   test("distinguishes six runtime fields while keeping the user gateway key out of env", async () => {
     const environment = await text(".env.example");
     const localGuide = await text("docs/operations/local-self-host.md");
+    const prose = normalizeMarkdownWhitespace(localGuide);
     const fields = [
       "NEXT_PUBLIC_SUPABASE_URL",
       "NEXT_PUBLIC_SUPABASE_ANON_KEY",
@@ -100,62 +108,72 @@ describe("fresh-clone personal self-host documentation", () => {
     expect(environment).toMatch(/public|browser-safe/i);
     expect(environment).toMatch(/server-only/i);
     expect(environment).not.toMatch(/^\s*(?:OPENAI_API_KEY|OPENAI_MODEL|MODEL_GATEWAY_API_KEY|USER_GATEWAY_API_KEY)\s*=/m);
-    expect(localGuide).toMatch(/\.env\.example[^\n]{0,100}\.env\.local|\.env\.local[^\n]{0,100}\.env\.example/i);
-    expect(localGuide).toMatch(/never commit[^\n]*\.env\.local|\.env\.local[^\n]*never commit/i);
-    expect(localGuide).toMatch(/anon[^\n]{0,100}(?:public|browser-safe)|(?:public|browser-safe)[^\n]{0,100}anon/i);
-    expect(localGuide).toMatch(/service-role[\s\S]{0,180}server-only|server-only[\s\S]{0,180}service-role/i);
-    expect(localGuide).toMatch(/Supadata[\s\S]{0,180}server-only|server-only[\s\S]{0,180}Supadata/i);
-    expect(localGuide).toMatch(/job secret[\s\S]{0,180}server-only|server-only[\s\S]{0,180}job secret/i);
+    expect(prose).toMatch(/\.env\.example.{0,100}\.env\.local|\.env\.local.{0,100}\.env\.example/i);
+    expect(prose).toMatch(/never commit.*\.env\.local|\.env\.local.*never commit/i);
+    expect(prose).toMatch(/anon.{0,100}(?:public|browser-safe)|(?:public|browser-safe).{0,100}anon/i);
+    expect(prose).toMatch(/service-role.{0,180}server-only|server-only.{0,180}service-role/i);
+    expect(prose).toMatch(/Supadata.{0,180}server-only|server-only.{0,180}Supadata/i);
+    expect(prose).toMatch(/job secret.{0,180}server-only|server-only.{0,180}job secret/i);
   });
 
   test("puts gateway identity, endpoint, model, key, and consent only in signed-in Web settings", async () => {
     const guide = await text("docs/operations/local-self-host.md");
+    const prose = normalizeMarkdownWhitespace(guide);
     expect(guide).toContain("/settings/model-gateway");
-    expect(guide).toMatch(/after (?:you )?sign in|signed-in/i);
-    expect(guide).toMatch(/gateway (?:display )?name/i);
-    expect(guide).toMatch(/(?:base URL|gateway URL)/i);
-    expect(guide).toMatch(/model/i);
-    expect(guide).toMatch(/API key/i);
-    expect(guide).toMatch(/exact[- ]destination consent|consent[^\n]{0,100}exact destination/i);
-    expect(guide).toMatch(/API key[^\n]{0,180}(?:only|solely)[^\n]{0,120}(?:Web|settings)|(?:Web|settings)[^\n]{0,180}(?:only|solely)[^\n]{0,120}API key/i);
-    expect(guide).toMatch(/OpenAI-compatible HTTPS/i);
+    expect(prose).toMatch(/after (?:you )?sign in|signed-in/i);
+    expect(prose).toMatch(/gateway (?:display )?name/i);
+    expect(prose).toMatch(/(?:base URL|gateway URL)/i);
+    expect(prose).toMatch(/model/i);
+    expect(prose).toMatch(/API key/i);
+    expect(prose).toMatch(/exact[- ]destination consent|consent.{0,100}exact destination/i);
+    expect(prose).toMatch(/API key.{0,180}(?:only|solely).{0,120}(?:Web|settings)|(?:Web|settings).{0,180}(?:only|solely).{0,120}API key/i);
+    expect(prose).toMatch(/OpenAI-compatible HTTPS/i);
   });
 
   test("documents unpacked extension generation and bounded queue recovery", async () => {
     const localGuide = await text("docs/operations/local-self-host.md");
     const recovery = await text("docs/operations/job-recovery.md");
+    const localProse = normalizeMarkdownWhitespace(localGuide);
+    const recoveryProse = normalizeMarkdownWhitespace(recovery);
     expect(localGuide).toContain("dist/popcorn-extension");
     expect(localGuide).toContain("chrome://extensions");
-    expect(localGuide).toMatch(/Load\s+unpacked/i);
-    expect(recovery).toMatch(/restart[^\n]{0,100}(?:Web|worker)|(?:Web|worker)[^\n]{0,100}restart/i);
-    expect(recovery).toMatch(/pending (?:save )?queue|extension[^\n]{0,120}pending/i);
-    expect(recovery).toMatch(/preserv|remain|keep/i);
-    expect(recovery).toMatch(/retry|reload/i);
-    expect(recovery).toMatch(/empty|processed|failed/i);
-    expect(recovery).toMatch(/Supadata/i);
-    expect(recovery).toMatch(/gateway[\s\S]{0,160}consent|consent[\s\S]{0,160}gateway/i);
+    expect(localProse).toMatch(/Load\s+unpacked/i);
+    expect(recoveryProse).toMatch(/restart.{0,100}(?:Web|worker)|(?:Web|worker).{0,100}restart/i);
+    expect(recoveryProse).toMatch(/pending (?:save )?queue|extension.{0,120}pending/i);
+    expect(recoveryProse).toMatch(/preserv|remain|keep/i);
+    expect(recoveryProse).toMatch(/retry|reload/i);
+    expect(recoveryProse).toMatch(/empty|processed|failed/i);
+    expect(recoveryProse).toMatch(/Supadata/i);
+    expect(recoveryProse).toMatch(/gateway.{0,160}consent|consent.{0,160}gateway/i);
   });
 
   test("limits reset and removal to the local Supabase instance", async () => {
     const localGuide = await text("docs/operations/local-self-host.md");
     const account = await text("docs/operations/account-reset.md");
+    const localProse = normalizeMarkdownWhitespace(localGuide);
+    const accountProse = normalizeMarkdownWhitespace(account);
     const resetOffset = localGuide.indexOf("pnpm db:reset");
     expect(resetOffset).toBeGreaterThanOrEqual(0);
-    expect(localGuide.slice(Math.max(0, resetOffset - 220), resetOffset + 220)).toMatch(/destructive[^\n]{0,160}local (?:Popcorn )?database|local (?:Popcorn )?database[^\n]{0,160}destructive/i);
-    expect(account).toMatch(/Supabase Studio/i);
-    expect(account).toMatch(/Authentication[^\n/]*[/]Users|Authentication[^\n]{0,80}Users/i);
-    expect(account).toMatch(/no account-deletion UI|does not (?:have|include|provide)[^\n]{0,100}account-deletion UI/i);
+    expect(normalizeMarkdownWhitespace(localGuide.slice(Math.max(0, resetOffset - 220), resetOffset + 220))).toMatch(/destructive.{0,160}local (?:Popcorn )?database|local (?:Popcorn )?database.{0,160}destructive/i);
+    expect(accountProse).toMatch(/Supabase Studio/i);
+    expect(accountProse).toMatch(/(?:direct|per-account|individual).{0,100}(?:deletion|delete).{0,160}(?:unsupported|not supported).{0,180}(?:Popcorn data|learning data)/i);
+    expect(accountProse).toMatch(/no account-deletion UI|does not (?:have|include|provide).{0,100}account-deletion UI/i);
     expect(account).toContain("pnpm db:reset");
-    expect(account).toMatch(/local\s+(?:Popcorn\s+)?database/i);
+    expect(accountProse).toMatch(/(?:only supported|supported).{0,180}(?:removal|reset).{0,180}pnpm db:reset|pnpm db:reset.{0,180}(?:only supported|supported)/i);
+    expect(accountProse).toMatch(/pnpm db:reset.{0,180}(?:all|every).{0,100}local accounts.{0,100}(?:all|every).{0,100}(?:learning )?data/i);
+    expect(accountProse).toMatch(/local\s+(?:Popcorn\s+)?database/i);
+    expect(accountProse).toMatch(/(?:sign out|disable the extension).{0,240}(?:leave|keep|preserve).{0,120}(?:data|stored data)/i);
+    expect(accountProse).not.toMatch(/select (?:the |one |a )?(?:local )?(?:Auth )?user.{0,80}delete (?:it|the user)|Authentication\s*\/\s*Users.{0,180}select.{0,120}delete/i);
+    expect(localProse).toMatch(/pnpm db:reset/);
   });
 
   test("covers local shutdown and troubleshooting without commercial operations scope", async () => {
-    const documents = [
+    const documents = normalizeMarkdownWhitespace([
       await text("README.md"),
       await text("docs/operations/local-self-host.md"),
       await text("docs/operations/job-recovery.md"),
       await text("docs/operations/account-reset.md"),
-    ].join("\n");
+    ].join("\n"));
     expect(documents).toMatch(/Ctrl-C|SIGINT/i);
     expect(documents).toContain("pnpm exec supabase stop");
     for (const topic of ["Web", "worker", "extension", "pending", "Supadata", "consent"]) {
