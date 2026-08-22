@@ -16,8 +16,6 @@ const validEnvironment = {
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
   SUPADATA_API_KEY: "supadata-key",
-  OPENAI_API_KEY: "openai-key",
-  OPENAI_MODEL: "gpt-5-mini",
   APP_URL: "https://popcorn.example",
   EXTENSION_REDIRECT_ORIGIN: extensionRedirectOrigin,
   INTERNAL_JOB_SECRET: "job-secret",
@@ -38,6 +36,15 @@ describe("parseServerEnv", () => {
   it("does not accept deferred embedding configuration", () => {
     expect(() =>
       parseServerEnv({ ...validEnvironment, OPENAI_EMBEDDING_MODEL: "text-embedding-3-small" }),
+    ).toThrow();
+  });
+
+  it("rejects the retired global model configuration", () => {
+    expect(() =>
+      parseServerEnv({ ...validEnvironment, OPENAI_API_KEY: "legacy-key" }),
+    ).toThrow();
+    expect(() =>
+      parseServerEnv({ ...validEnvironment, OPENAI_MODEL: "legacy-model" }),
     ).toThrow();
   });
 

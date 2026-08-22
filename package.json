@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "worker:local": "node scripts/process-local-jobs.mjs",
     "build": "next build --webpack",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
