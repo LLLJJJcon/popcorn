@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "extension:local": "node scripts/build-local-extension.mjs",
+    "extension:package": "bash scripts/package-extension.sh",
     "worker:local": "node scripts/process-local-jobs.mjs",
     "build": "next build --webpack",
     "lint": "eslint",
