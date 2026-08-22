@@ -222,19 +222,25 @@ describe("fixture-only CI freeze gate", () => {
 
     const orderedCommands = [
       "pnpm install --frozen-lockfile",
-      "pnpm verify",
-      "pnpm test:extension",
       "pnpm exec supabase start",
-      "pnpm db:reset",
-      "pnpm db:test",
       "pnpm exec supabase status -o env > /tmp/popcorn-supabase.env",
       "source /tmp/popcorn-supabase.env",
+      'echo "APP_URL=http://127.0.0.1:3000"',
+      'echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"',
+      'echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY"',
       'echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"',
+      'echo "POPCORN_E2E_DATABASE_URL=$DB_URL"',
       'echo "INTERNAL_JOB_SECRET=fixture-job-secret"',
+      "pnpm verify",
+      "pnpm test:extension",
+      "pnpm db:reset",
+      "pnpm db:test",
+      "pnpm exec playwright install --with-deps chromium",
       "pnpm extension:package",
       "bash scripts/check-extension-release.sh dist/popcorn-extension.zip",
       "pnpm playwright test tests/e2e/demo-acceptance.spec.ts --project=chromium-extension",
       'git diff --check "$PATCH_BASE...$GITHUB_SHA"',
+      "node_modules/.bin/supabase stop --no-backup",
     ];
     let previousCommand = -1;
     for (const command of orderedCommands) {
