@@ -109,3 +109,79 @@ This handoff is the only post-implementation file and is committed separately.
   Provider-backed job. Fixture-backed fresh-clone acceptance remains Task 4.
 - The local service was already running, so status was verified without
   restarting or stopping it. No database state was changed for this docs task.
+
+## Review fix 1 — accepted signup profile and reset facts
+
+- Repair baseline/brief HEAD: `161d1d1`
+- Repair implementation commit: `444a181`
+- Accepted prerequisite: signup-profile commits `0b8b69a`, `2de908c`, and
+  `2c1ed5f` had already passed focused 6/6, full pgTAP 663/663, three
+  concurrency regressions, a real local GoTrue signup plus gateway
+  create/activation check, and independent review before this prose repair.
+
+### RED evidence
+
+The focused test was changed before either guide. It replaced same-line
+Markdown matching with whitespace-normalized semantic prose checks while
+preserving raw exact checks for commands, paths, URLs, environment assignments,
+ports, and gateway boundaries. It also required the accepted signup-profile
+fact and truthful personal-project reset boundary.
+
+```text
+$ pnpm vitest run tests/release/self-host-docs.test.ts
+Test Files  1 failed (1)
+Tests       2 failed | 6 passed (8)
+```
+
+Both failures were the intended stale-document failures: the local guide did
+not say a successful Create account commit initializes the fixed `en → zh-CN`
+profile before gateway configuration, and the account guide still directed a
+user to delete one populated account in Studio. There was no import, syntax,
+module-resolution, or test-harness failure.
+
+### GREEN and verification
+
+The local guide now states the committed-account profile fact without exposing
+migration/trigger internals. The account guide says populated per-account
+Studio deletion is unsupported, documents `pnpm db:reset` as the only supported
+personal-project removal/reset path and places its all-accounts/all-learning-
+data scope beside the command. Users who do not want a full reset are told to
+sign out or disable the extension and leave stored data intact. No selective
+deletion capability is promised or implemented.
+
+```text
+$ pnpm vitest run tests/release/self-host-docs.test.ts
+Test Files  1 passed (1)
+Tests       8 passed (8)
+
+$ pnpm typecheck
+$ tsc --noEmit
+exit 0
+
+$ pnpm eslint tests/release/self-host-docs.test.ts
+exit 0
+
+$ git diff --check
+exit 0
+```
+
+The implementation commit contains only:
+
+- `docs/operations/local-self-host.md`
+- `docs/operations/account-reset.md`
+- `tests/release/self-host-docs.test.ts`
+
+No migration, database test/reset, account mutation, application/extension
+runtime, Provider path, dependency/root configuration, README, environment
+template, recovery guide, or other file changed. No E2E, build, pgTAP,
+concurrency, live YouTube, Supadata, model, or demo-seed command was run because
+the accepted prerequisite already owns the database gate and this repair is
+documentation-only.
+
+No YouTube Digest or LLM Wiki material was consumed or copied. Existing MIT
+attribution and GPLv3 method-only isolation remain unchanged.
+
+Remaining intentional limitation: this reference setup cannot selectively
+erase a populated local account. The supported destructive path erases every
+local account and all learning data; otherwise users keep the data and stop
+using the account.
