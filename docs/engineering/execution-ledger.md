@@ -2,12 +2,12 @@
 
 ## Current position
 
-- Stage: Local-First Tasks 1–4 and Batch C Tasks 1–5 accepted; CONTRACT-016 frozen
-- Next task: Batch C revised Task 6 returning-learner browser gate and Batch C checkpoint
+- Stage: Local-First Tasks 1–4 and revised Batch C Tasks 1–6 accepted; Gate C frozen
+- Next task: Revised Delivery Task 1 local GitHub installation path
 - Integration branch: `codex/popcorn-youtube-learning`
 - Integration worktree: `/private/tmp/popcorn-youtube-learning`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last verified commit: `e5919f9` (Batch C Task 5 accepted after two focused TDD review repairs; Task 4 accepted at `a06a781`)
+- Last verified commit: `837389c` (Batch C Task 6 and the Gate C active-Vault regression repair accepted after full-range re-review)
 - Approved scope revision: `docs/superpowers/specs/2026-08-22-popcorn-local-first-school-demo-design.md` plus the three 2026-08-22 overlay plans; approved by the user and committed as `60f3888` on 2026-08-22.
 
 ## Preflight
@@ -79,6 +79,7 @@
 | Batch C controller contract gate | CONTRACT-016 / pre-Task 4 | `codex/popcorn-youtube-learning` (controller-owned) | `a5c45fd` | candidate `0b68e8b`; NULL-mode repair `54fa530` | PASS after one independent P1 and controller TDD repair/fresh re-review; approved exact service-only modes, owner/evidence agreement, complete source graph deletion, canonical evidence/receipt retention, deleted-source promotion replay, old-worker fence, rollback, RLS, and GPL isolation | Clean reset applied 16 migrations; focused source deletion 21/21; full pgTAP 657/657; normalized generated types exact; TypeScript and diff checks passed. |
 | Batch C | 4 | `codex/popcorn-batch-c-4-revised` | `8bdfa2a`; brief `docs/engineering/briefs/batch-c/task-4-revised.md` | candidate `23dcaaf`; integrated as `a06a781` | PASS; independent reviewer approved owner-scoped preview, preview/commit mode agreement, sole frozen deletion RPC write, explicit confirmation, canonical attempted-evidence tombstones, active Vault compatibility, generic errors, and GPL isolation | Candidate focused 16/16 plus Saved GET 5/5; controller integration source-deletion/Saved/Vault 21/21; TypeScript, scoped ESLint, and diff checks passed. CONTRACT-016 already owned the clean reset/full pgTAP gate. |
 | Batch C | 5 | `codex/popcorn-batch-c-5-revised` plus `codex/popcorn-batch-c-5-review-fix` | `8bdfa2a`; candidate `496266e` | repairs `c3aaea7` and `b05ddd1`; integrated through `e5919f9` | PASS after two independent FAIL/fresh TDD repair/re-review loops; final reviewer approved real queue-shaped retry/auth recovery, truthful admission failure, strict current-watch-tab selection, aria/keyboard behavior, preserved playback/transcript position, Options queue summary, Web generic error, pinned YouTube Digest adaptation, and GPL isolation | Final recovery/queue/restart 27/27; save handlers 21/21; notes-filter 1/1; Web 2/2; controller Task 4/5 integration 23/23; TypeScript, JS syntax, scoped ESLint, and diff checks passed. No migration/shared contract changed, so reset/pgTAP/build were not repeated. |
+| Batch C | 6 / Gate C | controller integration plus `codex/popcorn-batch-c-gate-vault-history-fix` | `11b5980`; Task 6 candidate `2e2e114` | repair candidate `f49b4fc`; integrated through `837389c` | PASS after the first full-range review found one active-Vault history P1, an isolated TDD repair/review, two real Web E2E passes, and a fresh full-range re-review with no P0/P1/P2; approved deterministic returning-learner evidence, exact Web matcher, fixture cleanup, active draft/tombstone canonical separation, complete product scope, upstream reuse, and GPL isolation | Scoped Batch C 59/59; Vault/deletion/Saved 20/20; extension recovery/queue/restart 27/27; Web Chromium 2/2; provenance 11/11; TypeScript, scoped ESLint, webpack production build, and diff checks passed. CONTRACT-015 retains 624/624 and CONTRACT-016 retains clean/full 657/657 pgTAP evidence. |
 
 ## Open concerns
 
@@ -139,4 +140,4 @@
 - CONTRACT-015 atomic due completion is frozen through `07b1436`; Batch C Task 2 may consume only its RPC and Task 3 may consume its generated lifecycle fields.
 - Batch C Task 1 is independently accepted and integrated through `8b4fde8`; Vault now has bounded Chinese search with stable request ordering and same-filter retry.
 - The user approved the local-first school-demo addendum on 2026-08-22. The original remaining Batch C and production Delivery instructions are superseded by `2026-08-22-popcorn-local-first-amendments.md`, `2026-08-22-popcorn-batch-c-school-demo-revision.md`, and `2026-08-22-popcorn-github-delivery-revision.md` where they conflict.
-- Local-First Tasks 1–4 are accepted through `c4a6794`; revised Batch C Tasks 1–5 are accepted through `e5919f9`; CONTRACT-016 is frozen at `54fa530`. The controller now owns revised Batch C Task 6: one fixture-backed returning-learner browser scenario, the scoped candidate gate, independent full Batch C review, and `gate-c.md` checkpoint.
+- Local-First Tasks 1–4 are accepted through `c4a6794`; revised Batch C Tasks 1–6 are accepted through `837389c`; CONTRACT-016 is frozen at `54fa530`. `docs/engineering/checkpoints/gate-c.md` freezes the complete Batch C candidate after the active-Vault history repair and full-range PASS. Dispatch revised Delivery Task 1 next.
