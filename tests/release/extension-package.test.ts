@@ -157,6 +157,38 @@ test("rejects a direct model Provider host even with a matching checksum", async
   expect(checked.stderr).toContain("host_permissions");
 });
 
+test("rejects a direct model Provider URL embedded in allowlisted runtime JavaScript", async () => {
+  expect(packageExtension().status).toBe(0);
+  const archive = await makeTamperedArchive(async (directory) => {
+    const path = join(directory, "background.js");
+    await writeFile(
+      path,
+      `${await readFile(path, "utf8")}\nconst modelProviderUrl = "https://api.deepseek.com/v1/chat/completions";\n`,
+      "utf8",
+    );
+  });
+
+  const checked = checkArchive(archive);
+  expect(checked.status).not.toBe(0);
+  expect(checked.stderr).toMatch(/runtime URL|Provider endpoint/i);
+});
+
+test("rejects a direct transcript Provider URL embedded in allowlisted runtime JavaScript", async () => {
+  expect(packageExtension().status).toBe(0);
+  const archive = await makeTamperedArchive(async (directory) => {
+    const path = join(directory, "background.js");
+    await writeFile(
+      path,
+      `${await readFile(path, "utf8")}\nconst transcriptProviderUrl = "https://api.supadata.ai/v1/youtube/transcript";\n`,
+      "utf8",
+    );
+  });
+
+  const checked = checkArchive(archive);
+  expect(checked.status).not.toBe(0);
+  expect(checked.stderr).toMatch(/runtime URL|Provider endpoint/i);
+});
+
 test("rejects a private credential embedded in an otherwise allowlisted runtime file", async () => {
   expect(packageExtension().status).toBe(0);
   const archive = await makeTamperedArchive(async (directory) => {

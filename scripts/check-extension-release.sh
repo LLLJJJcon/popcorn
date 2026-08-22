@@ -163,6 +163,12 @@ const expectedHosts = [
 if (JSON.stringify(manifest.host_permissions) !== JSON.stringify(expectedHosts)) {
   fail("manifest host_permissions must contain exactly YouTube, App, and Supabase origins");
 }
+const allowedRuntimeOrigins = new Set([
+  new URL(runtime.appUrl).origin,
+  new URL(runtime.supabaseUrl).origin,
+  "https://www.youtube.com",
+  "https://i.ytimg.com",
+]);
 
 const referenced = new Set();
 const add = (value, base = "") => {
@@ -201,6 +207,22 @@ for (const file of referenced) {
   if (!allowed.has(file)) fail(`runtime references a file outside the public allowlist: ${file}`);
   const fullPath = path.join(root, file);
   if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) fail(`runtime references a missing file: ${file}`);
+}
+
+const runtimeUrlPattern = /\bhttps?:\/\/[^\s"'`<>\\]+/g;
+for (const file of releaseFiles) {
+  if (!file.endsWith(".js")) continue;
+  for (const match of read(file).matchAll(runtimeUrlPattern)) {
+    let origin;
+    try {
+      origin = new URL(match[0]).origin;
+    } catch {
+      fail(`malformed runtime URL found in archive entry: ${file}`);
+    }
+    if (!allowedRuntimeOrigins.has(origin)) {
+      fail(`direct Provider endpoint or disallowed runtime URL found in archive entry: ${file}`);
+    }
+  }
 }
 
 const credentialPatterns = [

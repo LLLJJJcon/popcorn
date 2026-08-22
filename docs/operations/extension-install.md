@@ -3,6 +3,8 @@
 Popcorn packages a local Chrome extension for the self-hosted app. It is not a
 Chrome Web Store release and it does not connect to a hosted Popcorn service.
 
+Prerequisites: Chrome 116 or newer, Node.js, and pnpm.
+
 ## Generate the extension
 
 From the repository root, install the pinned dependencies and provide the

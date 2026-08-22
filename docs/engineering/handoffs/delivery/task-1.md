@@ -135,3 +135,61 @@ tree for verification; it must be removed before committing.
 - The Supabase anonymous key is intentionally public extension configuration;
   private service, job, transcript, or model-provider credentials are not
   eligible for the archive.
+
+## Review repair 1 — runtime Provider endpoint rejection
+
+Review repair baseline: `9d4bbac1956627665c7c59e31bc32aef4389f077`.
+The repair changed only the release test, archive checker, Chrome installation
+guide, and this append-only handoff section.
+
+### Repair RED evidence
+
+Two negative archive tests tampered allowlisted `background.js` while leaving
+the generated manifest and its host permissions unchanged:
+
+- model Provider: `https://api.deepseek.com/v1/chat/completions`;
+- transcript Provider: `https://api.supadata.ai/v1/youtube/transcript`.
+
+Before changing the checker, the focused run reported 2 failures and 7 passes.
+Both failures were the expected `expected +0 not to be +0`, proving the current
+checker accepted each tampered archive.
+
+### Repair policy and GREEN evidence
+
+The checker now scans absolute HTTP(S) URLs in every allowlisted runtime
+JavaScript file. An origin is accepted only when it exactly matches the
+generated Popcorn App origin, generated Supabase origin,
+`https://www.youtube.com`, or the required YouTube thumbnail origin
+`https://i.ytimg.com`. Every other runtime origin is rejected as a direct
+Provider endpoint or disallowed runtime URL. This is an origin boundary, not a
+Provider catalog, and does not constrain the server-side Provider-neutral
+gateway configuration.
+
+The installation guide now states Chrome 116+ as a prerequisite. Focused
+verification after the repair:
+
+- `pnpm vitest run tests/release/extension-package.test.ts`: 1 file, 9/9 tests passed;
+- `pnpm test:provenance`: 2 files, 11/11 tests passed;
+- `bash scripts/check-extension-release.sh dist/popcorn-extension.zip`: 23 allowlisted files accepted;
+- `bash -n scripts/check-extension-release.sh`: passed;
+- `git diff --check`: passed.
+
+The isolated worktree again used
+`pnpm_config_verify_deps_before_run=false` to prevent the Codex pnpm wrapper
+from trying to replace its linked dependency tree. Without that setting the
+wrapper stopped before running the repository script with
+`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`; this was an environment setup
+failure, not a product test failure.
+
+Two consecutive fixed-input packages retained the valid generated bundle and
+produced the same SHA-256:
+
+```text
+cd1990b2829a537aef92ae712b4bf27e64f852b8647d9e959b74d83d9fd2666c
+cd1990b2829a537aef92ae712b4bf27e64f852b8647d9e959b74d83d9fd2666c
+```
+
+No packager, runtime source, root configuration, package/lock file, migration,
+ledger/checkpoint, tracked `dist/` artifact, upstream mapping, or license text
+was changed. Existing MIT notices and the GPLv3 method-only boundary remain
+unchanged.
