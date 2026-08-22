@@ -13,6 +13,7 @@ const push = vi.fn();
 const pageRuntime = vi.hoisted(() => ({
   authenticate: vi.fn(),
   detail: vi.fn(),
+  deletionPreview: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -27,6 +28,7 @@ vi.mock("@/features/saved/api", async (importOriginal) => ({
     appUrl: "https://popcorn.example",
     authenticate: pageRuntime.authenticate,
     service: { detail: pageRuntime.detail },
+    deletionPlanner: { preview: pageRuntime.deletionPreview },
   }),
 }));
 
@@ -61,6 +63,14 @@ describe("Saved candidate expressions", () => {
     push.mockReset();
     pageRuntime.authenticate.mockReset();
     pageRuntime.detail.mockReset();
+    pageRuntime.deletionPreview.mockReset();
+    pageRuntime.deletionPreview.mockResolvedValue({
+      videoSourceId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      videoTitle: "中文访谈",
+      savedCount: 1,
+      affectedExpressionCount: 0,
+      mode: "remove_unpracticed_source",
+    });
     vi.restoreAllMocks();
   });
 
@@ -223,6 +233,7 @@ describe("Saved candidate expressions", () => {
     expect(screen.getByTestId("raw-text")).toHaveTextContent("这个想法挺有意思的");
     expect(screen.queryByText("旧表达")).not.toBeInTheDocument();
     expect(screen.getByText("最新表达")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Delete 中文访谈?" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Use It Now" }));
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
     expect(JSON.parse(String(vi.mocked(globalThis.fetch).mock.calls[0]![1]?.body))).toEqual({
