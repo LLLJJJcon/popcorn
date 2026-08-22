@@ -34,7 +34,7 @@ function classifyResponseBody(body) {
   return body.claimed === 0 ? "empty" : "processed";
 }
 
-export async function runLocalJobCycle({ appUrl, secret, fetchImpl = fetch }) {
+export async function runLocalJobCycle({ appUrl, secret, signal = undefined, fetchImpl = fetch }) {
   if (typeof secret !== "string" || secret.length === 0) {
     throw new Error("INTERNAL_JOB_SECRET is required");
   }
@@ -49,12 +49,14 @@ export async function runLocalJobCycle({ appUrl, secret, fetchImpl = fetch }) {
         "Content-Type": "application/json",
       },
       body: "{}",
+      ...(signal ? { signal } : {}),
     });
 
     if (!response.ok) return { status: "failed" };
 
     return { status: classifyResponseBody(await response.json()) };
   } catch {
+    if (signal?.aborted) return { status: "stopped" };
     return { status: "failed" };
   }
 }
@@ -90,7 +92,8 @@ export async function runLocalJobWorker({
   }
 
   while (!signal.aborted) {
-    const result = await runLocalJobCycle({ appUrl, secret, fetchImpl });
+    const result = await runLocalJobCycle({ appUrl, secret, signal, fetchImpl });
+    if (signal.aborted || result.status === "stopped") break;
     onStatus(result.status);
     if (!signal.aborted) await sleep(intervalMs, signal);
   }

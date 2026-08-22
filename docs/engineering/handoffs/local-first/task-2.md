@@ -26,6 +26,25 @@ node_modules/.bin/vitest run src/server/env.test.ts tests/integration/jobs/local
 Final type, Node syntax, scoped ESLint, and diff verification are recorded in
 the execution ledger after independent review.
 
+Independent review found that SIGINT/SIGTERM could not stop a `fetch` that was
+already pending. The repair test first failed with `expected 'stuck' to be
+'stopped'`. The worker now passes its `AbortSignal` into the active request and
+treats that cancellation as a normal stop, without emitting a misleading
+`failed` status or starting another cycle.
+
+Repair GREEN:
+
+```text
+node_modules/.bin/vitest run tests/integration/jobs/local-worker.test.ts src/server/env.test.ts tests/integration/jobs/process-jobs.test.ts
+3 files passed; 60 tests passed
+
+node_modules/.bin/tsc --noEmit
+passed
+
+node --check scripts/process-local-jobs.mjs
+passed
+```
+
 ## Risks
 
 The worker intentionally provides one fixed local polling interval and one

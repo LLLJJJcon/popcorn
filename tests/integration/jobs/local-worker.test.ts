@@ -117,6 +117,55 @@ describe("local durable-job worker", () => {
     expect(maximumActive).toBe(1);
   });
 
+  test("aborts a hanging request without reporting a failure or starting another cycle", async () => {
+    const controller = new AbortController();
+    let markStarted: (() => void) | undefined;
+    let releaseWithoutSignal: (() => void) | undefined;
+    const started = new Promise<void>((resolveStarted) => {
+      markStarted = resolveStarted;
+    });
+    const fetchImpl = vi.fn((_input: RequestInfo | URL, options?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        markStarted?.();
+
+        if (options?.signal) {
+          options.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+          return;
+        }
+
+        releaseWithoutSignal = () => reject(new DOMException("Aborted", "AbortError"));
+      }),
+    );
+    const statuses: string[] = [];
+
+    const worker = runLocalJobWorker({
+      appUrl: "http://127.0.0.1:3000",
+      secret: "local-secret",
+      signal: controller.signal,
+      fetchImpl,
+      onStatus: (status: string) => statuses.push(status),
+    });
+    await started;
+    controller.abort();
+
+    const stopOutcome = await Promise.race([
+      worker.then(() => "stopped" as const),
+      new Promise<"stuck">((resolveStuck) => {
+        setTimeout(() => resolveStuck("stuck"), 0);
+      }),
+    ]);
+    releaseWithoutSignal?.();
+    await worker;
+
+    expect(stopOutcome).toBe("stopped");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(statuses).toEqual([]);
+  });
+
   test("retires global OpenAI configuration from local setup files", async () => {
     const [environmentExample, supabaseConfig] = await Promise.all([
       readFile(resolve(process.cwd(), ".env.example"), "utf8"),
