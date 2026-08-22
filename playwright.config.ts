@@ -9,7 +9,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   webServer: {
-    command: "pnpm dev --hostname 127.0.0.1",
+    command: "pnpm dev --hostname 127.0.0.1 --webpack",
     url: appUrl,
     timeout: 120_000,
     reuseExistingServer: process.env.CI !== "true",
@@ -26,7 +26,7 @@ export default defineConfig({
     },
     {
       name: "chromium-web",
-      testMatch: /saved-learning-loop\.spec\.ts/,
+      testMatch: /(saved-learning-loop|returning-learner)\.spec\.ts/,
       use: { baseURL: appUrl },
     },
   ],
