@@ -107,7 +107,8 @@ insert into auth.users (
    '{"provider":"email","providers":["email"]}'::jsonb,'{}'::jsonb,now(),now());
 insert into public.profiles(user_id) values
   ('0a000000-0000-4000-8000-00000000a001'),
-  ('0a000000-0000-4000-8000-00000000b002');
+  ('0a000000-0000-4000-8000-00000000b002')
+on conflict (user_id) do nothing;
 insert into public.video_sources(id,user_id,youtube_video_id,canonical_url) values
   ('8a200000-0000-4000-8000-000000000001','0a000000-0000-4000-8000-00000000a001',
    'dQw4w9WgXcQ','https://www.youtube.com/watch?v=dQw4w9WgXcQ'),

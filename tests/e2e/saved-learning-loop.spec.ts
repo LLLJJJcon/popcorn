@@ -217,14 +217,19 @@ test.beforeAll(async () => {
     email_confirm: true,
   });
   expect(user.error).toBeNull();
+
+  const createdProfile = await admin.from("profiles")
+    .select("user_id,native_language,target_language")
+    .eq("user_id", USER_ID)
+    .single();
+  expect(createdProfile.error).toBeNull();
+  expect(createdProfile.data).toEqual({
+    user_id: USER_ID,
+    native_language: "en",
+    target_language: "zh-CN",
+  });
+
   const sourceGraph = await Promise.all([
-    admin.from("profiles").insert({
-      user_id: USER_ID,
-      native_language: "en",
-      target_language: "zh-CN",
-      created_at: createdAt,
-      updated_at: createdAt,
-    }),
     admin.from("video_sources").insert({
       id: SOURCE_ID,
       user_id: USER_ID,
@@ -234,7 +239,7 @@ test.beforeAll(async () => {
       updated_at: createdAt,
     }),
   ]);
-  expect(sourceGraph.map((result) => result.error)).toEqual([null, null]);
+  expect(sourceGraph.map((result) => result.error)).toEqual([null]);
   const snapshot = await admin.from("video_snapshots").insert({
     id: SNAPSHOT_ID,
     user_id: USER_ID,

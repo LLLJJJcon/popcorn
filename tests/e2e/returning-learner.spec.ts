@@ -132,14 +132,18 @@ test.beforeAll(async () => {
   });
   expect(createdUser.error).toBeNull();
 
+  const createdProfile = await admin.from("profiles")
+    .select("user_id,native_language,target_language")
+    .eq("user_id", USER_ID)
+    .single();
+  expect(createdProfile.error).toBeNull();
+  expect(createdProfile.data).toEqual({
+    user_id: USER_ID,
+    native_language: "en",
+    target_language: "zh-CN",
+  });
+
   const roots = await Promise.all([
-    admin.from("profiles").insert({
-      user_id: USER_ID,
-      native_language: "en",
-      target_language: "zh-CN",
-      created_at: createdAt,
-      updated_at: createdAt,
-    }),
     admin.from("video_sources").insert({
       id: SOURCE_ID,
       user_id: USER_ID,
@@ -149,7 +153,7 @@ test.beforeAll(async () => {
       updated_at: createdAt,
     }),
   ]);
-  expect(roots.map((result) => result.error)).toEqual([null, null]);
+  expect(roots.map((result) => result.error)).toEqual([null]);
 
   const save = await admin.from("saved_items").insert({
     id: SAVE_ID,

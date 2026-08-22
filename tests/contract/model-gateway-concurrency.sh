@@ -51,7 +51,8 @@ insert into auth.users (
   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now()
 );
 insert into public.profiles (user_id)
-values ('00000000-0000-4000-8000-00000000c003');
+values ('00000000-0000-4000-8000-00000000c003')
+on conflict (user_id) do nothing;
 insert into public.model_gateway_origins (
   id, slug, display_name, canonical_origin, base_path, adapter_kind, state
 ) values (
