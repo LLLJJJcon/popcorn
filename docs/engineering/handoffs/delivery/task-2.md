@@ -1,6 +1,8 @@
 # Delivery Task 2 handoff — deterministic classroom demo seed
 
-Status: implementation and clean local verification complete; commit pending.
+Status: candidate `424bba497bd5067a414bf233efa1d4ed18cf21a0` was committed,
+independently reviewed, and rejected. Review repair implementation is committed
+as `3f64477b33697b1d50672108cde95bb2bfe1b0ca`; independent re-review is pending.
 
 ## Scope and changed files
 
@@ -168,3 +170,84 @@ not exposed in product data or distribution artifacts.
 - Temporary diagnostic files exist only under `/private/tmp` and are untracked.
   The disposable local database contains the clean-reset fixture graph.
 - No Provider, browser E2E, build, pgTAP, load, or concurrency check was run.
+
+## Review repair 1 — causal schedule, exact origin, bounded errors
+
+The independent review rejected the original candidate for two P1 and two P2
+findings: the sequence-based task clock could put a task after its attempt and
+did not derive reviews from accepted evidence; `/rest/v1` was accepted as a
+client base URL; UUID account lookup hid Auth failures as an unknown user; and
+database failures could append raw PostgREST/SQL text to CLI stderr.
+
+Repair RED against the rejected candidate:
+
+```text
+TMPDIR=/private/tmp node_modules/.bin/vitest run tests/integration/demo/demo-seed.test.ts
+Test Files  1 failed (1)
+Tests       5 failed | 20 passed (25)
+```
+
+The concrete failures showed a `practice_tasks.created_at` later than its
+attempt's `submitted_at`, both `/rest/v1` path variants being accepted, the
+CLI formatter absent, and Auth/write/verification failures lacking fixed error
+categories. A focused mutation cycle then proved URL normalization also
+accepted `/.` and `/rest/../` until the validator compared the raw input with
+the parsed origin.
+
+The repair now normalizes the supplied clock to its UTC day and constructs each
+expression from the preceding accepted evidence. Original tasks precede their
+attempts; the first tried review is original completion + 24 hours; the reused
+review is successful due completion + 7 days; owned maintenance is owned
+completion + 30 days. Completed review, due task, attempt, and mastery event
+references/timestamps agree exactly. The pending tried review is due at the day
+anchor and the reused/owned maintenance reviews are future. Calls anywhere on
+the same UTC day produce identical rows.
+
+Only a raw loopback HTTP(S) origin, with an optional root slash, is accepted.
+REST/Auth/arbitrary paths, trailing path variants, parser-normalized paths,
+credentials, query, fragment, non-loopback hosts, and non-HTTP(S) schemes are
+rejected. Auth, write, verification, configuration, and argument failures map
+to a small fixed category set; unknown exceptions map to `unexpected failure`.
+The CLI formatter never emits dependency messages, URL/key values, SQL detail,
+or unbounded text.
+
+Fresh GREEN after the repair:
+
+```text
+TMPDIR=/private/tmp node_modules/.bin/vitest run tests/integration/demo/demo-seed.test.ts
+Test Files  1 passed (1)
+Tests       27 passed (27)
+
+TMPDIR=/private/tmp node_modules/.bin/vitest run tests/contract/local-auth-seed.test.ts
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+TMPDIR=/private/tmp pnpm typecheck
+PASS
+
+TMPDIR=/private/tmp pnpm eslint scripts/seed-demo.ts tests/integration/demo/demo-seed.test.ts
+PASS
+
+git diff --check
+PASS
+```
+
+Against the already-clean disposable local database, without a reset, a stable
+owner-b source marker was added to make preservation observable. The documented
+CLI then ran twice for `owner-a@popcorn.test`. The two canonical result JSON
+values and the two sorted task/review timestamp graphs were identical. Both
+runs returned `demo_seeded` with the original per-table counts, mastery states
+`tried:1,reused:1,owned:1`, `due_now=1`, and `future_maintenance=2`. The
+normalized graph SHA-256 was
+`5ae80ad34044c99f5972ee41347bb498b9c53215f89788b90408704a8d271c8c`, and
+the exact owner-b source marker remained present. No credential or connection
+value was printed or recorded.
+
+Repair scope is only `scripts/seed-demo.ts`, the focused demo seed test, and
+this handoff. The controller brief is unchanged from its already-recorded
+commit. No fixture, GoTrue seed, package/lock/workspace file, migration,
+generated type, application/extension/server code, ledger, or checkpoint was
+modified. No Provider, reset, pgTAP, E2E, build, load, or network acquisition
+ran. No upstream material was added; YouTube Digest MIT attribution and LLM
+Wiki GPLv3 method-only isolation are unchanged. Local generated state is the
+accepted demo graph plus the owner-b preservation marker in the disposable DB.
