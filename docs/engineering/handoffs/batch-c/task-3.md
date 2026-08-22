@@ -4,6 +4,8 @@
 
 - Baseline reviewed: `7e977cff6b695ed8f1faeeb026e0c087837dbea8`.
 - Parent candidate before this repair: `f41a01fcff598d2463cdacf94555f8e39f8aa3ee`.
+- Verified repair commit: `bff49f7ba78b51ad2a2738427c7bf1a497d67d25`
+  (`fix: align Progress review evidence`).
 
 ### Review blockers closed
 
