@@ -200,12 +200,18 @@ describe("scheduled recovery migration", () => {
 });
 
 describe("fixture-only CI freeze gate", () => {
-  test("runs every Foundation gate and always tears down local Supabase", () => {
+  test("runs the revised one-job fixture gate and always tears down local Supabase", () => {
     const workflow = readRequired(".github/workflows/ci.yml");
+    const jobs = workflow.slice(workflow.indexOf("\njobs:\n") + 1);
+    const jobNames = [...jobs.matchAll(/^  ([a-zA-Z0-9_-]+):\s*$/gm)]
+      .map((match) => match[1]);
+    const permissions = workflow.match(/^permissions:\s*\n([\s\S]*?)^jobs:/m);
 
-    expect(workflow).toMatch(/^permissions:\s*\n\s+contents:\s+read\s*$/m);
+    expect(jobNames).toEqual(["verify"]);
+    expect(permissions?.[1].trim()).toBe("contents: read");
     expect(workflow).toMatch(/timeout-minutes:\s*\d+/);
     expect(workflow).toContain("actions/checkout@v4");
+    expect(workflow).toMatch(/fetch-depth:\s*0/);
     expect(workflow).toContain("actions/setup-node@v4");
     expect(workflow).toMatch(/node-version:\s*["']?20["']?/);
     expect(workflow).toContain("pnpm/action-setup@v4");
@@ -213,30 +219,54 @@ describe("fixture-only CI freeze gate", () => {
     expect(workflow.indexOf("pnpm/action-setup@v4")).toBeLessThan(
       workflow.indexOf("actions/setup-node@v4"),
     );
-    expect(workflow).toContain("pnpm install --frozen-lockfile");
 
-    for (const command of [
+    const orderedCommands = [
+      "pnpm install --frozen-lockfile",
       "pnpm verify",
       "pnpm test:extension",
-      "node_modules/.bin/supabase start",
+      "pnpm exec supabase start",
       "pnpm db:reset",
       "pnpm db:test",
+      "pnpm exec supabase status -o env > /tmp/popcorn-supabase.env",
+      "source /tmp/popcorn-supabase.env",
+      'echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"',
+      'echo "INTERNAL_JOB_SECRET=fixture-job-secret"',
+      "pnpm extension:package",
+      "bash scripts/check-extension-release.sh dist/popcorn-extension.zip",
+      "pnpm playwright test tests/e2e/demo-acceptance.spec.ts --project=chromium-extension",
+      'git diff --check "$PATCH_BASE...$GITHUB_SHA"',
+    ];
+    let previousCommand = -1;
+    for (const command of orderedCommands) {
+      const commandIndex = workflow.indexOf(command);
+      expect(commandIndex, `${command} must follow the preceding gate`).toBeGreaterThan(previousCommand);
+      previousCommand = commandIndex;
+    }
+    expect(workflow).toContain('git diff-tree --check --root "$GITHUB_SHA"');
+    expect(workflow).toMatch(/github\.event\.pull_request\.base\.sha/);
+    expect(workflow).toMatch(/github\.event\.before/);
+    expect(workflow).toContain("0000000000000000000000000000000000000000");
+
+    for (const retiredPushGate of [
       "tests/contract/model-gateway-concurrency.sh",
+      "tests/contract/model-gateway-artifact-concurrency.sh",
       "tests/contract/practice-promotion-concurrency.sh",
       "bash -n scripts/vendor-youtube-digest.sh",
-      "git diff --check",
     ]) {
-      expect(workflow).toContain(command);
+      expect(workflow).not.toContain(retiredPushGate);
     }
 
     expect(workflow).toMatch(
       /if:\s*\$\{\{\s*always\(\)\s*\}\}[\s\S]*node_modules\/\.bin\/supabase stop --no-backup/,
     );
     expect(workflow).toMatch(/POPCORN_PROVIDER_MODE:\s*fixtures/);
-    expect(workflow).not.toMatch(/\bsecrets\./);
+    expect(workflow.match(/INTERNAL_JOB_SECRET/g)).toHaveLength(1);
+    expect(workflow.match(/SUPABASE_SERVICE_ROLE_KEY/g)).toHaveLength(1);
+    expect(workflow).not.toMatch(/\$\{\{\s*secrets(?:\s*\.|\s*\[)/);
     expect(workflow).not.toMatch(
-      /(?:SUPADATA_API_KEY|OPENAI_API_KEY|INTERNAL_JOB_SECRET|SUPABASE_SERVICE_ROLE_KEY)/,
+      /(?:SUPADATA_API_KEY|OPENAI_API_KEY|OPENAI_MODEL|MODEL_GATEWAY_API_KEY|USER_GATEWAY_API_KEY)/,
     );
+    expect(workflow).not.toMatch(/(?:sk-[A-Za-z0-9_-]{16,}|Bearer\s+eyJ)/);
   });
 
   test("reuses the pinned extension release test without dependency drift", () => {
@@ -278,6 +308,7 @@ describe("fixture-only CI freeze gate", () => {
       jsdom: "^28.1.0",
       supabase: "^2.114.0",
       tailwindcss: "^4",
+      tsx: "4.23.12",
       typescript: "^5",
       vitest: "^4.1.10",
     });
