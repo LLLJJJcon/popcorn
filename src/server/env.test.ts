@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
 import {
   getModelGatewaySettingsEnv,
   getServerEnv,
@@ -47,6 +50,12 @@ describe("parseServerEnv", () => {
       EXTENSION_REDIRECT_ORIGIN:
         "https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org",
     })).toThrow();
+  });
+
+  it("does not advertise the retired Chrome Identity redirect in local setup", async () => {
+    const example = await readFile(resolve(process.cwd(), ".env.example"), "utf8");
+    expect(example).not.toContain("EXTENSION_REDIRECT_ORIGIN");
+    expect(example).not.toContain("chrome.identity");
   });
 
   it("selects only declared keys from a process environment", () => {
