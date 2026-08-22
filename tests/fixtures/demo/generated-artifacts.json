@@ -1,0 +1,97 @@
+{
+  "overview": {
+    "overview": "Four short everyday Mandarin reactions for reliability, patience, surprise, and encouragement.",
+    "chapters": [
+      {
+        "title": "Everyday reactions",
+        "summary": "The examples show concise reactions that can be reused in ordinary conversation.",
+        "timestampSeconds": 12,
+        "sourceSegmentIds": ["1111111111111111111111111111111111111111111111111111111111111111"]
+      }
+    ],
+    "keyQuotes": [
+      {
+        "quote": "这个办法挺靠谱的",
+        "englishMeaning": "This approach is quite reliable.",
+        "timestampSeconds": 12,
+        "sourceSegmentIds": ["1111111111111111111111111111111111111111111111111111111111111111"]
+      },
+      {
+        "quote": "慢慢来就好",
+        "englishMeaning": "Just take it step by step.",
+        "timestampSeconds": 21,
+        "sourceSegmentIds": ["2222222222222222222222222222222222222222222222222222222222222222"]
+      },
+      {
+        "quote": "这个价格也太离谱了吧",
+        "englishMeaning": "This price is just outrageous.",
+        "timestampSeconds": 34,
+        "sourceSegmentIds": ["3333333333333333333333333333333333333333333333333333333333333333"]
+      },
+      {
+        "quote": "下次一定会更好",
+        "englishMeaning": "Next time will definitely be better.",
+        "timestampSeconds": 49,
+        "sourceSegmentIds": ["4444444444444444444444444444444444444444444444444444444444444444"]
+      }
+    ]
+  },
+  "savedItemAnalysis": {
+    "candidates": [
+      {
+        "expression": "挺靠谱的",
+        "englishMeaning": "quite reliable",
+        "englishExplanation": "A conversational way to say that an idea or person seems dependable.",
+        "tone": "Positive and conversational.",
+        "communicativeFunction": "Expressing confidence in an idea.",
+        "register": "Everyday spoken Mandarin.",
+        "evidenceText": "这个办法挺靠谱的，我们可以试试看。",
+        "segmentIds": ["1111111111111111111111111111111111111111111111111111111111111111"],
+        "startSeconds": 12,
+        "endSeconds": 17,
+        "confidence": 0.96
+      }
+    ]
+  },
+  "expressionCandidates": [
+    {
+      "expression": "挺靠谱的",
+      "englishMeaning": "quite reliable",
+      "englishExplanation": "A conversational way to say that an idea or person seems dependable.",
+      "tone": "Positive and conversational.",
+      "communicativeFunction": "Expressing confidence in an idea.",
+      "register": "Everyday spoken Mandarin.",
+      "evidenceText": "这个办法挺靠谱的，我们可以试试看。",
+      "segmentIds": ["1111111111111111111111111111111111111111111111111111111111111111"],
+      "startSeconds": 12,
+      "endSeconds": 17,
+      "confidence": 0.96
+    },
+    {
+      "expression": "慢慢来",
+      "englishMeaning": "take it step by step",
+      "englishExplanation": "A gentle expression encouraging someone not to rush.",
+      "tone": "Reassuring and patient.",
+      "communicativeFunction": "Encouraging patience.",
+      "register": "Everyday spoken Mandarin.",
+      "evidenceText": "别着急，慢慢来就好。",
+      "segmentIds": ["2222222222222222222222222222222222222222222222222222222222222222"],
+      "startSeconds": 21,
+      "endSeconds": 25,
+      "confidence": 0.95
+    },
+    {
+      "expression": "太离谱了",
+      "englishMeaning": "that is outrageous",
+      "englishExplanation": "An emphatic spoken reaction to something unreasonable or unbelievable.",
+      "tone": "Informal and emphatic.",
+      "communicativeFunction": "Reacting to an unreasonable situation.",
+      "register": "Everyday spoken Mandarin.",
+      "evidenceText": "这个价格也太离谱了吧。",
+      "segmentIds": ["3333333333333333333333333333333333333333333333333333333333333333"],
+      "startSeconds": 34,
+      "endSeconds": 38,
+      "confidence": 0.97
+    }
+  ]
+}

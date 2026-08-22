@@ -1,0 +1,38 @@
+[
+  {
+    "stableId": "1111111111111111111111111111111111111111111111111111111111111111",
+    "position": 0,
+    "originalChinese": "这个办法挺靠谱的，我们可以试试看。",
+    "englishTranslation": "This approach is reliable; we can give it a try.",
+    "startSeconds": 12,
+    "endSeconds": 17,
+    "language": "zh-CN"
+  },
+  {
+    "stableId": "2222222222222222222222222222222222222222222222222222222222222222",
+    "position": 1,
+    "originalChinese": "别着急，慢慢来就好。",
+    "englishTranslation": "Do not rush; just take it step by step.",
+    "startSeconds": 21,
+    "endSeconds": 25,
+    "language": "zh-CN"
+  },
+  {
+    "stableId": "3333333333333333333333333333333333333333333333333333333333333333",
+    "position": 2,
+    "originalChinese": "这个价格也太离谱了吧。",
+    "englishTranslation": "This price is just outrageous.",
+    "startSeconds": 34,
+    "endSeconds": 38,
+    "language": "zh-CN"
+  },
+  {
+    "stableId": "4444444444444444444444444444444444444444444444444444444444444444",
+    "position": 3,
+    "originalChinese": "没关系，下次一定会更好。",
+    "englishTranslation": "It is okay; next time will definitely be better.",
+    "startSeconds": 49,
+    "endSeconds": 54,
+    "language": "zh-CN"
+  }
+]
