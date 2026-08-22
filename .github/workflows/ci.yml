@@ -35,20 +35,8 @@ jobs:
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify web, contracts, and fixture-backed tests
-        run: pnpm verify
-
-      - name: Verify the pinned extension release surface
-        run: pnpm test:extension
-
       - name: Start local Supabase
         run: pnpm exec supabase start
-
-      - name: Apply clean migrations and seed
-        run: pnpm db:reset
-
-      - name: Run database pgTAP tests
-        run: pnpm db:test
 
       - name: Export local fixture settings
         shell: bash
@@ -63,6 +51,18 @@ jobs:
             echo "POPCORN_E2E_DATABASE_URL=$DB_URL"
             echo "INTERNAL_JOB_SECRET=fixture-job-secret"
           } >> "$GITHUB_ENV"
+
+      - name: Verify web, contracts, and fixture-backed tests
+        run: pnpm verify
+
+      - name: Verify the pinned extension release surface
+        run: pnpm test:extension
+
+      - name: Apply clean migrations and seed
+        run: pnpm db:reset
+
+      - name: Run database pgTAP tests
+        run: pnpm db:test
 
       - name: Install fixture browser
         run: pnpm exec playwright install --with-deps chromium
