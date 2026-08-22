@@ -1,16 +1,19 @@
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new,
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at
 )
 values
   ('00000000-0000-0000-0000-000000000000', '00000000-0000-4000-8000-00000000a001',
    'authenticated', 'authenticated', 'owner-a@popcorn.test',
    '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.', '2026-08-16 09:00:00+00',
+   '', '', '', '',
    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
    '2026-08-16 09:00:00+00', '2026-08-16 09:00:00+00'),
   ('00000000-0000-0000-0000-000000000000', '00000000-0000-4000-8000-00000000b002',
    'authenticated', 'authenticated', 'owner-b@popcorn.test',
    '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.', '2026-08-16 09:01:00+00',
+   '', '', '', '',
    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
    '2026-08-16 09:01:00+00', '2026-08-16 09:01:00+00')
 on conflict (id) do nothing;
