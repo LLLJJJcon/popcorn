@@ -58,7 +58,7 @@ function loadBackground() {
       createAuthClient: () => authClient,
       createAuthMessageHandler: () => async (message) => {
         if (message.command === "popcorn-auth:session") return { ok: true, account: session?.user ?? null };
-        if (message.command === "popcorn-auth:begin") return { ok: true, account: session.user };
+        if (message.command === "popcorn-auth:sign-in") return { ok: true, account: session.user };
         return { ok: true };
       },
     },
@@ -90,7 +90,11 @@ test("startup, install, retry alarm, panel-open, new-save, and regained auth tri
   const options = { id: "extension-id", url: "chrome-extension://extension-id/options.html" };
   await send(listener, { action: "flushPendingEvents" }, sidePanel);
   await send(listener, { action: "enqueueSavedItem", input: { clientEventId: "event" } }, sidePanel);
-  await send(listener, { command: "popcorn-auth:begin", userInitiated: true }, options);
+  await send(listener, {
+    command: "popcorn-auth:sign-in",
+    email: "a@example.com",
+    password: "correct-horse",
+  }, options);
 
   assert.deepEqual(harness.calls.flushes, ["recover:startup", "recover:installed", "alarm", "panel-open", "regained-auth"]);
   assert.deepEqual(harness.calls.enqueues, [{ clientEventId: "event" }]);

@@ -20,9 +20,13 @@ const popcornAuthMessages = POPCORN_AUTH.createAuthMessageHandler({
   chrome,
   authClient: popcornAuthClient,
 });
-void popcornAuthClient.initialize().catch(() => {});
+
+function ensurePopcornAuthReady() {
+  return popcornAuthClient.initialize();
+}
 
 async function getPopcornAccessToken() {
+  await ensurePopcornAuthReady();
   return popcornAuthClient.getAccessToken();
 }
 
@@ -67,9 +71,6 @@ function isTrustedYoutubeContentSender(sender) {
     isYoutubeWatchUrl(sender.url) &&
     isYoutubeWatchUrl(sender.tab?.url);
 }
-
-chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" })
-  .catch(() => {});
 
 async function apiFetch(path, options = {}) {
   const token = await getPopcornAccessToken();
@@ -243,17 +244,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: "forbidden" });
       return false;
     }
-    const request = popcornAuthMessages(message, sender).then(async (result) => {
-      const regainedAuthentication = ![
-        "popcorn-auth:session",
-        "popcorn-auth:sign-out",
-        "popcorn-auth:clear-cache",
-      ].includes(message.command);
-      if (regainedAuthentication && result?.ok) {
-        await getPopcornSyncQueue()?.flushPendingEvents("regained-auth");
-      }
-      return result;
-    });
+    const request = ensurePopcornAuthReady()
+      .then(() => popcornAuthMessages(message, sender))
+      .then(async (result) => {
+        const regainedAuthentication = ![
+          "popcorn-auth:session",
+          "popcorn-auth:sign-out",
+          "popcorn-auth:clear-cache",
+        ].includes(message.command);
+        if (regainedAuthentication && result?.ok) {
+          await getPopcornSyncQueue()?.flushPendingEvents("regained-auth");
+        }
+        return result;
+      });
     return respondFrom(request, sendResponse);
   }
 

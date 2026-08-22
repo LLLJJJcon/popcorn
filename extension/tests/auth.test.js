@@ -32,9 +32,11 @@ function deferred() {
 function createChrome() {
   const local = {};
   const session = {};
+  const reads = [];
   const writes = [];
   const area = (values, name) => ({
     async get(keys) {
+      reads.push({ area: name, keys: structuredClone(keys) });
       if (keys === null) return { ...values };
       const requested = Array.isArray(keys) ? keys : [keys];
       return Object.fromEntries(
@@ -57,6 +59,7 @@ function createChrome() {
   return {
     local,
     session,
+    reads,
     writes,
     chrome: {
       storage: { local: area(local, "local"), session: area(session, "session") },
@@ -92,6 +95,100 @@ function createClient(auth, harness, fetch, now = () => 1_700_000_000_000) {
     now,
   });
 }
+
+test("concurrent auth operations share one trusted-storage initialization barrier", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  const localAccess = deferred();
+  const sessionAccess = deferred();
+  const accessCalls = [];
+  const requests = [];
+  harness.chrome.storage.local.setAccessLevel = async (input) => {
+    accessCalls.push({ area: "local", input });
+    return localAccess.promise;
+  };
+  harness.chrome.storage.session.setAccessLevel = async (input) => {
+    accessCalls.push({ area: "session", input });
+    return sessionAccess.promise;
+  };
+  const client = createClient(auth, harness, async (url) => {
+    requests.push(url);
+    return response(providerSession());
+  });
+
+  const initialization = client.initialize();
+  const sessionRead = client.getSession();
+  const signIn = client.signInWithPassword({
+    email: "a@example.com",
+    password: "correct-horse",
+  });
+  await Promise.resolve();
+
+  assert.equal(accessCalls.length, 1);
+  assert.deepEqual(harness.reads, []);
+  assert.deepEqual(requests, []);
+  assert.deepEqual(harness.writes, []);
+
+  localAccess.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(accessCalls.length, 2);
+  assert.deepEqual(harness.reads, []);
+  assert.deepEqual(requests, []);
+  assert.deepEqual(harness.writes, []);
+
+  sessionAccess.resolve();
+  await initialization;
+  assert.equal(await sessionRead, null);
+  assert.equal((await signIn).accessToken, "access-token");
+  assert.deepEqual(accessCalls, [
+    { area: "local", input: { accessLevel: "TRUSTED_CONTEXTS" } },
+    { area: "session", input: { accessLevel: "TRUSTED_CONTEXTS" } },
+  ]);
+  assert.equal(requests.length, 1);
+});
+
+test("a rejected trusted-storage initialization fails closed before reads, writes, fetches, or tokens", async () => {
+  const auth = await getAuth();
+  const harness = createChrome();
+  const accessCalls = [];
+  let fetchCalls = 0;
+  harness.local.popcorn_session = {
+    accessToken: "must-not-return",
+    refreshToken: "refresh-token",
+    accessExpiresAt: 1_700_003_600_000,
+    user: { id: "user-a", email: "a@example.com" },
+  };
+  harness.chrome.storage.local.setAccessLevel = async (input) => {
+    accessCalls.push({ area: "local", input });
+  };
+  harness.chrome.storage.session.setAccessLevel = async (input) => {
+    accessCalls.push({ area: "session", input });
+    throw new Error("storage access denied");
+  };
+  const client = createClient(auth, harness, async () => {
+    fetchCalls += 1;
+    return response(providerSession());
+  });
+
+  const results = await Promise.allSettled([
+    client.initialize(),
+    client.getSession(),
+    client.getAccessToken(),
+    client.signInWithPassword({ email: "a@example.com", password: "correct-horse" }),
+    client.signUpWithPassword({ email: "a@example.com", password: "correct-horse" }),
+    client.signOut({ decision: "discard" }),
+    client.clearBoundedCache(),
+  ]);
+
+  assert.ok(results.every((result) => result.status === "rejected"));
+  assert.deepEqual(accessCalls, [
+    { area: "local", input: { accessLevel: "TRUSTED_CONTEXTS" } },
+    { area: "session", input: { accessLevel: "TRUSTED_CONTEXTS" } },
+  ]);
+  assert.equal(fetchCalls, 0);
+  assert.deepEqual(harness.reads, []);
+  assert.deepEqual(harness.writes, []);
+});
 
 test("Options remains the adapted account surface and exposes password controls", () => {
   const options = read("options.html");

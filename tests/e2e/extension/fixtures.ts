@@ -17,9 +17,6 @@ declare const chrome: {
       get(key: string): Promise<Record<string, unknown>>;
       set(items: Record<string, unknown>): Promise<void>;
     };
-    readonly session: {
-      get(key: string): Promise<Record<string, unknown>>;
-    };
   };
   readonly runtime: {
     sendMessage(message: unknown): Promise<unknown>;
@@ -107,6 +104,7 @@ export class MockPopcornCloud {
     if (
       parsed.protocol.startsWith("http") &&
       parsed.hostname !== "app.popcorn.local" &&
+      parsed.hostname !== "project.supabase.co" &&
       parsed.hostname !== "www.youtube.com"
     ) {
       this.unexpectedOrigins.push(parsed.origin);
@@ -127,16 +125,19 @@ export class MockPopcornCloud {
     if (pathName === `/api/v1/youtube/${VIDEO_ID}/overview`) this.artifactCounts.overview += 1;
     if (pathName === "/api/v1/explanations") this.artifactCounts.explanation += 1;
 
-    if (pathName === "/api/v1/extension/session/exchange") {
+    if (url.hostname === "project.supabase.co" && pathName === "/auth/v1/token") {
+      expect(request.method()).toBe("POST");
+      expect(url.searchParams.get("grant_type")).toBe("password");
+      expect(request.headers().apikey).toBeTruthy();
+      expect(request.postDataJSON()).toEqual({
+        email: "learner@example.com",
+        password: "correct-horse",
+      });
       return json(route, {
-        data: {
-          session: {
-            accessToken: "fixture-access-token",
-            refreshToken: "fixture-refresh-token",
-            accessExpiresAt: Date.now() + 60 * 60 * 1000,
-            user: { id: USER_ID, email: "learner@example.com" },
-          },
-        },
+        access_token: "fixture-access-token",
+        refresh_token: "fixture-refresh-token",
+        expires_in: 60 * 60,
+        user: { id: USER_ID, email: "learner@example.com" },
       });
     }
 
@@ -383,29 +384,10 @@ export class PopcornExtensionHarness {
     );
     expect(before).toBeNull();
 
+    await this.options.locator("#authEmail").fill("learner@example.com");
+    await this.options.locator("#authPassword").fill("correct-horse");
     await this.options.locator("#signInBtn").click();
-    await expect(this.options.locator("#authStatus")).toContainText("Opening Popcorn sign-in…");
-
-    // Chromium's test build does not route the chrome.identity auth webview.
-    // Prove the real explicit UI click reached the PKCE boundary, then seed the
-    // deterministic server callback. auth.test.js separately proves the full
-    // state/code exchange behavior.
-    const worker = await this.activeWorker();
-    await expect.poll(() => worker.evaluate(async () =>
-      (await chrome.storage.session.get("popcorn_pkce")).popcorn_pkce ?? null,
-    )).not.toBeNull();
-    const storedSession = await worker.evaluate(async ({ userId }) => {
-      await chrome.storage.local.set({
-        popcorn_session: {
-          accessToken: "fixture-access-token",
-          refreshToken: "fixture-refresh-token",
-          accessExpiresAt: Date.now() + 60 * 60 * 1000,
-          user: { id: userId, email: "learner@example.com" },
-        },
-      });
-      return (await chrome.storage.local.get("popcorn_session")).popcorn_session;
-    }, { userId: USER_ID });
-    expect(storedSession).toMatchObject({ user: { id: USER_ID, email: "learner@example.com" } });
+    await expect(this.options.locator("#authStatus")).toHaveText("Signed in.");
     const authResponse = await this.options.evaluate(() =>
       chrome.runtime.sendMessage({ command: "popcorn-auth:session" }),
     );
@@ -696,6 +678,7 @@ export const test = base.extend<Fixtures>({
 
     context.on("request", (request) => harness.cloud.noteRequest(request.url()));
     await context.route("https://app.popcorn.local/**", (route) => harness.cloud.handle(route));
+    await context.route("https://project.supabase.co/**", (route) => harness.cloud.handle(route));
     await context.route("https://www.youtube.com/**", (route) =>
       route.fulfill({ status: 200, contentType: "text/html", body: youtubeFixtureHtml() }),
     );

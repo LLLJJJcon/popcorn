@@ -48,6 +48,46 @@ passed
 The final fresh verification and independent review are recorded by the
 controller after this candidate commit.
 
+## Independent-review repair
+
+The follow-up repair addresses both P1 findings without expanding the auth
+surface:
+
+- `createAuthClient` now owns one memoized initialization barrier for both
+  trusted storage areas. Every session read/write, password request, refresh,
+  sign-out, and bounded-cache mutation waits for it. A rejected access-level
+  change remains rejected for the lifetime of that worker and permits no
+  session read/write, Provider request, or token return.
+- `background.js` no longer starts or swallows a fire-and-forget initialization
+  and no longer performs a second local-only access-level mutation. Its token
+  and Options auth boundaries explicitly await the client barrier.
+- The settings wiring test now targets only the password sign-in/sign-out
+  routes and proves that the callback route is retired. The restart test uses
+  `popcorn-auth:sign-in`, and the browser fixture signs in through the real
+  Options password command plus an exact mocked Supabase password endpoint;
+  no exchange route, Chrome Identity, PKCE state, or seeded token remains.
+
+Repair RED evidence:
+
+```text
+node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js extension/tests/worker-restart.test.js
+18 tests: 15 passed, 3 failed because auth operations bypassed initialization
+and background still swallowed and duplicated access-level setup
+```
+
+Repair focused GREEN evidence:
+
+```text
+node --test extension/tests/auth.test.js extension/tests/auth-worker.test.js extension/tests/worker-restart.test.js
+18 tests passed
+
+node_modules/.bin/vitest run tests/integration/model-gateway/settings-web-auth.test.ts tests/integration/extension/password-auth.test.ts src/server/auth/web-auth-flow.test.ts src/server/env.test.ts
+4 files passed; 31 tests passed
+
+node_modules/.bin/tsc --noEmit
+passed
+```
+
 ## Risks and next dependency
 
 Task 4 must generate and load `POPCORN_RUNTIME_CONFIG` with the exact local

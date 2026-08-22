@@ -65,7 +65,8 @@ function optionHarness({ authFailure = false } = {}) {
 test("the classic MV3 worker remains the sole trusted auth owner", () => {
   assert.match(background, /importScripts\("settings\.js", "auth\.js"\)/);
   assert.match(background, /const popcornAuthClient = POPCORN_AUTH\.createAuthClient/);
-  assert.match(background, /popcornAuthClient\.initialize\(\)/);
+  assert.match(background, /function ensurePopcornAuthReady\(\)[\s\S]*popcornAuthClient\.initialize\(\)/);
+  assert.doesNotMatch(background, /void popcornAuthClient\.initialize|setAccessLevel/);
   assert.match(background, /chrome\.runtime\.onMessage\.addListener/);
   assert.match(background, /sender\.id/);
   assert.match(background, /sender\.url/);

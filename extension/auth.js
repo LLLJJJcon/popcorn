@@ -93,6 +93,7 @@ const POPCORN_AUTH = (() => {
     }
     const authOrigin = exactSupabaseUrl(supabaseUrl);
     let refreshMutex = null;
+    let initializationBarrier = null;
     let sessionGeneration = 0;
     let sessionMutationQueue = Promise.resolve();
 
@@ -106,26 +107,34 @@ const POPCORN_AUTH = (() => {
       return result;
     }
 
-    async function initialize() {
-      for (const area of [chrome.storage.local, chrome.storage.session]) {
-        if (typeof area.setAccessLevel === "function") {
-          await area.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
-        }
+    function initialize() {
+      if (!initializationBarrier) {
+        initializationBarrier = (async () => {
+          for (const area of [chrome.storage.local, chrome.storage.session]) {
+            if (typeof area.setAccessLevel === "function") {
+              await area.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+            }
+          }
+        })();
       }
+      return initializationBarrier;
     }
 
     async function getSession() {
+      await initialize();
       const stored = await chrome.storage.local.get(SESSION_KEY);
       return isSession(stored[SESSION_KEY]) ? stored[SESSION_KEY] : null;
     }
 
     async function saveSession(value) {
+      await initialize();
       if (!isSession(value)) throw new Error("Invalid Popcorn session.");
       await chrome.storage.local.set({ [SESSION_KEY]: value });
       return value;
     }
 
     async function requestPasswordSession(kind, input) {
+      await initialize();
       const credentials = normalizeCredentials(input);
       sessionGeneration += 1;
       const acceptedGeneration = sessionGeneration;
@@ -167,6 +176,7 @@ const POPCORN_AUTH = (() => {
     }
 
     async function refreshSession() {
+      await initialize();
       const refreshGeneration = sessionGeneration;
       const current = await getSession();
       if (!current) throw new Error("No Popcorn session.");
@@ -203,6 +213,7 @@ const POPCORN_AUTH = (() => {
     }
 
     async function getAccessToken() {
+      await initialize();
       const current = await getSession();
       if (!current) throw new Error("No Popcorn session.");
       if (current.accessExpiresAt > now() + 5000) return current.accessToken;
@@ -215,6 +226,7 @@ const POPCORN_AUTH = (() => {
     }
 
     async function signOut({ decision } = {}) {
+      await initialize();
       const current = await getSession();
       if (!current) return { pendingCount: 0, requiresDecision: false };
       const stored = await chrome.storage.local.get(PENDING_EVENTS_KEY);
@@ -242,6 +254,7 @@ const POPCORN_AUTH = (() => {
     }
 
     async function clearBoundedCache() {
+      await initialize();
       const stored = await chrome.storage.local.get(null);
       const keys = Object.keys(stored).filter((key) => key.startsWith(boundedCachePrefix));
       if (keys.length) await chrome.storage.local.remove(keys);

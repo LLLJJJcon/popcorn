@@ -5,7 +5,6 @@ describe("model gateway Web authentication wiring", () => {
   it("keeps auth routes server-only and delegates to the shared Web auth flow", async () => {
     const roots = [
       "src/app/auth/sign-in/route.ts",
-      "src/app/auth/callback/route.ts",
       "src/app/auth/sign-out/route.ts",
     ];
     for (const file of roots) {
@@ -14,6 +13,11 @@ describe("model gateway Web authentication wiring", () => {
       expect(source).toContain("createWebAuthFlowHandlers");
       expect(source).not.toMatch(/redirectTo|callbackUrl|next\s*:/);
     }
+    await expect(readFile(path.resolve("src/app/auth/callback/route.ts"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    const signInSource = await readFile(path.resolve("src/app/auth/sign-in/route.ts"), "utf8");
+    expect(signInSource).toContain(".signIn(request)");
+    expect(signInSource).not.toMatch(/callback|exchange|pkce/i);
   });
 
   it("authorizes the settings page with verified getUser through the shared SSR client", async () => {
