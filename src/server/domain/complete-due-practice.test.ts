@@ -26,9 +26,32 @@ const task: DueTransferTask = {
   masteryState: "tried",
 };
 
+function pendingState(taskValue: DueTransferTask = task) {
+  return { status: "pending" as const, task: taskValue, attempt: null };
+}
+
+const persistedAttempt = {
+  responseChinese: "这也太离谱了吧。",
+  assistanceLevel: "none" as const,
+  passed: true,
+  accuracyScore: 5,
+  accuracyFeedbackEnglish: "The expression is used accurately.",
+  naturalnessScore: 5,
+  naturalnessFeedbackEnglish: "The response sounds natural.",
+  contextualFitScore: 5,
+  contextualFitFeedbackEnglish: "The response fits the transfer context.",
+  submittedAt: "2026-08-22T12:00:00.000Z",
+  evaluationPromptVersion: "evaluate-practice-v1",
+  evaluationModel: "model-at-first-submit",
+  evaluationGatewayConfigId: "55555555-5555-4555-8555-555555555555",
+  evaluationGatewayRevision: 2,
+  evaluationGatewayFingerprint: "a".repeat(64),
+};
+
 function repository(): DuePracticeCompletionRepository {
   return {
     findTransferTask: vi.fn(async () => task),
+    findCompletionState: vi.fn(async () => pendingState()),
     resolveActiveGatewayPin: vi.fn(async () => ({
       configId: "55555555-5555-4555-8555-555555555555", revision: 2, fingerprint: "a".repeat(64),
     })),
@@ -47,7 +70,11 @@ function repository(): DuePracticeCompletionRepository {
   };
 }
 
-function service(store = repository(), options: { ci?: boolean; gateway?: { model: string; complete: () => Promise<unknown> } } = {}) {
+function service(store = repository(), options: {
+  ci?: boolean;
+  gateway?: { model: string; complete: () => Promise<unknown> };
+  now?: () => string;
+} = {}) {
   return {
     store,
     service: createDuePracticeCompletionService({
@@ -55,7 +82,7 @@ function service(store = repository(), options: { ci?: boolean; gateway?: { mode
       ci: options.ci ?? true,
       fixtureGateway: options.gateway ?? createEvaluationFixtureGateway(),
       gatewayResolver: { resolve: vi.fn(async () => options.gateway ?? createEvaluationFixtureGateway()) },
-      now: () => NOW,
+      now: options.now ?? (() => NOW),
     }),
   };
 }
@@ -83,6 +110,7 @@ describe("complete due Practice", () => {
   test("accepts the RPC-owned transition to owned only with its thirty-day immutable schedule", async () => {
     const store = repository();
     store.findTransferTask = vi.fn(async () => ({ ...task, masteryState: "reused" as const }));
+    store.findCompletionState = vi.fn(async () => pendingState({ ...task, masteryState: "reused" as const }));
     store.completeDuePractice = vi.fn(async () => ({
       reviewTaskId: REVIEW, practiceTaskId: TASK, attemptId: "66666666-6666-4666-8666-666666666666",
       masteryEventId: "77777777-7777-4777-8777-777777777777", nextReviewTaskId: "88888888-8888-4888-8888-888888888888",
@@ -98,6 +126,7 @@ describe("complete due Practice", () => {
   test("does not promote failed or assisted attempts and preserves the RPC-derived state", async () => {
     const store = repository();
     store.findTransferTask = vi.fn(async () => ({ ...task, masteryState: "reused" as const }));
+    store.findCompletionState = vi.fn(async () => pendingState({ ...task, masteryState: "reused" as const }));
     store.completeDuePractice = vi.fn(async () => ({
       reviewTaskId: REVIEW, practiceTaskId: TASK, attemptId: "66666666-6666-4666-8666-666666666666",
       masteryEventId: "77777777-7777-4777-8777-777777777777", nextReviewTaskId: "88888888-8888-4888-8888-888888888888",
@@ -116,6 +145,9 @@ describe("complete due Practice", () => {
   test("fails closed before evaluating or writing a cross-owner, stale, or mismatched task", async () => {
     const store = repository();
     store.findTransferTask = vi.fn(async () => ({ ...task, userId: "99999999-9999-4999-8999-999999999999" }));
+    store.findCompletionState = vi.fn(async () => pendingState({
+      ...task, userId: "99999999-9999-4999-8999-999999999999",
+    }));
     const gateway = { model: "unsafe", complete: vi.fn(async () => ({})) };
     const { service: complete } = service(store, { gateway });
 
@@ -153,6 +185,158 @@ describe("complete due Practice", () => {
     expect(replay).toMatchObject({ attemptId: first.attemptId, masteryEventId: first.masteryEventId, created: false });
     const completionCalls = vi.mocked(store.completeDuePractice).mock.calls;
     expect(completionCalls[0]?.[0].requestKey).toBe(completionCalls[1]?.[0].requestKey);
+  });
+
+  test("replays a completed review from persisted public attempt evidence without resolving or calling a Provider", async () => {
+    const store = repository();
+    store.findCompletionState = vi.fn(async () => ({
+      status: "completed" as const,
+      task,
+      attempt: persistedAttempt,
+    }));
+    store.completeDuePractice = vi.fn(async (input) => {
+      expect(input).toEqual({
+        userId: USER,
+        reviewTaskId: REVIEW,
+        practiceTaskId: TASK,
+        requestKey: expect.stringMatching(/^[a-f0-9]{64}$/),
+        responseChinese: persistedAttempt.responseChinese,
+        assistanceLevel: persistedAttempt.assistanceLevel,
+        passed: persistedAttempt.passed,
+        accuracyScore: persistedAttempt.accuracyScore,
+        accuracyFeedbackEnglish: persistedAttempt.accuracyFeedbackEnglish,
+        naturalnessScore: persistedAttempt.naturalnessScore,
+        naturalnessFeedbackEnglish: persistedAttempt.naturalnessFeedbackEnglish,
+        contextualFitScore: persistedAttempt.contextualFitScore,
+        contextualFitFeedbackEnglish: persistedAttempt.contextualFitFeedbackEnglish,
+        completedAt: persistedAttempt.submittedAt,
+        evaluationPromptVersion: persistedAttempt.evaluationPromptVersion,
+        evaluationModel: persistedAttempt.evaluationModel,
+        evaluationGatewayConfigId: persistedAttempt.evaluationGatewayConfigId,
+        evaluationGatewayRevision: persistedAttempt.evaluationGatewayRevision,
+        evaluationGatewayFingerprint: persistedAttempt.evaluationGatewayFingerprint,
+      });
+      return {
+        reviewTaskId: REVIEW, practiceTaskId: TASK,
+        attemptId: "66666666-6666-4666-8666-666666666666",
+        masteryEventId: "77777777-7777-4777-8777-777777777777",
+        nextReviewTaskId: "88888888-8888-4888-8888-888888888888",
+        priorState: "tried" as const, newState: "reused" as const,
+        nextDueAt: "2026-08-29T12:00:00.000Z", intervalDays: 7, created: false,
+      };
+    });
+    const gateway = {
+      model: "model-that-must-not-run",
+      complete: vi.fn(async () => { throw new Error("Provider must be skipped"); }),
+    };
+    const { service: complete } = service(store, {
+      ci: false,
+      gateway,
+      now: () => "2026-09-01T18:30:00.000Z",
+    });
+
+    await expect(complete.complete(USER, REVIEW, {
+      responseChinese: persistedAttempt.responseChinese,
+      assistanceLevel: persistedAttempt.assistanceLevel,
+    })).resolves.toMatchObject({
+      created: false,
+      evaluation: {
+        passed: true,
+        assistanceLevel: "none",
+        independentUse: true,
+      },
+    });
+    expect(store.resolveActiveGatewayPin).not.toHaveBeenCalled();
+    expect(gateway.complete).not.toHaveBeenCalled();
+    expect(store.completeDuePractice).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    { responseChinese: "换一个回答。", assistanceLevel: "none" as const },
+    { responseChinese: persistedAttempt.responseChinese, assistanceLevel: "hint" as const },
+  ])("fails closed on a changed retry before Provider or RPC: $assistanceLevel", async (input) => {
+    const store = repository();
+    store.findCompletionState = vi.fn(async () => ({
+      status: "completed" as const,
+      task,
+      attempt: persistedAttempt,
+    }));
+    const gateway = { model: "must-not-run", complete: vi.fn(async () => ({})) };
+    const { service: complete } = service(store, { ci: false, gateway });
+
+    await expect(complete.complete(USER, REVIEW, input)).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    expect(store.resolveActiveGatewayPin).not.toHaveBeenCalled();
+    expect(gateway.complete).not.toHaveBeenCalled();
+    expect(store.completeDuePractice).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { status: "cancelled" as const, dueAt: "2026-08-21T12:00:00.000Z" },
+    { status: "pending" as const, dueAt: "2026-08-23T12:00:00.000Z" },
+  ])("rejects an existing $status review that is not eligible before Provider", async ({ status, dueAt }) => {
+    const store = repository();
+    store.findCompletionState = vi.fn(async () => ({
+      status,
+      task: { ...task, dueAt },
+      attempt: null,
+    }));
+    const gateway = { model: "must-not-run", complete: vi.fn(async () => ({})) };
+    const { service: complete } = service(store, { gateway });
+
+    await expect(complete.complete(USER, REVIEW, {
+      responseChinese: "太离谱了。", assistanceLevel: "none",
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(gateway.complete).not.toHaveBeenCalled();
+    expect(store.completeDuePractice).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { priorState: "tried" as const, newState: "tried" as const, intervalDays: 7, nextDueAt: "2026-08-29T12:00:00.000Z" },
+    { priorState: "tried" as const, newState: "owned" as const, intervalDays: 30, nextDueAt: "2026-09-21T12:00:00.000Z" },
+    { priorState: "reused" as const, newState: "tried" as const, intervalDays: 7, nextDueAt: "2026-08-29T12:00:00.000Z" },
+  ])("rejects illegal independent mastery result $priorState -> $newState", async (result) => {
+    const store = repository();
+    const taskForState = { ...task, masteryState: result.priorState };
+    store.findTransferTask = vi.fn(async () => taskForState);
+    store.findCompletionState = vi.fn(async () => pendingState(taskForState));
+    store.completeDuePractice = vi.fn(async () => ({
+      reviewTaskId: REVIEW, practiceTaskId: TASK,
+      attemptId: "66666666-6666-4666-8666-666666666666",
+      masteryEventId: "77777777-7777-4777-8777-777777777777",
+      nextReviewTaskId: "88888888-8888-4888-8888-888888888888",
+      ...result,
+      created: true,
+    }));
+    const { service: complete } = service(store);
+
+    await expect(complete.complete(USER, REVIEW, {
+      responseChinese: "这也太离谱了吧。", assistanceLevel: "none",
+    })).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+  });
+
+  test.each([
+    { masteryState: "tried" as const, newState: "reused" as const, intervalDays: 7, nextDueAt: "2026-08-29T12:00:00.000Z" },
+    { masteryState: "reused" as const, newState: "reused" as const, intervalDays: 7, nextDueAt: "2026-08-29T12:00:00.000Z" },
+    { masteryState: "reused" as const, newState: "owned" as const, intervalDays: 30, nextDueAt: "2026-09-21T12:00:00.000Z" },
+    { masteryState: "owned" as const, newState: "owned" as const, intervalDays: 30, nextDueAt: "2026-09-21T12:00:00.000Z" },
+  ])("accepts legal independent mastery result $masteryState -> $newState", async (result) => {
+    const store = repository();
+    const taskForState = { ...task, masteryState: result.masteryState };
+    store.findTransferTask = vi.fn(async () => taskForState);
+    store.findCompletionState = vi.fn(async () => pendingState(taskForState));
+    store.completeDuePractice = vi.fn(async () => ({
+      reviewTaskId: REVIEW, practiceTaskId: TASK,
+      attemptId: "66666666-6666-4666-8666-666666666666",
+      masteryEventId: "77777777-7777-4777-8777-777777777777",
+      nextReviewTaskId: "88888888-8888-4888-8888-888888888888",
+      priorState: result.masteryState, newState: result.newState,
+      intervalDays: result.intervalDays, nextDueAt: result.nextDueAt, created: true,
+    }));
+    const { service: complete } = service(store);
+
+    await expect(complete.complete(USER, REVIEW, {
+      responseChinese: "这也太离谱了吧。", assistanceLevel: "none",
+    })).resolves.toMatchObject({ newState: result.newState });
   });
 
   test("maps stale, future, and task-graph RPC rejections to a closed generic failure", async () => {

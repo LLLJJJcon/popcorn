@@ -46,7 +46,7 @@ async function runtimeHandlers() {
 export async function GET(request: Request, context: Context): Promise<Response> {
   const requestId = randomUUID();
   try {
-    return (await runtimeHandlers()).transfer(request, context);
+    return await (await runtimeHandlers()).transfer(request, context);
   } catch {
     return Response.json(failure({
       code: "INTERNAL_ERROR", message: "Practice is temporarily unavailable", retryable: true,
@@ -57,7 +57,7 @@ export async function GET(request: Request, context: Context): Promise<Response>
 export async function POST(request: Request, context: Context): Promise<Response> {
   const requestId = randomUUID();
   try {
-    return (await runtimeHandlers()).complete(request, context);
+    return await (await runtimeHandlers()).complete(request, context);
   } catch {
     return Response.json(failure({
       code: "INTERNAL_ERROR", message: "Practice is temporarily unavailable", retryable: true,

@@ -5,7 +5,7 @@ export async function GET(request: Request) {
   const requestId = crypto.randomUUID();
   try {
     const runtime = await createLearningMemoryRuntime();
-    return createLearningMemoryHttpHandlers({
+    return await createLearningMemoryHttpHandlers({
       authenticate: runtime.authenticate,
       repository: runtime.repository,
       now: () => new Date().toISOString(),

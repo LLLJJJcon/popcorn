@@ -31,30 +31,57 @@ export type DuePracticeRpcResult = {
   readonly created: boolean;
 };
 
+export type DuePracticePersistedAttempt = {
+  readonly responseChinese: string;
+  readonly assistanceLevel: "none" | "hint" | "model_answer";
+  readonly passed: boolean;
+  readonly accuracyScore: number;
+  readonly accuracyFeedbackEnglish: string;
+  readonly naturalnessScore: number;
+  readonly naturalnessFeedbackEnglish: string;
+  readonly contextualFitScore: number;
+  readonly contextualFitFeedbackEnglish: string;
+  readonly submittedAt: string;
+  readonly evaluationPromptVersion: string | null;
+  readonly evaluationModel: string | null;
+  readonly evaluationGatewayConfigId: string | null;
+  readonly evaluationGatewayRevision: number | null;
+  readonly evaluationGatewayFingerprint: string | null;
+};
+
+export type DuePracticeCompletionState = {
+  readonly status: "pending" | "completed" | "cancelled";
+  readonly task: DueTransferTask;
+  readonly attempt: DuePracticePersistedAttempt | null;
+};
+
+type DuePracticeRpcInput = {
+  readonly userId: string;
+  readonly reviewTaskId: string;
+  readonly practiceTaskId: string;
+  readonly requestKey: string;
+  readonly responseChinese: string;
+  readonly assistanceLevel: "none" | "hint" | "model_answer";
+  readonly passed: boolean;
+  readonly accuracyScore: number;
+  readonly accuracyFeedbackEnglish: string;
+  readonly naturalnessScore: number;
+  readonly naturalnessFeedbackEnglish: string;
+  readonly contextualFitScore: number;
+  readonly contextualFitFeedbackEnglish: string;
+  readonly completedAt: string;
+  readonly evaluationPromptVersion: string | null;
+  readonly evaluationModel: string | null;
+  readonly evaluationGatewayConfigId: string | null;
+  readonly evaluationGatewayRevision: number | null;
+  readonly evaluationGatewayFingerprint: string | null;
+};
+
 export type DuePracticeCompletionRepository = {
   findTransferTask(userId: string, reviewTaskId: string): Promise<DueTransferTask | null>;
+  findCompletionState(userId: string, reviewTaskId: string): Promise<DuePracticeCompletionState | null>;
   resolveActiveGatewayPin(userId: string): Promise<import("@/server/ai/provider").ModelGatewayPin | null>;
-  completeDuePractice(input: {
-    readonly userId: string;
-    readonly reviewTaskId: string;
-    readonly practiceTaskId: string;
-    readonly requestKey: string;
-    readonly responseChinese: string;
-    readonly assistanceLevel: "none" | "hint" | "model_answer";
-    readonly passed: boolean;
-    readonly accuracyScore: number;
-    readonly accuracyFeedbackEnglish: string;
-    readonly naturalnessScore: number;
-    readonly naturalnessFeedbackEnglish: string;
-    readonly contextualFitScore: number;
-    readonly contextualFitFeedbackEnglish: string;
-    readonly completedAt: string;
-    readonly evaluationPromptVersion: string | null;
-    readonly evaluationModel: string | null;
-    readonly evaluationGatewayConfigId: string | null;
-    readonly evaluationGatewayRevision: number | null;
-    readonly evaluationGatewayFingerprint: string | null;
-  }): Promise<DuePracticeRpcResult>;
+  completeDuePractice(input: DuePracticeRpcInput): Promise<DuePracticeRpcResult>;
 };
 
 const UserIdSchema = z.string().uuid();
@@ -90,6 +117,17 @@ function safeEvaluation(value: unknown): EvaluationResult {
   return parsed.data;
 }
 
+function persistedEvaluation(attempt: DuePracticePersistedAttempt): EvaluationResult {
+  return safeEvaluation({
+    passed: attempt.passed,
+    accuracy: { score: attempt.accuracyScore, englishFeedback: attempt.accuracyFeedbackEnglish },
+    naturalness: { score: attempt.naturalnessScore, englishFeedback: attempt.naturalnessFeedbackEnglish },
+    contextualFit: { score: attempt.contextualFitScore, englishFeedback: attempt.contextualFitFeedbackEnglish },
+    independentUse: attempt.passed && attempt.assistanceLevel === "none",
+    assistanceLevel: attempt.assistanceLevel,
+  });
+}
+
 function expectedSchedule(result: DuePracticeRpcResult, independent: boolean, completedAt: string) {
   if (!independent) return scheduleReview({ kind: "failed_or_heavily_assisted_reuse", now: completedAt });
   if (result.newState === "owned") return scheduleReview({ kind: "owned_maintenance", now: completedAt });
@@ -97,12 +135,18 @@ function expectedSchedule(result: DuePracticeRpcResult, independent: boolean, co
 }
 
 function validateRpcResult(result: DuePracticeRpcResult, task: DueTransferTask, independent: boolean, completedAt: string): void {
+  const legalTransition = independent
+    ? task.masteryState === "tried"
+      ? result.newState === "reused"
+      : task.masteryState === "reused"
+        ? result.newState === "reused" || result.newState === "owned"
+        : result.newState === "owned"
+    : result.newState === task.masteryState;
   if (
     result.reviewTaskId !== task.reviewTaskId || result.practiceTaskId !== task.id ||
     result.priorState !== task.masteryState ||
     !["tried", "reused", "owned"].includes(result.newState) ||
-    (task.masteryState === "owned" && result.newState !== "owned") ||
-    (!independent && result.newState !== task.masteryState)
+    !legalTransition
   ) throw new PracticeError("INTERNAL_ERROR", true);
   const schedule = expectedSchedule(result, independent, completedAt);
   if (result.intervalDays !== schedule.intervalDays || result.nextDueAt !== schedule.dueAt) {
@@ -124,24 +168,56 @@ export function createDuePracticeCompletionService(dependencies: {
       const input = DueInputSchema.safeParse(inputValue);
       if (!userId.success || !reviewTaskId.success || !input.success) throw new PracticeError("VALIDATION_FAILED");
 
-      const task = await dependencies.repository.findTransferTask(userId.data, reviewTaskId.data);
-      if (!task || task.userId !== userId.data || task.reviewTaskId !== reviewTaskId.data) {
+      const requestedAt = dependencies.now();
+      const state = await dependencies.repository.findCompletionState(userId.data, reviewTaskId.data);
+      const task = state?.task;
+      if (!state || !task || task.userId !== userId.data || task.reviewTaskId !== reviewTaskId.data) {
         throw new PracticeError("NOT_FOUND");
       }
 
-      const resolved = await resolvePracticeEgress(userId.data, dependencies);
       let evaluation: EvaluationResult;
-      try {
-        evaluation = safeEvaluation(await resolved.gateway.complete(
-          EVALUATE_PRACTICE_PROMPT_VERSION,
-          buildEvaluatePracticePrompt(taskView(task), input.data.responseChinese),
-        ));
-      } catch (error) {
-        if (error instanceof PracticeError) throw error;
-        throw new PracticeError("PROVIDER_FAILED", true);
+      let completedAt: string;
+      let evaluationPromptVersion: string | null;
+      let evaluationModel: string | null;
+      let evaluationGatewayConfigId: string | null;
+      let evaluationGatewayRevision: number | null;
+      let evaluationGatewayFingerprint: string | null;
+      if (state.status === "completed") {
+        const attempt = state.attempt;
+        if (
+          !attempt ||
+          attempt.responseChinese !== input.data.responseChinese ||
+          attempt.assistanceLevel !== input.data.assistanceLevel
+        ) throw new PracticeError("REVISION_CONFLICT");
+        evaluation = persistedEvaluation(attempt);
+        completedAt = attempt.submittedAt;
+        evaluationPromptVersion = attempt.evaluationPromptVersion;
+        evaluationModel = attempt.evaluationModel;
+        evaluationGatewayConfigId = attempt.evaluationGatewayConfigId;
+        evaluationGatewayRevision = attempt.evaluationGatewayRevision;
+        evaluationGatewayFingerprint = attempt.evaluationGatewayFingerprint;
+      } else {
+        if (state.status !== "pending" || Date.parse(task.dueAt) > Date.parse(requestedAt)) {
+          throw new PracticeError("NOT_FOUND");
+        }
+        const resolved = await resolvePracticeEgress(userId.data, dependencies);
+        try {
+          evaluation = safeEvaluation(await resolved.gateway.complete(
+            EVALUATE_PRACTICE_PROMPT_VERSION,
+            buildEvaluatePracticePrompt(taskView(task), input.data.responseChinese),
+          ));
+        } catch (error) {
+          if (error instanceof PracticeError) throw error;
+          throw new PracticeError("PROVIDER_FAILED", true);
+        }
+        completedAt = requestedAt;
+        evaluationPromptVersion = resolved.pin ? EVALUATE_PRACTICE_PROMPT_VERSION : null;
+        evaluationModel = resolved.pin ? resolved.gateway.model : null;
+        evaluationGatewayConfigId = resolved.pin?.configId ?? null;
+        evaluationGatewayRevision = resolved.pin?.revision ?? null;
+        evaluationGatewayFingerprint = resolved.pin?.fingerprint ?? null;
       }
 
-      const completedAt = dependencies.now();
       const independent = evaluation.passed && input.data.assistanceLevel === "none";
       let completed: DuePracticeRpcResult;
       try {
@@ -153,11 +229,11 @@ export function createDuePracticeCompletionService(dependencies: {
           naturalnessScore: evaluation.naturalness.score, naturalnessFeedbackEnglish: evaluation.naturalness.englishFeedback,
           contextualFitScore: evaluation.contextualFit.score, contextualFitFeedbackEnglish: evaluation.contextualFit.englishFeedback,
           completedAt,
-          evaluationPromptVersion: resolved.pin ? EVALUATE_PRACTICE_PROMPT_VERSION : null,
-          evaluationModel: resolved.pin ? resolved.gateway.model : null,
-          evaluationGatewayConfigId: resolved.pin?.configId ?? null,
-          evaluationGatewayRevision: resolved.pin?.revision ?? null,
-          evaluationGatewayFingerprint: resolved.pin?.fingerprint ?? null,
+          evaluationPromptVersion,
+          evaluationModel,
+          evaluationGatewayConfigId,
+          evaluationGatewayRevision,
+          evaluationGatewayFingerprint,
         });
       } catch {
         throw new PracticeError("INTERNAL_ERROR", true);
@@ -208,6 +284,29 @@ type TransferCreationRepository = {
   ensureTransferTask(userId: string, reviewTaskId: string, now: string): Promise<DueTransferTask>;
 };
 
+const PersistedAttemptRowSchema = z.strictObject({
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  user_expression_id: z.string().uuid(),
+  practice_task_id: z.string().uuid(),
+  response_chinese: TargetChineseTextSchema.max(5_000),
+  assistance_level: AssistanceLevelSchema,
+  passed: z.boolean(),
+  independent_use: z.boolean(),
+  accuracy_score: z.number().int().min(1).max(5),
+  accuracy_feedback_english: z.string(),
+  naturalness_score: z.number().int().min(1).max(5),
+  naturalness_feedback_english: z.string(),
+  contextual_fit_score: z.number().int().min(1).max(5),
+  contextual_fit_feedback_english: z.string(),
+  submitted_at: z.string(),
+  evaluation_prompt_version: z.string().nullable(),
+  evaluation_model: z.string().nullable(),
+  evaluation_gateway_config_id: z.string().uuid().nullable(),
+  evaluation_gateway_revision: z.number().int().nullable(),
+  evaluation_gateway_fingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+});
+
 function transferRecord(row: Database["public"]["Tables"]["practice_tasks"]["Row"], masteryState: MasteryState): DueTransferTask | null {
   if (
     row.kind !== "due_practice" || !row.review_task_id || !row.due_at ||
@@ -237,6 +336,66 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
 
   return {
     findTransferTask,
+    async findCompletionState(userId, reviewTaskId) {
+      const review = await client.from("review_tasks")
+        .select("id,user_id,user_expression_id,mastery_state,status,due_at,completed_attempt_id,completed_at")
+        .eq("user_id", userId).eq("id", reviewTaskId).maybeSingle();
+      if (review.error) throw review.error;
+      if (!review.data || review.data.user_id !== userId) return null;
+      const taskResult = await client.from("practice_tasks").select("*")
+        .eq("user_id", userId).eq("review_task_id", reviewTaskId).maybeSingle();
+      if (taskResult.error) throw taskResult.error;
+      if (
+        !taskResult.data || taskResult.data.user_id !== userId ||
+        taskResult.data.user_expression_id !== review.data.user_expression_id ||
+        taskResult.data.due_at !== review.data.due_at
+      ) return null;
+      const task = transferRecord(taskResult.data, review.data.mastery_state as MasteryState);
+      if (!task || !["pending", "completed", "cancelled"].includes(review.data.status)) return null;
+      if (review.data.status !== "completed") {
+        if (review.data.completed_attempt_id !== null || review.data.completed_at !== null) return null;
+        return { status: review.data.status as "pending" | "cancelled", task, attempt: null };
+      }
+      if (!review.data.completed_attempt_id || !review.data.completed_at) return null;
+      const attemptResult = await client.from("attempts").select([
+        "id", "user_id", "user_expression_id", "practice_task_id", "response_chinese",
+        "assistance_level", "passed", "independent_use", "accuracy_score", "accuracy_feedback_english",
+        "naturalness_score", "naturalness_feedback_english", "contextual_fit_score",
+        "contextual_fit_feedback_english", "submitted_at", "evaluation_prompt_version", "evaluation_model",
+        "evaluation_gateway_config_id", "evaluation_gateway_revision", "evaluation_gateway_fingerprint",
+      ].join(","))
+        .eq("user_id", userId).eq("id", review.data.completed_attempt_id)
+        .eq("practice_task_id", task.id).maybeSingle();
+      if (attemptResult.error) throw attemptResult.error;
+      const attempt = PersistedAttemptRowSchema.safeParse(attemptResult.data);
+      if (
+        !attempt.success || attempt.data.user_id !== userId ||
+        attempt.data.user_expression_id !== task.userExpressionId ||
+        attempt.data.submitted_at !== review.data.completed_at ||
+        attempt.data.independent_use !== (attempt.data.passed && attempt.data.assistance_level === "none")
+      ) return null;
+      return {
+        status: "completed",
+        task,
+        attempt: {
+          responseChinese: attempt.data.response_chinese,
+          assistanceLevel: attempt.data.assistance_level,
+          passed: attempt.data.passed,
+          accuracyScore: attempt.data.accuracy_score,
+          accuracyFeedbackEnglish: attempt.data.accuracy_feedback_english,
+          naturalnessScore: attempt.data.naturalness_score,
+          naturalnessFeedbackEnglish: attempt.data.naturalness_feedback_english,
+          contextualFitScore: attempt.data.contextual_fit_score,
+          contextualFitFeedbackEnglish: attempt.data.contextual_fit_feedback_english,
+          submittedAt: attempt.data.submitted_at,
+          evaluationPromptVersion: attempt.data.evaluation_prompt_version,
+          evaluationModel: attempt.data.evaluation_model,
+          evaluationGatewayConfigId: attempt.data.evaluation_gateway_config_id,
+          evaluationGatewayRevision: attempt.data.evaluation_gateway_revision,
+          evaluationGatewayFingerprint: attempt.data.evaluation_gateway_fingerprint,
+        },
+      };
+    },
     async resolveActiveGatewayPin(userId) {
       const result = await client.rpc("resolve_active_user_model_gateway_pin", { p_user_id: userId });
       if (result.error) throw result.error;

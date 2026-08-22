@@ -25,12 +25,20 @@ function normalized(value: string): string {
 }
 
 function fingerprint(parts: readonly string[]): string {
-  return createHash("sha256").update(parts.join("\u0000"), "utf8").digest("hex");
+  const lengthPrefixed = parts.map((part) => `${Array.from(part).length}:${part}`).join("");
+  return createHash("sha256").update(lengthPrefixed, "utf8").digest("hex");
+}
+
+function dueContext(dueAt: string): string {
+  const due = new Date(dueAt);
+  if (!Number.isFinite(due.valueOf())) throw new TypeError("due time must be valid");
+  const pad = (value: number) => value.toString().padStart(2, "0");
+  return `${due.getUTCFullYear()}年${due.getUTCMonth() + 1}月${due.getUTCDate()}日 ${pad(due.getUTCHours())}:${pad(due.getUTCMinutes())} UTC`;
 }
 
 /** Builds a fixed, answer-free transfer context; it deliberately does not ask a Provider to supply an answer. */
 export function buildDueTransferTask(source: DueTransferSource): DueTransferTask {
-  const promptChinese = `同事说一件很普通的事情竟然要花很多钱。请用“${source.targetExpression}”自然回应。`;
+  const promptChinese = `在${dueContext(source.dueAt)}的休息时间，同事说一件很普通的事情竟然要花很多钱。请用“${source.targetExpression}”自然回应。`;
   if (!source.originalPromptChinese.trim() || normalized(promptChinese) === normalized(source.originalPromptChinese)) {
     throw new TypeError("transfer context must differ from the original context");
   }
