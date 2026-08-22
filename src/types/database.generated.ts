@@ -91,48 +91,54 @@ export type Database = {
         Row: {
           attempt_id: string
           created_at: string
+          deleted_occurrence_id: string | null
           due_at: string
           expression_sense_id: string
           interval_days: number
           mastery_event_id: string
           normalized_expression_text: string
-          occurrence_id: string
+          occurrence_id: string | null
           practice_draft_attempt_id: string
           practice_draft_id: string
           practice_task_id: string
           review_task_id: string
+          source_deleted_at: string | null
           user_expression_id: string
           user_id: string
         }
         Insert: {
           attempt_id: string
           created_at: string
+          deleted_occurrence_id?: string | null
           due_at: string
           expression_sense_id: string
           interval_days: number
           mastery_event_id: string
           normalized_expression_text: string
-          occurrence_id: string
+          occurrence_id?: string | null
           practice_draft_attempt_id: string
           practice_draft_id: string
           practice_task_id: string
           review_task_id: string
+          source_deleted_at?: string | null
           user_expression_id: string
           user_id: string
         }
         Update: {
           attempt_id?: string
           created_at?: string
+          deleted_occurrence_id?: string | null
           due_at?: string
           expression_sense_id?: string
           interval_days?: number
           mastery_event_id?: string
           normalized_expression_text?: string
-          occurrence_id?: string
+          occurrence_id?: string | null
           practice_draft_attempt_id?: string
           practice_draft_id?: string
           practice_task_id?: string
           review_task_id?: string
+          source_deleted_at?: string | null
           user_expression_id?: string
           user_id?: string
         }
@@ -220,6 +226,25 @@ export type Database = {
       normalize_expression_search_text: {
         Args: { p_value: string }
         Returns: string
+      }
+      promote_valid_practice_draft_attempt_source_active: {
+        Args: {
+          p_due_at: string
+          p_interval_days: number
+          p_normalized_expression_text: string
+          p_practice_draft_attempt_id: string
+          p_user_id: string
+        }
+        Returns: {
+          attempt_id: string
+          created: boolean
+          expression_sense_id: string
+          mastery_event_id: string
+          occurrence_id: string
+          practice_task_id: string
+          review_task_id: string
+          user_expression_id: string
+        }[]
       }
     }
     Enums: {
@@ -432,10 +457,11 @@ export type Database = {
           normalized_expression_text: string
           register: string
           saved_item_id: string | null
+          source_deleted_at: string | null
           tone: string
           updated_at: string
           user_id: string
-          video_source_id: string
+          video_source_id: string | null
         }
         Insert: {
           communicative_function: string
@@ -447,10 +473,11 @@ export type Database = {
           normalized_expression_text: string
           register: string
           saved_item_id?: string | null
+          source_deleted_at?: string | null
           tone: string
           updated_at?: string
           user_id: string
-          video_source_id: string
+          video_source_id?: string | null
         }
         Update: {
           communicative_function?: string
@@ -462,10 +489,11 @@ export type Database = {
           normalized_expression_text?: string
           register?: string
           saved_item_id?: string | null
+          source_deleted_at?: string | null
           tone?: string
           updated_at?: string
           user_id?: string
-          video_source_id?: string
+          video_source_id?: string | null
         }
         Relationships: [
           {
@@ -1614,6 +1642,18 @@ export type Database = {
               state: string
             }[]
           }
+      delete_video_source: {
+        Args: {
+          p_mode: string
+          p_now: string
+          p_user_id: string
+          p_video_source_id: string
+        }
+        Returns: {
+          deleted: boolean
+          retained_user_expression_count: number
+        }[]
+      }
       has_user_model_gateway_secret: {
         Args: { p_config_id: string; p_user_id: string }
         Returns: boolean
