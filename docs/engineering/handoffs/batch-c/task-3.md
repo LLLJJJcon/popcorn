@@ -1,5 +1,64 @@
 # Batch C Task 3 handoff — evidence-based Progress
 
+## Review repair 2 — implementation handoff
+
+- Baseline reviewed: `7e977cff6b695ed8f1faeeb026e0c087837dbea8`.
+- Parent candidate before this repair: `f41a01fcff598d2463cdacf94555f8e39f8aa3ee`.
+
+### Review blockers closed
+
+- The typed Supabase adapter now de-duplicates a task returned by both its
+  owner-scoped `id` and `review_task_id` reads, while conflicting records with
+  the same ID still fail closed. The repository still rejects duplicate task
+  records presented by an arbitrary evidence source.
+- A pending, due review counts as due Practice before a task is materialized.
+  When a task is returned, its owner, kind, review link, and expression link
+  must match an included review; orphaned or conflicting task evidence fails.
+- `failed_or_assisted_reuse` now follows CONTRACT-015: the original review is
+  completed with that attempt ID and timestamp, while the separately-created
+  pending next review can have no materialized Practice task. It contributes
+  one attempt and one completion, never independent reuse.
+
+### TDD evidence
+
+RED, before this production repair:
+
+```bash
+CI=true pnpm vitest run tests/integration/progress/progress-summary.test.ts src/features/progress/progress-dashboard.test.tsx
+```
+
+Result: exit 1; exactly the three new cases failed. The adapter/repository
+path rejected a duplicate read of the same task, a taskless pending review was
+rejected, and the real failed/assisted completion graph was rejected because
+the completed old review was incorrectly required to be pending.
+
+GREEN after the minimal repair:
+
+```bash
+CI=true pnpm vitest run tests/integration/progress/progress-summary.test.ts src/features/progress/progress-dashboard.test.tsx
+```
+
+Result: exit 0; 2 files and 22 tests passed. Additional regression coverage
+keeps a malformed materialized pending task and conflicting duplicate source
+records fail-closed.
+
+### Final focused verification
+
+```bash
+CI=true pnpm exec eslint src/server/repositories/progress-repository.ts src/features/progress src/app/api/v1/progress 'src/app/(app)/progress' tests/integration/progress/progress-summary.test.ts
+CI=true pnpm typecheck
+git diff --check
+```
+
+All commands exited 0. No migration, generated type, gateway, root config,
+lockfile, ledger, extension, or app file outside Task 3 was changed.
+
+### Remaining risk / review request
+
+- The 500-row intentional Progress bound remains unchanged.
+- This implementation awaits a new independent read-only review; this handoff
+  is evidence, not approval.
+
 ## Review repair 1 — implementation handoff
 
 - Baseline reviewed: `7e977cff6b695ed8f1faeeb026e0c087837dbea8`.

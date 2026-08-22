@@ -126,6 +126,26 @@ function exactlyOne<T extends { readonly id: string }>(
   return byId;
 }
 
+function deduplicatePracticeTasks(
+  rows: readonly ProgressPracticeTaskRow[],
+): readonly ProgressPracticeTaskRow[] {
+  const byId = new Map<string, ProgressPracticeTaskRow>();
+  for (const row of rows) {
+    const existing = byId.get(row.id);
+    if (!existing) {
+      byId.set(row.id, row);
+      continue;
+    }
+    if (
+      existing.userId !== row.userId ||
+      existing.userExpressionId !== row.userExpressionId ||
+      existing.reviewTaskId !== row.reviewTaskId ||
+      existing.kind !== row.kind
+    ) throw new Error("conflicting practice task evidence");
+  }
+  return [...byId.values()];
+}
+
 function validateEvidenceGraph(input: {
   readonly attempts: readonly ProgressAttemptRow[];
   readonly tasks: readonly ProgressPracticeTaskRow[];
@@ -147,7 +167,11 @@ function validateEvidenceGraph(input: {
       if (task.kind === "due_practice") throw new Error("incomplete practice task evidence");
       continue;
     }
-    if (task.kind !== "due_practice" || tasksByReviewId.has(task.reviewTaskId)) {
+    const review = reviewsById.get(task.reviewTaskId);
+    if (
+      task.kind !== "due_practice" || tasksByReviewId.has(task.reviewTaskId) || !review ||
+      task.userExpressionId !== review.userExpressionId
+    ) {
       throw new Error("incomplete practice task evidence");
     }
     tasksByReviewId.set(task.reviewTaskId, task);
@@ -179,17 +203,19 @@ function validateEvidenceGraph(input: {
     }
 
     const review = task.reviewTaskId ? reviewsById.get(task.reviewTaskId) : undefined;
-    if (!review || review.userExpressionId !== attempt.userExpressionId) {
+    const isCompletedAttempt = review?.status === "completed" &&
+      review.completedAt === attempt.submittedAt && review.completedAttemptId === attempt.id;
+    if (!review || review.userExpressionId !== attempt.userExpressionId || !isCompletedAttempt) {
       throw new Error("incomplete due practice evidence");
     }
 
     const isIndependentPass = attempt.passed && attempt.independentUse && attempt.assistanceLevel === "none";
     if (REUSE_EVIDENCE.has(event.evidenceKind)) {
-      if (!isIndependentPass || review.status !== "completed" || review.completedAttemptId !== attempt.id) {
+      if (!isIndependentPass) {
         throw new Error("invalid independent reuse evidence");
       }
     } else if (event.evidenceKind === "failed_or_assisted_reuse") {
-      if (isIndependentPass || review.status !== "pending") {
+      if (isIndependentPass) {
         throw new Error("invalid assisted reuse evidence");
       }
     } else {
@@ -211,8 +237,11 @@ function validateEvidenceGraph(input: {
   for (const review of input.due) {
     const task = tasksByReviewId.get(review.id);
     if (
-      review.status !== "pending" || review.completedAt || review.completedAttemptId || !task ||
-      review.userExpressionId !== task.userExpressionId
+      review.status !== "pending" || review.completedAt || review.completedAttemptId
+    ) throw new Error("invalid pending review evidence");
+    if (
+      task && (task.kind !== "due_practice" || task.reviewTaskId !== review.id ||
+        review.userExpressionId !== task.userExpressionId)
     ) throw new Error("invalid pending review evidence");
   }
 
@@ -320,13 +349,13 @@ export function createSupabaseProgressEvidenceSource(
           : client.from("practice_tasks").select(select).eq("user_id", userId).in("review_task_id", reviewIds)
             .order("review_task_id", { ascending: true }).order("id", { ascending: true }).limit(limit).then(records),
       ]);
-      return [...byId, ...byReviewId].map((row) => ({
+      return deduplicatePracticeTasks([...byId, ...byReviewId].map((row) => ({
         id: row.id,
         userId: row.user_id,
         userExpressionId: row.user_expression_id,
         reviewTaskId: row.review_task_id,
         kind: row.kind,
-      }));
+      })));
     },
     async listMasteryEvents({ userId, attemptIds, limit }) {
       if (attemptIds.length === 0) return [];

@@ -28,7 +28,7 @@ function evidenceSource(): ProgressEvidenceSource & {
     { id: "use-now", userId: USER, userExpressionId: "tried", reviewTaskId: null, kind: "use_it_now" },
     { id: "due-reuse", userId: USER, userExpressionId: "reused", reviewTaskId: "completed-reuse", kind: "due_practice" },
     { id: "due-owned", userId: USER, userExpressionId: "owned", reviewTaskId: "completed-owned", kind: "due_practice" },
-    { id: "due-assisted", userId: USER, userExpressionId: "reused", reviewTaskId: "due-now", kind: "due_practice" },
+    { id: "due-assisted", userId: USER, userExpressionId: "reused", reviewTaskId: "completed-assisted", kind: "due_practice" },
     { id: "due-before", userId: USER, userExpressionId: "reused", reviewTaskId: "completed-before", kind: "due_practice" },
     { id: "due-next", userId: USER, userExpressionId: "reused", reviewTaskId: "due-future", kind: "due_practice" },
     { id: "other-due", userId: OTHER, userExpressionId: "other-owned", reviewTaskId: "other-due", kind: "due_practice" },
@@ -43,6 +43,7 @@ function evidenceSource(): ProgressEvidenceSource & {
   const reviews = [
     { id: "completed-reuse", userId: USER, userExpressionId: "reused", status: "completed", dueAt: "2026-08-18T07:00:00.000Z", completedAt: "2026-08-18T08:00:00.000Z", completedAttemptId: "reuse" },
     { id: "completed-owned", userId: USER, userExpressionId: "owned", status: "completed", dueAt: "2026-08-19T07:00:00.000Z", completedAt: "2026-08-19T08:00:00.000Z", completedAttemptId: "owned" },
+    { id: "completed-assisted", userId: USER, userExpressionId: "reused", status: "completed", dueAt: "2026-08-19T08:00:00.000Z", completedAt: "2026-08-19T09:00:00.000Z", completedAttemptId: "assisted" },
     { id: "completed-before", userId: USER, userExpressionId: "reused", status: "completed", dueAt: "2026-08-16T07:00:00.000Z", completedAt: "2026-08-16T08:00:00.000Z", completedAttemptId: "before" },
     { id: "due-now", userId: USER, userExpressionId: "reused", status: "pending", dueAt: NOW, completedAt: null, completedAttemptId: null },
     { id: "due-future", userId: USER, userExpressionId: "reused", status: "pending", dueAt: "2026-08-20T12:00:00.000Z", completedAt: null, completedAttemptId: null },
@@ -61,8 +62,9 @@ function evidenceSource(): ProgressEvidenceSource & {
     async listAttempts({ userId, start, end }) {
       return attempts.filter((row) => row.userId === userId && row.submittedAt >= start && row.submittedAt < end);
     },
-    async listPracticeTasks({ userId, ids }) {
-      return practiceTasks.filter((row) => row.userId === userId && ids.includes(row.id));
+    async listPracticeTasks({ userId, ids, reviewIds = [] }) {
+      return practiceTasks.filter((row) =>
+        row.userId === userId && (ids.includes(row.id) || reviewIds.includes(row.reviewTaskId ?? "")));
     },
     async listMasteryEvents({ userId, start, end, attemptIds }) {
       return events.filter((row) => row.userId === userId && row.occurredAt >= start && row.occurredAt < end && row.attemptId !== null && attemptIds.includes(row.attemptId));
@@ -86,7 +88,7 @@ describe("evidence-based Progress summary", () => {
     expect(summary).toEqual({
       week: { startsAt: WEEK_START, endsAt: WEEK_END },
       weeklyAttemptCount: 4,
-      dueCompletionCount: 2,
+      dueCompletionCount: 3,
       independentReuseCount: 2,
       duePracticeCount: 1,
       masteryDistribution: { tried: 1, reused: 1, owned: 1 },
@@ -107,11 +109,23 @@ describe("evidence-based Progress summary", () => {
     const originalEvents = source.listMasteryEvents;
     source.listAttempts = async (query) => [
       ...await originalAttempts(query),
-      { id: "failed-recent", userId: USER, userExpressionId: "reused", practiceTaskId: "due-assisted", passed: false, independentUse: false, assistanceLevel: "model_answer", submittedAt: "2026-08-19T11:00:00.000Z" },
+      { id: "failed-recent", userId: USER, userExpressionId: "reused", practiceTaskId: "due-failed-recent", passed: false, independentUse: false, assistanceLevel: "model_answer", submittedAt: "2026-08-19T11:00:00.000Z" },
     ];
     source.listMasteryEvents = async (query) => [
       ...await originalEvents(query),
       { id: "event-failed-recent", userId: USER, userExpressionId: "reused", attemptId: "failed-recent", evidenceKind: "failed_or_assisted_reuse", occurredAt: "2026-08-19T11:00:00.000Z" },
+    ];
+    const originalCompletions = source.listCompletedReviews;
+    source.listCompletedReviews = async (query) => [
+      ...await originalCompletions(query),
+      { id: "completed-failed-recent", userId: USER, userExpressionId: "reused", status: "completed", dueAt: "2026-08-19T10:00:00.000Z", completedAt: "2026-08-19T11:00:00.000Z", completedAttemptId: "failed-recent" },
+    ];
+    const originalTasks = source.listPracticeTasks;
+    source.listPracticeTasks = async (query) => [
+      ...await originalTasks(query),
+      ...(query.ids.includes("due-failed-recent") || query.reviewIds?.includes("completed-failed-recent")
+        ? [{ id: "due-failed-recent", userId: USER, userExpressionId: "reused", reviewTaskId: "completed-failed-recent", kind: "due_practice" }]
+        : []),
     ];
 
     const summary = await createProgressRepository(source).read(USER, NOW);
@@ -141,6 +155,162 @@ describe("evidence-based Progress summary", () => {
     }));
 
     await expect(createProgressRepository(source).read(USER, NOW)).rejects.toThrow("progress evidence exceeds bound");
+  });
+
+  test("accepts a completed due task once when the Supabase adapter finds it by task and review", async () => {
+    const source = evidenceSource();
+    const adapterRows = [
+      { id: "use-now", user_id: USER, user_expression_id: "tried", review_task_id: null, kind: "use_it_now" },
+      { id: "due-reuse", user_id: USER, user_expression_id: "reused", review_task_id: "completed-reuse", kind: "due_practice" },
+      { id: "due-owned", user_id: USER, user_expression_id: "owned", review_task_id: "completed-owned", kind: "due_practice" },
+      { id: "due-assisted", user_id: USER, user_expression_id: "reused", review_task_id: "completed-assisted", kind: "due_practice" },
+    ];
+    const fakeClient = {
+      from(table: string) {
+        if (table !== "practice_tasks") throw new Error(`unexpected table: ${table}`);
+        let rows = [...adapterRows] as Record<string, unknown>[];
+        const query = {
+          select() { return query; },
+          eq(column: string, value: unknown) {
+            rows = rows.filter((row) => row[column] === value);
+            return query;
+          },
+          in(column: string, values: readonly string[]) {
+            rows = rows.filter((row) => typeof row[column] === "string" && values.includes(row[column]));
+            return query;
+          },
+          order() { return query; },
+          async limit(limit: number) { return { data: rows.slice(0, limit), error: null }; },
+        };
+        return query;
+      },
+    };
+
+    source.listPracticeTasks = createSupabaseProgressEvidenceSource(fakeClient as never).listPracticeTasks;
+
+    await expect(createProgressRepository(source).read(USER, NOW)).resolves.toMatchObject({
+      dueCompletionCount: 3,
+      independentReuseCount: 2,
+    });
+  });
+
+  test("counts a pending due review even before its Practice task materializes", async () => {
+    const source = evidenceSource();
+    source.listAttempts = async () => [];
+    source.listMasteryEvents = async () => [];
+    source.listCompletedReviews = async () => [];
+    source.listDueReviews = async () => [{
+      id: "pending-without-task",
+      userId: USER,
+      userExpressionId: "tried",
+      status: "pending",
+      dueAt: NOW,
+      completedAt: null,
+      completedAttemptId: null,
+    }];
+    source.listPracticeTasks = async () => [];
+    source.listUserExpressions = async () => [{ id: "tried", userId: USER, masteryState: "tried" }];
+
+    await expect(createProgressRepository(source).read(USER, NOW)).resolves.toMatchObject({
+      duePracticeCount: 1,
+    });
+  });
+
+  test("rejects a materialized pending Practice task that does not link to its review", async () => {
+    const source = evidenceSource();
+    source.listAttempts = async () => [];
+    source.listMasteryEvents = async () => [];
+    source.listCompletedReviews = async () => [];
+    source.listDueReviews = async () => [{
+      id: "pending-with-task",
+      userId: USER,
+      userExpressionId: "tried",
+      status: "pending",
+      dueAt: NOW,
+      completedAt: null,
+      completedAttemptId: null,
+    }];
+    source.listPracticeTasks = async () => [{
+      id: "wrong-pending-task",
+      userId: USER,
+      userExpressionId: "tried",
+      reviewTaskId: "another-review",
+      kind: "due_practice",
+    }];
+    source.listUserExpressions = async () => [{ id: "tried", userId: USER, masteryState: "tried" }];
+
+    await expect(createProgressRepository(source).read(USER, NOW)).rejects.toThrow("incomplete practice task evidence");
+  });
+
+  test("rejects conflicting duplicate task records from an evidence source", async () => {
+    const source = evidenceSource();
+    const original = source.listPracticeTasks;
+    source.listPracticeTasks = async (query) => [
+      ...await original(query),
+      { id: "due-reuse", userId: USER, userExpressionId: "reused", reviewTaskId: "conflicting-review", kind: "due_practice" },
+    ];
+
+    await expect(createProgressRepository(source).read(USER, NOW)).rejects.toThrow("duplicate practice task evidence");
+  });
+
+  test("counts failed due Practice completion without calling it independent reuse", async () => {
+    const source = evidenceSource();
+    const completedAt = "2026-08-19T09:00:00.000Z";
+    source.listAttempts = async () => [{
+      id: "failed-due-attempt",
+      userId: USER,
+      userExpressionId: "reused",
+      practiceTaskId: "failed-due-task",
+      passed: false,
+      independentUse: false,
+      assistanceLevel: "hint",
+      submittedAt: completedAt,
+    }];
+    source.listMasteryEvents = async () => [{
+      id: "failed-due-event",
+      userId: USER,
+      userExpressionId: "reused",
+      attemptId: "failed-due-attempt",
+      evidenceKind: "failed_or_assisted_reuse",
+      occurredAt: completedAt,
+    }];
+    source.listCompletedReviews = async () => [{
+      id: "completed-failed-due-review",
+      userId: USER,
+      userExpressionId: "reused",
+      status: "completed",
+      dueAt: "2026-08-19T08:00:00.000Z",
+      completedAt,
+      completedAttemptId: "failed-due-attempt",
+    }];
+    source.listDueReviews = async () => [{
+      id: "next-pending-review",
+      userId: USER,
+      userExpressionId: "reused",
+      status: "pending",
+      dueAt: NOW,
+      completedAt: null,
+      completedAttemptId: null,
+    }];
+    source.listPracticeTasks = async ({ ids, reviewIds = [] }) => {
+      expect(ids).toEqual(["failed-due-task"]);
+      expect(reviewIds).toEqual(["completed-failed-due-review", "next-pending-review"]);
+      return [{
+        id: "failed-due-task",
+        userId: USER,
+        userExpressionId: "reused",
+        reviewTaskId: "completed-failed-due-review",
+        kind: "due_practice",
+      }];
+    };
+    source.listUserExpressions = async () => [{ id: "reused", userId: USER, masteryState: "reused" }];
+
+    await expect(createProgressRepository(source).read(USER, NOW)).resolves.toMatchObject({
+      weeklyAttemptCount: 1,
+      dueCompletionCount: 1,
+      independentReuseCount: 0,
+      duePracticeCount: 1,
+    });
   });
 
   test.each([
