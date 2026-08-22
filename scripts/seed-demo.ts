@@ -52,6 +52,35 @@ const FIXED_AT = DEMO_VIDEO.acquiredAt;
 const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+type DemoSeedErrorCategory =
+  | "invalid_arguments"
+  | "local_configuration"
+  | "account_lookup"
+  | "database_write"
+  | "database_verification";
+
+class DemoSeedCliError extends Error {
+  constructor(readonly category: DemoSeedErrorCategory, message: string) {
+    super(message);
+    this.name = "DemoSeedCliError";
+  }
+}
+
+const CLI_ERROR_LABELS: Readonly<Record<DemoSeedErrorCategory, string>> = {
+  invalid_arguments: "invalid arguments",
+  local_configuration: "local configuration invalid",
+  account_lookup: "account lookup failed",
+  database_write: "database write failed",
+  database_verification: "database verification failed",
+};
+
+export function formatDemoSeedCliError(error: unknown): string {
+  const label = error instanceof DemoSeedCliError
+    ? CLI_ERROR_LABELS[error.category]
+    : "unexpected failure";
+  return `demo:seed failed: ${label}`;
+}
+
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -70,7 +99,7 @@ function at(referenceMillis: number, days: number, minutes = 0): string {
 
 function validateSelector(selector: string): string {
   if (!UUID_PATTERN.test(selector) && !EMAIL_PATTERN.test(selector)) {
-    throw new Error("--user must be an exact email or UUID");
+    throw new DemoSeedCliError("invalid_arguments", "--user must be an exact email or UUID");
   }
   return selector;
 }
@@ -78,7 +107,7 @@ function validateSelector(selector: string): string {
 export function parseCliArguments(argumentsValue: readonly string[]): { readonly userSelector: string } {
   const normalized = argumentsValue[0] === "--" ? argumentsValue.slice(1) : argumentsValue;
   if (normalized.length !== 2 || normalized[0] !== "--user") {
-    throw new Error("Expected arguments: --user <existing email or UUID>");
+    throw new DemoSeedCliError("invalid_arguments", "Expected arguments: --user <existing email or UUID>");
   }
   return { userSelector: validateSelector(normalized[1] ?? "") };
 }
@@ -88,21 +117,23 @@ export function assertLocalSupabaseUrl(value: string): string {
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error("A local Supabase URL is required");
+    throw new DemoSeedCliError("local_configuration", "A local Supabase URL is required");
   }
   const hostname = parsed.hostname.toLowerCase();
   const loopbackV4 = /^127(?:[.]\d{1,3}){3}$/.test(hostname);
   const loopback = hostname === "localhost" || hostname === "[::1]" || hostname === "::1" || loopbackV4;
-  const normalPath = parsed.pathname === "/" || parsed.pathname === "/rest/v1" || parsed.pathname === "/rest/v1/";
+  const normalPath = parsed.pathname === "/";
+  const exactOrigin = value === parsed.origin || value === `${parsed.origin}/`;
   if (
     !["http:", "https:"].includes(parsed.protocol)
     || !loopback
     || !normalPath
+    || !exactOrigin
     || parsed.username !== ""
     || parsed.password !== ""
     || parsed.search !== ""
     || parsed.hash !== ""
-  ) throw new Error("A local Supabase URL is required");
+  ) throw new DemoSeedCliError("local_configuration", "A local Supabase URL is required");
   return value;
 }
 
@@ -146,6 +177,7 @@ function practiceRow(input: {
   expression: string;
   sequence: number;
   dueAt: string | null;
+  createdAt: string;
   reviewId?: string;
 }): DemoSeedRow {
   const situations = [
@@ -166,7 +198,7 @@ function practiceRow(input: {
     goal_english: "Use the target expression independently in a different context.",
     due_at: input.dueAt,
     review_task_id: input.reviewId ?? null,
-    created_at: at(Date.parse(FIXED_AT), input.sequence + 1),
+    created_at: input.createdAt,
     activation_prompt_version: null,
     activation_model: null,
     activation_gateway_config_id: null,
@@ -176,9 +208,19 @@ function practiceRow(input: {
 }
 
 export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSeedPlan {
-  if (!UUID_PATTERN.test(ownerId)) throw new Error("selected account has an invalid UUID");
+  if (!UUID_PATTERN.test(ownerId)) {
+    throw new DemoSeedCliError("account_lookup", "selected account has an invalid UUID");
+  }
   const referenceMillis = Date.parse(referenceNow);
-  if (!Number.isFinite(referenceMillis)) throw new Error("reference clock must be an ISO timestamp");
+  if (!Number.isFinite(referenceMillis)) {
+    throw new DemoSeedCliError("invalid_arguments", "reference clock must be an ISO timestamp");
+  }
+  const referenceDate = new Date(referenceMillis);
+  const referenceDayMillis = Date.UTC(
+    referenceDate.getUTCFullYear(),
+    referenceDate.getUTCMonth(),
+    referenceDate.getUTCDate(),
+  );
 
   const id = (name: string) => fixtureUuid(ownerId, name);
   const sourceId = id("source");
@@ -248,7 +290,7 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
   );
 
   const states = ["tried", "reused", "owned"] as const;
-  const originalDates = ["2026-08-17T09:00:00.000Z", "2026-08-17T10:00:00.000Z", "2026-08-17T11:00:00.000Z"];
+  const originalDayOffsets = [-1, -2, -10] as const;
   const completedReviewPlaceholders: DemoSeedRow[] = [];
   for (const [index, state] of states.entries()) {
     const candidate = candidates[index];
@@ -276,26 +318,30 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
 
     const originalTaskId = id(`task:${state}:original`);
     const originalAttemptId = id(`attempt:${state}:original`);
+    const originalCompletedAt = at(referenceDayMillis, originalDayOffsets[index]);
     tables.practice_tasks.push(practiceRow({
       ownerId, id: originalTaskId, expressionId, expression: candidate.expression,
       sequence: index * 3, dueAt: null,
+      createdAt: at(Date.parse(originalCompletedAt), 0, -5),
     }));
     tables.attempts.push(attemptRow({
       ownerId, id: originalAttemptId, taskId: originalTaskId, expressionId,
       response: index === 0 ? "这个安排听起来挺靠谱的。" : index === 1
         ? "学习新东西要慢慢来。" : "这么高的票价太离谱了。",
-      submittedAt: originalDates[index],
+      submittedAt: originalCompletedAt,
     }));
     tables.mastery_events.push({
       id: id(`event:${state}:original`), user_id: ownerId, user_expression_id: expressionId,
       attempt_id: originalAttemptId, prior_state: null, new_state: "tried",
-      evidence_kind: "valid_original_attempt", occurred_at: originalDates[index], created_at: originalDates[index],
+      evidence_kind: "valid_original_attempt", occurred_at: originalCompletedAt, created_at: originalCompletedAt,
     });
 
+    let precedingEvidenceAt = originalCompletedAt;
     for (let transfer = 1; transfer <= index; transfer += 1) {
       const reviewId = id(`review:${state}:completed:${transfer}`);
-      const dueAt = at(Date.parse(FIXED_AT), 2 + transfer + index);
-      const completedAt = at(Date.parse(FIXED_AT), 2 + transfer + index, 5);
+      const intervalDays = transfer === 1 ? 1 : 7;
+      const dueAt = at(Date.parse(precedingEvidenceAt), intervalDays);
+      const completedAt = at(Date.parse(dueAt), 0, 5);
       const dueTaskId = id(`task:${state}:due:${transfer}`);
       const dueAttemptId = id(`attempt:${state}:due:${transfer}`);
       const priorState = transfer === 1 ? "tried" : "reused";
@@ -303,18 +349,18 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
       const completedReview: DemoSeedRow = {
         id: reviewId, user_id: ownerId, user_expression_id: expressionId,
         mastery_state: priorState, status: "completed", due_at: dueAt,
-        interval_days: transfer === 1 ? 1 : 7, consecutive_successes: transfer - 1,
+        interval_days: intervalDays, consecutive_successes: transfer - 1,
         completed_attempt_id: dueAttemptId, completed_at: completedAt,
-        created_at: FIXED_AT, updated_at: completedAt,
+        created_at: precedingEvidenceAt, updated_at: completedAt,
       };
       completedReviewPlaceholders.push({
         ...completedReview, status: "pending", completed_attempt_id: null, completed_at: null,
-        updated_at: FIXED_AT,
+        updated_at: precedingEvidenceAt,
       });
       tables.review_tasks.push(completedReview);
       tables.practice_tasks.push(practiceRow({
         ownerId, id: dueTaskId, expressionId, expression: candidate.expression,
-        sequence: index * 3 + transfer, dueAt, reviewId,
+        sequence: index * 3 + transfer, dueAt, reviewId, createdAt: dueAt,
       }));
       tables.attempts.push(attemptRow({
         ownerId, id: dueAttemptId, taskId: dueTaskId, expressionId,
@@ -327,17 +373,17 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
         evidence_kind: transfer === 1 ? "successful_independent_transfer" : "owned_threshold_met",
         occurred_at: completedAt, created_at: completedAt,
       });
+      precedingEvidenceAt = completedAt;
     }
 
-    const dueNow = state === "tried";
     const intervalDays = state === "owned" ? 30 : state === "reused" ? 7 : 1;
     tables.review_tasks.push({
       id: id(`review:${state}:pending`), user_id: ownerId, user_expression_id: expressionId,
       mastery_state: state, status: "pending",
-      due_at: dueNow ? at(referenceMillis, 0, -1) : at(referenceMillis, intervalDays),
+      due_at: at(Date.parse(precedingEvidenceAt), intervalDays),
       interval_days: intervalDays, consecutive_successes: index,
       completed_attempt_id: null, completed_at: null,
-      created_at: FIXED_AT, updated_at: FIXED_AT,
+      created_at: precedingEvidenceAt, updated_at: precedingEvidenceAt,
     });
   }
 
@@ -346,7 +392,9 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
 
 async function write(repository: DemoSeedRepository, ownerId: string, table: DemoTable, rows: readonly DemoSeedRow[], insertOnly = false) {
   if (rows.length === 0) return;
-  if (rows.some((row) => row.user_id !== ownerId)) throw new Error("demo fixture owner mismatch");
+  if (rows.some((row) => row.user_id !== ownerId)) {
+    throw new DemoSeedCliError("database_write", "demo fixture owner mismatch");
+  }
   await repository.writeOwned({ ownerId, table, rows, insertOnly });
 }
 
@@ -362,10 +410,12 @@ export async function seedDemo(input: {
 }> {
   const selector = validateSelector(input.userSelector);
   const accounts = await input.repository.findAccounts(selector);
-  if (accounts.length !== 1) throw new Error("Expected exactly one existing local account for --user");
+  if (accounts.length !== 1) {
+    throw new DemoSeedCliError("account_lookup", "Expected exactly one existing local account for --user");
+  }
   const account = accounts[0];
   if (account.id !== selector && account.email !== selector) {
-    throw new Error("Expected exactly one existing local account for --user");
+    throw new DemoSeedCliError("account_lookup", "Expected exactly one existing local account for --user");
   }
   const plan = buildDemoSeedPlan(account.id, input.referenceNow);
   const originalTaskIds = new Set(plan.tables.practice_tasks.filter((row) => row.kind === "use_it_now").map((row) => row.id));
@@ -386,7 +436,7 @@ export async function seedDemo(input: {
     const dueAttempt = dueTask && plan.tables.attempts.find((row) => row.practice_task_id === dueTask.id);
     const dueEvent = dueAttempt && plan.tables.mastery_events.find((row) => row.attempt_id === dueAttempt.id);
     if (!finalReview || !dueTask || !dueAttempt || !dueEvent) {
-      throw new Error("Demo completed review graph is incomplete");
+      throw new DemoSeedCliError("database_verification", "Demo completed review graph is incomplete");
     }
     await write(input.repository, account.id, "review_tasks", [placeholder], true);
     await write(input.repository, account.id, "practice_tasks", [dueTask]);
@@ -402,7 +452,7 @@ export async function seedDemo(input: {
     const expectedIds = plan.tables[table].map((row) => row.id).toSorted();
     const verified = await input.repository.readOwned({ ownerId: account.id, table, ids: expectedIds });
     if (verified.length !== expectedIds.length || verified.some((row) => row.user_id !== account.id)) {
-      throw new Error(`Demo fixture verification failed for ${table}`);
+      throw new DemoSeedCliError("database_verification", `Demo fixture verification failed for ${table}`);
     }
     ids[table] = expectedIds;
     counts[table] = verified.length;
@@ -430,33 +480,44 @@ export function createSupabaseDemoSeedRepository(
     async findAccounts(selector) {
       if (UUID_PATTERN.test(selector)) {
         const result = await client.auth.admin.getUserById(selector);
-        if (result.error || !result.data.user?.email) return [];
+        if (result.error) {
+          throw new DemoSeedCliError("account_lookup", "Could not look up the selected local account");
+        }
+        if (!result.data.user?.email) return [];
         return [{ id: result.data.user.id, email: result.data.user.email }];
       }
       const matches: DemoAccount[] = [];
       for (let page = 1; page <= 100; page += 1) {
         const result = await client.auth.admin.listUsers({ page, perPage: 100 });
-        if (result.error) throw new Error("Could not look up the selected local account");
+        if (result.error) {
+          throw new DemoSeedCliError("account_lookup", "Could not look up the selected local account");
+        }
         for (const user of result.data.users) {
           if (user.email === selector) matches.push({ id: user.id, email: user.email });
         }
         if (result.data.users.length < 100) return matches;
       }
-      throw new Error("Local account lookup exceeded its bounded limit");
+      throw new DemoSeedCliError("account_lookup", "Local account lookup exceeded its bounded limit");
     },
     async writeOwned({ ownerId, table, rows, insertOnly = false }) {
-      if (rows.some((row) => row.user_id !== ownerId)) throw new Error("demo fixture owner mismatch");
+      if (rows.some((row) => row.user_id !== ownerId)) {
+        throw new DemoSeedCliError("database_write", "demo fixture owner mismatch");
+      }
       const result = await db.from(table).upsert(rows, {
         onConflict: "id", ignoreDuplicates: insertOnly,
       }).select("id,user_id").eq("user_id", ownerId);
-      if (result.error) throw new Error(`Could not write demo ${table}: ${result.error.message ?? "database error"}`);
+      if (result.error) {
+        throw new DemoSeedCliError("database_write", "Could not write demo fixture rows");
+      }
       if (!insertOnly && (result.data ?? []).some((row) => (row as DemoSeedRow).user_id !== ownerId)) {
-        throw new Error(`Demo owner verification failed for ${table}`);
+        throw new DemoSeedCliError("database_verification", `Demo owner verification failed for ${table}`);
       }
     },
     async readOwned({ ownerId, table, ids }) {
       const result = await db.from(table).select("id,user_id").eq("user_id", ownerId).in("id", ids);
-      if (result.error) throw new Error(`Could not verify demo ${table}: ${result.error.message ?? "database error"}`);
+      if (result.error) {
+        throw new DemoSeedCliError("database_verification", "Could not verify demo fixture rows");
+      }
       return (result.data ?? []) as DemoSeedRow[];
     },
   };
@@ -466,7 +527,12 @@ async function runCli(): Promise<void> {
   const { userSelector } = parseCliArguments(process.argv.slice(2));
   const url = assertLocalSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required in the server environment");
+  if (!serviceRoleKey) {
+    throw new DemoSeedCliError(
+      "local_configuration",
+      "SUPABASE_SERVICE_ROLE_KEY is required in the server environment",
+    );
+  }
   const client = createClient<Database>(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -481,8 +547,7 @@ async function runCli(): Promise<void> {
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
 if (invokedPath === import.meta.url) {
   runCli().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : "Demo seed failed";
-    process.stderr.write(`demo:seed failed: ${message}\n`);
+    process.stderr.write(`${formatDemoSeedCliError(error)}\n`);
     process.exitCode = 1;
   });
 }

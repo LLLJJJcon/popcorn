@@ -1,6 +1,8 @@
 import {
   assertLocalSupabaseUrl,
   buildDemoSeedPlan,
+  createSupabaseDemoSeedRepository,
+  formatDemoSeedCliError,
   parseCliArguments,
   seedDemo,
   type DemoAccount,
@@ -174,6 +176,96 @@ describe("deterministic classroom demo seed", () => {
     )).toBe(true);
   });
 
+  it("derives every task and review timestamp from its preceding accepted evidence", () => {
+    const plan = buildDemoSeedPlan(OWNER_A, REFERENCE_NOW);
+    expect(buildDemoSeedPlan(OWNER_A, "2026-08-23T23:59:59.999Z")).toEqual(plan);
+    const tasks = rowsFor(plan, "practice_tasks");
+    const attempts = rowsFor(plan, "attempts");
+    const events = rowsFor(plan, "mastery_events");
+    const reviews = rowsFor(plan, "review_tasks");
+    const expressions = rowsFor(plan, "user_expressions");
+
+    for (const attempt of attempts) {
+      const task = tasks.find((candidate) => candidate.id === attempt.practice_task_id);
+      expect(task, `task for attempt ${attempt.id}`).toBeDefined();
+      expect(Date.parse(String(task?.created_at))).toBeLessThanOrEqual(
+        Date.parse(String(attempt.submitted_at)),
+      );
+    }
+
+    const expectedByState = {
+      tried: {
+        original: "2026-08-22T00:00:00.000Z",
+        reviews: [
+          { status: "pending", due: "2026-08-23T00:00:00.000Z", created: "2026-08-22T00:00:00.000Z" },
+        ],
+      },
+      reused: {
+        original: "2026-08-21T00:00:00.000Z",
+        reviews: [
+          { status: "completed", due: "2026-08-22T00:00:00.000Z", created: "2026-08-21T00:00:00.000Z", completed: "2026-08-22T00:05:00.000Z" },
+          { status: "pending", due: "2026-08-29T00:05:00.000Z", created: "2026-08-22T00:05:00.000Z" },
+        ],
+      },
+      owned: {
+        original: "2026-08-13T00:00:00.000Z",
+        reviews: [
+          { status: "completed", due: "2026-08-14T00:00:00.000Z", created: "2026-08-13T00:00:00.000Z", completed: "2026-08-14T00:05:00.000Z" },
+          { status: "completed", due: "2026-08-21T00:05:00.000Z", created: "2026-08-14T00:05:00.000Z", completed: "2026-08-21T00:10:00.000Z" },
+          { status: "pending", due: "2026-09-20T00:10:00.000Z", created: "2026-08-21T00:10:00.000Z" },
+        ],
+      },
+    } as const;
+
+    for (const expression of expressions) {
+      const state = expression.mastery_state as keyof typeof expectedByState;
+      const expected = expectedByState[state];
+      const expressionAttempts = attempts.filter((row) => row.user_expression_id === expression.id);
+      const originalAttempt = expressionAttempts.find((attempt) =>
+        tasks.find((task) => task.id === attempt.practice_task_id)?.kind === "use_it_now",
+      );
+      expect(originalAttempt?.submitted_at).toBe(expected.original);
+
+      const expressionReviews = reviews
+        .filter((review) => review.user_expression_id === expression.id)
+        .toSorted((left, right) => String(left.due_at).localeCompare(String(right.due_at)));
+      expect(expressionReviews).toHaveLength(expected.reviews.length);
+      for (const [index, review] of expressionReviews.entries()) {
+        const expectedReview = expected.reviews[index];
+        expect(review).toMatchObject({
+          status: expectedReview.status,
+          due_at: expectedReview.due,
+          created_at: expectedReview.created,
+          updated_at: "completed" in expectedReview ? expectedReview.completed : expectedReview.created,
+        });
+        if (expectedReview.status === "completed") {
+          expect(review.completed_at).toBe(expectedReview.completed);
+          const task = tasks.find((candidate) => candidate.review_task_id === review.id);
+          const attempt = attempts.find((candidate) => candidate.id === review.completed_attempt_id);
+          const event = events.find((candidate) => candidate.attempt_id === attempt?.id);
+          expect(task).toMatchObject({ due_at: review.due_at });
+          expect(attempt).toMatchObject({
+            practice_task_id: task?.id,
+            submitted_at: review.completed_at,
+          });
+          expect(event).toMatchObject({
+            user_expression_id: expression.id,
+            attempt_id: attempt?.id,
+            occurred_at: review.completed_at,
+          });
+          expect(Date.parse(String(review.due_at))).toBeLessThanOrEqual(
+            Date.parse(String(review.completed_at)),
+          );
+        }
+      }
+    }
+
+    expect(reviews.filter((row) => row.status === "pending" && row.due_at === "2026-08-23T00:00:00.000Z"))
+      .toHaveLength(1);
+    expect(reviews.filter((row) => row.status === "pending" && String(row.due_at) > "2026-08-23T23:59:59.999Z"))
+      .toHaveLength(2);
+  });
+
   it("keeps cached fixture content free of credentials and Provider transport data", () => {
     const serialized = JSON.stringify(artifacts);
     expect(serialized).not.toMatch(
@@ -212,7 +304,7 @@ describe("deterministic classroom demo seed", () => {
 
   it.each([
     "http://localhost:54321",
-    "https://localhost/rest/v1",
+    "https://localhost",
     "http://127.12.4.8:54321",
     "http://[::1]:54321",
   ])("accepts loopback Supabase URL %s", (url) => {
@@ -225,9 +317,70 @@ describe("deterministic classroom demo seed", () => {
     "http://user:pass@localhost:54321",
     "http://localhost:54321?secret=yes",
     "http://localhost:54321/#fragment",
+    "http://localhost:54321/rest/v1",
+    "http://localhost:54321/rest/v1/",
+    "http://localhost:54321/auth/v1",
+    "http://localhost:54321/auth/v1/",
+    "http://localhost:54321/arbitrary",
+    "http://localhost:54321/arbitrary/",
+    "http://localhost:54321/.",
+    "http://localhost:54321/rest/../",
     "not-a-url",
   ])("rejects non-local or malformed Supabase URL %s", (url) => {
     expect(() => assertLocalSupabaseUrl(url)).toThrow(/local Supabase URL/i);
+  });
+
+  it("formats dependency failures as a fixed bounded CLI category", () => {
+    const leakedServiceKey = "service-role-secret-value";
+    const raw = new Error(`${leakedServiceKey} SQL detail: ${"x".repeat(10_000)}`);
+    const formatted = formatDemoSeedCliError(raw);
+
+    expect(formatted).toBe("demo:seed failed: unexpected failure");
+    expect(formatted.length).toBeLessThanOrEqual(64);
+    expect(formatted).not.toContain(leakedServiceKey);
+    expect(formatted).not.toMatch(/SQL detail|x{20}/);
+  });
+
+  it("maps account, database write, and verification failures to fixed CLI categories", async () => {
+    const rawSecret = `service-role-secret SQL detail ${"z".repeat(1_000)}`;
+    const queryResult = { data: null, error: { message: rawSecret } };
+    const fakeClient = {
+      auth: {
+        admin: {
+          getUserById: vi.fn(async () => ({ data: { user: null }, error: { message: rawSecret } })),
+          listUsers: vi.fn(async () => ({ data: { users: [] }, error: { message: rawSecret } })),
+        },
+      },
+      from: vi.fn(() => ({
+        upsert: vi.fn(() => ({
+          select: vi.fn(() => ({ eq: vi.fn(async () => queryResult) })),
+        })),
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({ in: vi.fn(async () => queryResult) })),
+        })),
+      })),
+    };
+    const repository = createSupabaseDemoSeedRepository(fakeClient as never);
+    for (const operation of [
+      () => repository.findAccounts(OWNER_A),
+      () => repository.findAccounts("owner@example.com"),
+      () => repository.writeOwned({
+        ownerId: OWNER_A,
+        table: "saved_items",
+        rows: [{ id: "20000000-0000-4000-8000-000000000001", user_id: OWNER_A }],
+      }),
+      () => repository.readOwned({
+        ownerId: OWNER_A,
+        table: "saved_items",
+        ids: ["20000000-0000-4000-8000-000000000001"],
+      }),
+    ]) {
+      const error = await operation().catch((caught: unknown) => caught);
+      const formatted = formatDemoSeedCliError(error);
+      expect(formatted).toMatch(/^demo:seed failed: (account lookup|database write|database verification) failed$/);
+      expect(formatted).not.toContain(rawSecret);
+      expect(formatted.length).toBeLessThanOrEqual(64);
+    }
   });
 
   it("requires exactly one existing email or UUID account", async () => {
