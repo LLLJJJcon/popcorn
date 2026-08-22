@@ -1,5 +1,74 @@
 # Batch C Task 3 handoff — evidence-based Progress
 
+## Review repair 1 — implementation handoff
+
+- Baseline reviewed: `7e977cff6b695ed8f1faeeb026e0c087837dbea8`.
+- Verified implementation commit: `e697933d9fc42640cb288aa5f1ec043245ff7c9a` (`fix: harden Progress evidence reads`).
+- Scope: only `src/server/repositories/progress-repository.ts` changed in the implementation commit; this handoff records the evidence separately.
+
+### Review blockers closed
+
+- The product evidence bound is now 500 and each owner-scoped, deterministically
+  ordered query requests 501 rows. A 501-row result fails closed before any
+  metric is returned, avoiding PostgREST's 1,000-row transport ceiling.
+- `createSupabaseProgressEvidenceSource` now calls `SupabaseClient<Database>`
+  directly. It uses generated table and column types throughout; the former
+  `unknown`/string-query-builder cast and untyped record parsing are removed.
+- The repository fetches all referenced attempt tasks, task rows associated
+  with included reviews, and all mastery events associated with weekly
+  attempts. It validates one exact owner-consistent attempt/task/event/review
+  graph before classification: missing, wrong-kind, wrong-link, unexpected,
+  duplicate, and cross-owner evidence fail closed.
+- The Progress HTTP handler catches every repository exception and returns the
+  frozen retryable `INTERNAL_ERROR` response with the request ID and
+  `Cache-Control: no-store`; database/provider details never reach the body.
+
+### TDD evidence
+
+RED, before production repair:
+
+```bash
+CI=true pnpm vitest run tests/integration/progress/progress-summary.test.ts src/features/progress/progress-dashboard.test.tsx
+```
+
+Result: exit 1; 9 of 17 tests failed. Failures demonstrated the silent-bound
+path, incomplete task/event graph acceptance, filtered task adapter result,
+and an uncaught repository error containing `database provider secret`.
+
+GREEN, after the repair:
+
+```bash
+CI=true pnpm vitest run tests/integration/progress/progress-summary.test.ts src/features/progress/progress-dashboard.test.tsx
+```
+
+Result: exit 0; 2 files and 17 tests passed.
+
+### Final focused verification
+
+```bash
+CI=true pnpm vitest run tests/integration/progress/progress-summary.test.ts src/features/progress/progress-dashboard.test.tsx
+CI=true pnpm exec eslint src/server/repositories/progress-repository.ts src/features/progress src/app/api/v1/progress 'src/app/(app)/progress' tests/integration/progress/progress-summary.test.ts
+CI=true ./node_modules/.bin/tsc --noEmit
+git diff --check
+```
+
+All commands exited 0. Baseline-to-HEAD and working-tree allowlist review
+contained only Task 3 repository, Progress feature/route/page, focused tests,
+and Task 3 brief/handoff files; no migration, generated type, gateway, root
+configuration, lockfile, ledger, extension, or integration-worktree change
+was made.
+
+### Remaining risk / review request
+
+- A user with more than 500 rows in any queried Progress evidence slice now
+  receives the generic retryable failure rather than a partial metric. A
+  controller-owned paginated or aggregated design can replace this bounded
+  release behavior later.
+- Graph validation intentionally treats inconsistent persisted evidence as
+  unavailable Progress. No DB repair is attempted in this task.
+- Independent review is still required; this handoff is evidence, not a
+  self-review or pass claim.
+
 ## WIP checkpoint — review repair 1
 
 - Checkpoint stage: repair tests drafted only; production repair has not started.
