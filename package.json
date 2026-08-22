@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "demo:seed": "tsx scripts/seed-demo.ts",
     "extension:local": "node scripts/build-local-extension.mjs",
     "extension:package": "bash scripts/package-extension.sh",
     "worker:local": "node scripts/process-local-jobs.mjs",
@@ -47,6 +48,7 @@
     "jsdom": "^28.1.0",
     "supabase": "^2.114.0",
     "tailwindcss": "^4",
+    "tsx": "4.23.12",
     "typescript": "^5",
     "vitest": "^4.1.10"
   },
