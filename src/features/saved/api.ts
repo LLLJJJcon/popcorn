@@ -9,6 +9,10 @@ import {
   type WebSessionResult,
 } from "@/server/auth/web-session";
 import { getModelGatewaySettingsEnv } from "@/server/env";
+import {
+  createSourceDeletionPlanner,
+  createSupabaseSourceDeletionRepository,
+} from "@/server/domain/plan-source-deletion";
 import type { Database, Json } from "@/types/database.generated";
 
 type SourceRow = {
@@ -516,9 +520,12 @@ export async function createSavedRuntime() {
     environment.SUPABASE_SERVICE_ROLE_KEY,
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
+  const deletionRepository = createSupabaseSourceDeletionRepository(client);
   return {
     authenticate,
     service: createSavedLibraryService(createSavedLibraryRepository(client)),
+    deletionRepository,
+    deletionPlanner: createSourceDeletionPlanner(deletionRepository),
     appUrl: environment.APP_URL,
   };
 }

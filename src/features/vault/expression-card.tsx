@@ -12,12 +12,16 @@ export function ExpressionCard({ card }: { readonly card: ExpressionCardView }) 
         <dt>Communicative function</dt><dd>{card.communicativeFunction}</dd>
         <dt>Register</dt><dd>{card.register}</dd>
       </dl>
-      <section>
-        <h3>Original occurrence</h3>
-        <blockquote lang="zh-CN">{card.occurrence.evidenceText}</blockquote>
-        <p>{card.occurrence.startSeconds}s–{card.occurrence.endSeconds}s</p>
-        <a href={card.occurrence.youtubeUrl}>Watch source on YouTube</a>
-      </section>
+      {card.sourceDeleted ? (
+        <section aria-label="Original occurrence"><h3>Original occurrence</h3><p>Source deleted</p></section>
+      ) : card.occurrence ? (
+        <section>
+          <h3>Original occurrence</h3>
+          <blockquote lang="zh-CN">{card.occurrence.evidenceText}</blockquote>
+          <p>{card.occurrence.startSeconds}s–{card.occurrence.endSeconds}s</p>
+          <a href={card.occurrence.youtubeUrl}>Watch source on YouTube</a>
+        </section>
+      ) : null}
       <section>
         <h3>Attempt history</h3>
         {card.attempts.map((attempt) => (

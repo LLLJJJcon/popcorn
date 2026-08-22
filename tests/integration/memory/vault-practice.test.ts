@@ -30,6 +30,7 @@ const card: ExpressionCardView = {
   communicativeFunction: "Reacting critically.",
   register: "Informal spoken Mandarin.",
   masteryState: "tried",
+  sourceDeleted: false,
   occurrence: {
     evidenceText: "这个价格也太离谱了吧",
     segmentIds: ["segment-1"],
@@ -50,6 +51,7 @@ const card: ExpressionCardView = {
     submittedAt: NOW,
   }],
 };
+const activeOccurrence = card.occurrence!;
 
 const due: DuePracticeView = {
   reviewTaskId: "55555555-5555-4555-8555-555555555555",
@@ -102,7 +104,7 @@ function expressionRow(id: string, senseId: string) {
   return { id, user_id: USER, expression_sense_id: senseId, mastery_state: "tried", created_at: NOW };
 }
 
-function senseRow(id: string, expression: string, meaning: string) {
+function senseRow(id: string, expression: string, meaning: string, sourceDeletedAt: string | null = null) {
   return {
     id,
     user_id: USER,
@@ -114,6 +116,7 @@ function senseRow(id: string, expression: string, meaning: string) {
     tone: "Neutral.",
     communicative_function: "Reacting.",
     register: "Spoken Mandarin.",
+    source_deleted_at: sourceDeletedAt,
   };
 }
 
@@ -140,25 +143,26 @@ describe("Vault and due Practice boundaries", () => {
         normalized_expression_text: card.expression, english_meaning: card.englishMeaning,
         english_explanation: card.englishExplanation, tone: card.tone,
         communicative_function: card.communicativeFunction, register: card.register,
+        source_deleted_at: null,
       }] },
       { table: "expression_occurrences", data: [{
         id: OTHER, user_id: USER, video_source_id: USER, expression_sense_id: OTHER,
-        evidence_text: card.occurrence.evidenceText, segment_ids: ["segment-1"],
+        evidence_text: activeOccurrence.evidenceText, segment_ids: ["segment-1"],
         start_seconds: 40, end_seconds: 43, created_at: NOW,
       }] },
       { table: "video_sources", data: [{
         id: USER, user_id: USER, canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       }] },
-      { table: "practice_draft_attempts", data: [
+      { table: "attempts", data: [
         {
-          id: card.attempts[0]!.id, user_id: USER, future_user_expression_id: EXPRESSION,
+          id: card.attempts[0]!.id, user_id: USER, user_expression_id: EXPRESSION,
           response_chinese: card.attempts[0]!.responseChinese, passed: true,
           accuracy_score: 5, accuracy_feedback_english: "Accurate.", naturalness_score: 4,
           naturalness_feedback_english: "Natural.", contextual_fit_score: 5,
           contextual_fit_feedback_english: "Fits.", submitted_at: NOW,
         },
         {
-          id: OTHER, user_id: USER, future_user_expression_id: EXPRESSION,
+          id: OTHER, user_id: USER, user_expression_id: EXPRESSION,
           response_chinese: "真的太离谱了。", passed: true,
           accuracy_score: 5, accuracy_feedback_english: "Accurate.", naturalness_score: 5,
           naturalness_feedback_english: "Natural.", contextual_fit_score: 5,
@@ -176,8 +180,8 @@ describe("Vault and due Practice boundaries", () => {
       ["eq", "expression_senses", "user_id", USER],
       ["eq", "expression_occurrences", "user_id", USER],
       ["eq", "video_sources", "user_id", USER],
-      ["eq", "practice_draft_attempts", "user_id", USER],
-      ["in", "practice_draft_attempts", "future_user_expression_id", [EXPRESSION]],
+      ["eq", "attempts", "user_id", USER],
+      ["in", "attempts", "user_expression_id", [EXPRESSION]],
     ]));
   });
 
@@ -249,7 +253,7 @@ describe("Vault and due Practice boundaries", () => {
       { table: "expression_senses", data: [targetSense] },
       { table: "expression_occurrences", data: [occurrenceRow(OTHER, OTHER)] },
       { table: "video_sources", data: [source] },
-      { table: "practice_draft_attempts", data: [] },
+      { table: "attempts", data: [] },
       { table: "user_expressions", data: [
         expressionRow(EXPRESSION, OTHER),
         expressionRow(EXACT_EXPRESSION, exactSense),
@@ -264,7 +268,7 @@ describe("Vault and due Practice boundaries", () => {
         occurrenceRow(ZERO_EXPRESSION, zeroSense),
       ] },
       { table: "video_sources", data: [source] },
-      { table: "practice_draft_attempts", data: [] },
+      { table: "attempts", data: [] },
     ]);
 
     const detail = await createSupabaseReviewTaskRepository(harness.client as never)
@@ -315,9 +319,9 @@ describe("Vault and due Practice boundaries", () => {
     rerender(createElement(VaultList, { cards: [card] }));
     expect(screen.getByRole("heading", { name: "太离谱了" })).toBeInTheDocument();
     expect(screen.getByText(card.englishExplanation)).toBeInTheDocument();
-    expect(screen.getByText(card.occurrence.evidenceText)).toBeInTheDocument();
+    expect(screen.getByText(activeOccurrence.evidenceText)).toBeInTheDocument();
     expect(screen.getByText(card.attempts[0]!.responseChinese)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Watch source/i })).toHaveAttribute("href", card.occurrence.youtubeUrl);
+    expect(screen.getByRole("link", { name: /Watch source/i })).toHaveAttribute("href", activeOccurrence.youtubeUrl);
 
     rerender(createElement(DuePractice, { tasks: [] }));
     expect(screen.getByText(/No Practice is due/i)).toBeInTheDocument();
@@ -325,6 +329,50 @@ describe("Vault and due Practice boundaries", () => {
     expect(screen.getByRole("heading", { name: "Practice" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Practice 太离谱了/i })).toHaveAttribute("href", `/vault#expression-${due.userExpressionId}`);
     expect(document.body).not.toHaveTextContent(/queue/i);
+  });
+
+  test("retains canonical attempts on a tombstoned card without reconstructing source evidence", async () => {
+    const tombstonedSense = {
+      ...senseRow(OTHER, card.expression, card.englishMeaning, NOW),
+      video_source_id: null,
+    };
+    const harness = queryClient([
+      { table: "user_expressions", data: [expressionRow(EXPRESSION, OTHER)] },
+      { table: "expression_senses", data: [tombstonedSense] },
+      { table: "attempts", data: [{
+        id: card.attempts[0]!.id,
+        user_id: USER,
+        user_expression_id: EXPRESSION,
+        response_chinese: card.attempts[0]!.responseChinese,
+        passed: true,
+        accuracy_score: 5,
+        accuracy_feedback_english: "Accurate.",
+        naturalness_score: 4,
+        naturalness_feedback_english: "Natural.",
+        contextual_fit_score: 5,
+        contextual_fit_feedback_english: "Fits.",
+        submitted_at: NOW,
+      }] },
+    ]);
+
+    const result = await createSupabaseReviewTaskRepository(harness.client as never).listVault(USER);
+    expect(result[0]).toMatchObject({
+      sourceDeleted: true,
+      occurrence: null,
+      attempts: [{ id: card.attempts[0]!.id, responseChinese: card.attempts[0]!.responseChinese }],
+    });
+    expect(harness.calls.some((call) => call[1] === "expression_occurrences")).toBe(false);
+    expect(harness.calls.some((call) => call[1] === "video_sources")).toBe(false);
+    expect(harness.calls).toEqual(expect.arrayContaining([
+      ["eq", "attempts", "user_id", USER],
+      ["in", "attempts", "user_expression_id", [EXPRESSION]],
+    ]));
+
+    render(createElement(ExpressionCard, { card: result[0]! }));
+    expect(screen.getByText("Source deleted")).toBeInTheDocument();
+    expect(screen.getByText(card.attempts[0]!.responseChinese)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Watch source/i })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/40s|43s|source evidence/i);
   });
 
   test("a card never renders private Provider provenance", () => {

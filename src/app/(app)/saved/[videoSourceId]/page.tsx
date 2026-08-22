@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { createSavedRuntime } from "@/features/saved/api";
 import { CandidateList } from "@/features/saved/candidate-list";
+import { DeleteSourceDialog } from "@/features/saved/delete-source-dialog";
 import { ProcessingState } from "@/features/saved/processing-state";
 import { SavedTimeline } from "@/features/saved/saved-timeline";
 
@@ -21,6 +22,8 @@ export default async function SavedVideoPage({
   if (!session.ok) redirect("/sign-in");
   const video = await runtime.service.detail(session.userId, videoSourceId);
   if (!video) notFound();
+  const deletionImpact = await runtime.deletionPlanner.preview(session.userId, videoSourceId);
+  if (!deletionImpact) notFound();
 
   return (
     <main>
@@ -60,6 +63,8 @@ export default async function SavedVideoPage({
           <pre>{JSON.stringify(artifact.content, null, 2)}</pre>
         </section>
       ))}
+
+      <DeleteSourceDialog impact={deletionImpact} />
     </main>
   );
 }

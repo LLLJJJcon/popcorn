@@ -34,13 +34,14 @@ export type ExpressionCardView = {
   readonly communicativeFunction: string;
   readonly register: string;
   readonly masteryState: MasteryState;
+  readonly sourceDeleted: boolean;
   readonly occurrence: {
     readonly evidenceText: string;
     readonly segmentIds: readonly string[];
     readonly startSeconds: number;
     readonly endSeconds: number;
     readonly youtubeUrl: string;
-  };
+  } | null;
   readonly attempts: readonly ExpressionAttemptView[];
 };
 
@@ -116,7 +117,12 @@ export function rankExpressionSuggestions(
       right.score - left.score ||
       left.expression.localeCompare(right.expression, "zh-CN") ||
       left.userExpressionId.localeCompare(right.userExpressionId),
-    ).slice(0, Math.max(0, Math.min(limit, 8))).map(({ score: _score, ...candidate }) => candidate);
+    ).slice(0, Math.max(0, Math.min(limit, 8))).map((candidate) => ({
+      userExpressionId: candidate.userExpressionId,
+      expression: candidate.expression,
+      englishMeaning: candidate.englishMeaning,
+      match: candidate.match,
+    }));
 }
 
 type QueryResult = { readonly data: unknown[] | null; readonly error: unknown };
@@ -169,31 +175,50 @@ export function createSupabaseReviewTaskRepository(
     const expressionIds = expressions.map((row) => text(row, "id"));
 
     const senses = rows(await db.from("expression_senses")
-      .select("id,user_id,video_source_id,expression_text,normalized_expression_text,english_meaning,english_explanation,tone,communicative_function,register")
+      .select("id,user_id,video_source_id,source_deleted_at,expression_text,normalized_expression_text,english_meaning,english_explanation,tone,communicative_function,register")
       .eq("user_id", userId).in("id", senseIds).order("id", { ascending: true }).limit(100));
-    const occurrences = rows(await db.from("expression_occurrences")
+    owned(senses, userId);
+    const activeSenseIds = senses.filter((row) => row.source_deleted_at === null)
+      .map((row) => text(row, "id"));
+    const occurrences = activeSenseIds.length === 0 ? [] : rows(await db.from("expression_occurrences")
       .select("id,user_id,video_source_id,expression_sense_id,evidence_text,segment_ids,start_seconds,end_seconds,created_at")
-      .eq("user_id", userId).in("expression_sense_id", senseIds)
+      .eq("user_id", userId).in("expression_sense_id", activeSenseIds)
       .order("created_at", { ascending: true }).order("id", { ascending: true }).limit(300));
-    const sourceIds = [...new Set(senses.map((row) => text(row, "video_source_id")))];
-    const sources = rows(await db.from("video_sources")
+    const sourceIds = [...new Set(senses.flatMap((row) =>
+      row.source_deleted_at === null && typeof row.video_source_id === "string" ? [row.video_source_id] : [],
+    ))];
+    const sources = sourceIds.length === 0 ? [] : rows(await db.from("video_sources")
       .select("id,user_id,canonical_url").eq("user_id", userId).in("id", sourceIds)
       .order("id", { ascending: true }).limit(100));
-    const attempts = rows(await db.from("practice_draft_attempts")
-      .select("id,user_id,future_user_expression_id,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,submitted_at")
-      .eq("user_id", userId).in("future_user_expression_id", expressionIds)
+    const attempts = rows(await db.from("attempts")
+      .select("id,user_id,user_expression_id,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,submitted_at")
+      .eq("user_id", userId).in("user_expression_id", expressionIds)
       .order("submitted_at", { ascending: true }).order("id", { ascending: true }).limit(500));
-    [senses, occurrences, sources, attempts].forEach((value) => owned(value, userId));
+    [occurrences, sources, attempts].forEach((value) => owned(value, userId));
 
     return expressions.map((expression) => {
       const sense = senses.find((row) => row.id === expression.expression_sense_id);
       const occurrence = occurrences.find((row) => row.expression_sense_id === expression.expression_sense_id);
       const source = sense && sources.find((row) => row.id === sense.video_source_id);
-      if (!sense || !occurrence || !source || occurrence.video_source_id !== sense.video_source_id) {
+      if (!sense || (sense.source_deleted_at !== null && typeof sense.source_deleted_at !== "string")) {
         throw new Error("incomplete expression evidence graph");
       }
-      const startSeconds = numberValue(occurrence, "start_seconds");
-      const canonicalUrl = text(source, "canonical_url");
+      const sourceDeleted = typeof sense.source_deleted_at === "string";
+      if (
+        (sourceDeleted && (sense.video_source_id !== null || occurrence || source)) ||
+        (!sourceDeleted && (!occurrence || !source || occurrence.video_source_id !== sense.video_source_id))
+      ) throw new Error("incomplete expression evidence graph");
+      const sourceOccurrence = sourceDeleted ? null : (() => {
+        const startSeconds = numberValue(occurrence!, "start_seconds");
+        const canonicalUrl = text(source!, "canonical_url");
+        return {
+          evidenceText: text(occurrence!, "evidence_text"),
+          segmentIds: occurrence!.segment_ids as string[],
+          startSeconds,
+          endSeconds: numberValue(occurrence!, "end_seconds"),
+          youtubeUrl: `${canonicalUrl}&t=${Math.floor(startSeconds)}s`,
+        };
+      })();
       return {
         userExpressionId: text(expression, "id"),
         expression: text(sense, "expression_text"),
@@ -203,14 +228,9 @@ export function createSupabaseReviewTaskRepository(
         communicativeFunction: text(sense, "communicative_function"),
         register: text(sense, "register"),
         masteryState: text(expression, "mastery_state") as MasteryState,
-        occurrence: {
-          evidenceText: text(occurrence, "evidence_text"),
-          segmentIds: occurrence.segment_ids as string[],
-          startSeconds,
-          endSeconds: numberValue(occurrence, "end_seconds"),
-          youtubeUrl: `${canonicalUrl}&t=${Math.floor(startSeconds)}s`,
-        },
-        attempts: attempts.filter((row) => row.future_user_expression_id === expression.id).map((row) => ({
+        sourceDeleted,
+        occurrence: sourceOccurrence,
+        attempts: attempts.filter((row) => row.user_expression_id === expression.id).map((row) => ({
           id: text(row, "id"),
           responseChinese: text(row, "response_chinese"),
           passed: row.passed === true,

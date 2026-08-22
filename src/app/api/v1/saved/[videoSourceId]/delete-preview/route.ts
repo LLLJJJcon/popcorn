@@ -1,20 +1,7 @@
-import { createSavedLibraryHttpHandlers, createSavedRuntime } from "@/features/saved/api";
+import { createSavedRuntime } from "@/features/saved/api";
 import { createSourceDeletionHttpHandlers, createSourceDeletionService } from "@/server/domain/delete-source";
 
 export async function GET(
-  request: Request,
-  context: { readonly params: Promise<{ readonly videoSourceId: string }> },
-) {
-  const runtime = await createSavedRuntime();
-  const { videoSourceId } = await context.params;
-  return createSavedLibraryHttpHandlers({
-    authenticate: runtime.authenticate,
-    service: runtime.service,
-    requestId: () => crypto.randomUUID(),
-  }).detail(request, videoSourceId);
-}
-
-export async function DELETE(
   request: Request,
   context: { readonly params: Promise<{ readonly videoSourceId: string }> },
 ) {
@@ -29,5 +16,5 @@ export async function DELETE(
       now: () => new Date().toISOString(),
     }),
     requestId: () => crypto.randomUUID(),
-  }).remove(request, videoSourceId);
+  }).preview(request, videoSourceId);
 }
