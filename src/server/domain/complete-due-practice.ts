@@ -319,6 +319,25 @@ const PersistedAttemptRowSchema = z.strictObject({
   evaluation_gateway_fingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
 });
 
+const MasteryEventRowSchema = z.strictObject({
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  user_expression_id: z.string().uuid(),
+  attempt_id: z.string().uuid(),
+  prior_state: MasteryStateSchema,
+  new_state: MasteryStateSchema,
+  occurred_at: z.string(),
+});
+
+const MASTERY_RANK: Readonly<Record<MasteryState, number>> = { tried: 0, reused: 1, owned: 2 };
+
+function legalHistoricalTransition(priorState: MasteryState, newState: MasteryState, independent: boolean): boolean {
+  if (!independent) return newState === priorState;
+  if (priorState === "tried") return newState === "reused";
+  if (priorState === "reused") return newState === "reused" || newState === "owned";
+  return newState === "owned";
+}
+
 function transferRecord(row: Database["public"]["Tables"]["practice_tasks"]["Row"], masteryState: MasteryState): DueTransferTask | null {
   if (
     row.kind !== "due_practice" || !row.review_task_id || !row.due_at ||
@@ -427,14 +446,21 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
         attempt.data.independent_use !== (attempt.data.passed && attempt.data.assistance_level === "none")
       ) return null;
       const independent = attempt.data.passed && attempt.data.assistance_level === "none";
-      const currentMasteryIsConsistent = independent
-        ? review.mastery_state === "tried"
-          ? review.expression_mastery_state === "reused"
-          : review.mastery_state === "reused"
-            ? review.expression_mastery_state === "reused" || review.expression_mastery_state === "owned"
-            : review.expression_mastery_state === "owned"
-        : review.expression_mastery_state === review.mastery_state;
-      if (!currentMasteryIsConsistent) return null;
+      const eventResult = await client.from("mastery_events")
+        .select("id,user_id,user_expression_id,attempt_id,prior_state,new_state,occurred_at")
+        .eq("user_id", userId).eq("user_expression_id", task.userExpressionId)
+        .eq("attempt_id", attempt.data.id).limit(2);
+      if (eventResult.error || !eventResult.data || eventResult.data.length !== 1) return null;
+      const event = MasteryEventRowSchema.safeParse(eventResult.data[0]);
+      if (
+        !event.success || event.data.user_id !== userId ||
+        event.data.user_expression_id !== task.userExpressionId ||
+        event.data.attempt_id !== attempt.data.id ||
+        event.data.prior_state !== review.mastery_state ||
+        canonicalInstant(event.data.occurred_at) !== review.completed_at ||
+        !legalHistoricalTransition(event.data.prior_state, event.data.new_state, independent) ||
+        MASTERY_RANK[review.expression_mastery_state] < MASTERY_RANK[event.data.new_state]
+      ) return null;
       return {
         status: "completed",
         task,
@@ -477,12 +503,13 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
       if (!source.data || source.data.user_id !== userId || source.data.user_expression_id !== review.user_expression_id) {
         throw new PracticeError("NOT_FOUND");
       }
-      const priorTransfers = await client.from("practice_tasks").select("id")
+      const priorTransfers = await client.from("practice_tasks").select("id,prompt_chinese")
         .eq("user_id", userId).eq("user_expression_id", review.user_expression_id).eq("kind", "due_practice");
       if (priorTransfers.error) throw priorTransfers.error;
       const built = buildDueTransferTask({
         id: crypto.randomUUID(), userId, reviewTaskId, userExpressionId: review.user_expression_id,
         targetExpression: source.data.target_expression, originalPromptChinese: source.data.prompt_chinese,
+        priorPromptChinese: priorTransfers.data?.map((task) => task.prompt_chinese) ?? [],
         dueAt: review.due_at, masteryState: review.mastery_state,
         transferOrdinal: priorTransfers.data?.length ?? 0,
       });

@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { buildDueTransferTask } from "@/server/domain/create-transfer-task";
 import {
+  createDuePracticeCompletionService,
   createDuePracticeHttpHandler,
   createSupabaseDuePracticeRepository,
 } from "@/server/domain/complete-due-practice";
@@ -56,7 +57,7 @@ function databaseContextFingerprint(input: {
   return createHash("sha256").update(encoded, "utf8").digest("hex");
 }
 
-function dueRepositoryHarness() {
+function dueRepositoryHarness(originalPromptChinese = "朋友说演唱会门票贵得不合理。你会怎么回应？") {
   const attemptedFingerprints: string[] = [];
   let failInsert: (() => void) | null = null;
   const reviews = new Map<string, Record<string, unknown>>([
@@ -72,7 +73,7 @@ function dueRepositoryHarness() {
   const tasks: Array<Record<string, unknown>> = [{
     id: "99999999-9999-4999-8999-999999999999", user_id: USER, user_expression_id: EXPRESSION,
     kind: "use_it_now", native_language: "en", target_language: "zh-CN", target_expression: "太离谱了",
-    prompt_chinese: "朋友说演唱会门票贵得不合理。你会怎么回应？",
+    prompt_chinese: originalPromptChinese,
     instructions_english: "Reply naturally.", goal_english: "Use the expression.", due_at: null,
     review_task_id: null, context_fingerprint: "f".repeat(64), created_at: "2026-08-20T12:00:00.000Z",
     activation_gateway_config_id: null, activation_gateway_fingerprint: null,
@@ -177,25 +178,39 @@ function completedReplayRepositoryHarness() {
       evaluation_gateway_config_id: "55555555-5555-4555-8555-555555555555",
       evaluation_gateway_revision: 2, evaluation_gateway_fingerprint: "f".repeat(64),
     }],
+    mastery_events: [{
+      id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", user_id: USER,
+      user_expression_id: EXPRESSION, attempt_id: attemptId,
+      prior_state: "tried", new_state: "reused",
+      occurred_at: "2026-08-22T12:00:00+00:00",
+    }],
   };
   const tablesRead: string[] = [];
+  const rpc = vi.fn();
   const client = {
     from(table: string) {
       tablesRead.push(table);
       const filters: Array<[string, unknown]> = [];
+      let rowLimit: number | null = null;
       const query = {
         select() { return query; },
         eq(column: string, value: unknown) { filters.push([column, value]); return query; },
+        limit(value: number) { rowLimit = value; return query; },
         async maybeSingle() {
-          const data = (rows[table] ?? []).find((row) => filters.every(([column, value]) => row[column] === value));
-          return { data: data ?? null, error: null };
+          const matches = (rows[table] ?? []).filter((row) => filters.every(([column, value]) => row[column] === value));
+          if (matches.length > 1) return { data: null, error: new Error("multiple rows") };
+          return { data: matches[0] ?? null, error: null };
+        },
+        then(resolve: (value: { data: Array<Record<string, unknown>>; error: null }) => unknown) {
+          const matches = (rows[table] ?? []).filter((row) => filters.every(([column, value]) => row[column] === value));
+          return Promise.resolve(resolve({ data: rowLimit === null ? matches : matches.slice(0, rowLimit), error: null }));
         },
       };
       return query;
     },
-    rpc: vi.fn(),
+    rpc,
   };
-  return { repository: createSupabaseDuePracticeRepository(client as never), tablesRead, rows };
+  return { repository: createSupabaseDuePracticeRepository(client as never), tablesRead, rows, rpc };
 }
 
 describe("due Practice transfer boundary", () => {
@@ -267,6 +282,54 @@ describe("due Practice transfer boundary", () => {
     ]);
   });
 
+  test("excludes the original lunch scenario and every prior due scenario before semantic reuse", async () => {
+    const originalLunchPrompt = "午餐时，同事发现公司食堂一份普通套餐竟然要200元。请用“太离谱了”自然回应。";
+    const harness = dueRepositoryHarness(originalLunchPrompt);
+
+    const first = await harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z");
+    harness.reviews.set(REVIEW, {
+      ...harness.reviews.get(REVIEW)!, status: "completed",
+      completed_attempt_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      completed_at: "2026-08-22T12:00:00.000Z",
+    });
+    harness.expressions.set(EXPRESSION, { id: EXPRESSION, user_id: USER, mastery_state: "reused" });
+    harness.reviews.set(REVIEW_TWO, {
+      id: REVIEW_TWO, user_id: USER, user_expression_id: EXPRESSION, mastery_state: "reused",
+      status: "pending", due_at: "2026-08-29T12:00:00.000Z",
+      completed_attempt_id: null, completed_at: null,
+    });
+
+    const second = await harness.repository.ensureTransferTask(USER, REVIEW_TWO, "2026-08-30T12:00:00.000Z");
+
+    expect(first.promptChinese).toContain("网购");
+    expect(second.promptChinese).toContain("出行");
+    expect(second.promptChinese).not.toContain("网购");
+    expect(first.contextFingerprint).not.toBe(second.contextFingerprint);
+  });
+
+  test("reuses a stable semantic scenario with a unique fingerprint after all finite scenarios are used", () => {
+    const originalLunchPrompt = "午餐时，同事发现公司食堂一份普通套餐竟然要200元。请用“太离谱了”自然回应。";
+    const priorPrompts = [
+      "网购时，朋友发现一根普通充电线竟然标价200元。请用“太离谱了”自然回应。",
+      "出行时，同学发现十分钟的普通打车行程竟然收费237元。请用“太离谱了”自然回应。",
+      "下雨时，邻居发现租一把普通雨伞竟然要274元。请用“太离谱了”自然回应。",
+    ];
+    const reused = buildDueTransferTask({
+      id: "33333333-3333-4333-8333-333333333333", userId: USER, reviewTaskId: REVIEW_THREE,
+      userExpressionId: EXPRESSION, targetExpression: "太离谱了", originalPromptChinese: originalLunchPrompt,
+      priorPromptChinese: priorPrompts, transferOrdinal: 3,
+      dueAt: "2026-09-29T12:00:00.000Z", masteryState: "owned",
+    });
+
+    expect(reused.promptChinese).toContain("下雨");
+    expect(reused.contextFingerprint).not.toBe(databaseContextFingerprint({
+      target_expression: "太离谱了",
+      prompt_chinese: priorPrompts[2]!,
+      instructions_english: reused.instructionsEnglish,
+      goal_english: reused.goalEnglish,
+    }));
+  });
+
   test.each([
     { status: "cancelled", dueAt: "2026-08-21T12:00:00.000Z", completedAttemptId: null, completedAt: null },
     { status: "completed", dueAt: "2026-08-21T12:00:00.000Z", completedAttemptId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", completedAt: "2026-08-22T12:00:00.000Z" },
@@ -333,7 +396,7 @@ describe("due Practice transfer boundary", () => {
     }));
   });
 
-  test("loads an exact completion replay only from owner-scoped public review, task, and attempt rows", async () => {
+  test("loads an exact completion replay only from its owner-scoped immutable event graph", async () => {
     const harness = completedReplayRepositoryHarness();
 
     await expect(harness.repository.findCompletionState(USER, REVIEW)).resolves.toMatchObject({
@@ -347,15 +410,54 @@ describe("due Practice transfer boundary", () => {
         submittedAt: "2026-08-22T12:00:00.000Z",
       },
     });
-    expect(harness.tablesRead).toEqual(["review_tasks", "user_expressions", "practice_tasks", "attempts"]);
+    expect(harness.tablesRead).toEqual(["review_tasks", "user_expressions", "practice_tasks", "attempts", "mastery_events"]);
   });
 
-  test("fails closed when current expression mastery is not a legal result of the completed review", async () => {
+  test("replays an old tried-to-reused completion after current mastery advances to owned without Provider egress", async () => {
     const harness = completedReplayRepositoryHarness();
     harness.rows.user_expressions[0]!.mastery_state = "owned";
+    harness.rpc.mockResolvedValue({
+      data: [{
+        review_task_id: REVIEW, practice_task_id: "33333333-3333-4333-8333-333333333333",
+        attempt_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        mastery_event_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", next_review_task_id: REVIEW_TWO,
+        prior_state: "tried", new_state: "reused", next_due_at: "2026-08-29T12:00:00+00:00",
+        interval_days: 7, created: false,
+      }],
+      error: null,
+    });
+    const gateway = { model: "must-not-run", complete: vi.fn(async () => { throw new Error("Provider must be skipped"); }) };
+    const gatewayResolver = { resolve: vi.fn(async () => gateway) };
+    const service = createDuePracticeCompletionService({
+      repository: harness.repository, gatewayResolver, fixtureGateway: gateway,
+      ci: false, now: () => "2026-09-30T12:00:00.000Z",
+    });
+
+    await expect(service.complete(USER, REVIEW, {
+      responseChinese: "这也太离谱了吧。", assistanceLevel: "none",
+    })).resolves.toMatchObject({
+      created: false, priorState: "tried", newState: "reused",
+      transition: { from: "tried", to: "reused" },
+    });
+    expect(gatewayResolver.resolve).not.toHaveBeenCalled();
+    expect(gateway.complete).not.toHaveBeenCalled();
+    expect(harness.rpc).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    { name: "missing", mutate: (rows: Record<string, Array<Record<string, unknown>>>) => { rows.mastery_events = []; } },
+    { name: "wrong prior state", mutate: (rows: Record<string, Array<Record<string, unknown>>>) => { rows.mastery_events[0]!.prior_state = "reused"; } },
+    { name: "illegal new state", mutate: (rows: Record<string, Array<Record<string, unknown>>>) => { rows.mastery_events[0]!.new_state = "owned"; } },
+    { name: "mastery rollback", mutate: (rows: Record<string, Array<Record<string, unknown>>>) => { rows.user_expressions[0]!.mastery_state = "tried"; } },
+    { name: "duplicate event", mutate: (rows: Record<string, Array<Record<string, unknown>>>) => {
+      rows.mastery_events.push({ ...rows.mastery_events[0]!, id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" });
+    } },
+  ])("fails closed on a $name historical mastery event graph", async ({ mutate }) => {
+    const harness = completedReplayRepositoryHarness();
+    mutate(harness.rows);
 
     await expect(harness.repository.findCompletionState(USER, REVIEW)).resolves.toBeNull();
-    expect(harness.tablesRead).toEqual(["review_tasks", "user_expressions", "practice_tasks", "attempts"]);
+    expect(harness.tablesRead).toEqual(["review_tasks", "user_expressions", "practice_tasks", "attempts", "mastery_events"]);
   });
 
   test("keeps public errors generic and no-store without raw provider, database, or gateway detail", async () => {

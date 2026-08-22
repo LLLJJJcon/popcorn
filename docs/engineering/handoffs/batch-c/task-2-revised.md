@@ -115,3 +115,42 @@ Fresh GREEN verification after the minimal repair:
 No database, build, pgTAP, migration, generated-type, or concurrency command was run,
 as required by the repair brief. The remaining risk is limited to independent review
 and the controller's scoped integration gate.
+
+## Third independent-review repair from `f01ae0c`
+
+The third review found two final bounded defects. This repair changes only the two
+domain modules, their focused tests, and this handoff; the frozen completion RPC,
+migrations, generated contracts, routes, UI, gateway/Vault code, root configuration,
+lockfile, and ledger remain unchanged.
+
+- Transfer generation now classifies the four finite templates by semantic anchors.
+  It reads owner-scoped prior due prompts for the same expression and excludes both
+  the original activation scenario and every prior due scenario while an unused
+  semantic kind remains. Once all four kinds are exhausted, the stable ordinal rule
+  may reuse a kind while the ordinal-specific learner detail keeps the database
+  context fingerprint unique.
+- Completed replay now reads exactly one owner-scoped immutable `mastery_events` row
+  for the persisted attempt. The event must begin at the completed review's historical
+  mastery, make a transition legal for the persisted attempt, share its completion
+  instant, and not be ahead of current expression mastery. This permits exact replay
+  of an old `tried -> reused` receipt after a later review has advanced the expression
+  to `owned`, while missing, duplicate, inconsistent, illegal, or rolled-back graphs
+  fail closed before gateway resolution or Provider egress.
+
+### Third repair TDD evidence
+
+The focused RED run produced six expected failures across 21 integration tests: the
+exact lunch-template collision produced `shopping -> shopping`, the adapter never
+read `mastery_events`, missing or inconsistent events were accepted, and an old
+`tried -> reused` replay at current `owned` failed with `NOT_FOUND` before its exact
+RPC receipt could be returned.
+
+Fresh GREEN verification after the minimal repair:
+
+- focused domain/integration: 47/47;
+- `tsc --noEmit`: exit 0;
+- scoped ESLint and `git diff --check`: exit 0.
+
+No database, build, pgTAP, migration, generated-type, or concurrency command was run,
+as required by this bounded repair brief. Remaining risk is limited to fresh independent
+review and the controller's scoped integration gate.
