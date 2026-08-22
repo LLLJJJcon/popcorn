@@ -19,6 +19,10 @@ Implementation Agent may:
 - minimally modify `tests/e2e/extension/fixtures.ts` so the harness loads the
   generated `dist/popcorn-extension` and derives its allowed app/Supabase
   fixture origins from the current local runtime configuration;
+- minimally modify `tests/e2e/saved-learning-loop.spec.ts` and
+  `tests/e2e/returning-learner.spec.ts` to place their existing hooks/tests in
+  separate named `test.describe` scopes when composed by the acceptance entry;
+  the Saved scenario may add exactly one browser assertion for Vault search;
 - create or append `docs/engineering/handoffs/delivery/task-4.md`;
 - modify this brief only to correct a factual path/command error.
 
@@ -27,7 +31,7 @@ Controller exclusively owns and will modify, after the Agent supplies RED eviden
 - `.github/workflows/ci.yml`;
 - `playwright.config.ts` if required to select the new top-level acceptance spec and load the packaged extension.
 
-All other files are forbidden, including application/extension code, package manifests, lockfiles, migrations, generated database types, existing E2E specs/helpers other than the one explicitly allowed fixture, seeds, and deployment files. The implementation Agent must not commit Controller-owned edits; the Controller will commit those separately before the Agent's GREEN run.
+All other files are forbidden, including application/extension code, package manifests, lockfiles, migrations, generated database types, existing E2E specs/helpers other than the three explicitly allowed files, seeds, and deployment files. The implementation Agent must not commit Controller-owned edits; the Controller will commit those separately before the Agent's GREEN run.
 
 ## Consumed interfaces
 
@@ -62,6 +66,12 @@ RED must be caused by missing CI/Playwright wiring or missing acceptance/checkli
   closed HTTP(S) allow-list of the configured local app/Supabase origins plus
   the fixture YouTube origin. It must not weaken unexpected-egress assertions.
 - The acceptance entry may compose the accepted specs, but its selected tests and checklist must jointly make the required path explicit and deterministic.
+- Imported spec composition must preserve each accepted Web scenario's own
+  account/session lifecycle. Add only named `test.describe` boundaries around
+  the existing hooks/tests; do not duplicate or merge their database graphs.
+- Add one Vault browser search assertion to the existing Saved scenario (query
+  the learned expression and require its result). Do not create a separate
+  search suite.
 - Keep one complete fixture-backed happy path and one worker restart/recovery proof. Do not add deletion, arbitrary URL/text/image inputs, multi-video, offline, load, live-network, or browser-matrix tests.
 - CI must remain one bounded job for a personal project. It may package/check the extension and run the single acceptance entry after Supabase reset/pgTAP; it must not add quotas, security scanners, hosted deployment, or concurrency/load stages.
 - The checklist must distinguish automated fixture proof from Delivery Task 5's one manual real-video/real-gateway smoke and must never request or record secret values.
