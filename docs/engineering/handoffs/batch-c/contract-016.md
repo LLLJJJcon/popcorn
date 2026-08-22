@@ -25,7 +25,9 @@ supabase db reset
 all 16 migrations applied from a clean database
 
 supabase test db supabase/tests/source_deletion.sql
-20/20 passed
+21/21 passed after an independent review exposed SQL NULL-mode three-value logic;
+the added regression first failed because NULL deleted an unpracticed source,
+then passed after the RPC explicitly rejected NULL before mutation
 
 supabase test db
 9 files, 656/656 passed

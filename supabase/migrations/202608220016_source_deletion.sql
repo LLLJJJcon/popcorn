@@ -157,6 +157,7 @@ declare
 begin
   if p_user_id is null
     or p_video_source_id is null
+    or p_mode is null
     or p_mode not in ('remove_unpracticed_source','remove_source_keep_evidence')
     or p_now is null
     or not pg_catalog.isfinite(p_now) then

@@ -159,6 +159,11 @@ select extensions.throws_ok(
     :'user_a','16f00000-0000-4000-8000-000000000099','2026-08-22 09:10:00+00'),
   '22023',null,'an unknown source is rejected generically'
 );
+select extensions.throws_ok(
+  format($sql$select * from public.delete_video_source(%L::uuid,%L::uuid,null::text,%L::timestamptz)$sql$,
+    :'user_b',:'other_source','2026-08-22 09:10:00+00'),
+  '22023',null,'a null deletion mode is rejected before mutation'
+);
 
 select extensions.results_eq(
   format($sql$select deleted,retained_user_expression_count from public.delete_video_source(
