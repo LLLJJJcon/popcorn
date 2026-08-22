@@ -251,3 +251,82 @@ modified. No Provider, reset, pgTAP, E2E, build, load, or network acquisition
 ran. No upstream material was added; YouTube Digest MIT attribution and LLM
 Wiki GPLv3 method-only isolation are unchanged. Local generated state is the
 accepted demo graph plus the owner-b preservation marker in the disposable DB.
+
+## Review repair 2 — complete fixture-graph causality
+
+The independent re-review of repair 1 found one remaining P1: the fixed
+`2026-08-16T09:00:00.000Z` source/snapshot/sense/expression creation time was
+later than the owned expression's reference-relative original evidence, and
+each expression kept the acquisition time rather than its latest accepted
+mastery event in `updated_at`.
+
+Repair 2 used controller brief commit
+`407a06ca9128e06b183cbd42b59e7ee66450bd88`. Before production changes, the
+new complete source-to-mastery causality test and the independently chosen
+fixed acquisition expectation produced this RED:
+
+```text
+TMPDIR=/private/tmp pnpm vitest run tests/integration/demo/demo-seed.test.ts
+Test Files  1 failed (1)
+Tests       2 failed | 26 passed (28)
+```
+
+The failures showed the fixture still reported August 16 and that at least one
+downstream creation/evidence timestamp preceded the ready source snapshot. The
+new test associates real fixture rows by their persisted IDs and checks source
+and snapshot readiness against every downstream table; save before sense and
+occurrence; expression before its task, attempt, and event consumers; task
+before attempt; event timestamp equality with the linked submission; and
+expression `updated_at` equality with its latest accepted mastery event.
+
+The minimal implementation repair is
+`83cfdb2b4565d04c58c8a30a8f9479be5195813d`. It moves the explicitly fixed
+fixture acquisition time to `2026-08-01T09:00:00.000Z`, safely before all
+release-time reference histories, and creates each user expression with
+`updated_at` set to the last event in its already-frozen legal evidence chain.
+It does not alter IDs, excerpts, 1/7/30-day review intervals, due computation,
+or Provider/network boundaries.
+
+Fresh GREEN after the repair:
+
+```text
+TMPDIR=/private/tmp pnpm vitest run tests/integration/demo/demo-seed.test.ts
+Test Files  1 passed (1)
+Tests       28 passed (28)
+
+TMPDIR=/private/tmp pnpm vitest run tests/contract/local-auth-seed.test.ts
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+TMPDIR=/private/tmp pnpm typecheck
+PASS
+
+TMPDIR=/private/tmp pnpm eslint scripts/seed-demo.ts \
+  tests/fixtures/demo/youtube-video.ts \
+  tests/integration/demo/demo-seed.test.ts
+PASS
+
+git diff --check
+PASS
+```
+
+Without resetting the existing disposable local Supabase database, the exact
+documented CLI was run twice for `owner-a@popcorn.test`; both outputs had
+category `demo_seeded`, identical sorted IDs, and identical counts
+`1/1/4/3/2/3/3/3/6/6/6/6`. A subsequent no-reset repeat around two read-only
+timestamp-graph snapshots produced the same digest
+`ca0df363c75ed671897f2239c9f8b16b`. Read-only database summaries returned
+mastery `owned:1,reused:1,tried:1`, pending reviews `due:1,future:2`, and one
+owner-b source marker after the reruns. No key or connection secret was
+printed or recorded.
+
+Repair 2 changes only the allowed YouTube fixture metadata, seed plan,
+focused integration test, and this append-only handoff. It stores the same
+four short fixture excerpts and no media. It adds no upstream code or assets:
+YouTube Digest remains MIT-attributed at the pinned commit, LLM Wiki GPLv3
+remains isolated and unused, and pinned MIT `tsx` remains local tooling only.
+No reset, Provider, pgTAP, E2E, build, load, concurrency, migration, root config,
+lockfile, runtime app, ledger, or checkpoint action occurred. The remaining
+risk is intentionally bounded to the existing non-transactional service-role
+upsert sequence already documented above; this repair neither expands nor
+changes that school-demo tradeoff.
