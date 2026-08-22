@@ -133,16 +133,17 @@ select extensions.throws_ok(
 reset role;
 
 select extensions.ok(
-  (select has_function_privilege('service_role', p.oid, 'execute')
+  (select count(*) = 2 and bool_and(
+      has_function_privilege('service_role', p.oid, 'execute')
       and not has_function_privilege('authenticated', p.oid, 'execute')
       and not has_function_privilege('anon', p.oid, 'execute')
-      and not has_function_privilege('public', p.oid, 'execute')
+      and not has_function_privilege('public', p.oid, 'execute'))
    from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.proname='create_user_model_gateway_config'),
   'config creation RPC is service-role-only'
 );
 select extensions.ok(
-  (select count(*) = 7 and bool_and(
+  (select count(*) = 8 and bool_and(
       has_function_privilege('service_role', p.oid, 'execute')
       and not has_function_privilege('authenticated', p.oid, 'execute')
       and not has_function_privilege('anon', p.oid, 'execute')
@@ -250,7 +251,7 @@ select extensions.results_eq(
     from public.user_model_gateway_configs where id=%L::uuid$sql$, :'config_a'),
   $$select 'Renamed Gateway'::text,1,encode(digest(
       'adapter:17:openai-compatible|origin:26:https://models.example.com|path:3:/v1|model:17:provider/model-v1',
-      'sha256'),'hex'),'active'::text,'https://models.example.com'::text$$,
+      'sha256'),'hex'),'active'::text,'https://models.example.com/v1'::text$$,
   'rename preserves revision, fingerprint, state, and consent'
 );
 select extensions.results_eq(
@@ -429,6 +430,73 @@ select extensions.is(
    where user_id=:'user_a'),
   0,
   'another user cannot read user A config metadata'
+);
+reset role;
+
+set local role service_role;
+select extensions.lives_ok(
+  $$select * from public.create_user_model_gateway_config(
+    '00000000-0000-4000-8000-00000000a001',
+    '81000000-0000-4000-8000-00000000a015',
+    'https://api.deepseek.com','/v1','Direct A','deepseek-chat','direct-secret-a',
+    '2026-08-19 10:07:00+00')$$,
+  'owner A can create a direct user-entered gateway URL'
+);
+select extensions.lives_ok(
+  $$select * from public.create_user_model_gateway_config(
+    '00000000-0000-4000-8000-00000000b002',
+    '81000000-0000-4000-8000-00000000b015',
+    'https://api.deepseek.com','/v1','Direct B','deepseek-chat','direct-secret-b',
+    '2026-08-19 10:07:01+00')$$,
+  'a second owner can independently configure the same direct URL'
+);
+select extensions.results_eq(
+  $$select user_id,origin_id is null,canonical_origin,base_path
+    from public.user_model_gateway_configs
+    where id in ('81000000-0000-4000-8000-00000000a015',
+                 '81000000-0000-4000-8000-00000000b015')
+    order by user_id$$,
+  $$values
+    ('00000000-0000-4000-8000-00000000a001'::uuid,true,'https://api.deepseek.com'::text,'/v1'::text),
+    ('00000000-0000-4000-8000-00000000b002'::uuid,true,'https://api.deepseek.com'::text,'/v1'::text)$$,
+  'direct transports are owner records and require no catalog row'
+);
+select extensions.throws_ok(
+  $$select * from public.create_user_model_gateway_config(
+    '00000000-0000-4000-8000-00000000a001',gen_random_uuid(),
+    'https://127.0.0.1','/v1','Unsafe','model','secret',now())$$,
+  '22023', null, 'direct gateway creation rejects private and IP destinations'
+);
+select extensions.throws_ok(
+  $$select public.activate_user_model_gateway_config(
+    '00000000-0000-4000-8000-00000000a001',
+    '81000000-0000-4000-8000-00000000a015',
+    'https://api.deepseek.com','model-egress-v1',now())$$,
+  '22023', null, 'direct consent rejects an origin that omits the configured path'
+);
+select extensions.is(
+  public.activate_user_model_gateway_config(
+    '00000000-0000-4000-8000-00000000a001',
+    '81000000-0000-4000-8000-00000000a015',
+    'https://api.deepseek.com/v1','model-egress-v1',now()),
+  true,
+  'direct consent binds the exact full base URL'
+);
+select extensions.results_eq(
+  $$select canonical_origin,base_path,model,api_key
+    from public.resolve_user_model_gateway_config(
+      '00000000-0000-4000-8000-00000000a001',
+      '81000000-0000-4000-8000-00000000a015',3)$$,
+  $$values ('https://api.deepseek.com'::text,'/v1'::text,
+            'deepseek-chat'::text,'direct-secret-a'::text)$$,
+  'direct resolver returns the exact owner transport and Vault key to service role only'
+);
+select extensions.is(
+  (select count(*)::integer from public.resolve_user_model_gateway_config(
+    '00000000-0000-4000-8000-00000000b002',
+    '81000000-0000-4000-8000-00000000a015',3)),
+  0,
+  'direct resolver cannot cross owners'
 );
 reset role;
 

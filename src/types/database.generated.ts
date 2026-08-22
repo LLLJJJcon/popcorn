@@ -7,22 +7,219 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
+  private: {
     Tables: {
-      [_ in never]: never
+      due_practice_completion_receipts: {
+        Row: {
+          attempt_id: string
+          completed_at: string
+          created_at: string
+          interval_days: number
+          mastery_event_id: string
+          new_state: string
+          next_due_at: string
+          next_review_task_id: string
+          practice_task_id: string
+          prior_state: string
+          request_key: string
+          review_task_id: string
+          user_expression_id: string
+          user_id: string
+        }
+        Insert: {
+          attempt_id: string
+          completed_at: string
+          created_at: string
+          interval_days: number
+          mastery_event_id: string
+          new_state: string
+          next_due_at: string
+          next_review_task_id: string
+          practice_task_id: string
+          prior_state: string
+          request_key: string
+          review_task_id: string
+          user_expression_id: string
+          user_id: string
+        }
+        Update: {
+          attempt_id?: string
+          completed_at?: string
+          created_at?: string
+          interval_days?: number
+          mastery_event_id?: string
+          new_state?: string
+          next_due_at?: string
+          next_review_task_id?: string
+          practice_task_id?: string
+          prior_state?: string
+          request_key?: string
+          review_task_id?: string
+          user_expression_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      learning_artifact_gateway_pins: {
+        Row: {
+          config_fingerprint: string
+          config_id: string
+          config_revision: number
+          created_at: string
+          knowledge_job_id: string
+          user_id: string
+        }
+        Insert: {
+          config_fingerprint: string
+          config_id: string
+          config_revision: number
+          created_at: string
+          knowledge_job_id: string
+          user_id: string
+        }
+        Update: {
+          config_fingerprint?: string
+          config_id?: string
+          config_revision?: number
+          created_at?: string
+          knowledge_job_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      practice_promotion_receipts: {
+        Row: {
+          attempt_id: string
+          created_at: string
+          due_at: string
+          expression_sense_id: string
+          interval_days: number
+          mastery_event_id: string
+          normalized_expression_text: string
+          occurrence_id: string
+          practice_draft_attempt_id: string
+          practice_draft_id: string
+          practice_task_id: string
+          review_task_id: string
+          user_expression_id: string
+          user_id: string
+        }
+        Insert: {
+          attempt_id: string
+          created_at: string
+          due_at: string
+          expression_sense_id: string
+          interval_days: number
+          mastery_event_id: string
+          normalized_expression_text: string
+          occurrence_id: string
+          practice_draft_attempt_id: string
+          practice_draft_id: string
+          practice_task_id: string
+          review_task_id: string
+          user_expression_id: string
+          user_id: string
+        }
+        Update: {
+          attempt_id?: string
+          created_at?: string
+          due_at?: string
+          expression_sense_id?: string
+          interval_days?: number
+          mastery_event_id?: string
+          normalized_expression_text?: string
+          occurrence_id?: string
+          practice_draft_attempt_id?: string
+          practice_draft_id?: string
+          practice_task_id?: string
+          review_task_id?: string
+          user_expression_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_model_gateway_secrets: {
+        Row: {
+          config_id: string
+          created_at: string
+          credential_revision: number
+          updated_at: string
+          user_id: string
+          vault_secret_id: string
+        }
+        Insert: {
+          config_id: string
+          created_at: string
+          credential_revision?: number
+          updated_at: string
+          user_id: string
+          vault_secret_id: string
+        }
+        Update: {
+          config_id?: string
+          created_at?: string
+          credential_revision?: number
+          updated_at?: string
+          user_id?: string
+          vault_secret_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      graphql: {
+      are_valid_stable_segment_ids: {
+        Args: { segment_ids: string[] }
+        Returns: boolean
+      }
+      cleanup_revoked_user_model_gateway_config: {
+        Args: { p_config_id: string; p_now: string; p_user_id: string }
+        Returns: undefined
+      }
+      compute_practice_context_fingerprint: {
         Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
+          p_goal_english: string
+          p_instructions_english: string
+          p_prompt_chinese: string
+          p_target_expression: string
         }
-        Returns: Json
+        Returns: string
+      }
+      is_basic_latin_english: {
+        Args: { maximum_length: number; value: string }
+        Returns: boolean
+      }
+      is_safe_model_gateway_origin: {
+        Args: { value: string }
+        Returns: boolean
+      }
+      is_target_chinese: {
+        Args: { maximum_length: number; value: string }
+        Returns: boolean
+      }
+      is_valid_saved_item_payload: {
+        Args: {
+          indexed_start_seconds: number
+          item_kind: string
+          item_payload: Json
+          item_youtube_video_id: string
+        }
+        Returns: boolean
+      }
+      lock_active_user_model_gateway_config: {
+        Args: {
+          p_config_id: string
+          p_expected_fingerprint: string
+          p_expected_revision: number
+          p_user_id: string
+        }
+        Returns: string
+      }
+      normalize_expression_search_text: {
+        Args: { p_value: string }
+        Returns: string
       }
     }
     Enums: {
@@ -1101,6 +1298,8 @@ export type Database = {
       user_model_gateway_configs: {
         Row: {
           adapter_kind: string
+          base_path: string | null
+          canonical_origin: string | null
           config_fingerprint: string
           consent_policy_version: string | null
           consented_at: string | null
@@ -1109,7 +1308,7 @@ export type Database = {
           display_name: string
           id: string
           model: string
-          origin_id: string
+          origin_id: string | null
           revision: number
           revoked_at: string | null
           state: string
@@ -1118,6 +1317,8 @@ export type Database = {
         }
         Insert: {
           adapter_kind: string
+          base_path?: string | null
+          canonical_origin?: string | null
           config_fingerprint: string
           consent_policy_version?: string | null
           consented_at?: string | null
@@ -1126,7 +1327,7 @@ export type Database = {
           display_name: string
           id: string
           model: string
-          origin_id: string
+          origin_id?: string | null
           revision: number
           revoked_at?: string | null
           state?: string
@@ -1135,6 +1336,8 @@ export type Database = {
         }
         Update: {
           adapter_kind?: string
+          base_path?: string | null
+          canonical_origin?: string | null
           config_fingerprint?: string
           consent_policy_version?: string | null
           consented_at?: string | null
@@ -1143,7 +1346,7 @@ export type Database = {
           display_name?: string
           id?: string
           model?: string
-          origin_id?: string
+          origin_id?: string | null
           revision?: number
           revoked_at?: string | null
           state?: string
@@ -1377,22 +1580,40 @@ export type Database = {
         }
         Returns: boolean
       }
-      create_user_model_gateway_config: {
-        Args: {
-          p_api_key: string
-          p_config_id: string
-          p_display_name: string
-          p_model: string
-          p_now: string
-          p_origin_id: string
-          p_user_id: string
-        }
-        Returns: {
-          config_id: string
-          revision: number
-          state: string
-        }[]
-      }
+      create_user_model_gateway_config:
+        | {
+            Args: {
+              p_api_key: string
+              p_base_path: string
+              p_canonical_origin: string
+              p_config_id: string
+              p_display_name: string
+              p_model: string
+              p_now: string
+              p_user_id: string
+            }
+            Returns: {
+              config_id: string
+              revision: number
+              state: string
+            }[]
+          }
+        | {
+            Args: {
+              p_api_key: string
+              p_config_id: string
+              p_display_name: string
+              p_model: string
+              p_now: string
+              p_origin_id: string
+              p_user_id: string
+            }
+            Returns: {
+              config_id: string
+              revision: number
+              state: string
+            }[]
+          }
       has_user_model_gateway_secret: {
         Args: { p_config_id: string; p_user_id: string }
         Returns: boolean
@@ -1696,7 +1917,7 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
+  private: {
     Enums: {},
   },
   public: {

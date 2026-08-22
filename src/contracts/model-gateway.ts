@@ -40,6 +40,35 @@ export const CanonicalModelGatewayOriginSchema = z
     }
   }, "Expected a public DNS gateway origin, not an IP, local, internal, or metadata target");
 
+export const ModelGatewayBaseUrlSchema = z
+  .string()
+  .max(453)
+  .superRefine((value, context) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      context.addIssue({ code: "custom", message: "Expected an exact public HTTPS gateway base URL" });
+      return;
+    }
+    const canonicalOrigin = CanonicalModelGatewayOriginSchema.safeParse(parsed.origin);
+    const basePath = parsed.pathname === "/" ? "" : parsed.pathname;
+    if (
+      !canonicalOrigin.success ||
+      parsed.protocol !== "https:" ||
+      parsed.username !== "" ||
+      parsed.password !== "" ||
+      parsed.port !== "" ||
+      parsed.search !== "" ||
+      parsed.hash !== "" ||
+      basePath.length > 200 ||
+      (basePath !== "" && !/^\/(?:[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*)$/.test(basePath)) ||
+      value !== `${parsed.origin}${basePath}`
+    ) {
+      context.addIssue({ code: "custom", message: "Expected an exact public HTTPS gateway base URL" });
+    }
+  });
+
 export const ModelGatewayOriginViewSchema = z.strictObject({
   id: z.string().uuid(),
   slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80),
@@ -49,15 +78,15 @@ export const ModelGatewayOriginViewSchema = z.strictObject({
 });
 
 export const ModelGatewayCreateInputSchema = z.strictObject({
-  originId: z.string().uuid(),
   displayName: TrimmedStringSchema.max(80),
+  baseUrl: ModelGatewayBaseUrlSchema,
   model: TrimmedStringSchema.max(100),
   apiKey: TrimmedStringSchema.max(4_096),
 });
 
 export const ModelGatewayConsentInputSchema = z.strictObject({
   configId: z.string().uuid(),
-  exactOrigin: CanonicalModelGatewayOriginSchema,
+  exactBaseUrl: ModelGatewayBaseUrlSchema,
   policyVersion: ModelGatewayConsentPolicyVersionSchema,
   confirmed: z.literal(true),
 });
@@ -77,7 +106,7 @@ export const ModelGatewayRevokeInputSchema = z.strictObject({
 });
 
 export const ModelGatewayConsentViewSchema = z.strictObject({
-  exactOrigin: CanonicalModelGatewayOriginSchema,
+  exactBaseUrl: ModelGatewayBaseUrlSchema,
   policyVersion: ModelGatewayConsentPolicyVersionSchema,
   consentedAt: IsoDateTimeSchema,
 });
@@ -85,7 +114,7 @@ export const ModelGatewayConsentViewSchema = z.strictObject({
 export const ModelGatewayConfigViewSchema = z.strictObject({
   id: z.string().uuid(),
   displayName: TrimmedStringSchema.max(80),
-  origin: ModelGatewayOriginViewSchema,
+  baseUrl: ModelGatewayBaseUrlSchema,
   model: TrimmedStringSchema.max(100),
   revision: z.number().int().positive(),
   configFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
@@ -97,7 +126,6 @@ export const ModelGatewayConfigViewSchema = z.strictObject({
 });
 
 export const ModelGatewaySettingsViewSchema = z.strictObject({
-  origins: z.array(ModelGatewayOriginViewSchema).max(50),
   configs: z.array(ModelGatewayConfigViewSchema).max(20),
 });
 

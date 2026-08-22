@@ -5,20 +5,12 @@ import type { ModelGatewayConfigView, ModelGatewaySettingsView } from "@/contrac
 
 import { ModelGatewaySettings } from "./model-gateway-settings";
 
-const ORIGIN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CONFIG_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const NOW = "2026-08-20T00:00:00.000Z";
-const origin = {
-  id: ORIGIN_ID,
-  slug: "approved-gateway",
-  displayName: "Approved Gateway",
-  canonicalOrigin: "https://gateway.example.com",
-  adapterKind: "openai-compatible" as const,
-};
 const pending: ModelGatewayConfigView = {
   id: CONFIG_ID,
   displayName: "My Gateway",
-  origin,
+  baseUrl: "https://gateway.example.com/v1",
   model: "mandarin-model",
   revision: 1,
   configFingerprint: "a".repeat(64),
@@ -32,7 +24,7 @@ const active: ModelGatewayConfigView = {
   ...pending,
   state: "active",
   consent: {
-    exactOrigin: origin.canonicalOrigin,
+    exactBaseUrl: "https://gateway.example.com/v1",
     policyVersion: "model-egress-v1",
     consentedAt: NOW,
   },
@@ -54,7 +46,7 @@ function response<T>(data: T, status = 200) {
 }
 
 function settings(configs: ModelGatewayConfigView[] = []): ModelGatewaySettingsView {
-  return { origins: [origin], configs };
+  return { configs };
 }
 
 function mockFetch(...results: Array<Response | Error | Promise<Response>>) {
@@ -73,15 +65,23 @@ afterEach(() => {
 });
 
 describe("ModelGatewaySettings", () => {
-  it("renders a polite loading state, then empty catalog and configuration states", async () => {
+  it("lets a user enter the exact gateway base URL without an approved catalog", async () => {
+    mockFetch(response({ configs: [] }));
+    render(<ModelGatewaySettings />);
+
+    expect(await screen.findByLabelText("Gateway base URL")).toHaveValue("");
+    expect(screen.queryByLabelText("Approved gateway")).not.toBeInTheDocument();
+    expect(screen.queryByText(/No approved gateways/i)).not.toBeInTheDocument();
+  });
+
+  it("renders a polite loading state, then an empty configuration state", async () => {
     let resolve!: (value: Response) => void;
     const waiting = new Promise<Response>((done) => { resolve = done; });
     mockFetch(waiting);
     render(<ModelGatewaySettings />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading gateway settings");
 
-    await act(async () => resolve(response({ origins: [], configs: [] })));
-    expect(await screen.findByText("No approved gateways are available yet.")).toBeInTheDocument();
+    await act(async () => resolve(response({ configs: [] })));
     expect(screen.getByText("You have not configured a gateway yet.")).toBeInTheDocument();
   });
 
@@ -93,12 +93,12 @@ describe("ModelGatewaySettings", () => {
     expect(document.body).not.toHaveTextContent(/vault-secret|provider failure/i);
   });
 
-  it("shows only approved gateway inputs and fixed pending-consent disclosures", async () => {
+  it("shows direct gateway inputs and fixed pending-consent disclosures", async () => {
     mockFetch(response(settings([pending])));
     render(<ModelGatewaySettings />);
 
     expect(await screen.findByRole("heading", { name: "Model gateway settings" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Approved gateway")).toHaveValue(ORIGIN_ID);
+    expect(screen.getByLabelText("Gateway base URL")).toHaveValue("");
     const key = screen.getByLabelText("API key");
     expect(key).toHaveAttribute("type", "password");
     expect(key).toHaveAttribute("autocomplete", "off");
@@ -107,7 +107,7 @@ describe("ModelGatewaySettings", () => {
     expect(screen.queryByText(/screenshot|image input|generic url/i)).not.toBeInTheDocument();
 
     const consent = screen.getByRole("group", { name: "Confirm data sharing for My Gateway" });
-    expect(consent).toHaveTextContent("https://gateway.example.com");
+    expect(consent).toHaveTextContent("https://gateway.example.com/v1");
     expect(consent).toHaveTextContent("model-egress-v1");
     expect(consent).toHaveTextContent("Video title");
     expect(consent).toHaveTextContent("Necessary Chinese transcript excerpt or selection");
@@ -142,7 +142,8 @@ describe("ModelGatewaySettings", () => {
     );
     const user = userEvent.setup();
     render(<ModelGatewaySettings />);
-    await screen.findByLabelText("Approved gateway");
+    await screen.findByLabelText("Gateway base URL");
+    await user.type(screen.getByLabelText("Gateway base URL"), "https://gateway.example.com/v1");
     await user.type(screen.getByLabelText("Display name"), "Study Gateway");
     await user.type(screen.getByLabelText("Model"), "model-v2");
     const key = screen.getByLabelText("API key");
@@ -164,8 +165,8 @@ describe("ModelGatewaySettings", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
-      originId: ORIGIN_ID,
       displayName: "Study Gateway",
+      baseUrl: "https://gateway.example.com/v1",
       model: "model-v2",
       apiKey: "create-secret",
     });
@@ -185,7 +186,7 @@ describe("ModelGatewaySettings", () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/settings/model-gateway/consent");
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       configId: CONFIG_ID,
-      exactOrigin: "https://gateway.example.com",
+      exactBaseUrl: "https://gateway.example.com/v1",
       policyVersion: "model-egress-v1",
       confirmed: true,
     });
@@ -312,6 +313,7 @@ describe("ModelGatewaySettings", () => {
     render(<ModelGatewaySettings />);
     await screen.findByLabelText("API key");
     if (mutation !== null) {
+      await user.type(screen.getByLabelText("Gateway base URL"), "https://gateway.example.com/v1");
       await user.type(screen.getByLabelText("Display name"), "Gateway");
       await user.type(screen.getByLabelText("Model"), "model-a");
     }
@@ -347,7 +349,8 @@ describe("ModelGatewaySettings", () => {
     const fetchMock = mockFetch(response(settings()), waiting, response(settings([pending])));
     const user = userEvent.setup();
     render(<ModelGatewaySettings />);
-    await screen.findByLabelText("Approved gateway");
+    await screen.findByLabelText("Gateway base URL");
+    await user.type(screen.getByLabelText("Gateway base URL"), "https://gateway.example.com/v1");
     await user.type(screen.getByLabelText("Display name"), "Gateway");
     await user.type(screen.getByLabelText("Model"), "model-a");
     await user.type(screen.getByLabelText("API key"), "one-secret");

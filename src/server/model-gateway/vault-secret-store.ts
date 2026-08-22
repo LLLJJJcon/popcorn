@@ -31,10 +31,12 @@ export function createVaultSecretStore(client: SupabaseClient<Database>): ModelG
     },
 
     async create(userId: string, input: ModelGatewayCreateInput, configId: string, now: string) {
+      const url = new URL(input.baseUrl);
       const result = await client.rpc("create_user_model_gateway_config", {
         p_user_id: userId,
         p_config_id: configId,
-        p_origin_id: input.originId,
+        p_canonical_origin: url.origin,
+        p_base_path: url.pathname === "/" ? "" : url.pathname,
         p_display_name: input.displayName,
         p_model: input.model,
         p_api_key: input.apiKey,
@@ -57,7 +59,7 @@ export function createVaultSecretStore(client: SupabaseClient<Database>): ModelG
       return rpcBoolean("activate_user_model_gateway_config", {
         p_user_id: userId,
         p_config_id: input.configId,
-        p_exact_origin: input.exactOrigin,
+        p_exact_origin: input.exactBaseUrl,
         p_policy_version: input.policyVersion,
         p_now: now,
       });

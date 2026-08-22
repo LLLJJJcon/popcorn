@@ -1,4 +1,5 @@
 import {
+  ModelGatewayBaseUrlSchema,
   ModelGatewayConfigViewSchema,
   ModelGatewayConsentInputSchema,
   ModelGatewayCreateInputSchema,
@@ -18,6 +19,21 @@ const origin = {
 };
 
 describe("user model gateway contracts", () => {
+  it("accepts an exact public HTTPS gateway base URL and rejects unsafe URL forms", () => {
+    expect(ModelGatewayBaseUrlSchema.parse("https://api.deepseek.com/v1")).toBe(
+      "https://api.deepseek.com/v1",
+    );
+
+    for (const baseUrl of [
+      "http://api.example.com/v1",
+      "https://user:pass@api.example.com/v1",
+      "https://api.example.com/v1?token=x",
+      "https://127.0.0.1/v1",
+    ]) {
+      expect(() => ModelGatewayBaseUrlSchema.parse(baseUrl)).toThrow();
+    }
+  });
+
   it("accepts only the closed adapter and an exact canonical HTTPS origin view", () => {
     expect(ModelGatewayOriginViewSchema.parse(origin)).toEqual(origin);
 
@@ -63,10 +79,10 @@ describe("user model gateway contracts", () => {
     },
   );
 
-  it("accepts a write-only key with catalog selection and no caller URL or adapter", () => {
+  it("accepts a write-only key with a user-entered base URL and no caller adapter", () => {
     const input = {
-      originId: origin.id,
       displayName: "My Mandarin model",
+      baseUrl: "https://api.deepseek.com/v1",
       model: "provider/model-v1",
       apiKey: "secret-value",
     };
@@ -75,7 +91,7 @@ describe("user model gateway contracts", () => {
     expect(
       ModelGatewayCreateInputSchema.safeParse({
         ...input,
-        baseUrl: "https://attacker.invalid/v1",
+        originId: origin.id,
       }).success,
     ).toBe(false);
     expect(
@@ -83,10 +99,10 @@ describe("user model gateway contracts", () => {
     ).toBe(false);
   });
 
-  it("binds consent to one config, exact origin, and policy version", () => {
+  it("binds consent to one config, exact base URL, and policy version", () => {
     const consent = {
       configId: "20000000-0000-4000-8000-000000000008",
-      exactOrigin: origin.canonicalOrigin,
+      exactBaseUrl: "https://models.example.com/v1",
       policyVersion: "model-egress-v1" as const,
       confirmed: true as const,
     };
@@ -95,7 +111,7 @@ describe("user model gateway contracts", () => {
     expect(
       ModelGatewayConsentInputSchema.safeParse({
         ...consent,
-        exactOrigin: "https://models.example.com/",
+        exactBaseUrl: "https://models.example.com/v1/",
       }).success,
     ).toBe(false);
     expect(
@@ -107,13 +123,13 @@ describe("user model gateway contracts", () => {
     const view = {
       id: "20000000-0000-4000-8000-000000000008",
       displayName: "My Mandarin model",
-      origin,
+      baseUrl: "https://models.example.com/v1",
       model: "provider/model-v1",
       revision: 1,
       configFingerprint: "a".repeat(64),
       state: "active" as const,
       consent: {
-        exactOrigin: origin.canonicalOrigin,
+        exactBaseUrl: "https://models.example.com/v1",
         policyVersion: "model-egress-v1" as const,
         consentedAt: "2026-08-19T10:00:00.000Z",
       },
@@ -159,12 +175,12 @@ describe("user model gateway contracts", () => {
     ).toBe(false);
 
     expect(
-      ModelGatewaySettingsViewSchema.parse({ origins: [origin], configs: [] }),
-    ).toEqual({ origins: [origin], configs: [] });
+      ModelGatewaySettingsViewSchema.parse({ configs: [] }),
+    ).toEqual({ configs: [] });
     expect(
       ModelGatewaySettingsViewSchema.safeParse({
-        origins: Array.from({ length: 51 }, () => origin),
         configs: [],
+        origins: [origin],
       }).success,
     ).toBe(false);
   });

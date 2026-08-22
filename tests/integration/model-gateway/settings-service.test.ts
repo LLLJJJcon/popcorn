@@ -2,7 +2,6 @@ import {
   createModelGatewaySettingsService,
   ModelGatewayAccessError,
   type ModelGatewayConfigRecord,
-  type ModelGatewayOriginRecord,
   type ModelGatewaySettingsRepository,
   type ModelGatewayVaultStore,
 } from "@/server/model-gateway/settings-service";
@@ -16,29 +15,21 @@ const USER_B = "22222222-2222-4222-8222-222222222222";
 const ORIGIN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CONFIG_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-const origin: ModelGatewayOriginRecord = {
-  id: ORIGIN_ID,
-  slug: "approved-gateway",
-  displayName: "Approved Gateway",
-  canonicalOrigin: "https://gateway.example.com",
-  adapterKind: "openai-compatible",
-  state: "active",
-};
-
 function config(overrides: Partial<ModelGatewayConfigRecord> = {}): ModelGatewayConfigRecord {
   return {
     id: CONFIG_ID,
     userId: USER_A,
     displayName: "My Gateway",
-    originId: ORIGIN_ID,
-    origin,
+    originId: null,
+    canonicalOrigin: "https://gateway.example.com",
+    basePath: "/v1",
     adapterKind: "openai-compatible",
     model: "model-a",
     revision: 1,
     configFingerprint: "a".repeat(64),
     state: "pending_consent",
     consentPolicyVersion: null,
-    consentedOrigin: null,
+    consentedBaseUrl: null,
     consentedAt: null,
     createdAt: "2026-08-20T00:00:00.000Z",
     updatedAt: "2026-08-20T00:00:00.000Z",
@@ -50,8 +41,6 @@ function harness() {
   const records = new Map([[CONFIG_ID, config()]]);
   const calls: string[] = [];
   const repository: ModelGatewaySettingsRepository = {
-    listOrigins: async () => [origin],
-    findOrigin: async (id) => id === ORIGIN_ID ? origin : null,
     listConfigs: async (userId) => [...records.values()].filter((item) => item.userId === userId),
     findConfig: async (userId, configId) => {
       const item = records.get(configId);
@@ -64,14 +53,14 @@ function harness() {
       return records.get(id)?.state !== "revoked";
     },
     create: async (userId, input, id, now) => {
-      calls.push(`create:${userId}:${input.originId}:${input.apiKey.length}`);
+      calls.push(`create:${userId}:${input.baseUrl}:${input.apiKey.length}`);
       records.set(id, config({ id, userId, displayName: input.displayName, model: input.model, createdAt: now, updatedAt: now }));
     },
     activate: async (userId, input, now) => {
-      calls.push(`activate:${userId}:${input.exactOrigin}:${input.policyVersion}`);
+      calls.push(`activate:${userId}:${input.exactBaseUrl}:${input.policyVersion}`);
       const item = records.get(input.configId);
       if (!item || item.userId !== userId || item.state !== "pending_consent") return false;
-      records.set(input.configId, config({ ...item, state: "active", consentPolicyVersion: input.policyVersion, consentedOrigin: input.exactOrigin, consentedAt: now, updatedAt: now }));
+      records.set(input.configId, config({ ...item, state: "active", consentPolicyVersion: input.policyVersion, consentedBaseUrl: input.exactBaseUrl, consentedAt: now, updatedAt: now }));
       return true;
     },
     rename: async (userId, input, now) => {
@@ -90,7 +79,7 @@ function harness() {
       calls.push(`revoke:${userId}:${id}`);
       const item = records.get(id);
       if (!item || item.userId !== userId) return false;
-      records.set(id, config({ ...item, state: "revoked", consentPolicyVersion: null, consentedOrigin: null, consentedAt: null, updatedAt: now }));
+      records.set(id, config({ ...item, state: "revoked", consentPolicyVersion: null, consentedBaseUrl: null, consentedAt: null, updatedAt: now }));
       return true;
     },
   };
@@ -117,16 +106,12 @@ describe("model gateway settings service", () => {
     const client = { from: (table: string) => { operations.push(`from:${table}`); return builder; } } as unknown as SupabaseClient<Database>;
     const repository = createModelGatewaySettingsRepository(client);
 
-    await repository.listOrigins();
     await repository.listConfigs(USER_A);
     await repository.findConfig(USER_A, CONFIG_ID);
 
-    expect(operations).toContain("eq:state:active");
     expect(operations).toContain(`eq:user_id:${USER_A}`);
     expect(operations).toContain(`eq:id:${CONFIG_ID}`);
-    expect(operations).toContain("order:display_name:true");
     expect(operations).toContain("order:created_at:false");
-    expect(operations).toContain("limit:50");
     expect(operations).toContain("limit:20");
   });
 
@@ -136,6 +121,8 @@ describe("model gateway settings service", () => {
       user_id: USER_B,
       display_name: "Cross-owner Gateway",
       origin_id: ORIGIN_ID,
+      canonical_origin: null,
+      base_path: null,
       adapter_kind: "openai-compatible",
       model: "model-a",
       revision: 1,
@@ -149,11 +136,11 @@ describe("model gateway settings service", () => {
       updated_at: "2026-08-20T00:00:00.000Z",
       model_gateway_origins: {
         id: ORIGIN_ID,
-        slug: origin.slug,
-        display_name: origin.displayName,
-        canonical_origin: origin.canonicalOrigin,
-        adapter_kind: origin.adapterKind,
-        state: origin.state,
+        slug: "approved-gateway",
+        display_name: "Approved Gateway",
+        canonical_origin: "https://gateway.example.com",
+        adapter_kind: "openai-compatible",
+        state: "active",
         base_path: "/v1",
         created_at: "2026-08-20T00:00:00.000Z",
         updated_at: "2026-08-20T00:00:00.000Z",
@@ -185,6 +172,69 @@ describe("model gateway settings service", () => {
     expect(operations).toContain("limit:20");
   });
 
+  it("left-normalizes legacy catalog and direct URL rows without dropping either representation", async () => {
+    const common = {
+      user_id: USER_A,
+      display_name: "Gateway",
+      adapter_kind: "openai-compatible",
+      model: "model-a",
+      revision: 1,
+      config_fingerprint: "a".repeat(64),
+      state: "pending_consent",
+      consent_policy_version: null,
+      consented_origin: null,
+      consented_at: null,
+      revoked_at: null,
+      created_at: "2026-08-20T00:00:00.000Z",
+      updated_at: "2026-08-20T00:00:00.000Z",
+    };
+    const rows = [{
+      ...common,
+      id: CONFIG_ID,
+      origin_id: ORIGIN_ID,
+      canonical_origin: null,
+      base_path: null,
+      model_gateway_origins: {
+        id: ORIGIN_ID,
+        slug: "legacy",
+        display_name: "Legacy",
+        canonical_origin: "https://legacy.example.com",
+        base_path: "/v1",
+        adapter_kind: "openai-compatible",
+        state: "active",
+        created_at: common.created_at,
+        updated_at: common.updated_at,
+      },
+    }, {
+      ...common,
+      id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      revision: 2,
+      origin_id: null,
+      canonical_origin: "https://direct.example.com",
+      base_path: "/compatible/v1",
+      model_gateway_origins: null,
+    }];
+    let selected = "";
+    const builder = {
+      select(columns: string) { selected = columns; return this; },
+      eq() { return this; },
+      order() { return this; },
+      limit() { return this; },
+      then(resolve: (value: { data: unknown[]; error: null }) => unknown) {
+        return Promise.resolve(resolve({ data: rows, error: null }));
+      },
+    };
+    const repository = createModelGatewaySettingsRepository({
+      from: () => builder,
+    } as unknown as SupabaseClient<Database>);
+
+    await expect(repository.listConfigs(USER_A)).resolves.toMatchObject([
+      { canonicalOrigin: "https://legacy.example.com", basePath: "/v1" },
+      { canonicalOrigin: "https://direct.example.com", basePath: "/compatible/v1" },
+    ]);
+    expect(selected).not.toContain("!inner");
+  });
+
   it("checks credential presence with the boolean RPC and never invokes the secret resolver", async () => {
     const calls: string[] = [];
     const client = {
@@ -197,6 +247,34 @@ describe("model gateway settings service", () => {
     await expect(createVaultSecretStore(client).hasApiKey(USER_A, CONFIG_ID)).resolves.toBe(true);
     expect(calls).toEqual(["has_user_model_gateway_secret"]);
     expect(calls).not.toContain("resolve_user_model_gateway_config");
+  });
+
+  it("splits the validated base URL into the direct create RPC without sending a catalog id", async () => {
+    const calls: Array<[string, unknown]> = [];
+    const client = {
+      rpc: async (name: string, args: unknown) => {
+        calls.push([name, args]);
+        return { data: [{ config_id: CONFIG_ID, revision: 1, state: "pending_consent" }], error: null };
+      },
+    } as unknown as SupabaseClient<Database>;
+
+    await createVaultSecretStore(client).create(USER_A, {
+      displayName: "Direct",
+      baseUrl: "https://gateway.example.com/compatible/v1",
+      model: "model-a",
+      apiKey: "write-only-value",
+    }, CONFIG_ID, "2026-08-20T00:00:00.000Z");
+
+    expect(calls).toEqual([["create_user_model_gateway_config", {
+      p_user_id: USER_A,
+      p_config_id: CONFIG_ID,
+      p_canonical_origin: "https://gateway.example.com",
+      p_base_path: "/compatible/v1",
+      p_display_name: "Direct",
+      p_model: "model-a",
+      p_api_key: "write-only-value",
+      p_now: "2026-08-20T00:00:00.000Z",
+    }]]);
   });
 
   it("lists only owner records and derives credential presence through the boolean port", async () => {
@@ -214,30 +292,30 @@ describe("model gateway settings service", () => {
   it("creates a pending config without a Provider dependency or secret echo", async () => {
     const { service, calls } = harness();
     const result = await service.create(USER_A, {
-      originId: ORIGIN_ID,
       displayName: "Second Gateway",
+      baseUrl: "https://gateway.example.com/v1",
       model: "model-b",
       apiKey: "write-only-value",
     });
 
     expect(result).toMatchObject({ state: "pending_consent", hasApiKey: true, displayName: "Second Gateway" });
     expect(JSON.stringify(result)).not.toContain("write-only-value");
-    expect(calls).toContain(`create:${USER_A}:${ORIGIN_ID}:16`);
+    expect(calls).toContain(`create:${USER_A}:https://gateway.example.com/v1:16`);
   });
 
-  it("activates only exact owner, exact origin, and frozen policy consent", async () => {
+  it("activates only exact owner, exact base URL, and frozen policy consent", async () => {
     const { service } = harness();
     const active = await service.activate(USER_A, {
       configId: CONFIG_ID,
-      exactOrigin: origin.canonicalOrigin,
+      exactBaseUrl: "https://gateway.example.com/v1",
       policyVersion: "model-egress-v1",
       confirmed: true,
     });
-    expect(active).toMatchObject({ state: "active", consent: { exactOrigin: origin.canonicalOrigin, policyVersion: "model-egress-v1" } });
+    expect(active).toMatchObject({ state: "active", consent: { exactBaseUrl: "https://gateway.example.com/v1", policyVersion: "model-egress-v1" } });
 
     await expect(service.activate(USER_B, {
       configId: CONFIG_ID,
-      exactOrigin: origin.canonicalOrigin,
+      exactBaseUrl: "https://gateway.example.com/v1",
       policyVersion: "model-egress-v1",
       confirmed: true,
     })).rejects.toBeInstanceOf(ModelGatewayAccessError);
@@ -265,7 +343,7 @@ describe("model gateway settings service", () => {
     const { service, records } = harness();
     expect((await service.revoke(USER_A, { configId: CONFIG_ID })).state).toBe("revoked");
     expect((await service.revoke(USER_A, { configId: CONFIG_ID })).state).toBe("revoked");
-    records.set(CONFIG_ID, config({ state: "active", consentPolicyVersion: "model-egress-v1", consentedOrigin: origin.canonicalOrigin, consentedAt: "2026-08-20T00:30:00.000Z" }));
+    records.set(CONFIG_ID, config({ state: "active", consentPolicyVersion: "model-egress-v1", consentedBaseUrl: "https://gateway.example.com/v1", consentedAt: "2026-08-20T00:30:00.000Z" }));
     expect((await service.revoke(USER_A, { configId: CONFIG_ID })).state).toBe("revoked");
   });
 });

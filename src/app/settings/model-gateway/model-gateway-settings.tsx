@@ -48,7 +48,7 @@ export function ModelGatewaySettings() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [status, setStatus] = useState("Loading gateway settings…");
   const [busy, setBusy] = useState(false);
-  const [originId, setOriginId] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -68,7 +68,6 @@ export function ModelGatewaySettings() {
       .then((nextSettings) => {
         if (!active) return;
         setSettings(nextSettings);
-        setOriginId(nextSettings.origins[0]?.id || "");
         setPageError(null);
         setLoading(false);
         setStatus("Gateway settings loaded.");
@@ -108,7 +107,6 @@ export function ModelGatewaySettings() {
       if (!parsed.success) throw new TypeError("mutation failed");
       const nextSettings = await requestSettings();
       setSettings(nextSettings);
-      setOriginId((current) => current || nextSettings.origins[0]?.id || "");
       setPageError(null);
       setStatus(message);
       return true;
@@ -125,13 +123,13 @@ export function ModelGatewaySettings() {
     event.preventDefault();
     const writeOnlyKey = apiKey;
     setApiKey("");
-    const valid = Boolean(originId && displayName.trim() && model.trim() && writeOnlyKey.trim());
+    const valid = Boolean(baseUrl.trim() && displayName.trim() && model.trim() && writeOnlyKey.trim());
     setCreateInvalid(!valid);
     setActionError(valid ? null : "Complete all fields before saving.");
     if (!valid || busy) return;
     await mutate(SETTINGS_ENDPOINT, "PUT", {
-      originId,
       displayName: displayName.trim(),
+      baseUrl: baseUrl.trim(),
       model: model.trim(),
       apiKey: writeOnlyKey,
     }, "Gateway saved. Confirm data sharing to activate it.");
@@ -141,7 +139,7 @@ export function ModelGatewaySettings() {
     if (!consents[config.id] || busy) return;
     await mutate(CONSENT_ENDPOINT, "POST", {
       configId: config.id,
-      exactOrigin: config.origin.canonicalOrigin,
+      exactBaseUrl: config.baseUrl,
       policyVersion: "model-egress-v1",
       confirmed: true,
     }, "Gateway activated.");
@@ -215,17 +213,19 @@ export function ModelGatewaySettings() {
               </div>
               <p>Your key is sent directly to the server and is never shown again.</p>
             </div>
-            {settings?.origins.length === 0 ? (
-              <p>No approved gateways are available yet.</p>
-            ) : (
-              <form className={styles.formGrid} onSubmit={createGateway} aria-describedby={createInvalid ? "gateway-action-error" : undefined}>
+            <form className={styles.formGrid} onSubmit={createGateway} aria-describedby={createInvalid ? "gateway-action-error" : undefined}>
                 <label>
-                  Approved gateway
-                  <select value={originId} onChange={(event) => setOriginId(event.target.value)} disabled={busy}>
-                    {settings?.origins.map((item) => (
-                      <option key={item.id} value={item.id}>{item.displayName} — {item.canonicalOrigin}</option>
-                    ))}
-                  </select>
+                  Gateway base URL
+                  <input
+                    type="url"
+                    value={baseUrl}
+                    onChange={(event) => setBaseUrl(event.target.value)}
+                    maxLength={453}
+                    placeholder="https://api.example.com/v1"
+                    aria-invalid={createInvalid && !baseUrl.trim()}
+                    aria-describedby={createInvalid ? "gateway-action-error" : undefined}
+                    disabled={busy}
+                  />
                 </label>
                 <label>
                   Display name
@@ -265,7 +265,6 @@ export function ModelGatewaySettings() {
                 </label>
                 <button className={styles.primaryButton} type="submit" disabled={busy}>Save gateway</button>
               </form>
-            )}
           </section>
 
           <section className={styles.panel} aria-labelledby="configured-gateways-title">
@@ -285,7 +284,7 @@ export function ModelGatewaySettings() {
                     <div className={styles.cardHeading}>
                       <div>
                         <h3>{config.displayName}</h3>
-                        <p className={styles.origin}>{config.origin.canonicalOrigin}</p>
+                        <p className={styles.origin}>{config.baseUrl}</p>
                       </div>
                       <span className={`${styles.state} ${styles[config.state]}`}>
                         {config.state === "pending_consent" ? "Pending consent" : config.state === "active" ? "Active" : "Revoked"}
@@ -300,7 +299,7 @@ export function ModelGatewaySettings() {
                     {config.state === "pending_consent" ? (
                       <fieldset className={styles.consent}>
                         <legend>Confirm data sharing for {config.displayName}</legend>
-                        <p>Exact destination: <span className={styles.origin}>{config.origin.canonicalOrigin}</span></p>
+                        <p>Exact destination: <span className={styles.origin}>{config.baseUrl}</span></p>
                         <p>Policy: <strong>model-egress-v1</strong></p>
                         <p>Popcorn may send:</p>
                         <ul>{DATA_CLASSES.map((item) => <li key={item}>{item}</li>)}</ul>

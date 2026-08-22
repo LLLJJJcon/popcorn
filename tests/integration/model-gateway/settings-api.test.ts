@@ -15,12 +15,11 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 const USER = "11111111-1111-4111-8111-111111111111";
-const ORIGIN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CONFIG_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const publicConfig = {
   id: CONFIG_ID,
   displayName: "Gateway",
-  origin: { id: ORIGIN_ID, slug: "approved", displayName: "Approved", canonicalOrigin: "https://gateway.example.com", adapterKind: "openai-compatible" as const },
+  baseUrl: "https://gateway.example.com/v1",
   model: "model-a",
   revision: 1,
   configFingerprint: "a".repeat(64),
@@ -34,13 +33,13 @@ const publicConfig = {
 function harness(auth: "valid" | "missing" | "expired" = "valid", failCreate = false) {
   const calls: string[] = [];
   const service: ModelGatewaySettingsService = {
-    read: async (userId) => { calls.push(`read:${userId}`); return { origins: [publicConfig.origin], configs: [publicConfig] }; },
+    read: async (userId) => { calls.push(`read:${userId}`); return { configs: [publicConfig] }; },
     create: async (userId, input) => {
       if (failCreate) throw new Error("db raw vault=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee service-role-secret supplied-key");
       calls.push(`create:${userId}:${input.apiKey.length}`);
       return publicConfig;
     },
-    activate: async (userId) => { calls.push(`activate:${userId}`); return { ...publicConfig, state: "active" as const, consent: { exactOrigin: publicConfig.origin.canonicalOrigin, policyVersion: "model-egress-v1" as const, consentedAt: publicConfig.updatedAt } }; },
+    activate: async (userId) => { calls.push(`activate:${userId}`); return { ...publicConfig, state: "active" as const, consent: { exactBaseUrl: publicConfig.baseUrl, policyVersion: "model-egress-v1" as const, consentedAt: publicConfig.updatedAt } }; },
     rename: async (userId) => { calls.push(`rename:${userId}`); return { ...publicConfig, displayName: "Renamed" }; },
     rotate: async (userId, input) => { calls.push(`rotate:${userId}:${input.apiKey.length}`); return publicConfig; },
     revoke: async (userId) => { calls.push(`revoke:${userId}`); return { ...publicConfig, state: "revoked" as const, hasApiKey: false }; },
@@ -92,8 +91,8 @@ describe("model gateway settings HTTP handlers", () => {
   });
 
   it.each([
-    { originId: ORIGIN_ID, displayName: "Gateway", model: "m", apiKey: "k", userId: USER },
-    { originId: ORIGIN_ID, displayName: "Gateway", model: "m", apiKey: "k", canonicalOrigin: "https://evil.example" },
+    { baseUrl: "https://gateway.example.com/v1", displayName: "Gateway", model: "m", apiKey: "k", userId: USER },
+    { baseUrl: "https://gateway.example.com/v1", displayName: "Gateway", model: "m", apiKey: "k", canonicalOrigin: "https://evil.example" },
     { configId: CONFIG_ID, apiKey: "k", displayName: "ambiguous" },
     { configId: CONFIG_ID, displayName: "Renamed", nested: {} },
   ])("rejects unknown, extra, or ambiguous PUT bodies", async (input) => {
@@ -116,7 +115,7 @@ describe("model gateway settings HTTP handlers", () => {
 
   it("creates, renames, and rotates through unambiguous frozen DTOs without echoing keys", async () => {
     const { handlers, calls } = harness();
-    const createResponse = await handlers.put(request("PUT", { originId: ORIGIN_ID, displayName: "Gateway", model: "model-a", apiKey: "create-secret" }, { Origin: "https://popcorn.example" }));
+    const createResponse = await handlers.put(request("PUT", { baseUrl: "https://gateway.example.com/v1", displayName: "Gateway", model: "model-a", apiKey: "create-secret" }, { Origin: "https://popcorn.example" }));
     const renameResponse = await handlers.put(request("PUT", { configId: CONFIG_ID, displayName: "Renamed" }, { Origin: "https://popcorn.example" }));
     const rotateResponse = await handlers.put(request("PUT", { configId: CONFIG_ID, apiKey: "rotate-secret" }, { Origin: "https://popcorn.example" }));
     expect(createResponse.status).toBe(201);
@@ -128,7 +127,7 @@ describe("model gateway settings HTTP handlers", () => {
 
   it("activates exact consent and revokes using strict frozen DTOs", async () => {
     const { handlers, calls } = harness();
-    const consent = await handlers.consent(request("POST", { configId: CONFIG_ID, exactOrigin: "https://gateway.example.com", policyVersion: "model-egress-v1", confirmed: true }, { Origin: "https://popcorn.example" }));
+    const consent = await handlers.consent(request("POST", { configId: CONFIG_ID, exactBaseUrl: "https://gateway.example.com/v1", policyVersion: "model-egress-v1", confirmed: true }, { Origin: "https://popcorn.example" }));
     const revoke = await handlers.delete(request("DELETE", { configId: CONFIG_ID }, { Origin: "https://popcorn.example" }));
     expect(consent.status).toBe(200);
     expect(revoke.status).toBe(200);
@@ -137,7 +136,7 @@ describe("model gateway settings HTTP handlers", () => {
 
   it("sanitizes persistence failures and never leaks key, Vault ID, service key, or raw error", async () => {
     const { handlers } = harness("valid", true);
-    const response = await handlers.put(request("PUT", { originId: ORIGIN_ID, displayName: "Gateway", model: "m", apiKey: "supplied-key" }, { Origin: "https://popcorn.example" }));
+    const response = await handlers.put(request("PUT", { baseUrl: "https://gateway.example.com/v1", displayName: "Gateway", model: "m", apiKey: "supplied-key" }, { Origin: "https://popcorn.example" }));
     const serialized = JSON.stringify(await body(response)) + JSON.stringify([...response.headers]);
     expect(response.status).toBe(500);
     expect(serialized).not.toMatch(/supplied-key|service-role-secret|eeeeeeee|db raw|vault/i);

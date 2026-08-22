@@ -4,7 +4,6 @@ import {
   ModelGatewayConfigViewSchema,
   ModelGatewayConsentInputSchema,
   ModelGatewayCreateInputSchema,
-  ModelGatewayOriginViewSchema,
   ModelGatewayRenameInputSchema,
   ModelGatewayRevokeInputSchema,
   ModelGatewayRotateKeyInputSchema,
@@ -20,36 +19,26 @@ import {
 import { failure, success } from "@/server/api/respond";
 import type { WebSessionResult } from "@/server/auth/web-session";
 
-export type ModelGatewayOriginRecord = {
-  readonly id: string;
-  readonly slug: string;
-  readonly displayName: string;
-  readonly canonicalOrigin: string;
-  readonly adapterKind: string;
-  readonly state: string;
-};
-
 export type ModelGatewayConfigRecord = {
   readonly id: string;
   readonly userId: string;
   readonly displayName: string;
-  readonly originId: string;
-  readonly origin: ModelGatewayOriginRecord;
+  readonly originId: string | null;
+  readonly canonicalOrigin: string;
+  readonly basePath: string;
   readonly adapterKind: string;
   readonly model: string;
   readonly revision: number;
   readonly configFingerprint: string;
   readonly state: string;
   readonly consentPolicyVersion: string | null;
-  readonly consentedOrigin: string | null;
+  readonly consentedBaseUrl: string | null;
   readonly consentedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 };
 
 export interface ModelGatewaySettingsRepository {
-  listOrigins(): Promise<readonly ModelGatewayOriginRecord[]>;
-  findOrigin(originId: string): Promise<ModelGatewayOriginRecord | null>;
   listConfigs(userId: string): Promise<readonly ModelGatewayConfigRecord[]>;
   findConfig(userId: string, configId: string): Promise<ModelGatewayConfigRecord | null>;
 }
@@ -70,17 +59,6 @@ export class ModelGatewayAccessError extends Error {
   }
 }
 
-function publicOrigin(record: ModelGatewayOriginRecord) {
-  if (record.state !== "active") throw new ModelGatewayAccessError();
-  return ModelGatewayOriginViewSchema.parse({
-    id: record.id,
-    slug: record.slug,
-    displayName: record.displayName,
-    canonicalOrigin: record.canonicalOrigin,
-    adapterKind: record.adapterKind,
-  });
-}
-
 async function publicConfig(
   expectedUserId: string,
   record: ModelGatewayConfigRecord,
@@ -88,39 +66,33 @@ async function publicConfig(
 ): Promise<ModelGatewayConfigView> {
   if (
     record.userId !== expectedUserId ||
-    record.originId !== record.origin.id ||
-    record.adapterKind !== record.origin.adapterKind
+    record.adapterKind !== "openai-compatible"
   ) {
     throw new ModelGatewayAccessError();
   }
-  const consentParts = [record.consentedOrigin, record.consentPolicyVersion, record.consentedAt];
+  const baseUrl = `${record.canonicalOrigin}${record.basePath}`;
+  const consentParts = [record.consentedBaseUrl, record.consentPolicyVersion, record.consentedAt];
   if (consentParts.some((part) => part === null) && !consentParts.every((part) => part === null)) {
     throw new ModelGatewayAccessError();
   }
-  const hasConsent = record.consentedOrigin !== null;
+  const hasConsent = record.consentedBaseUrl !== null;
   if (
     (record.state === "active" && !hasConsent) ||
     (record.state === "pending_consent" && hasConsent) ||
-    (hasConsent && record.consentedOrigin !== record.origin.canonicalOrigin)
+    (hasConsent && record.consentedBaseUrl !== baseUrl)
   ) {
     throw new ModelGatewayAccessError();
   }
   return ModelGatewayConfigViewSchema.parse({
     id: record.id,
     displayName: record.displayName,
-    origin: ModelGatewayOriginViewSchema.parse({
-      id: record.origin.id,
-      slug: record.origin.slug,
-      displayName: record.origin.displayName,
-      canonicalOrigin: record.origin.canonicalOrigin,
-      adapterKind: record.origin.adapterKind,
-    }),
+    baseUrl,
     model: record.model,
     revision: record.revision,
     configFingerprint: record.configFingerprint,
     state: record.state,
-    consent: record.consentedOrigin === null ? null : {
-      exactOrigin: record.consentedOrigin,
+    consent: record.consentedBaseUrl === null ? null : {
+      exactBaseUrl: record.consentedBaseUrl,
       policyVersion: record.consentPolicyVersion,
       consentedAt: record.consentedAt,
     },
@@ -162,26 +134,20 @@ export function createModelGatewaySettingsService({
 
   return {
     async read(userId) {
-      const [origins, configs] = await Promise.all([
-        repository.listOrigins(),
-        repository.listConfigs(userId),
-      ]);
-      if (origins.length > 50 || configs.length > 20 || configs.some((item) => item.userId !== userId)) {
+      const configs = await repository.listConfigs(userId);
+      if (configs.length > 20 || configs.some((item) => item.userId !== userId)) {
         throw new ModelGatewayAccessError();
       }
       return ModelGatewaySettingsViewSchema.parse({
-        origins: origins.map(publicOrigin),
         configs: await Promise.all(configs.map((record) => publicConfig(userId, record, vault))),
       });
     },
 
     async create(userId, input) {
-      const approved = await repository.findOrigin(input.originId);
-      if (!approved || approved.state !== "active") throw new ModelGatewayAccessError();
       const id = configId();
       await vault.create(userId, input, id, now());
       const created = await owned(userId, id);
-      if (created.originId !== approved.id || created.state !== "pending_consent") {
+      if (`${created.canonicalOrigin}${created.basePath}` !== input.baseUrl || created.state !== "pending_consent") {
         throw new ModelGatewayAccessError();
       }
       return publicConfig(userId, created, vault);
@@ -189,12 +155,12 @@ export function createModelGatewaySettingsService({
 
     async activate(userId, input) {
       const current = await owned(userId, input.configId);
-      if (current.state !== "pending_consent" || current.origin.canonicalOrigin !== input.exactOrigin) {
+      if (current.state !== "pending_consent" || `${current.canonicalOrigin}${current.basePath}` !== input.exactBaseUrl) {
         throw new ModelGatewayAccessError();
       }
       if (!await vault.activate(userId, input, now())) throw new ModelGatewayAccessError();
       const activated = await owned(userId, input.configId);
-      if (activated.state !== "active" || activated.consentedOrigin !== input.exactOrigin) {
+      if (activated.state !== "active" || activated.consentedBaseUrl !== input.exactBaseUrl) {
         throw new ModelGatewayAccessError();
       }
       return publicConfig(userId, activated, vault);

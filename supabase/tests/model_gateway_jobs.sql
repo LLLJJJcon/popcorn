@@ -177,7 +177,7 @@ select extensions.is(
 );
 reset role;
 update public.user_model_gateway_configs
-set consented_origin = 'https://gateway-jobs.example.com'
+set consented_origin = 'https://gateway-jobs.example.com/v1'
 where id = :'config_a';
 set local role service_role;
 
@@ -630,6 +630,43 @@ select extensions.results_eq(
     ('89100000-0000-4000-8000-000000000004'::uuid,'revoked'::text),
     ('89100000-0000-4000-8000-000000000005'::uuid,'active'::text)$$,
   'corrupt old active config is revoked and the target becomes active'
+);
+
+reset role;
+set local role service_role;
+select extensions.lives_ok(
+  $$select * from public.create_user_model_gateway_config(
+    '09000000-0000-4000-8000-00000000b002',
+    '89100000-0000-4000-8000-000000000015',
+    'https://direct-jobs.example.com','/v1','Direct jobs','provider/model-v1',
+    'direct-jobs-secret','2026-08-19 12:11:00+00')$$,
+  'durable jobs owner can create a direct URL configuration'
+);
+select extensions.is(
+  public.activate_user_model_gateway_config(
+    :'user_b','89100000-0000-4000-8000-000000000015',
+    'https://direct-jobs.example.com/v1','model-egress-v1',
+    '2026-08-19 12:11:01+00'),
+  true,
+  'durable jobs owner activates exact direct base URL consent'
+);
+create temporary table direct_gateway_job on commit drop as
+select * from public.register_gateway_learning_artifact_job(
+  :'user_b', :'source_b', 'generate_overview', repeat('d',64),
+  '{"request":"direct-overview"}'::jsonb,
+  '89100000-0000-4000-8000-000000000015',2,
+  (select config_fingerprint from public.user_model_gateway_configs
+   where id='89100000-0000-4000-8000-000000000015'),
+  '2026-08-19 12:11:02+00'
+);
+select extensions.results_eq(
+  $$select job.status,pin.config_id,pin.config_revision
+    from direct_gateway_job as result
+    join public.knowledge_jobs as job on job.id=result.knowledge_job_id
+    join private.learning_artifact_gateway_pins as pin
+      on pin.knowledge_job_id=job.id and pin.user_id=job.user_id$$,
+  $$values ('pending'::text,'89100000-0000-4000-8000-000000000015'::uuid,2)$$,
+  'direct URL configuration participates in the frozen durable gateway pin path'
 );
 
 reset role;
