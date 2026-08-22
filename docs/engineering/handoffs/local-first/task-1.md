@@ -1,6 +1,6 @@
 # Local-First Task 1 Handoff
 
-Status: repair candidate implementation complete; independent review pending.
+Status: accepted after repair and fresh independent re-review PASS.
 
 Baseline: `60f388879fc41dfd0a89a9aa9e4b774c198796dd`.
 
@@ -44,6 +44,12 @@ Repair baseline: `b7de300348a2cf93711cf547c70c0b4bfc8f6a7d`.
   then matched `src/types/database.generated.ts` with an empty `diff -u`.
 - TypeScript and scoped ESLint passed; the repair diff check is rerun before
   commit.
+- Fresh independent re-review: PASS with no P0/P1/P2; contract 22/22, focused
+  pgTAP 73/73, normalized generated-type diff, TypeScript, scoped ESLint, and
+  original/repair diff checks all passed.
+- Controller post-integration gate: focused model-gateway Vitest 75/75;
+  gateway + durable-job pgTAP 130/130; normalized generated types, TypeScript,
+  scoped ESLint, and baseline-to-HEAD diff checks passed.
 
 ## Compatibility and risk
 
