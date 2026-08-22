@@ -1113,6 +1113,14 @@ describe("cookie Web mutation boundaries", () => {
 });
 
 describe("production practice route wiring", () => {
+  beforeEach(() => {
+    vi.stubEnv("CI", "false");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   test("the three POST-only route modules wire cookie auth and service mutations", async () => {
     vi.resetModules();
     const client = { scope: "service-role-client" };
