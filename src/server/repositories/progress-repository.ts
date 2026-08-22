@@ -11,13 +11,14 @@ import {
 import { getModelGatewaySettingsEnv } from "@/server/env";
 import type { Database } from "@/types/database.generated";
 
-const MAX_EVIDENCE_ROWS = 1_000;
+const MAX_EVIDENCE_ROWS = 500;
 const QUERY_LIMIT = MAX_EVIDENCE_ROWS + 1;
 const REUSE_EVIDENCE = new Set(["successful_independent_transfer", "owned_threshold_met"]);
 
 export type ProgressAttemptRow = {
   readonly id: string;
   readonly userId: string;
+  readonly userExpressionId: string;
   readonly practiceTaskId: string;
   readonly passed: boolean;
   readonly independentUse: boolean;
@@ -28,12 +29,15 @@ export type ProgressAttemptRow = {
 export type ProgressPracticeTaskRow = {
   readonly id: string;
   readonly userId: string;
+  readonly userExpressionId: string;
+  readonly reviewTaskId: string | null;
   readonly kind: string;
 };
 
 export type ProgressMasteryEventRow = {
   readonly id: string;
   readonly userId: string;
+  readonly userExpressionId: string;
   readonly attemptId: string | null;
   readonly evidenceKind: string;
   readonly occurredAt: string;
@@ -42,6 +46,7 @@ export type ProgressMasteryEventRow = {
 export type ProgressReviewRow = {
   readonly id: string;
   readonly userId: string;
+  readonly userExpressionId: string;
   readonly status: string;
   readonly dueAt: string;
   readonly completedAt: string | null;
@@ -66,6 +71,7 @@ export interface ProgressEvidenceSource {
   listPracticeTasks(query: {
     readonly userId: string;
     readonly ids: readonly string[];
+    readonly reviewIds?: readonly string[];
     readonly limit: number;
   }): Promise<readonly ProgressPracticeTaskRow[]>;
   listMasteryEvents(query: WindowQuery & {
@@ -108,6 +114,111 @@ function checkedRows<T extends { readonly userId: string }>(
   return rows;
 }
 
+function exactlyOne<T extends { readonly id: string }>(
+  rows: readonly T[],
+  label: string,
+): Map<string, T> {
+  const byId = new Map<string, T>();
+  for (const row of rows) {
+    if (byId.has(row.id)) throw new Error(`duplicate ${label} evidence`);
+    byId.set(row.id, row);
+  }
+  return byId;
+}
+
+function validateEvidenceGraph(input: {
+  readonly attempts: readonly ProgressAttemptRow[];
+  readonly tasks: readonly ProgressPracticeTaskRow[];
+  readonly events: readonly ProgressMasteryEventRow[];
+  readonly completions: readonly ProgressReviewRow[];
+  readonly due: readonly ProgressReviewRow[];
+}) {
+  const attemptsById = exactlyOne(input.attempts, "attempt");
+  const tasksById = exactlyOne(input.tasks, "practice task");
+  const eventsByAttemptId = new Map<string, ProgressMasteryEventRow>();
+  const reviewsById = exactlyOne([...input.completions, ...input.due], "review");
+  const tasksByReviewId = new Map<string, ProgressPracticeTaskRow>();
+
+  for (const task of input.tasks) {
+    if (task.kind !== "use_it_now" && task.kind !== "due_practice") {
+      throw new Error("invalid practice task evidence");
+    }
+    if (task.reviewTaskId === null) {
+      if (task.kind === "due_practice") throw new Error("incomplete practice task evidence");
+      continue;
+    }
+    if (task.kind !== "due_practice" || tasksByReviewId.has(task.reviewTaskId)) {
+      throw new Error("incomplete practice task evidence");
+    }
+    tasksByReviewId.set(task.reviewTaskId, task);
+  }
+
+  for (const event of input.events) {
+    if (!event.attemptId || eventsByAttemptId.has(event.attemptId)) {
+      throw new Error("incomplete mastery evidence graph");
+    }
+    const attempt = attemptsById.get(event.attemptId);
+    if (!attempt || event.userExpressionId !== attempt.userExpressionId) {
+      throw new Error("incomplete mastery evidence graph");
+    }
+    eventsByAttemptId.set(event.attemptId, event);
+  }
+
+  for (const attempt of input.attempts) {
+    const task = tasksById.get(attempt.practiceTaskId);
+    const event = eventsByAttemptId.get(attempt.id);
+    if (!task || !event || task.userExpressionId !== attempt.userExpressionId) {
+      throw new Error("incomplete progress evidence graph");
+    }
+
+    if (task.kind === "use_it_now") {
+      if (task.reviewTaskId !== null || event.evidenceKind !== "valid_original_attempt") {
+        throw new Error("invalid original attempt evidence");
+      }
+      continue;
+    }
+
+    const review = task.reviewTaskId ? reviewsById.get(task.reviewTaskId) : undefined;
+    if (!review || review.userExpressionId !== attempt.userExpressionId) {
+      throw new Error("incomplete due practice evidence");
+    }
+
+    const isIndependentPass = attempt.passed && attempt.independentUse && attempt.assistanceLevel === "none";
+    if (REUSE_EVIDENCE.has(event.evidenceKind)) {
+      if (!isIndependentPass || review.status !== "completed" || review.completedAttemptId !== attempt.id) {
+        throw new Error("invalid independent reuse evidence");
+      }
+    } else if (event.evidenceKind === "failed_or_assisted_reuse") {
+      if (isIndependentPass || review.status !== "pending") {
+        throw new Error("invalid assisted reuse evidence");
+      }
+    } else {
+      throw new Error("unexpected mastery evidence");
+    }
+  }
+
+  for (const review of input.completions) {
+    const task = tasksByReviewId.get(review.id);
+    const attempt = review.completedAttemptId ? attemptsById.get(review.completedAttemptId) : undefined;
+    if (
+      review.status !== "completed" || !review.completedAt || !attempt || !task ||
+      review.userExpressionId !== task.userExpressionId ||
+      attempt.userExpressionId !== review.userExpressionId || attempt.practiceTaskId !== task.id ||
+      attempt.submittedAt !== review.completedAt
+    ) throw new Error("incomplete due completion evidence");
+  }
+
+  for (const review of input.due) {
+    const task = tasksByReviewId.get(review.id);
+    if (
+      review.status !== "pending" || review.completedAt || review.completedAttemptId || !task ||
+      review.userExpressionId !== task.userExpressionId
+    ) throw new Error("invalid pending review evidence");
+  }
+
+  return { attemptsById, eventsByAttemptId };
+}
+
 export function createProgressRepository(source: ProgressEvidenceSource): ProgressRepository {
   return {
     async read(userId, now) {
@@ -119,9 +230,7 @@ export function createProgressRepository(source: ProgressEvidenceSource): Progre
         limit: QUERY_LIMIT,
       }), userId);
       const attemptIds = attempts.map(({ id }) => id);
-      const taskIds = [...new Set(attempts.map(({ practiceTaskId }) => practiceTaskId))];
-      const [tasksValue, eventsValue, completionsValue, dueValue, expressionsValue] = await Promise.all([
-        source.listPracticeTasks({ userId, ids: taskIds, limit: QUERY_LIMIT }),
+      const [eventsValue, completionsValue, dueValue, expressionsValue] = await Promise.all([
         source.listMasteryEvents({
           userId,
           start: week.startsAt,
@@ -138,39 +247,21 @@ export function createProgressRepository(source: ProgressEvidenceSource): Progre
         source.listDueReviews({ userId, now: new Date(Date.parse(now)).toISOString(), limit: QUERY_LIMIT }),
         source.listUserExpressions({ userId, limit: QUERY_LIMIT }),
       ]);
-      const tasks = checkedRows(tasksValue, userId);
       const events = checkedRows(eventsValue, userId);
       const completions = checkedRows(completionsValue, userId);
       const due = checkedRows(dueValue, userId);
       const expressions = checkedRows(expressionsValue, userId);
 
-      const attemptsById = new Map(attempts.map((attempt) => [attempt.id, attempt]));
-      const dueTaskIds = new Set(tasks.filter(({ kind }) => kind === "due_practice").map(({ id }) => id));
-      const reuseAttemptIds = new Set(events.flatMap((event) => {
-        if (!REUSE_EVIDENCE.has(event.evidenceKind)) return [];
-        if (!event.attemptId || !attemptsById.has(event.attemptId)) {
-          throw new Error("incomplete mastery evidence graph");
-        }
-        return [event.attemptId];
-      }));
-      const independentReuseCount = [...reuseAttemptIds].filter((attemptId) => {
-        const attempt = attemptsById.get(attemptId)!;
-        return dueTaskIds.has(attempt.practiceTaskId) && attempt.passed && attempt.independentUse &&
-          attempt.assistanceLevel === "none";
-      }).length;
+      const tasks = checkedRows(await source.listPracticeTasks({
+        userId,
+        ids: [...new Set(attempts.map(({ practiceTaskId }) => practiceTaskId))],
+        reviewIds: [...new Set([...completions, ...due].map(({ id }) => id))],
+        limit: QUERY_LIMIT,
+      }), userId);
 
-      for (const review of completions) {
-        if (review.status !== "completed" || !review.completedAt || !review.completedAttemptId) {
-          throw new Error("incomplete due completion evidence");
-        }
-        const attempt = attemptsById.get(review.completedAttemptId);
-        if (!attempt || attempt.submittedAt !== review.completedAt) {
-          throw new Error("incomplete due completion evidence");
-        }
-      }
-      if (due.some((review) => review.status !== "pending" || review.completedAt || review.completedAttemptId)) {
-        throw new Error("invalid pending review evidence");
-      }
+      const { eventsByAttemptId } = validateEvidenceGraph({ attempts, tasks, events, completions, due });
+      const independentReuseCount = [...eventsByAttemptId.values()]
+        .filter((event) => REUSE_EVIDENCE.has(event.evidenceKind)).length;
 
       const masteryDistribution = { tried: 0, reused: 0, owned: 0 };
       for (const expression of expressions) {
@@ -192,120 +283,104 @@ export function createProgressRepository(source: ProgressEvidenceSource): Progre
   };
 }
 
-type QueryResult = { readonly data: unknown[] | null; readonly error: unknown };
-type QueryBuilder = {
-  select(columns: string): QueryBuilder;
-  eq(column: string, value: unknown): QueryBuilder;
-  gte(column: string, value: string): QueryBuilder;
-  lt(column: string, value: string): QueryBuilder;
-  lte(column: string, value: string): QueryBuilder;
-  in(column: string, values: readonly string[]): QueryBuilder;
-  order(column: string, options: { ascending: boolean }): QueryBuilder;
-  limit(value: number): Promise<QueryResult>;
-};
-
-function records(result: QueryResult): Record<string, unknown>[] {
+function records<T>(result: { readonly data: readonly T[] | null; readonly error: unknown }): readonly T[] {
   if (result.error) throw new Error("progress evidence query failed");
-  return (result.data ?? []) as Record<string, unknown>[];
-}
-
-function stringValue(row: Record<string, unknown>, key: string): string {
-  if (typeof row[key] !== "string") throw new Error("malformed progress evidence");
-  return row[key];
-}
-
-function nullableString(row: Record<string, unknown>, key: string): string | null {
-  if (row[key] === null) return null;
-  return stringValue(row, key);
-}
-
-function booleanValue(row: Record<string, unknown>, key: string): boolean {
-  if (typeof row[key] !== "boolean") throw new Error("malformed progress evidence");
-  return row[key];
+  return result.data ?? [];
 }
 
 export function createSupabaseProgressEvidenceSource(
   client: SupabaseClient<Database>,
 ): ProgressEvidenceSource {
-  const db = client as unknown as { from(table: string): QueryBuilder };
   return {
     async listAttempts({ userId, start, end, limit }) {
-      const result = await db.from("attempts")
-        .select("id,user_id,practice_task_id,passed,independent_use,assistance_level,submitted_at")
+      const result = await client.from("attempts")
+        .select("id,user_id,user_expression_id,practice_task_id,passed,independent_use,assistance_level,submitted_at")
         .eq("user_id", userId).gte("submitted_at", start).lt("submitted_at", end)
         .order("submitted_at", { ascending: true }).order("id", { ascending: true }).limit(limit);
       return records(result).map((row) => ({
-        id: stringValue(row, "id"),
-        userId: stringValue(row, "user_id"),
-        practiceTaskId: stringValue(row, "practice_task_id"),
-        passed: booleanValue(row, "passed"),
-        independentUse: booleanValue(row, "independent_use"),
-        assistanceLevel: stringValue(row, "assistance_level"),
-        submittedAt: stringValue(row, "submitted_at"),
+        id: row.id,
+        userId: row.user_id,
+        userExpressionId: row.user_expression_id,
+        practiceTaskId: row.practice_task_id,
+        passed: row.passed,
+        independentUse: row.independent_use,
+        assistanceLevel: row.assistance_level,
+        submittedAt: row.submitted_at,
       }));
     },
-    async listPracticeTasks({ userId, ids, limit }) {
-      if (ids.length === 0) return [];
-      const result = await db.from("practice_tasks").select("id,user_id,kind")
-        .eq("user_id", userId).in("id", ids).eq("kind", "due_practice")
-        .order("id", { ascending: true }).limit(limit);
-      return records(result).map((row) => ({
-        id: stringValue(row, "id"),
-        userId: stringValue(row, "user_id"),
-        kind: stringValue(row, "kind"),
+    async listPracticeTasks({ userId, ids, reviewIds = [], limit }) {
+      const select = "id,user_id,user_expression_id,review_task_id,kind";
+      const [byId, byReviewId] = await Promise.all([
+        ids.length === 0
+          ? Promise.resolve([])
+          : client.from("practice_tasks").select(select).eq("user_id", userId).in("id", ids)
+            .order("id", { ascending: true }).limit(limit).then(records),
+        reviewIds.length === 0
+          ? Promise.resolve([])
+          : client.from("practice_tasks").select(select).eq("user_id", userId).in("review_task_id", reviewIds)
+            .order("review_task_id", { ascending: true }).order("id", { ascending: true }).limit(limit).then(records),
+      ]);
+      return [...byId, ...byReviewId].map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        userExpressionId: row.user_expression_id,
+        reviewTaskId: row.review_task_id,
+        kind: row.kind,
       }));
     },
-    async listMasteryEvents({ userId, start, end, attemptIds, limit }) {
+    async listMasteryEvents({ userId, attemptIds, limit }) {
       if (attemptIds.length === 0) return [];
-      const result = await db.from("mastery_events")
-        .select("id,user_id,attempt_id,evidence_kind,occurred_at")
-        .eq("user_id", userId).gte("occurred_at", start).lt("occurred_at", end)
-        .in("attempt_id", attemptIds).in("evidence_kind", [...REUSE_EVIDENCE])
+      const result = await client.from("mastery_events")
+        .select("id,user_id,user_expression_id,attempt_id,evidence_kind,occurred_at")
+        .eq("user_id", userId).in("attempt_id", attemptIds)
         .order("occurred_at", { ascending: true }).order("id", { ascending: true }).limit(limit);
       return records(result).map((row) => ({
-        id: stringValue(row, "id"),
-        userId: stringValue(row, "user_id"),
-        attemptId: nullableString(row, "attempt_id"),
-        evidenceKind: stringValue(row, "evidence_kind"),
-        occurredAt: stringValue(row, "occurred_at"),
+        id: row.id,
+        userId: row.user_id,
+        userExpressionId: row.user_expression_id,
+        attemptId: row.attempt_id,
+        evidenceKind: row.evidence_kind,
+        occurredAt: row.occurred_at,
       }));
     },
     async listCompletedReviews({ userId, start, end, limit }) {
-      const result = await db.from("review_tasks")
-        .select("id,user_id,status,due_at,completed_at,completed_attempt_id")
+      const result = await client.from("review_tasks")
+        .select("id,user_id,user_expression_id,status,due_at,completed_at,completed_attempt_id")
         .eq("user_id", userId).eq("status", "completed")
         .gte("completed_at", start).lt("completed_at", end)
         .order("completed_at", { ascending: true }).order("id", { ascending: true }).limit(limit);
       return records(result).map((row) => ({
-        id: stringValue(row, "id"),
-        userId: stringValue(row, "user_id"),
-        status: stringValue(row, "status"),
-        dueAt: stringValue(row, "due_at"),
-        completedAt: nullableString(row, "completed_at"),
-        completedAttemptId: nullableString(row, "completed_attempt_id"),
+        id: row.id,
+        userId: row.user_id,
+        userExpressionId: row.user_expression_id,
+        status: row.status,
+        dueAt: row.due_at,
+        completedAt: row.completed_at,
+        completedAttemptId: row.completed_attempt_id,
       }));
     },
     async listDueReviews({ userId, now, limit }) {
-      const result = await db.from("review_tasks")
-        .select("id,user_id,status,due_at,completed_at,completed_attempt_id")
+      const result = await client.from("review_tasks")
+        .select("id,user_id,user_expression_id,status,due_at,completed_at,completed_attempt_id")
         .eq("user_id", userId).eq("status", "pending").lte("due_at", now)
         .order("due_at", { ascending: true }).order("id", { ascending: true }).limit(limit);
       return records(result).map((row) => ({
-        id: stringValue(row, "id"),
-        userId: stringValue(row, "user_id"),
-        status: stringValue(row, "status"),
-        dueAt: stringValue(row, "due_at"),
-        completedAt: nullableString(row, "completed_at"),
-        completedAttemptId: nullableString(row, "completed_attempt_id"),
+        id: row.id,
+        userId: row.user_id,
+        userExpressionId: row.user_expression_id,
+        status: row.status,
+        dueAt: row.due_at,
+        completedAt: row.completed_at,
+        completedAttemptId: row.completed_attempt_id,
       }));
     },
     async listUserExpressions({ userId, limit }) {
-      const result = await db.from("user_expressions").select("id,user_id,mastery_state")
+      const result = await client.from("user_expressions").select("id,user_id,mastery_state")
         .eq("user_id", userId).order("id", { ascending: true }).limit(limit);
       return records(result).map((row) => ({
-        id: stringValue(row, "id"),
-        userId: stringValue(row, "user_id"),
-        masteryState: stringValue(row, "mastery_state"),
+        id: row.id,
+        userId: row.user_id,
+        masteryState: row.mastery_state,
       }));
     },
   };
@@ -332,8 +407,16 @@ export function createProgressHttpHandlers(dependencies: {
       const session = await dependencies.authenticate(request);
       const denied = authFailure(session, requestId);
       if (!session.ok) return denied!;
-      const data = await dependencies.repository.read(session.userId, dependencies.now());
-      return Response.json(success(data, requestId), { headers: { "Cache-Control": "no-store" } });
+      try {
+        const data = await dependencies.repository.read(session.userId, dependencies.now());
+        return Response.json(success(data, requestId), { headers: { "Cache-Control": "no-store" } });
+      } catch {
+        return Response.json(failure({
+          code: "INTERNAL_ERROR",
+          message: "Progress is temporarily unavailable",
+          retryable: true,
+        }, requestId), { status: 500, headers: { "Cache-Control": "no-store" } });
+      }
     },
   };
 }
