@@ -213,6 +213,17 @@ test("Options remains the adapted account surface and exposes password controls"
   assert.doesNotMatch(read("options.js"), /createAuthClient|popcorn_session/);
 });
 
+test("the worker loads generated runtime configuration before auth and settings", () => {
+  const background = read("background.js");
+  const runtimeConfig = background.indexOf('importScripts("runtime-config.js")');
+  const authAndSettings = background.indexOf('importScripts("settings.js", "auth.js")');
+
+  assert.ok(runtimeConfig >= 0);
+  assert.ok(authAndSettings > runtimeConfig);
+  assert.match(background, /popcornRuntimeConfig\?\.appUrl/);
+  assert.doesNotMatch(background, /const POPCORN_API_ORIGIN = ["']https?:/);
+});
+
 test("password sign-in calls the exact Supabase endpoint and persists only normalized session data", async () => {
   const auth = await getAuth();
   const harness = createChrome();

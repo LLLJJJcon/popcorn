@@ -5,7 +5,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwCqbcBXdGdia3oJvACtGMBap22g36NWOq+NVdPSIAJtMhu76C1MY0jh+thRWP9PXlmbFLBWiiXNELws4dDfl69fQVqE6zBd914tWY4doEXhFWker+yq2DfexhuLSb57PcdBW2rK1xXRDVt9BO22FTwjlDmOop+TccRwVdJHu772CH1vnRaDWb+FnMkGd8Ep1iKhqhPpWxeG2tJSZALWIwbNV9qqJ8/fTnTftXePahN6ggq0uNtX/SIdDALg9rRwuG0KJzBLtodmHf0fuZy+JfLJ4bxUQxUFhjtLX5S28jE/XZtrwH/8gtZ8L43gDQ5MZHVRjr1YCoCeLlagEQLmHfQIDAQAB",
   "minimum_chrome_version": "116",
   "description": "Save useful Chinese YouTube moments to your Popcorn account.",
-  "permissions": ["sidePanel", "storage", "tabs", "scripting", "identity", "alarms"],
+  "permissions": ["sidePanel", "storage", "tabs", "scripting", "alarms"],
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://app.popcorn.local/*",

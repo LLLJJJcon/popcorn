@@ -3,12 +3,13 @@
  * Authentication remains service-worker-owned; Side Panel/content messages
  * never receive access or refresh tokens.
  */
+importScripts("runtime-config.js");
 importScripts("settings.js", "auth.js");
 importScripts("sync-queue.js");
 
-const POPCORN_API_ORIGIN = "https://app.popcorn.local";
 const debugLog = () => {};
 const popcornRuntimeConfig = globalThis.POPCORN_RUNTIME_CONFIG;
+const POPCORN_API_ORIGIN = popcornRuntimeConfig?.appUrl;
 
 const popcornAuthClient = POPCORN_AUTH.createAuthClient({
   chrome,
