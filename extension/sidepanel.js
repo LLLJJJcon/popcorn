@@ -701,18 +701,14 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
 });
 
 function saveSuccessLabel(result) {
-  return result?.synced
-    ? "Saved to Popcorn"
-    : "Saved locally; sign in to sync";
+  return result?.synced ? "Saved to Popcorn" : "Saved locally";
 }
 
 const SAVE_STATUS_COPY = Object.freeze({
   saving: "Saving this learning moment…",
   saved: "Saved locally. Queued to sync.",
-  retrying: "Saved locally. Offline; queued and retrying automatically.",
-  "sign-in-required": "Saved locally. Sign in required; your save stays queued.",
+  retrying: "Saved locally. Popcorn is temporarily unavailable; queued and retrying automatically.",
   organizing: "Saved to Popcorn. Organizing your learning material…",
-  failed: "Your saved learning text is still available. Popcorn could not organize it.",
   "save-failed": "This save was not completed. Try again when Popcorn is ready.",
   unsupported: "Popcorn works only with the YouTube video you are currently watching.",
 });
@@ -736,7 +732,6 @@ function createSaveStatusPresenter(doc, appUrl = "") {
     if (!retryAction) return;
     const action = retryAction;
     retryButton.disabled = true;
-    show({ state: "retrying" });
     try {
       await action();
     } catch (_error) {
@@ -754,17 +749,17 @@ function createSaveStatusPresenter(doc, appUrl = "") {
     retryAction = typeof retry === "function" ? retry : null;
 
     if (raw) {
-      const showsRawText = state === "failed" && Boolean(rawText);
+      const showsRawText = state === "retrying" && Boolean(rawText);
       raw.hidden = !showsRawText;
       raw.textContent = showsRawText ? rawText : "";
     }
     if (retryButton) {
-      retryButton.hidden = !["failed", "save-failed"].includes(state) || !retryAction;
+      retryButton.hidden = !["retrying", "save-failed"].includes(state) || !retryAction;
     }
     if (recoveryLink) {
       recoveryLink.hidden = true;
       recoveryLink.removeAttribute("href");
-      if (state === "failed" && appUrl) {
+      if (state === "retrying" && appUrl) {
         try {
           recoveryLink.href = new URL("/saved", appUrl).href;
           recoveryLink.hidden = false;
@@ -779,11 +774,8 @@ function createSaveStatusPresenter(doc, appUrl = "") {
 }
 
 function saveStateForResult(result) {
-  if (result?.status === "failed") return "failed";
-  if (result?.code === "AUTH_REQUIRED" && result?.pending) return "sign-in-required";
-  if (result?.code === "SYNC_RETRYING") return "retrying";
-  if (result?.status === "saved") return "saved";
-  if (result?.status === "organizing" || result?.synced) return "organizing";
+  if (result?.code === "SYNC_RETRYING" && result?.pending) return "retrying";
+  if (result?.synced) return "organizing";
   return "saved";
 }
 
@@ -815,11 +807,11 @@ async function saveWithFeedback({
   try {
     const result = await save(input);
     const state = saveStateForResult(result);
-    button.textContent = state === "failed" ? "Retry save" : saveSuccessLabel(result);
+    button.textContent = saveSuccessLabel(result);
     presenter.show({
       state,
       rawText: savedRawText(input),
-      retry: state === "failed" ? retry : null,
+      retry: state === "retrying" ? retry : null,
     });
     return result;
   } catch (error) {
@@ -956,78 +948,71 @@ function setNotesFilter(showAll) {
 
 async function checkCurrentTab() {
   try {
-    // Try multiple strategies to find the YouTube tab
-    let tab = null;
-
-    // Strategy 1: Active tab in last focused window
-    let tabs = await chrome.tabs.query({
+    const tabs = await chrome.tabs.query({
       active: true,
       lastFocusedWindow: true,
     });
-    if (tabs[0]?.url?.includes("youtube.com")) {
-      tab = tabs[0];
-    }
-
-    // Strategy 2: Any active YouTube tab
-    if (!tab) {
-      tabs = await chrome.tabs.query({
-        url: "https://www.youtube.com/*",
-        active: true,
-      });
-      if (tabs[0]) tab = tabs[0];
-    }
-
-    // Strategy 3: Any YouTube tab (last resort)
-    if (!tab) {
-      tabs = await chrome.tabs.query({ url: "https://www.youtube.com/*" });
-      if (tabs[0]) tab = tabs[0];
-    }
+    const tab = tabs[0] || null;
 
     debugLog("[YouTube Digest Panel] Found tab:", tab?.id, tab?.url);
 
-    if (!tab?.url) {
-      showState("welcome");
+    const videoId = youtubeWatchVideoId(tab?.url);
+    if (!videoId) {
+      youtubeTabId = null;
+      currentVideoId = null;
+      currentVideoUrl = null;
+      document.getElementById("saveVideoBtn").style.display = "none";
+      showUnsupportedYouTube();
       return;
     }
 
     // Store the tab ID for reliable messaging later
     youtubeTabId = tab.id;
+    currentVideoUrl = tab.url;
+    document.getElementById("saveVideoBtn").style.display = "inline-flex";
 
-    const videoId = extractVideoId(tab.url);
-
-    if (videoId) {
-      currentVideoUrl = tab.url;
-      document.getElementById("saveVideoBtn").style.display = "inline-flex";
-
-      try {
-        // Route through background script for reliable message passing
-        const result = await chrome.runtime.sendMessage({
-          action: "relayToContent",
-          payload: { action: "getVideoInfo" },
-        });
-        debugLog("[YouTube Digest Panel] getVideoInfo result:", result);
-        if (result.success && result.response) {
-          currentVideoTitle = result.response.title || "";
-          currentChannelName = result.response.channelName || "";
-          currentVideoDescription = result.response.description || "";
-          currentVideoDuration = result.response.duration || 0;
-        }
-      } catch (e) {
-        console.error("[YouTube Digest Panel] getVideoInfo error:", e);
-        currentVideoTitle = "";
-        currentChannelName = "";
-        currentVideoDescription = "";
-        currentVideoDuration = 0;
+    try {
+      // Route through background script for reliable message passing
+      const result = await chrome.runtime.sendMessage({
+        action: "relayToContent",
+        payload: { action: "getVideoInfo" },
+      });
+      debugLog("[YouTube Digest Panel] getVideoInfo result:", result);
+      if (result.success && result.response) {
+        currentVideoTitle = result.response.title || "";
+        currentChannelName = result.response.channelName || "";
+        currentVideoDescription = result.response.description || "";
+        currentVideoDuration = result.response.duration || 0;
       }
-
-      startDigest(videoId, tab.url);
-    } else {
-      document.getElementById("saveVideoBtn").style.display = "none";
-      showUnsupportedYouTube();
+    } catch (e) {
+      console.error("[YouTube Digest Panel] getVideoInfo error:", e);
+      currentVideoTitle = "";
+      currentChannelName = "";
+      currentVideoDescription = "";
+      currentVideoDuration = 0;
     }
+
+    startDigest(videoId, tab.url);
   } catch (error) {
     console.error("Tab check error:", error);
     showState("welcome");
+  }
+}
+
+function youtubeWatchVideoId(value) {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "www.youtube.com" ||
+      url.pathname !== "/watch"
+    ) {
+      return null;
+    }
+    const videoId = url.searchParams.get("v") || "";
+    return SAVE_VIDEO_ID_PATTERN.test(videoId) ? videoId : null;
+  } catch {
+    return null;
   }
 }
 

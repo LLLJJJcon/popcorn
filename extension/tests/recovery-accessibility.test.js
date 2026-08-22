@@ -10,7 +10,7 @@ const sidepanelSource = fs.readFileSync(path.join(extensionRoot, "sidepanel.js")
 const sidepanelHtml = fs.readFileSync(path.join(extensionRoot, "sidepanel.html"), "utf8");
 const optionsSource = fs.readFileSync(path.join(extensionRoot, "options.js"), "utf8");
 
-function loadSidepanelRecovery() {
+function loadSidepanelRecovery({ queryResults = [], runtimeSendMessage } = {}) {
   const dom = new JSDOM(sidepanelHtml, {
     url: "chrome-extension://popcorn/sidepanel.html",
   });
@@ -20,6 +20,8 @@ function loadSidepanelRecovery() {
     nativeAddEventListener(type, listener, options);
   };
   const passive = { addListener() {} };
+  const tabQueries = [];
+  const runtimeMessages = [];
   const sandbox = {
     console,
     URL,
@@ -32,9 +34,21 @@ function loadSidepanelRecovery() {
     window: dom.window,
     navigator: dom.window.navigator,
     chrome: {
-      runtime: { onMessage: passive, sendMessage: async () => ({ success: true }) },
+      runtime: { onMessage: passive, sendMessage: async (message) => {
+        runtimeMessages.push(structuredClone(message));
+        return runtimeSendMessage
+          ? runtimeSendMessage(message)
+          : { success: true };
+      } },
       windows: { getCurrent: async () => ({ id: 1 }) },
-      tabs: { onUpdated: passive, onActivated: passive },
+      tabs: {
+        onUpdated: passive,
+        onActivated: passive,
+        async query(query) {
+          tabQueries.push(structuredClone(query));
+          return queryResults[tabQueries.length - 1] || [];
+        },
+      },
       storage: { local: { get: async () => ({}), remove: async () => {} } },
     },
     MutationObserver: dom.window.MutationObserver,
@@ -48,8 +62,18 @@ function loadSidepanelRecovery() {
     clearInterval() {},
   };
   sandbox.globalThis = sandbox;
-  vm.runInNewContext(sidepanelSource, sandbox, { filename: "sidepanel.js" });
-  return { dom, document: dom.window.document, helpers: sandbox.__YTD_SAVE_TESTING__ };
+  vm.runInNewContext(
+    `${sidepanelSource}\n;globalThis.__YTD_SAVE_TESTING__.checkCurrentTab = checkCurrentTab;`,
+    sandbox,
+    { filename: "sidepanel.js" },
+  );
+  return {
+    dom,
+    document: dom.window.document,
+    helpers: sandbox.__YTD_SAVE_TESTING__,
+    runtimeMessages,
+    tabQueries,
+  };
 }
 
 function optionsHarness(summary, account = null) {
@@ -86,7 +110,7 @@ test("Side Panel exposes one polite save live region and semantic recovery contr
   assert.equal(document.querySelectorAll("form").length, 0);
 });
 
-test("saving, local queue, sign-in, retrying, and organizing states tell the truth", async () => {
+test("saving, local queue, retrying, and organizing states tell the truth", async () => {
   const { document, helpers } = loadSidepanelRecovery();
   const presenter = helpers.createSaveStatusPresenter(document, "https://app.popcorn.local");
   const button = document.getElementById("saveVideoBtn");
@@ -105,15 +129,13 @@ test("saving, local queue, sign-in, retrying, and organizing states tell the tru
   await saving;
   assert.match(document.getElementById("saveStatusMessage").textContent, /Saved locally.*queued/i);
 
-  presenter.show({ state: "sign-in-required" });
-  assert.match(document.getElementById("saveStatusMessage").textContent, /Sign in required.*stays queued/i);
   presenter.show({ state: "retrying" });
-  assert.match(document.getElementById("saveStatusMessage").textContent, /Offline.*queued.*retrying/i);
+  assert.match(document.getElementById("saveStatusMessage").textContent, /temporarily unavailable.*queued.*retrying/i);
   presenter.show({ state: "organizing" });
   assert.match(document.getElementById("saveStatusMessage").textContent, /Saved to Popcorn.*Organizing/i);
 });
 
-test("failed organization retains raw saved text and retries in place without player or page side effects", async () => {
+test("a real queued retry response retains raw text and exposes honest recovery controls", async () => {
   const { dom, document, helpers } = loadSidepanelRecovery();
   const presenter = helpers.createSaveStatusPresenter(document, "https://app.popcorn.local");
   const transcript = document.getElementById("transcriptList");
@@ -124,8 +146,8 @@ test("failed organization retains raw saved text and retries in place without pl
   const save = async () => {
     attempts += 1;
     return attempts === 1
-      ? { success: true, synced: true, status: "failed" }
-      : { success: true, synced: true, status: "organizing" };
+      ? { success: true, synced: false, pending: true, code: "SYNC_RETRYING" }
+      : { success: true, synced: true, pending: false };
   };
 
   await helpers.saveWithFeedback({
@@ -138,7 +160,8 @@ test("failed organization retains raw saved text and retries in place without pl
   });
 
   assert.equal(document.getElementById("saveRawText").textContent, "我完全没想到。");
-  assert.match(document.getElementById("saveStatusMessage").textContent, /still available.*could not organize/i);
+  assert.match(document.getElementById("saveStatusMessage").textContent, /saved locally.*queued.*retrying automatically/i);
+  assert.doesNotMatch(document.getElementById("saveVideoBtn").textContent, /sign in/i);
   const recovery = document.getElementById("saveRecoveryLink");
   assert.equal(recovery.href, "https://app.popcorn.local/saved");
   assert.equal(recovery.hidden, false);
@@ -157,6 +180,46 @@ test("failed organization retains raw saved text and retries in place without pl
   assert.equal(player.playCalls, 0);
   assert.equal(dom.window.location.href, initialLocation);
   assert.equal(document.querySelectorAll("form").length, 0);
+});
+
+test("checkCurrentTab never falls back from the current non-watch tab to another YouTube tab", async () => {
+  const currentTab = { id: 10, url: "https://example.com/course" };
+  const backgroundWatchTab = {
+    id: 11,
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  };
+  const { helpers, tabQueries, runtimeMessages, document } = loadSidepanelRecovery({
+    queryResults: [[currentTab], [backgroundWatchTab], [backgroundWatchTab]],
+  });
+
+  await helpers.checkCurrentTab();
+
+  assert.deepEqual(tabQueries, [{ active: true, lastFocusedWindow: true }]);
+  assert.equal(
+    runtimeMessages.some((message) =>
+      message.action === "relayToContent" && message.payload?.action === "getVideoInfo"),
+    false,
+  );
+  assert.match(document.getElementById("saveStatusMessage").textContent, /currently watching/i);
+});
+
+test("checkCurrentTab rejects a non-watch YouTube path even when it carries a video ID", async () => {
+  const currentTab = {
+    id: 10,
+    url: "https://www.youtube.com/results?v=dQw4w9WgXcQ",
+  };
+  const { helpers, tabQueries, runtimeMessages } = loadSidepanelRecovery({
+    queryResults: [[currentTab]],
+  });
+
+  await helpers.checkCurrentTab();
+
+  assert.deepEqual(tabQueries, [{ active: true, lastFocusedWindow: true }]);
+  assert.equal(
+    runtimeMessages.some((message) =>
+      message.action === "relayToContent" && message.payload?.action === "getVideoInfo"),
+    false,
+  );
 });
 
 test("a save rejected before queue admission never claims that it was saved", async () => {
