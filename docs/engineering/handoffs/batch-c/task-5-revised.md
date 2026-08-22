@@ -16,14 +16,19 @@
 
 - Added one Side Panel `role=status` / `aria-live=polite` surface. The existing
   save handlers now drive truthful saving, locally queued, automatic-retry,
-  organizing, and pre-queue save-failed copy from the queue's real response
-  contract (`success`, `synced`, `pending`, and `code`).
+  sign-in-required-after-admission, organizing, and pre-queue save-failed copy
+  from the queue's real response contract (`success`, `synced`, `pending`, and
+  `code`).
 - A real `SYNC_RETRYING` response keeps the captured Chinese learning text
   visible and exposes one generated-App `/saved` link. A rejected pre-queue
   save, including `AUTH_REQUIRED`, does not claim persistence. Retry is a
   native button and repeats the already-built save input in place; it does not
   query or manipulate playback, transcript scrolling, the active YouTube URL,
   or forms.
+- A real admitted response with `success: true`, `pending: true`, and
+  `code: AUTH_REQUIRED` states that the save remains queued and asks the user
+  to sign in to retry. In contrast, pre-admission `AUTH_REQUIRED` is thrown by
+  the queue wrapper and remains the non-persistence `save-failed` state.
 - `checkCurrentTab` now performs exactly one active/last-focused-window query.
   It accepts only the current strict `https://www.youtube.com/watch` URL with
   an extractable 11-character video ID. A non-watch current tab cannot fall
@@ -81,11 +86,25 @@ The repair removed the unreachable `status: failed/organizing` proof and the
 two fallback tab strategies. Both focused tests then passed using only the
 production queue shape and production `checkCurrentTab` path.
 
+Second independent-review P1 RED:
+
+```bash
+node --test --test-name-pattern='admitted save that loses authentication' \
+  extension/tests/recovery-accessibility.test.js
+```
+
+Exit 1: the real admitted response
+`{success:true,synced:false,pending:true,code:'AUTH_REQUIRED'}` was presented as
+ordinary “Saved locally. Queued to sync.” The minimal repair restored only the
+precise `AUTH_REQUIRED && pending` mapping and a distinct “stays queued; sign
+in to retry” button/status. The separate pre-admission rejection test remained
+GREEN and continued to forbid any saved/queued claim.
+
 GREEN before final verification:
 
-- Recovery/accessibility extension suite: 8/8 passed.
+- Recovery/accessibility extension suite: 9/9 passed.
 - Web ErrorState suite: 2/2 passed.
-- Required extension suite with queue/restart: 26/26 passed.
+- Required extension suite with queue/restart: 27/27 passed.
 - Direct save-handler regression (`save-payloads` plus `digest-button`):
   21/21 passed.
 - Preserved upstream notes-filter assertion: 1/1 passed.

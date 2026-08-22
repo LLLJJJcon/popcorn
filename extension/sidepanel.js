@@ -701,6 +701,9 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
 });
 
 function saveSuccessLabel(result) {
+  if (result?.code === "AUTH_REQUIRED" && result?.pending) {
+    return "Saved locally; sign in to retry";
+  }
   return result?.synced ? "Saved to Popcorn" : "Saved locally";
 }
 
@@ -708,6 +711,7 @@ const SAVE_STATUS_COPY = Object.freeze({
   saving: "Saving this learning moment…",
   saved: "Saved locally. Queued to sync.",
   retrying: "Saved locally. Popcorn is temporarily unavailable; queued and retrying automatically.",
+  "sign-in-required": "Saved locally. Your save stays queued; sign in to retry.",
   organizing: "Saved to Popcorn. Organizing your learning material…",
   "save-failed": "This save was not completed. Try again when Popcorn is ready.",
   unsupported: "Popcorn works only with the YouTube video you are currently watching.",
@@ -774,6 +778,9 @@ function createSaveStatusPresenter(doc, appUrl = "") {
 }
 
 function saveStateForResult(result) {
+  if (result?.code === "AUTH_REQUIRED" && result?.pending) {
+    return "sign-in-required";
+  }
   if (result?.code === "SYNC_RETRYING" && result?.pending) return "retrying";
   if (result?.synced) return "organizing";
   return "saved";

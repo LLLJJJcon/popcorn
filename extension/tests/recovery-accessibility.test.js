@@ -135,6 +135,36 @@ test("saving, local queue, retrying, and organizing states tell the truth", asyn
   assert.match(document.getElementById("saveStatusMessage").textContent, /Saved to Popcorn.*Organizing/i);
 });
 
+test("an admitted save that loses authentication stays queued and asks for sign-in", async () => {
+  const { document, helpers } = loadSidepanelRecovery();
+  const button = document.getElementById("saveVideoBtn");
+  const presenter = helpers.createSaveStatusPresenter(
+    document,
+    "https://app.popcorn.local",
+  );
+
+  await helpers.saveWithFeedback({
+    input: { kind: "subtitle_row", originalChinese: "这个表达很自然。" },
+    button,
+    idleLabel: "Save Video",
+    save: async () => ({
+      success: true,
+      synced: false,
+      pending: true,
+      code: "AUTH_REQUIRED",
+    }),
+    presenter,
+    scheduleReset() {},
+  });
+
+  assert.match(
+    document.getElementById("saveStatusMessage").textContent,
+    /stays queued.*sign in to retry/i,
+  );
+  assert.match(button.textContent, /sign in to retry/i);
+  assert.notEqual(button.textContent, "Saved locally");
+});
+
 test("a real queued retry response retains raw text and exposes honest recovery controls", async () => {
   const { dom, document, helpers } = loadSidepanelRecovery();
   const presenter = helpers.createSaveStatusPresenter(document, "https://app.popcorn.local");
