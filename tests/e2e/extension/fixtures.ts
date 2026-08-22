@@ -10,6 +10,7 @@ import {
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 
 declare const chrome: {
   readonly storage: {
@@ -33,6 +34,55 @@ const ARTIFACT_ID = "00000000-0000-4000-8000-000000000302";
 const SOURCE_ID = "00000000-0000-4000-8000-000000000303";
 const SEGMENT_ONE_ID = "1".repeat(64);
 const SEGMENT_TWO_ID = "2".repeat(64);
+const YOUTUBE_ORIGIN = "https://www.youtube.com";
+
+type FixtureRuntime = Readonly<{
+  extensionPath: string;
+  appOrigin: string;
+  supabaseOrigin: string;
+}>;
+
+function exactRuntimeOrigin(value: unknown): string {
+  if (typeof value !== "string") throw new Error("Invalid generated extension runtime config.");
+  const parsed = new URL(value);
+  if (
+    !["http:", "https:"].includes(parsed.protocol) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    parsed.pathname !== "/" ||
+    value !== parsed.origin
+  ) {
+    throw new Error("Invalid generated extension runtime config.");
+  }
+  return parsed.origin;
+}
+
+function loadFixtureRuntime(): FixtureRuntime {
+  const extensionPath = path.resolve(process.cwd(), "dist/popcorn-extension");
+  const runtimeConfigPath = path.join(extensionPath, "runtime-config.js");
+  if (!fs.existsSync(runtimeConfigPath)) {
+    throw new Error(
+      "Missing generated dist/popcorn-extension runtime. Run pnpm extension:package before fixture acceptance.",
+    );
+  }
+
+  const context = vm.createContext({});
+  try {
+    vm.runInContext(fs.readFileSync(runtimeConfigPath, "utf8"), context, {
+      filename: runtimeConfigPath,
+    });
+    const runtime = context.POPCORN_RUNTIME_CONFIG as Record<string, unknown> | undefined;
+    return {
+      extensionPath,
+      appOrigin: exactRuntimeOrigin(runtime?.appUrl),
+      supabaseOrigin: exactRuntimeOrigin(runtime?.supabaseUrl),
+    };
+  } catch {
+    throw new Error("Invalid generated extension runtime config.");
+  }
+}
 
 type SavedEvent = {
   readonly clientEventId: string;
@@ -99,13 +149,16 @@ export class MockPopcornCloud {
     explanation: 0,
   };
 
+  constructor(
+    private readonly appOrigin: string,
+    private readonly supabaseOrigin: string,
+  ) {}
+
   noteRequest(url: string) {
     const parsed = new URL(url);
     if (
       parsed.protocol.startsWith("http") &&
-      parsed.hostname !== "app.popcorn.local" &&
-      parsed.hostname !== "project.supabase.co" &&
-      parsed.hostname !== "www.youtube.com"
+      ![this.appOrigin, this.supabaseOrigin, YOUTUBE_ORIGIN].includes(parsed.origin)
     ) {
       this.unexpectedOrigins.push(parsed.origin);
     }
@@ -125,7 +178,7 @@ export class MockPopcornCloud {
     if (pathName === `/api/v1/youtube/${VIDEO_ID}/overview`) this.artifactCounts.overview += 1;
     if (pathName === "/api/v1/explanations") this.artifactCounts.explanation += 1;
 
-    if (url.hostname === "project.supabase.co" && pathName === "/auth/v1/token") {
+    if (url.origin === this.supabaseOrigin && pathName === "/auth/v1/token") {
       expect(request.method()).toBe("POST");
       expect(url.searchParams.get("grant_type")).toBe("password");
       expect(request.headers().apikey).toBeTruthy();
@@ -345,7 +398,7 @@ function youtubeFixtureHtml() {
 }
 
 export class PopcornExtensionHarness {
-  readonly cloud = new MockPopcornCloud();
+  readonly cloud: MockPopcornCloud;
   readonly options: Page;
   readonly youtube: Page;
   panel!: Page;
@@ -357,7 +410,10 @@ export class PopcornExtensionHarness {
     readonly profileDir: string,
     options: Page,
     youtube: Page,
+    appOrigin: string,
+    supabaseOrigin: string,
   ) {
+    this.cloud = new MockPopcornCloud(appOrigin, supabaseOrigin);
     this.options = options;
     this.youtube = youtube;
     this.watchDialogs(options);
@@ -660,26 +716,37 @@ type Fixtures = { popcorn: PopcornExtensionHarness };
 
 export const test = base.extend<Fixtures>({
   popcorn: async ({}, provideFixture) => {
-    const extensionPath = path.resolve(process.cwd(), "extension");
+    const runtime = loadFixtureRuntime();
     const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "popcorn-extension-e2e-"));
     const context = await chromium.launchPersistentContext(profileDir, {
       channel: "chromium",
       headless: true,
       args: [
-        `--disable-extensions-except=${extensionPath}`,
-        `--load-extension=${extensionPath}`,
+        `--disable-extensions-except=${runtime.extensionPath}`,
+        `--load-extension=${runtime.extensionPath}`,
       ],
     });
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
     const extensionId = new URL(worker.url()).host;
     const options = await context.newPage();
     const youtube = await context.newPage();
-    const harness = new PopcornExtensionHarness(context, extensionId, profileDir, options, youtube);
+    const harness = new PopcornExtensionHarness(
+      context,
+      extensionId,
+      profileDir,
+      options,
+      youtube,
+      runtime.appOrigin,
+      runtime.supabaseOrigin,
+    );
 
     context.on("request", (request) => harness.cloud.noteRequest(request.url()));
-    await context.route("https://app.popcorn.local/**", (route) => harness.cloud.handle(route));
-    await context.route("https://project.supabase.co/**", (route) => harness.cloud.handle(route));
-    await context.route("https://www.youtube.com/**", (route) =>
+    // Playwright checks routes in reverse registration order, so approved
+    // fixture origins below take precedence over this closed-egress fallback.
+    await context.route(/^https?:\/\//, (route) => route.abort("blockedbyclient"));
+    await context.route(`${runtime.appOrigin}/**`, (route) => harness.cloud.handle(route));
+    await context.route(`${runtime.supabaseOrigin}/**`, (route) => harness.cloud.handle(route));
+    await context.route(`${YOUTUBE_ORIGIN}/**`, (route) =>
       route.fulfill({ status: 200, contentType: "text/html", body: youtubeFixtureHtml() }),
     );
 

@@ -206,6 +206,7 @@ async function installSeedSession(context: BrowserContext) {
   await context.addCookies([...cookieJar].map(([name, value]) => ({ name, value, url: appUrl })));
 }
 
+test.describe("saved learning loop", () => {
 test.beforeAll(async () => {
   await cleanupFixture();
 
@@ -442,6 +443,9 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   await expect(card.getByRole("heading", { name: "Attempt history" })).toBeVisible();
   await expect(card.getByText(original, { exact: true })).toBeVisible();
   await expect(card.getByText(revision, { exact: true })).toBeVisible();
+  await page.getByLabel("Search expressions").fill(EXPRESSION);
+  await expect(page.getByRole("list", { name: "Vault search results" })
+    .getByRole("link", { name: new RegExp(EXPRESSION) })).toBeVisible();
 
   const review = await admin.from("review_tasks").select("id")
     .eq("user_id", USER_ID).eq("user_expression_id", futureUserExpressionId).single();
@@ -469,4 +473,5 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
       .eq("user_id", USER_ID).eq("saved_item_id", IGNORED_SAVE_ID),
   ]);
   expect(ignoredRelations.map((result) => result.count)).toEqual([0, 0]);
+});
 });

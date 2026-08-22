@@ -121,6 +121,7 @@ function metric(page: Page, listName: string, label: string) {
     .locator("strong");
 }
 
+test.describe("returning learner", () => {
 test.beforeAll(async () => {
   await cleanupFixture();
   const createdAt = "2026-08-20T10:00:00.000Z";
@@ -333,4 +334,5 @@ test("a returning learner completes due Practice without increasing saved volume
   expect(expressionAfter.data?.mastery_state).toBe("reused");
   expect(completedReview.data?.completed_attempt_id).toBeTruthy();
   expect(pendingReview.count).toBe(1);
+});
 });
