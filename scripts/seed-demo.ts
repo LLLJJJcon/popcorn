@@ -311,11 +311,6 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
       segment_ids: candidate.segmentIds, start_seconds: candidate.startSeconds,
       end_seconds: candidate.endSeconds, confidence: candidate.confidence, created_at: FIXED_AT,
     });
-    tables.user_expressions.push({
-      id: expressionId, user_id: ownerId, expression_sense_id: senseId,
-      mastery_state: state, created_at: FIXED_AT, updated_at: FIXED_AT,
-    });
-
     const originalTaskId = id(`task:${state}:original`);
     const originalAttemptId = id(`attempt:${state}:original`);
     const originalCompletedAt = at(referenceDayMillis, originalDayOffsets[index]);
@@ -375,6 +370,11 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
       });
       precedingEvidenceAt = completedAt;
     }
+
+    tables.user_expressions.push({
+      id: expressionId, user_id: ownerId, expression_sense_id: senseId,
+      mastery_state: state, created_at: FIXED_AT, updated_at: precedingEvidenceAt,
+    });
 
     const intervalDays = state === "owned" ? 30 : state === "reused" ? 7 : 1;
     tables.review_tasks.push({

@@ -98,7 +98,7 @@ describe("deterministic classroom demo seed", () => {
       youtubeVideoId: "PopcornD3mo",
       canonicalUrl: "https://www.youtube.com/watch?v=PopcornD3mo",
       transcriptLanguage: "zh-CN",
-      acquiredAt: "2026-08-16T09:00:00.000Z",
+      acquiredAt: "2026-08-01T09:00:00.000Z",
     });
     expect(transcript).toHaveLength(4);
     expect(transcript.map((segment) => segment.stableId)).toEqual([
@@ -264,6 +264,85 @@ describe("deterministic classroom demo seed", () => {
       .toHaveLength(1);
     expect(reviews.filter((row) => row.status === "pending" && String(row.due_at) > "2026-08-23T23:59:59.999Z"))
       .toHaveLength(2);
+  });
+
+  it("keeps the complete source-to-mastery graph causally ordered", () => {
+    const plan = buildDemoSeedPlan(OWNER_A, REFERENCE_NOW);
+    const source = rowsFor(plan, "video_sources")[0];
+    const snapshot = rowsFor(plan, "video_snapshots")[0];
+    const segments = rowsFor(plan, "transcript_segments");
+    const saves = rowsFor(plan, "saved_items");
+    const artifacts = rowsFor(plan, "generated_artifacts");
+    const senses = rowsFor(plan, "expression_senses");
+    const occurrences = rowsFor(plan, "expression_occurrences");
+    const expressions = rowsFor(plan, "user_expressions");
+    const tasks = rowsFor(plan, "practice_tasks");
+    const attempts = rowsFor(plan, "attempts");
+    const events = rowsFor(plan, "mastery_events");
+    const reviews = rowsFor(plan, "review_tasks");
+    const snapshotReadyAt = Math.max(
+      Date.parse(String(source.created_at)),
+      Date.parse(String(snapshot.created_at)),
+      Date.parse(String(snapshot.captured_at)),
+    );
+
+    const downstreamCreationTimes = [
+      ...segments.map((row) => row.created_at),
+      ...saves.map((row) => row.created_at),
+      ...artifacts.map((row) => row.created_at),
+      ...senses.map((row) => row.created_at),
+      ...occurrences.map((row) => row.created_at),
+      ...expressions.map((row) => row.created_at),
+      ...tasks.map((row) => row.created_at),
+      ...attempts.map((row) => row.submitted_at),
+      ...events.map((row) => row.occurred_at),
+      ...reviews.map((row) => row.created_at),
+    ];
+    expect(downstreamCreationTimes.every((timestamp) =>
+      snapshotReadyAt <= Date.parse(String(timestamp)),
+    )).toBe(true);
+
+    for (const occurrence of occurrences) {
+      const save = saves.find((candidate) => candidate.id === occurrence.saved_item_id);
+      const sense = senses.find((candidate) => candidate.id === occurrence.expression_sense_id);
+      expect(save, `save for occurrence ${occurrence.id}`).toBeDefined();
+      expect(sense, `sense for occurrence ${occurrence.id}`).toBeDefined();
+      expect(Date.parse(String(save?.created_at))).toBeLessThanOrEqual(
+        Date.parse(String(sense?.created_at)),
+      );
+      expect(Date.parse(String(save?.created_at))).toBeLessThanOrEqual(
+        Date.parse(String(occurrence.created_at)),
+      );
+    }
+
+    for (const expression of expressions) {
+      const expressionCreatedAt = Date.parse(String(expression.created_at));
+      const expressionTasks = tasks.filter((row) => row.user_expression_id === expression.id);
+      const expressionAttempts = attempts.filter((row) => row.user_expression_id === expression.id);
+      const expressionEvents = events.filter((row) => row.user_expression_id === expression.id);
+      const firstConsumerAt = Math.min(
+        ...expressionTasks.map((row) => Date.parse(String(row.created_at))),
+        ...expressionAttempts.map((row) => Date.parse(String(row.submitted_at))),
+        ...expressionEvents.map((row) => Date.parse(String(row.occurred_at))),
+      );
+      const lastMasteryEventAt = Math.max(
+        ...expressionEvents.map((row) => Date.parse(String(row.occurred_at))),
+      );
+
+      expect(expressionCreatedAt).toBeLessThanOrEqual(firstConsumerAt);
+      expect(Date.parse(String(expression.updated_at))).toBe(lastMasteryEventAt);
+    }
+
+    for (const attempt of attempts) {
+      const task = tasks.find((candidate) => candidate.id === attempt.practice_task_id);
+      const event = events.find((candidate) => candidate.attempt_id === attempt.id);
+      expect(task, `task for attempt ${attempt.id}`).toBeDefined();
+      expect(event, `event for attempt ${attempt.id}`).toBeDefined();
+      expect(Date.parse(String(task?.created_at))).toBeLessThanOrEqual(
+        Date.parse(String(attempt.submitted_at)),
+      );
+      expect(event?.occurred_at).toBe(attempt.submitted_at);
+    }
   });
 
   it("keeps cached fixture content free of credentials and Provider transport data", () => {
