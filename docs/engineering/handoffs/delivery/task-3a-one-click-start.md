@@ -333,3 +333,75 @@ The package-contract test first failed because both aliases were absent. After
 the two `package.json` entries were added, the controller gate passed 26/26
 focused tests together with ESLint, full project TypeScript, and diff checks.
 No dependency or lockfile changed.
+
+## Final review fix: complete atomic claim publication
+
+### Root cause and deterministic RED
+
+The canonical claim used `writeFile(..., { flag: "wx" })`. Its exclusive open
+created the canonical pathname before the asynchronous bytes were complete, so
+a contender could read an empty claim as stale, quarantine it, and publish a
+second owner while the first writer later completed through its moved open file
+descriptor.
+
+The new real-launcher regression replaces only the Node filesystem publication
+boundary, delegates every operation to the real filesystem, and pauses the
+first direct canonical `wx` write after its exclusive open. A cache-busted
+native launcher import ensures the test exercises the launcher's actual
+built-in filesystem binding rather than source text or probabilistic timing.
+
+```bash
+./node_modules/.bin/vitest run tests/integration/jobs/popcorn-local-runtime.test.ts \
+  -t "never exposes a partial canonical claim"
+```
+
+Against `cd7b03b`, Vitest failed the selected test with four expected behavior
+differences: the canonical boundary observation was `unparseable` rather than
+`absent`; both starters fulfilled rather than exactly one rejecting; the state
+mode was `0644` (`420`) rather than `0600` (`384`); and the intended loser had
+started Web/worker and later ran Supabase stop instead of its `stop()` being a
+no-op. This is the accepted RED evidence; an earlier sandboxed attempt that
+could not bind loopback (`EPERM`) was discarded as infrastructure failure.
+
+### Repair and GREEN
+
+Claim publication now creates a same-directory UUID candidate exclusively with
+mode `0600`, writes the complete non-secret JSON through its file handle, closes
+the handle, and hard-links the candidate to the canonical pathname. The link is
+an atomic no-replace publication: `EEXIST` follows the existing live/stale-owner
+flow, while the candidate is removed in `finally`. The canonical pathname is
+therefore absent before publication and always fully parseable once visible.
+
+```bash
+./node_modules/.bin/vitest run tests/integration/jobs/popcorn-local-runtime.test.ts \
+  -t "never exposes a partial canonical claim"
+```
+
+Vitest passed the selected test (1 passed, 19 skipped). The forced interleaving
+proved one rejected starter, one owner, unchanged winner state and live child
+processes after loser `stop()`, `0600` canonical permissions, and no candidate
+left after normal completion.
+
+```bash
+./node_modules/.bin/vitest run \
+  tests/integration/jobs/popcorn-local-runtime.test.ts \
+  tests/integration/jobs/local-worker.test.ts \
+  tests/release/self-host-docs.test.ts
+./node_modules/.bin/tsc --noEmit
+./node_modules/.bin/eslint \
+  scripts/popcorn-local.mjs \
+  tests/integration/jobs/popcorn-local-runtime.test.ts \
+  tests/release/self-host-docs.test.ts
+git diff --check 229ecac96fd7572a81ab930056af965e66eeec32
+```
+
+The real-loopback focused suite passed 3 files and 39 tests. Full project
+TypeScript, scoped ESLint, and the baseline diff check each completed with exit
+0.
+
+No live Docker/Supabase smoke was run, so the existing external-service risk is
+unchanged. A process crash or an unlink failure can leave a same-directory,
+non-secret `.candidate` file: before publication it is inert and the canonical
+path is absent; after publication it is only an extra hard link to the same
+complete `0600` state. A local filesystem that does not support hard links will
+fail startup without publishing a partial canonical claim.

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, connect } from "node:net";
-import { link, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { link, open, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -79,6 +79,23 @@ async function removeFile(file) {
     await rm(file, { force: true });
   } catch {
     // Runtime state is best-effort cleanup only.
+  }
+}
+
+async function publishStateWithoutOverwrite(stateFile, state) {
+  const candidateFile = `${stateFile}.${randomUUID()}.candidate`;
+  let candidateCreated = false;
+  try {
+    const candidate = await open(candidateFile, "wx", 0o600);
+    candidateCreated = true;
+    try {
+      await candidate.writeFile(JSON.stringify(state), "utf8");
+    } finally {
+      await candidate.close();
+    }
+    await link(candidateFile, stateFile);
+  } finally {
+    if (candidateCreated) await removeFile(candidateFile);
   }
 }
 
@@ -306,7 +323,7 @@ export function createPopcornLauncher({
     const state = { repositoryRoot, claimId, port };
     while (!cancelled) {
       try {
-        await writeFile(stateFile, JSON.stringify(state), { flag: "wx" });
+        await publishStateWithoutOverwrite(stateFile, state);
         ownedState = state;
         ownsClaim = true;
         return;

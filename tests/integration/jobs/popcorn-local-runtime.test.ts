@@ -1,10 +1,13 @@
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import fs from "node:fs";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { spawn as spawnChild } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { syncBuiltinESMExports } from "node:module";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { once } from "node:events";
+import { pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -35,6 +38,11 @@ function localEnvironment(overrides: Record<string, string> = {}) {
 
 async function launcherModule() {
   return import("../../../scripts/popcorn-local.mjs");
+}
+
+async function isolatedLauncherModule() {
+  const launcherUrl = `${pathToFileURL(path.join(root, "scripts/popcorn-local.mjs")).href}?claim-publication-interleaving`;
+  return import(/* @vite-ignore */ launcherUrl) as Promise<typeof import("../../../scripts/popcorn-local.mjs")>;
 }
 
 function longRunningChild() {
@@ -101,6 +109,61 @@ function deferred<T = void>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => {};
   const promise = new Promise<T>((nextResolve) => { resolve = nextResolve; });
   return { promise, resolve };
+}
+
+function pauseFirstClaimPublication(stateFile: string) {
+  const originalWriteFile = fs.promises.writeFile;
+  const originalLink = fs.promises.link;
+  const originalOpen = fs.promises.open;
+  const originalWriteFileDescriptor = Object.getOwnPropertyDescriptor(fs.promises, "writeFile");
+  const originalLinkDescriptor = Object.getOwnPropertyDescriptor(fs.promises, "link");
+  if (!originalWriteFileDescriptor || !originalLinkDescriptor) {
+    throw new Error("expected writable filesystem publication functions");
+  }
+  const publicationPaused = deferred();
+  const publicationCanFinish = deferred();
+  let paused = false;
+
+  const interruptedWriteFile = async (
+    file: string,
+    data: string,
+    options: { flag?: string; mode?: number } = {},
+  ) => {
+    if (!paused && file === stateFile && options.flag === "wx") {
+      const handle = await originalOpen(file, "wx", options.mode);
+      paused = true;
+      publicationPaused.resolve();
+      try {
+        await publicationCanFinish.promise;
+        await handle.writeFile(data);
+      } finally {
+        await handle.close();
+      }
+      return;
+    }
+    await originalWriteFile(file, data, options);
+  };
+  const interruptedLink = async (candidateFile: string, canonicalFile: string) => {
+    if (!paused && canonicalFile === stateFile) {
+      paused = true;
+      publicationPaused.resolve();
+      await publicationCanFinish.promise;
+    }
+    await originalLink(candidateFile, canonicalFile);
+  };
+  Object.defineProperty(fs.promises, "writeFile", { ...originalWriteFileDescriptor, value: interruptedWriteFile });
+  Object.defineProperty(fs.promises, "link", { ...originalLinkDescriptor, value: interruptedLink });
+  syncBuiltinESMExports();
+
+  return {
+    publicationPaused: publicationPaused.promise,
+    release: () => { publicationCanFinish.resolve(); },
+    restore: () => {
+      Object.defineProperty(fs.promises, "writeFile", originalWriteFileDescriptor);
+      Object.defineProperty(fs.promises, "link", originalLinkDescriptor);
+      syncBuiltinESMExports();
+    },
+  };
 }
 
 async function run(command: string, args: string[], environment: NodeJS.ProcessEnv) {
@@ -328,6 +391,81 @@ describe("Popcorn local launcher", () => {
 
     await launchers[winnerIndex].stop();
     expect(events[winnerIndex].at(-1)).toBe("exec supabase stop");
+  });
+
+  test("never exposes a partial canonical claim while simultaneous starters choose one owner", async () => {
+    const directory = await temporaryDirectory("popcorn complete atomic claim ");
+    const environmentFile = path.join(directory, ".env.local");
+    const stateFile = path.join(directory, "runtime-state.json");
+    await writeFile(environmentFile, localEnvironment());
+    const events = [[], []] as string[][];
+    const children = [[], []] as ReturnType<typeof longRunningChild>[][];
+    const publication = pauseFirstClaimPublication(stateFile);
+    const { createPopcornLauncher } = await isolatedLauncherModule();
+    const launchers = [0, 1].map((index) => createPopcornLauncher({
+      environmentFile,
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async (_command: string, args: string[]) => { events[index].push(args.join(" ")); },
+      spawnService: (_command: string, args: string[]) => {
+        events[index].push(`service ${args.join(" ")}`);
+        const child = longRunningChild();
+        children[index].push(child);
+        return child;
+      },
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlTimeoutMs: 50,
+    }));
+    const starts: Promise<void>[] = [];
+
+    try {
+      starts.push(launchers[0].start());
+      await publication.publicationPaused;
+      const boundaryObservation = await readFile(stateFile, "utf8").then(
+        (contents) => {
+          try {
+            JSON.parse(contents);
+            return "parseable";
+          } catch {
+            return "unparseable";
+          }
+        },
+        (error: NodeJS.ErrnoException) => error.code === "ENOENT" ? "absent" : "read-error",
+      );
+      starts.push(launchers[1].start());
+      await starts[1];
+      const winnerState = await readFile(stateFile, "utf8");
+      publication.release();
+      const results = await Promise.allSettled(starts);
+
+      await launchers[0].stop();
+
+      expect.soft(boundaryObservation).toBe("absent");
+      expect.soft(results.map((result) => result.status)).toEqual(["rejected", "fulfilled"]);
+      expect.soft(JSON.parse(winnerState)).toMatchObject({
+        repositoryRoot: directory,
+        claimId: expect.any(String),
+        port: expect.any(Number),
+      });
+      expect.soft(await readFile(stateFile, "utf8")).toBe(winnerState);
+      if (process.platform !== "win32") {
+        expect.soft((await stat(stateFile)).mode & 0o777).toBe(0o600);
+      }
+      expect.soft(events[0]).toEqual([]);
+      expect.soft(events[1]).toEqual([
+        "exec supabase start",
+        "service dev",
+        "service worker:local",
+      ]);
+      expect.soft(children[1].every((child) => child.exitCode === null)).toBe(true);
+      expect.soft((await readdir(directory)).sort()).toEqual([".env.local", "runtime-state.json"]);
+    } finally {
+      publication.release();
+      await Promise.allSettled(starts);
+      publication.restore();
+      await Promise.allSettled(launchers.map((launcher) => launcher.stop()));
+    }
   });
 
   test("stale recovery does not discard the live claim published after both contenders read stale state", async () => {
