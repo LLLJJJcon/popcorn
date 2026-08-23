@@ -4,6 +4,25 @@ This is the supported personal setup for the school project: one Next.js Web
 app, one local Supabase stack, one local worker, and one unpacked Chrome
 extension on the same computer.
 
+Complete the one-time setup below after cloning. Once it is complete, use the
+daily one-click launcher instead of repeating the manual commands:
+
+```bash
+pnpm popcorn:start
+```
+
+On macOS, double-click `Start Popcorn.command` in the repository instead. The
+launcher starts local Supabase, the Web app, and the worker; waits for `APP_URL`;
+then opens Popcorn in your browser. Keep the launcher terminal open while you
+use Popcorn. To stop it without resetting accounts or learning data, run:
+
+```bash
+pnpm popcorn:stop
+```
+
+Or double-click `Stop Popcorn.command` on macOS. The manual commands below are
+the troubleshooting and fallback path when a setup step needs attention.
+
 ## 1. Prerequisites
 
 - Node.js 20
@@ -162,10 +181,14 @@ the model gateway.
 - Extension changed: run `pnpm extension:local` again and select **Reload** in
   `chrome://extensions`.
 
-## 11. Shutdown
+## 11. Shutdown and manual fallback
 
-Press Ctrl-C in the worker terminal and the Web terminal, then stop local
-Supabase:
+For daily one-click use, run `pnpm popcorn:stop` (or double-click `Stop
+Popcorn.command` on macOS). It stops the launcher and local Supabase without
+resetting or deleting local accounts or learning data.
+
+If you started the services manually, press Ctrl-C in the worker terminal and
+the Web terminal, then stop local Supabase:
 
 ```bash
 pnpm exec supabase stop

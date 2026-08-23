@@ -28,6 +28,17 @@ function expectInOrder(haystack: string, needles: string[]) {
 }
 
 describe("fresh-clone personal self-host documentation", () => {
+  test("separates one-time setup from the daily one-click launcher and preserves manual fallback commands", async () => {
+    const readme = await text("README.md");
+    const guide = await text("docs/operations/local-self-host.md");
+    const documents = `${readme}\n${guide}`;
+    for (const command of ["pnpm popcorn:start", "pnpm popcorn:stop", "Start Popcorn.command", "Stop Popcorn.command"]) {
+      expect(documents, `missing one-click command: ${command}`).toContain(command);
+    }
+    expect(normalizeMarkdownWhitespace(guide)).toMatch(/one-time setup.{0,400}daily/i);
+    expect(normalizeMarkdownWhitespace(guide)).toMatch(/manual.{0,180}(?:fallback|troubleshoot)|(?:fallback|troubleshoot).{0,180}manual/i);
+  });
+
   test("creates the root entry point and all focused operations guides", async () => {
     const readme = await text("README.md");
     expect(readme).toMatch(/Popcorn/i);

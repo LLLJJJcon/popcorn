@@ -5,21 +5,19 @@ learning moments from the YouTube video they are currently watching. This
 repository supports personal self-hosting on one machine: the Next.js Web app,
 local Supabase, the local worker, and an unpacked Chrome extension.
 
-## Local start
+## Daily local start
 
-Use Node.js 20, pnpm 11.19.0, and Docker, then follow the complete
-[local self-host guide](docs/operations/local-self-host.md). The shortest start
-is:
+After completing the one-time setup in the complete
+[local self-host guide](docs/operations/local-self-host.md), start Popcorn with:
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm exec supabase start
-pnpm db:reset
-pnpm dev
+pnpm popcorn:start
 ```
 
-`pnpm db:reset` is destructive to the local Popcorn database. Read the full
-guide before using it.
+On macOS, you can instead double-click `Start Popcorn.command`. Stop it with
+`pnpm popcorn:stop` or `Stop Popcorn.command`. The guide retains the manual
+commands for troubleshooting and fallback use; `pnpm db:reset` is destructive
+and is never part of daily startup.
 
 Related guides:
 
