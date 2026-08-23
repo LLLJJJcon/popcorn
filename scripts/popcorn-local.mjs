@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer, connect } from "node:net";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,6 +16,7 @@ const REQUIRED_FIELDS = [
 ];
 const READY_TIMEOUT_MS = 30_000;
 const READY_INTERVAL_MS = 500;
+const CONTROL_TIMEOUT_MS = 2_000;
 
 /** @typedef {{ exitCode: number | null | undefined, kill: (signal: NodeJS.Signals) => boolean, once: (event: string, listener: (...args: any[]) => void) => unknown }} ManagedChild */
 /** @typedef {{ close: () => unknown }} ControlServer */
@@ -83,12 +84,8 @@ async function removeFile(file) {
 async function readState(stateFile) {
   try {
     const state = JSON.parse(await readFile(stateFile, "utf8"));
-    if (
-      !Number.isSafeInteger(state?.port)
-      || state.port < 1
-      || state.port > 65_535
-      || typeof state?.repositoryRoot !== "string"
-    ) return null;
+    if (typeof state?.repositoryRoot !== "string") return null;
+    if (state.port !== undefined && (!Number.isSafeInteger(state.port) || state.port < 1 || state.port > 65_535)) return null;
     return state;
   } catch {
     return null;
@@ -96,16 +93,25 @@ async function readState(stateFile) {
 }
 
 /** @returns {Promise<string | null>} */
-function sendControl(port, message) {
+export function sendControl(port, message, timeoutMs = CONTROL_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const socket = connect({ host: "127.0.0.1", port });
     let response = "";
+    let settled = false;
+    const timeout = setTimeout(() => finish(null), timeoutMs);
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      socket.destroy();
+      resolve(value);
+    };
     socket.setEncoding("utf8");
-    socket.once("error", () => resolve(null));
+    socket.once("error", () => finish(null));
     socket.on("data", (chunk) => {
       response += chunk;
     });
-    socket.once("end", () => resolve(response.trim()));
+    socket.once("end", () => finish(response.trim()));
     socket.once("connect", () => socket.end(`${message}\n`));
   });
 }
@@ -189,7 +195,7 @@ export function createPopcornLauncher({
   repositoryRoot = process.cwd(),
   environmentFile = path.join(repositoryRoot, ".env.local"),
   stateFile = runtimeStateFile(repositoryRoot),
-  runCommand = (command, args) => commandExit(command, args, { cwd: repositoryRoot, stdio: "inherit" }),
+  runCommand = (command, args) => commandExit(command, args, { cwd: repositoryRoot, stdio: "ignore" }),
   spawnService = (command, args, environment) => spawn(command, args, {
     cwd: repositoryRoot,
     env: environment,
@@ -204,26 +210,47 @@ export function createPopcornLauncher({
   let cleaningUp = false;
   let started = false;
   let readinessController;
+  let claimId;
+  let ownsClaim = false;
+  let starting = false;
+  let cancelled = false;
 
   async function cleanup() {
     if (cleaningUp) return;
     cleaningUp = true;
     if (controlServer) controlServer.close();
     readinessController?.abort();
-    await removeFile(stateFile);
+    const state = await readState(stateFile);
+    if (ownsClaim && state?.claimId === claimId) await removeFile(stateFile);
     await Promise.all(children.map(terminate));
     children = [];
     await runCommand("pnpm", ["exec", "supabase", "stop"]);
   }
 
   async function start() {
+    starting = true;
     const environmentValues = await readRequiredEnvironment(environmentFile);
-    const existing = await readState(stateFile);
-    if (existing) {
-      const response = await controlChannel.request(existing.port, "ping");
-      if (response === "pong") throw new Error("Popcorn is already running for this repository");
-      await removeFile(stateFile);
+    if (cancelled) return;
+    claimId = randomUUID();
+    try {
+      await writeFile(stateFile, JSON.stringify({ repositoryRoot, claimId, starting: true, startedAt: Date.now() }), { flag: "wx" });
+      ownsClaim = true;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      const existing = await readState(stateFile);
+      if (existing?.starting && typeof existing.startedAt === "number" && Date.now() - existing.startedAt < CONTROL_TIMEOUT_MS) {
+        starting = false;
+        throw new Error("Popcorn is already running for this repository");
+      }
+      if (existing?.port && await controlChannel.request(existing.port, "ping") === "pong") {
+        starting = false;
+        throw new Error("Popcorn is already running for this repository");
+      }
+      if (existing?.claimId) await removeFile(stateFile);
+      await writeFile(stateFile, JSON.stringify({ repositoryRoot, claimId, starting: true, startedAt: Date.now() }), { flag: "wx" });
+      ownsClaim = true;
     }
+    if (cancelled) { await cleanup(); return; }
 
     try {
       const control = await controlChannel.listen(async (message) => {
@@ -235,7 +262,8 @@ export function createPopcornLauncher({
         return "invalid";
       });
       controlServer = control.server;
-      await writeFile(stateFile, JSON.stringify({ repositoryRoot, port: control.port }));
+      if (cancelled) { await cleanup(); return; }
+      await writeFile(stateFile, JSON.stringify({ repositoryRoot, claimId, port: control.port }));
       await runCommand("pnpm", ["exec", "supabase", "start"]);
       if (cleaningUp) return;
       const environment = { ...process.env, ...environmentValues };
@@ -255,6 +283,11 @@ export function createPopcornLauncher({
   }
 
   async function stop() {
+    cancelled = true;
+    if (starting) {
+      if (ownsClaim) await cleanup();
+      return;
+    }
     if (started) {
       await cleanup();
       return;

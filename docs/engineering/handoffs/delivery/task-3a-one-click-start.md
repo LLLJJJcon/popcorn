@@ -97,6 +97,20 @@ git diff --check 229ecac96fd7572a81ab930056af965e66eeec32..HEAD
 TypeScript completed with exit 0; Vitest passed 2 files and 15 tests; ESLint
 and the baseline diff check completed cleanly.
 
+## Independent review repair round 1
+
+The launcher now creates its repository state with an exclusive `wx` startup
+claim carrying an owner id. Cleanup removes state only when that owner still
+owns it, so a losing or cancelled starter cannot remove winner state or stop
+winner resources. Early signals mark startup cancelled before any standalone
+stop path, and startup checks cancellation around claim/control setup.
+
+Control requests now have a bounded 2-second timeout; stale state falls through
+to ordinary Supabase stop without PID-based process handling. Supabase command
+output is run with ignored stdio, while Web and worker service output remains
+inherited. The focused runtime/docs Vitest gate passed 16 tests, followed by
+clean TypeScript and ESLint runs.
+
 ## Controller-owned root aliases
 
 The controller added only the approved root package interfaces:
