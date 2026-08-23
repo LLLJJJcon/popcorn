@@ -64,6 +64,12 @@ function memoryControlChannel() {
   };
 }
 
+function deferred<T = void>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => {};
+  const promise = new Promise<T>((nextResolve) => { resolve = nextResolve; });
+  return { promise, resolve };
+}
+
 async function run(command: string, args: string[], environment: NodeJS.ProcessEnv) {
   const child = spawnChild(command, args, { env: environment, stdio: "ignore" });
   const [exitCode] = await once(child, "exit") as [number | null];
@@ -173,6 +179,63 @@ describe("Popcorn local launcher", () => {
 
     await second.stop();
     expect(firstEvents).toEqual(["exec supabase start", "exec supabase stop"]);
+  });
+
+  test("an exclusive startup claim lets only one concurrent launcher start services", async () => {
+    const directory = await temporaryDirectory("popcorn atomic claim ");
+    const environmentFile = path.join(directory, ".env.local");
+    const stateFile = path.join(directory, "runtime-state.json");
+    await writeFile(environmentFile, localEnvironment());
+    const startBarrier = deferred();
+    const winnerEvents: string[] = [];
+    const loserEvents: string[] = [];
+    const controlChannel = memoryControlChannel();
+    const { createPopcornLauncher } = await launcherModule();
+    const winner = createPopcornLauncher({
+      environmentFile, repositoryRoot: directory, stateFile, controlChannel,
+      runCommand: async (_command: string, args: string[]) => {
+        winnerEvents.push(args.join(" "));
+        if (args.at(-1) === "start") await startBarrier.promise;
+      },
+      spawnService: longRunningChild, waitForReady: async () => {}, openBrowser: async () => {},
+    });
+    const loser = createPopcornLauncher({
+      environmentFile, repositoryRoot: directory, stateFile, controlChannel,
+      runCommand: async (_command: string, args: string[]) => { loserEvents.push(args.join(" ")); },
+    });
+
+    const pendingWinner = winner.start();
+    while (winnerEvents.length === 0) await new Promise((resolve) => setTimeout(resolve, 1));
+    const pendingLoser = loser.start();
+    await expect(pendingLoser).rejects.toThrow("Popcorn is already running for this repository");
+    expect(loserEvents).toEqual([]);
+    expect(JSON.parse(await readFile(stateFile, "utf8"))).toMatchObject({ repositoryRoot: directory });
+    startBarrier.resolve();
+    await pendingWinner;
+    expect(winnerEvents).toEqual(["exec supabase start"]);
+  });
+
+  test("a signal before the startup boundary prevents Supabase, Web, and worker launch", async () => {
+    const directory = await temporaryDirectory("popcorn early signal ");
+    const environmentFile = path.join(directory, ".env.local");
+    await writeFile(environmentFile, localEnvironment());
+    const firstBoundary = deferred();
+    const signals = new EventEmitter();
+    const events: string[] = [];
+    const { createPopcornLauncher, runLauncherCommand } = await launcherModule();
+    const launcher = createPopcornLauncher({
+      environmentFile, repositoryRoot: directory, controlChannel: memoryControlChannel(),
+      runCommand: async (_command: string, args: string[]) => { events.push(args.join(" ")); },
+      spawnService: (_command: string, args: string[]) => { events.push(args.join(" ")); return longRunningChild(); },
+      waitForReady: async () => {}, openBrowser: async () => {},
+    });
+    const originalStart = launcher.start;
+    launcher.start = async () => { await firstBoundary.promise; await originalStart(); };
+    const pending = runLauncherCommand({ action: "start", launcher, processRef: signals });
+    signals.emit("SIGTERM");
+    firstBoundary.resolve();
+    await pending;
+    expect(events).toEqual(["exec supabase stop"]);
   });
 
   test("SIGTERM requests the launcher cleanup path", async () => {

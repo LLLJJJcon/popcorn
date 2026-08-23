@@ -111,6 +111,9 @@ output is run with ignored stdio, while Web and worker service output remains
 inherited. The focused runtime/docs Vitest gate passed 16 tests, followed by
 clean TypeScript and ESLint runs.
 
+Follow-up coverage adds a two-launcher exclusive-claim race and a signal-before-
+startup-boundary case. The focused runtime/docs suite now passes 18 tests.
+
 ## Controller-owned root aliases
 
 The controller added only the approved root package interfaces:

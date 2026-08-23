@@ -214,6 +214,7 @@ export function createPopcornLauncher({
   let ownsClaim = false;
   let starting = false;
   let cancelled = false;
+  let supabaseStart;
 
   async function cleanup() {
     if (cleaningUp) return;
@@ -224,6 +225,7 @@ export function createPopcornLauncher({
     if (ownsClaim && state?.claimId === claimId) await removeFile(stateFile);
     await Promise.all(children.map(terminate));
     children = [];
+    await supabaseStart?.catch(() => {});
     await runCommand("pnpm", ["exec", "supabase", "stop"]);
   }
 
@@ -238,7 +240,7 @@ export function createPopcornLauncher({
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
       const existing = await readState(stateFile);
-      if (existing?.starting && typeof existing.startedAt === "number" && Date.now() - existing.startedAt < CONTROL_TIMEOUT_MS) {
+      if (existing?.starting) {
         starting = false;
         throw new Error("Popcorn is already running for this repository");
       }
@@ -264,7 +266,9 @@ export function createPopcornLauncher({
       controlServer = control.server;
       if (cancelled) { await cleanup(); return; }
       await writeFile(stateFile, JSON.stringify({ repositoryRoot, claimId, port: control.port }));
-      await runCommand("pnpm", ["exec", "supabase", "start"]);
+      supabaseStart = runCommand("pnpm", ["exec", "supabase", "start"]);
+      await supabaseStart;
+      supabaseStart = undefined;
       if (cleaningUp) return;
       const environment = { ...process.env, ...environmentValues };
       children = [
@@ -294,8 +298,10 @@ export function createPopcornLauncher({
     }
     const state = await readState(stateFile);
     if (state) {
-      const response = await controlChannel.request(state.port, "stop");
-      if (response === "stopped") return;
+      if (state.port) {
+        const response = await controlChannel.request(state.port, "stop");
+        if (response === "stopped") return;
+      }
       await removeFile(stateFile);
     }
     await runCommand("pnpm", ["exec", "supabase", "stop"]);
