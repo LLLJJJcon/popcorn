@@ -8,6 +8,8 @@
     "demo:seed": "tsx scripts/seed-demo.ts",
     "extension:local": "node scripts/build-local-extension.mjs",
     "extension:package": "bash scripts/package-extension.sh",
+    "popcorn:start": "node scripts/popcorn-local.mjs start",
+    "popcorn:stop": "node scripts/popcorn-local.mjs stop",
     "worker:local": "node scripts/process-local-jobs.mjs",
     "build": "next build --webpack",
     "lint": "eslint",

@@ -96,3 +96,17 @@ git diff --check 229ecac96fd7572a81ab930056af965e66eeec32..HEAD
 
 TypeScript completed with exit 0; Vitest passed 2 files and 15 tests; ESLint
 and the baseline diff check completed cleanly.
+
+## Controller-owned root aliases
+
+The controller added only the approved root package interfaces:
+
+```text
+popcorn:start → node scripts/popcorn-local.mjs start
+popcorn:stop  → node scripts/popcorn-local.mjs stop
+```
+
+The package-contract test first failed because both aliases were absent. After
+the two `package.json` entries were added, the controller gate passed 26/26
+focused tests together with ESLint, full project TypeScript, and diff checks.
+No dependency or lockfile changed.

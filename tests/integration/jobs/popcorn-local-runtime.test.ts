@@ -71,6 +71,15 @@ async function run(command: string, args: string[], environment: NodeJS.ProcessE
 }
 
 describe("Popcorn local launcher", () => {
+  test("publishes the one-click start and stop commands through the root package", async () => {
+    const packageManifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+
+    expect(packageManifest.scripts).toMatchObject({
+      "popcorn:start": "node scripts/popcorn-local.mjs start",
+      "popcorn:stop": "node scripts/popcorn-local.mjs stop",
+    });
+  });
+
   test("rejects missing local fields before it starts any service", async () => {
     const directory = await temporaryDirectory("popcorn missing environment ");
     const environmentFile = path.join(directory, ".env.local");
