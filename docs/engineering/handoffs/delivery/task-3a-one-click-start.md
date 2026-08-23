@@ -114,6 +114,74 @@ clean TypeScript and ESLint runs.
 Follow-up coverage adds a two-launcher exclusive-claim race and a signal-before-
 startup-boundary case. The focused runtime/docs suite now passes 18 tests.
 
+## Independent review repair round 2
+
+### Root cause and RED
+
+The exclusive repair claim was published as `{ starting: true }` before a
+control port existed. That state had no liveness probe, yet every later starter
+treated it as a live owner forever. A launcher that lost this claim could also
+run its standalone `stop()` path and remove or stop the winner's resources.
+Injected control/readiness timeouts were not available, and signal cleanup did
+not remain awaitable through the final ordinary Supabase stop.
+
+With the five requested real-boundary behaviors added before production edits,
+the loopback-enabled RED command was:
+
+```bash
+./node_modules/.bin/vitest run tests/integration/jobs/popcorn-local-runtime.test.ts
+```
+
+Vitest failed 6 of 14 tests for the expected reasons: loser cleanup stopped the
+winner; a crashed `{ starting: true }` claim remained unrecoverable; concurrent
+ownership did not preserve winner state after loser `stop()`; the pending-start
+signal path returned before `supabase stop`; a non-responsive real TCP server
+used the fixed 2-second timeout instead of the injected 50 ms timeout; and real
+default readiness exceeded the injected 75 ms deadline. The real default CLI
+credential-suppression test already passed against the partial repair.
+
+### Repair and GREEN
+
+Each starter now creates its own loopback control server before publishing one
+immutable `{ repositoryRoot, claimId, port }` claim with `wx`. A loser pings the
+published owner with a bounded request, closes only its own server, and records
+the loss so its later `stop()` is a no-op. Unreachable or pre-control state is
+atomically quarantined with `rename` before acquisition retries, preventing two
+stale-state contenders from both deleting a newly acquired claim. Cleanup is a
+shared promise, so a signal received during Supabase startup waits for startup
+completion and then performs ordinary Supabase stop without spawning Web,
+worker, or the browser.
+
+The default control/readiness implementations accept narrow injected timeouts.
+Real loopback coverage proves a non-responsive unrelated server remains
+listening after bounded stale cleanup, and real CLI coverage proves ignored
+Supabase stdio cannot print a credential sentinel while a separate harmless log
+records exactly `exec supabase stop`.
+
+```bash
+./node_modules/.bin/vitest run \
+  tests/integration/jobs/popcorn-local-runtime.test.ts \
+  tests/integration/jobs/local-worker.test.ts \
+  tests/release/self-host-docs.test.ts
+./node_modules/.bin/tsc --noEmit
+./node_modules/.bin/eslint \
+  scripts/popcorn-local.mjs \
+  tests/integration/jobs/popcorn-local-runtime.test.ts \
+  tests/release/self-host-docs.test.ts
+git diff --check 229ecac96fd7572a81ab930056af965e66eeec32
+```
+
+The focused Vitest gate passed 3 files and 33 tests. Full project TypeScript,
+scoped ESLint, and the baseline diff check completed with exit 0. Self-review of
+all changes since `dcfc32a` found only the authorized runtime, integration test,
+and this handoff changed; controller-owned package aliases remain unchanged.
+
+Outstanding risk is limited to external integration: no live Docker/Supabase
+smoke was run. A process crash in the very small interval between stale-state
+quarantine and unlink can leave an inert, non-secret `.stale` file in the OS
+temporary directory; it is never treated as ownership state or used for PID
+control.
+
 ## Controller-owned root aliases
 
 The controller added only the approved root package interfaces:

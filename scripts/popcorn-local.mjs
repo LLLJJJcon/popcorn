@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, connect } from "node:net";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -20,10 +20,10 @@ const CONTROL_TIMEOUT_MS = 2_000;
 
 /** @typedef {{ exitCode: number | null | undefined, kill: (signal: NodeJS.Signals) => boolean, once: (event: string, listener: (...args: any[]) => void) => unknown }} ManagedChild */
 /** @typedef {{ close: () => unknown }} ControlServer */
-/** @typedef {{ listen: (handleMessage: (message: string) => Promise<string>) => Promise<{ port: number, server: ControlServer }>, request: (port: number, message: string) => Promise<string | null> }} ControlChannel */
+/** @typedef {{ listen: (handleMessage: (message: string) => Promise<string>) => Promise<{ port: number, server: ControlServer }>, request: (port: number, message: string, timeoutMs?: number) => Promise<string | null> }} ControlChannel */
 /** @typedef {{ once: (event: "SIGINT" | "SIGTERM", listener: () => void) => unknown }} SignalProcess */
 /** @typedef {{ start: () => Promise<void>, stop: () => Promise<void> }} Launcher */
-/** @typedef {{ repositoryRoot?: string, environmentFile?: string, stateFile?: string, runCommand?: (command: string, args: string[]) => Promise<void>, spawnService?: (command: string, args: string[], environment: NodeJS.ProcessEnv) => ManagedChild, waitForReady?: (url: string, signal?: AbortSignal) => Promise<void>, openBrowser?: (url: string) => Promise<void>, controlChannel?: ControlChannel }} LauncherOptions */
+/** @typedef {{ repositoryRoot?: string, environmentFile?: string, stateFile?: string, runCommand?: (command: string, args: string[]) => Promise<void>, spawnService?: (command: string, args: string[], environment: NodeJS.ProcessEnv) => ManagedChild, waitForReady?: (url: string, signal?: AbortSignal) => Promise<void>, openBrowser?: (url: string) => Promise<void>, controlTimeoutMs?: number, readyTimeoutMs?: number, readyIntervalMs?: number, controlChannel?: ControlChannel }} LauncherOptions */
 
 function runtimeStateFile(repositoryRoot) {
   const identifier = createHash("sha256").update(repositoryRoot).digest("hex").slice(0, 16);
@@ -81,6 +81,17 @@ async function removeFile(file) {
   }
 }
 
+async function discardStaleState(stateFile) {
+  const staleFile = `${stateFile}.${randomUUID()}.stale`;
+  try {
+    await rename(stateFile, staleFile);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  await removeFile(staleFile);
+}
+
 async function readState(stateFile) {
   try {
     const state = JSON.parse(await readFile(stateFile, "utf8"));
@@ -118,7 +129,7 @@ export function sendControl(port, message, timeoutMs = CONTROL_TIMEOUT_MS) {
 
 /** @returns {Promise<{ port: number, server: ControlServer }>} */
 async function createControlServer(handleMessage) {
-  const server = createServer((socket) => {
+  const server = createServer({ allowHalfOpen: true }, (socket) => {
     let request = "";
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => {
@@ -153,19 +164,25 @@ function commandExit(command, args, options) {
   });
 }
 
-async function defaultWaitForReady(url, signal) {
-  const deadline = Date.now() + READY_TIMEOUT_MS;
+async function defaultWaitForReady(url, signal, timeoutMs = READY_TIMEOUT_MS, intervalMs = READY_INTERVAL_MS) {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (signal?.aborted) throw new Error("Popcorn local launcher stopped");
     try {
+      const requestTimeoutMs = Math.max(1, Math.min(2_000, deadline - Date.now()));
       const response = await fetch(url, {
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(2_000)]) : AbortSignal.timeout(2_000),
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMs)])
+          : AbortSignal.timeout(requestTimeoutMs),
       });
       if (response.ok) return;
     } catch {
       // The development server is still starting.
     }
-    await new Promise((resolve) => setTimeout(resolve, READY_INTERVAL_MS));
+    const remainingMs = deadline - Date.now();
+    if (remainingMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, Math.min(intervalMs, remainingMs)));
+    }
   }
   throw new Error("Popcorn Web app did not become reachable in time");
 }
@@ -195,66 +212,86 @@ export function createPopcornLauncher({
   repositoryRoot = process.cwd(),
   environmentFile = path.join(repositoryRoot, ".env.local"),
   stateFile = runtimeStateFile(repositoryRoot),
+  controlTimeoutMs = CONTROL_TIMEOUT_MS,
+  readyTimeoutMs = READY_TIMEOUT_MS,
+  readyIntervalMs = READY_INTERVAL_MS,
   runCommand = (command, args) => commandExit(command, args, { cwd: repositoryRoot, stdio: "ignore" }),
   spawnService = (command, args, environment) => spawn(command, args, {
     cwd: repositoryRoot,
     env: environment,
     stdio: "inherit",
   }),
-  waitForReady = defaultWaitForReady,
+  waitForReady = (url, signal) => defaultWaitForReady(url, signal, readyTimeoutMs, readyIntervalMs),
   openBrowser = defaultOpenBrowser,
   controlChannel = { listen: createControlServer, request: sendControl },
 } = {}) {
   let controlServer;
   let children = [];
-  let cleaningUp = false;
+  let cleanupPromise;
   let started = false;
   let readinessController;
   let claimId;
   let ownsClaim = false;
   let starting = false;
   let cancelled = false;
+  let rejectedByOwner = false;
   let supabaseStart;
 
-  async function cleanup() {
-    if (cleaningUp) return;
-    cleaningUp = true;
-    if (controlServer) controlServer.close();
-    readinessController?.abort();
-    const state = await readState(stateFile);
-    if (ownsClaim && state?.claimId === claimId) await removeFile(stateFile);
-    await Promise.all(children.map(terminate));
-    children = [];
-    await supabaseStart?.catch(() => {});
-    await runCommand("pnpm", ["exec", "supabase", "stop"]);
+  function closeControlServer() {
+    if (!controlServer) return;
+    const server = controlServer;
+    controlServer = undefined;
+    server.close();
+  }
+
+  function cleanup() {
+    if (cleanupPromise) return cleanupPromise;
+    cleanupPromise = (async () => {
+      closeControlServer();
+      readinessController?.abort();
+      await supabaseStart?.catch(() => {});
+      await Promise.all(children.map(terminate));
+      children = [];
+      const state = await readState(stateFile);
+      if (ownsClaim && state?.claimId === claimId) await removeFile(stateFile);
+      await runCommand("pnpm", ["exec", "supabase", "stop"]);
+      ownsClaim = false;
+      started = false;
+    })();
+    return cleanupPromise;
+  }
+
+  async function acquireClaim(port) {
+    claimId = randomUUID();
+    const state = JSON.stringify({ repositoryRoot, claimId, port });
+    while (!cancelled) {
+      try {
+        await writeFile(stateFile, state, { flag: "wx" });
+        ownsClaim = true;
+        return;
+      } catch (error) {
+        if (error?.code !== "EEXIST") throw error;
+      }
+
+      const existing = await readState(stateFile);
+      if (
+        existing?.repositoryRoot === repositoryRoot
+        && existing.port
+        && await controlChannel.request(existing.port, "ping", controlTimeoutMs) === "pong"
+      ) {
+        rejectedByOwner = true;
+        closeControlServer();
+        throw new Error("Popcorn is already running for this repository");
+      }
+      await discardStaleState(stateFile);
+    }
   }
 
   async function start() {
     starting = true;
-    const environmentValues = await readRequiredEnvironment(environmentFile);
-    if (cancelled) return;
-    claimId = randomUUID();
     try {
-      await writeFile(stateFile, JSON.stringify({ repositoryRoot, claimId, starting: true, startedAt: Date.now() }), { flag: "wx" });
-      ownsClaim = true;
-    } catch (error) {
-      if (error?.code !== "EEXIST") throw error;
-      const existing = await readState(stateFile);
-      if (existing?.starting) {
-        starting = false;
-        throw new Error("Popcorn is already running for this repository");
-      }
-      if (existing?.port && await controlChannel.request(existing.port, "ping") === "pong") {
-        starting = false;
-        throw new Error("Popcorn is already running for this repository");
-      }
-      if (existing?.claimId) await removeFile(stateFile);
-      await writeFile(stateFile, JSON.stringify({ repositoryRoot, claimId, starting: true, startedAt: Date.now() }), { flag: "wx" });
-      ownsClaim = true;
-    }
-    if (cancelled) { await cleanup(); return; }
-
-    try {
+      const environmentValues = await readRequiredEnvironment(environmentFile);
+      if (cancelled) return;
       const control = await controlChannel.listen(async (message) => {
         if (message === "ping") return "pong";
         if (message === "stop") {
@@ -264,12 +301,23 @@ export function createPopcornLauncher({
         return "invalid";
       });
       controlServer = control.server;
-      if (cancelled) { await cleanup(); return; }
-      await writeFile(stateFile, JSON.stringify({ repositoryRoot, claimId, port: control.port }));
+      if (cancelled) {
+        closeControlServer();
+        return;
+      }
+      await acquireClaim(control.port);
+      if (cancelled || cleanupPromise) {
+        if (ownsClaim) await cleanup();
+        else closeControlServer();
+        return;
+      }
       supabaseStart = runCommand("pnpm", ["exec", "supabase", "start"]);
       await supabaseStart;
       supabaseStart = undefined;
-      if (cleaningUp) return;
+      if (cleanupPromise) {
+        await cleanupPromise;
+        return;
+      }
       const environment = { ...process.env, ...environmentValues };
       children = [
         spawnService("pnpm", ["dev"], environment),
@@ -277,32 +325,48 @@ export function createPopcornLauncher({
       ];
       readinessController = new AbortController();
       await waitForReady(environmentValues.APP_URL, readinessController.signal);
-      if (cleaningUp) return;
+      if (cleanupPromise) {
+        await cleanupPromise;
+        return;
+      }
       await openBrowser(environmentValues.APP_URL);
       started = true;
     } catch (error) {
-      await cleanup();
+      if (rejectedByOwner) {
+        closeControlServer();
+      } else if (ownsClaim || supabaseStart || children.length > 0 || cleanupPromise) {
+        await cleanup();
+      } else {
+        closeControlServer();
+      }
       throw error;
+    } finally {
+      starting = false;
     }
   }
 
   async function stop() {
     cancelled = true;
-    if (starting) {
-      if (ownsClaim) await cleanup();
+    if (rejectedByOwner) {
+      closeControlServer();
       return;
     }
-    if (started) {
+    if (starting) {
+      if (ownsClaim || supabaseStart || cleanupPromise) await cleanup();
+      else closeControlServer();
+      return;
+    }
+    if (started || ownsClaim || cleanupPromise) {
       await cleanup();
       return;
     }
     const state = await readState(stateFile);
     if (state) {
       if (state.port) {
-        const response = await controlChannel.request(state.port, "stop");
+        const response = await controlChannel.request(state.port, "stop", controlTimeoutMs);
         if (response === "stopped") return;
       }
-      await removeFile(stateFile);
+      await discardStaleState(stateFile);
     }
     await runCommand("pnpm", ["exec", "supabase", "stop"]);
   }
