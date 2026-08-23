@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, connect } from "node:net";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { link, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -81,13 +81,32 @@ async function removeFile(file) {
   }
 }
 
-async function discardStaleState(stateFile) {
+function sameState(left, right) {
+  if (!left || !right) return left === right;
+  return left.repositoryRoot === right.repositoryRoot
+    && left.claimId === right.claimId
+    && left.port === right.port
+    && left.starting === right.starting
+    && left.startedAt === right.startedAt;
+}
+
+async function discardStaleState(stateFile, expectedState) {
   const staleFile = `${stateFile}.${randomUUID()}.stale`;
   try {
     await rename(stateFile, staleFile);
   } catch (error) {
     if (error?.code === "ENOENT") return;
     throw error;
+  }
+  const movedState = await readState(staleFile);
+  if (!sameState(movedState, expectedState)) {
+    try {
+      await link(staleFile, stateFile);
+      await removeFile(staleFile);
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+    return;
   }
   await removeFile(staleFile);
 }
@@ -283,7 +302,7 @@ export function createPopcornLauncher({
         closeControlServer();
         throw new Error("Popcorn is already running for this repository");
       }
-      await discardStaleState(stateFile);
+      await discardStaleState(stateFile, existing);
     }
   }
 
@@ -360,13 +379,16 @@ export function createPopcornLauncher({
       await cleanup();
       return;
     }
-    const state = await readState(stateFile);
-    if (state) {
+    let state = await readState(stateFile);
+    while (state) {
       if (state.port) {
         const response = await controlChannel.request(state.port, "stop", controlTimeoutMs);
         if (response === "stopped") return;
       }
-      await discardStaleState(stateFile);
+      await discardStaleState(stateFile, state);
+      const nextState = await readState(stateFile);
+      if (sameState(nextState, state) || !nextState) break;
+      state = nextState;
     }
     await runCommand("pnpm", ["exec", "supabase", "stop"]);
   }

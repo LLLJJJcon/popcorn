@@ -152,6 +152,17 @@ shared promise, so a signal received during Supabase startup waits for startup
 completion and then performs ordinary Supabase stop without spawning Web,
 worker, or the browser.
 
+Self-review then forced the slower stale contender to pause after reading the
+old record until the faster contender published a live replacement. The
+targeted command below was genuinely RED with both starters fulfilled, then
+GREEN with one pass after quarantine compared the moved record to the expected
+record and restored a changed live claim atomically before retrying:
+
+```bash
+./node_modules/.bin/vitest run tests/integration/jobs/popcorn-local-runtime.test.ts \
+  -t "stale recovery does not discard"
+```
+
 The default control/readiness implementations accept narrow injected timeouts.
 Real loopback coverage proves a non-responsive unrelated server remains
 listening after bounded stale cleanup, and real CLI coverage proves ignored
@@ -171,7 +182,7 @@ records exactly `exec supabase stop`.
 git diff --check 229ecac96fd7572a81ab930056af965e66eeec32
 ```
 
-The focused Vitest gate passed 3 files and 33 tests. Full project TypeScript,
+The focused Vitest gate passed 3 files and 34 tests. Full project TypeScript,
 scoped ESLint, and the baseline diff check completed with exit 0. Self-review of
 all changes since `dcfc32a` found only the authorized runtime, integration test,
 and this handoff changed; controller-owned package aliases remain unchanged.

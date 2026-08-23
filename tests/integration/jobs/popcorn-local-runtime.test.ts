@@ -65,6 +65,36 @@ function memoryControlChannel() {
   };
 }
 
+function staleRecoveryRaceChannels(
+  stalePort: number,
+  firstOwnerStarted: { promise: Promise<void>; resolve: (value: void | PromiseLike<void>) => void },
+) {
+  let nextPort = stalePort + 1;
+  const handlers = new Map<number, (message: string) => Promise<string>>();
+  const secondContenderSawStale = deferred();
+  return [0, 1].map((index) => ({
+    listen: async (handler: (message: string) => Promise<string>) => {
+      const port = nextPort++;
+      handlers.set(port, handler);
+      return {
+        port,
+        server: { close: () => { handlers.delete(port); } },
+      };
+    },
+    request: async (port: number, message: string) => {
+      if (port === stalePort) {
+        if (index === 0) await secondContenderSawStale.promise;
+        else {
+          secondContenderSawStale.resolve();
+          await firstOwnerStarted.promise;
+        }
+        return null;
+      }
+      return handlers.get(port)?.(message) ?? null;
+    },
+  }));
+}
+
 function deferred<T = void>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => {};
   const promise = new Promise<T>((nextResolve) => { resolve = nextResolve; });
@@ -296,6 +326,50 @@ describe("Popcorn local launcher", () => {
 
     await launchers[winnerIndex].stop();
     expect(events[winnerIndex].at(-1)).toBe("exec supabase stop");
+  });
+
+  test("stale recovery does not discard the live claim published after both contenders read stale state", async () => {
+    const directory = await temporaryDirectory("popcorn stale claim race ");
+    const environmentFile = path.join(directory, ".env.local");
+    const stateFile = path.join(directory, "runtime-state.json");
+    const stalePort = 41_234;
+    await writeFile(environmentFile, localEnvironment());
+    await writeFile(stateFile, JSON.stringify({
+      repositoryRoot: directory,
+      claimId: "crashed-owner",
+      port: stalePort,
+    }));
+    const firstOwnerStarted = deferred();
+    const channels = staleRecoveryRaceChannels(stalePort, firstOwnerStarted);
+    const events = [[], []] as string[][];
+    const { createPopcornLauncher } = await launcherModule();
+    const launchers = [0, 1].map((index) => createPopcornLauncher({
+      environmentFile,
+      repositoryRoot: directory,
+      stateFile,
+      controlChannel: channels[index],
+      runCommand: async (_command: string, args: string[]) => {
+        events[index].push(args.join(" "));
+        if (index === 0 && args.at(-1) === "start") firstOwnerStarted.resolve();
+      },
+      spawnService: longRunningChild,
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlTimeoutMs: 50,
+    }));
+
+    const results = await Promise.allSettled(launchers.map((launcher) => launcher.start()));
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toMatchObject([
+      { reason: expect.objectContaining({ message: "Popcorn is already running for this repository" }) },
+    ]);
+    expect(events[0]).toEqual(["exec supabase start"]);
+    expect(events[1]).toEqual([]);
+    await launchers[1].stop();
+    expect(events[0]).toEqual(["exec supabase start"]);
+    await launchers[0].stop();
+    expect(events[0]).toEqual(["exec supabase start", "exec supabase stop"]);
   });
 
   test("a signal before the startup boundary prevents Supabase, Web, and worker launch", async () => {
