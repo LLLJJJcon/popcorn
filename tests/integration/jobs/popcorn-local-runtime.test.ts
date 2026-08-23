@@ -80,7 +80,7 @@ describe("Popcorn local launcher", () => {
     const launcher = createPopcornLauncher({
       environmentFile,
       repositoryRoot: directory,
-      runCommand: async () => events.push("command"),
+      runCommand: async () => { events.push("command"); },
     });
 
     await expect(launcher.start()).rejects.toThrow(
@@ -102,15 +102,15 @@ describe("Popcorn local launcher", () => {
       environmentFile,
       repositoryRoot: directory,
       stateFile,
-      runCommand: async (_command: string, args: string[]) => events.push(`command ${args.join(" ")}`),
+      runCommand: async (_command: string, args: string[]) => { events.push(`command ${args.join(" ")}`); },
       spawnService: (_command: string, args: string[]) => {
         events.push(`service ${args.join(" ")}`);
         const child = longRunningChild();
         children.push(child);
         return child;
       },
-      waitForReady: async (url: string) => events.push(`ready ${url}`),
-      openBrowser: async (url: string) => events.push(`browser ${url}`),
+      waitForReady: async (url: string) => { events.push(`ready ${url}`); },
+      openBrowser: async (url: string) => { events.push(`browser ${url}`); },
       controlChannel,
     });
 
@@ -144,7 +144,7 @@ describe("Popcorn local launcher", () => {
       environmentFile,
       repositoryRoot: directory,
       stateFile,
-      runCommand: async (_command: string, args: string[]) => firstEvents.push(args.join(" ")),
+      runCommand: async (_command: string, args: string[]) => { firstEvents.push(args.join(" ")); },
       spawnService: longRunningChild,
       waitForReady: async () => {},
       openBrowser: async () => {},
@@ -154,7 +154,7 @@ describe("Popcorn local launcher", () => {
       environmentFile,
       repositoryRoot: directory,
       stateFile,
-      runCommand: async () => firstEvents.push("unexpected command"),
+      runCommand: async () => { firstEvents.push("unexpected command"); },
       controlChannel,
     });
 
@@ -174,8 +174,8 @@ describe("Popcorn local launcher", () => {
     await runLauncherCommand({
       action: "start",
       launcher: {
-        start: async () => events.push("start"),
-        stop: async () => events.push("stop"),
+        start: async () => { events.push("start"); },
+        stop: async () => { events.push("stop"); },
       },
       processRef: signals,
     });
@@ -196,7 +196,7 @@ describe("Popcorn local launcher", () => {
     const launcher = createPopcornLauncher({
       repositoryRoot: directory,
       stateFile,
-      runCommand: async (_command: string, args: string[]) => events.push(args.join(" ")),
+      runCommand: async (_command: string, args: string[]) => { events.push(args.join(" ")); },
       controlChannel,
     });
 

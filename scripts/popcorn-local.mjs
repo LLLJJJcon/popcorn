@@ -17,6 +17,13 @@ const REQUIRED_FIELDS = [
 const READY_TIMEOUT_MS = 30_000;
 const READY_INTERVAL_MS = 500;
 
+/** @typedef {{ exitCode: number | null | undefined, kill: (signal: NodeJS.Signals) => boolean, once: (event: string, listener: (...args: any[]) => void) => unknown }} ManagedChild */
+/** @typedef {{ close: () => unknown }} ControlServer */
+/** @typedef {{ listen: (handleMessage: (message: string) => Promise<string>) => Promise<{ port: number, server: ControlServer }>, request: (port: number, message: string) => Promise<string | null> }} ControlChannel */
+/** @typedef {{ once: (event: "SIGINT" | "SIGTERM", listener: () => void) => unknown }} SignalProcess */
+/** @typedef {{ start: () => Promise<void>, stop: () => Promise<void> }} Launcher */
+/** @typedef {{ repositoryRoot?: string, environmentFile?: string, stateFile?: string, runCommand?: (command: string, args: string[]) => Promise<void>, spawnService?: (command: string, args: string[], environment: NodeJS.ProcessEnv) => ManagedChild, waitForReady?: (url: string, signal?: AbortSignal) => Promise<void>, openBrowser?: (url: string) => Promise<void>, controlChannel?: ControlChannel }} LauncherOptions */
+
 function runtimeStateFile(repositoryRoot) {
   const identifier = createHash("sha256").update(repositoryRoot).digest("hex").slice(0, 16);
   return path.join(tmpdir(), `popcorn-local-${identifier}.json`);
@@ -88,6 +95,7 @@ async function readState(stateFile) {
   }
 }
 
+/** @returns {Promise<string | null>} */
 function sendControl(port, message) {
   return new Promise((resolve) => {
     const socket = connect({ host: "127.0.0.1", port });
@@ -102,6 +110,7 @@ function sendControl(port, message) {
   });
 }
 
+/** @returns {Promise<{ port: number, server: ControlServer }>} */
 async function createControlServer(handleMessage) {
   const server = createServer((socket) => {
     let request = "";
@@ -126,6 +135,7 @@ async function createControlServer(handleMessage) {
   return { port: address.port, server };
 }
 
+/** @returns {Promise<void>} */
 function commandExit(command, args, options) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, options);
@@ -174,6 +184,7 @@ async function terminate(child) {
   if (child.exitCode === null) child.kill("SIGKILL");
 }
 
+/** @param {LauncherOptions} options */
 export function createPopcornLauncher({
   repositoryRoot = process.cwd(),
   environmentFile = path.join(repositoryRoot, ".env.local"),
@@ -260,6 +271,7 @@ export function createPopcornLauncher({
   return { start, stop };
 }
 
+/** @param {{ action: string | undefined, launcher: Launcher, processRef?: SignalProcess }} options */
 export async function runLauncherCommand({ action, launcher, processRef = process }) {
   const stop = () => launcher.stop().catch(() => {});
   processRef.once("SIGINT", stop);

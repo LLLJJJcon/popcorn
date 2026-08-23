@@ -63,3 +63,36 @@ errors, and the working-tree diff check completed cleanly.
   mutate a live service, or read `.env.local` values.
 - The launcher reports only field names or generic service failures; it does
   not print environment values or command environments.
+
+## Verification repair round 1
+
+### Root cause and RED
+
+```bash
+./node_modules/.bin/tsc --noEmit
+```
+
+The command consistently failed with `TS2322` at the injected launcher seams
+(including test lines 106, 112–114, 148, 151, 158, 180, and 200). JavaScript
+inference had adopted the concrete default `ChildProcess`, `net.Server`, and
+`Process` types, although the launcher needs only small `kill`/`once`,
+`close`, and signal-listener ports. Event-expression callbacks also inferred
+`Promise<number>` rather than the required `Promise<void>`.
+
+### Repair and GREEN
+
+`scripts/popcorn-local.mjs` now declares narrow structural JSDoc ports for
+managed children, the control channel/server, signal listeners, and launcher
+dependencies. The controlled fakes are therefore checked against the behavior
+the launcher actually consumes, not full Node runtime implementations. Test
+callbacks now explicitly return `Promise<void>`.
+
+```bash
+./node_modules/.bin/tsc --noEmit
+./node_modules/.bin/vitest run tests/integration/jobs/popcorn-local-runtime.test.ts tests/release/self-host-docs.test.ts
+./node_modules/.bin/eslint scripts/popcorn-local.mjs tests/integration/jobs/popcorn-local-runtime.test.ts tests/release/self-host-docs.test.ts
+git diff --check 229ecac96fd7572a81ab930056af965e66eeec32..HEAD
+```
+
+TypeScript completed with exit 0; Vitest passed 2 files and 15 tests; ESLint
+and the baseline diff check completed cleanly.
