@@ -17,13 +17,14 @@ const REQUIRED_FIELDS = [
 const READY_TIMEOUT_MS = 30_000;
 const READY_INTERVAL_MS = 500;
 const CONTROL_TIMEOUT_MS = 2_000;
+const STOP_TIMEOUT_MS = 30_000;
 
 /** @typedef {{ exitCode: number | null | undefined, kill: (signal: NodeJS.Signals) => boolean, once: (event: string, listener: (...args: any[]) => void) => unknown }} ManagedChild */
 /** @typedef {{ close: () => unknown }} ControlServer */
 /** @typedef {{ listen: (handleMessage: (message: string) => Promise<string>) => Promise<{ port: number, server: ControlServer }>, request: (port: number, message: string, timeoutMs?: number) => Promise<string | null> }} ControlChannel */
 /** @typedef {{ once: (event: "SIGINT" | "SIGTERM", listener: () => void) => unknown }} SignalProcess */
 /** @typedef {{ start: () => Promise<void>, stop: () => Promise<void> }} Launcher */
-/** @typedef {{ repositoryRoot?: string, environmentFile?: string, stateFile?: string, runCommand?: (command: string, args: string[]) => Promise<void>, spawnService?: (command: string, args: string[], environment: NodeJS.ProcessEnv) => ManagedChild, waitForReady?: (url: string, signal?: AbortSignal) => Promise<void>, openBrowser?: (url: string) => Promise<void>, controlTimeoutMs?: number, readyTimeoutMs?: number, readyIntervalMs?: number, controlChannel?: ControlChannel }} LauncherOptions */
+/** @typedef {{ repositoryRoot?: string, environmentFile?: string, stateFile?: string, runCommand?: (command: string, args: string[]) => Promise<void>, spawnService?: (command: string, args: string[], environment: NodeJS.ProcessEnv) => ManagedChild, waitForReady?: (url: string, signal?: AbortSignal) => Promise<void>, openBrowser?: (url: string) => Promise<void>, controlTimeoutMs?: number, stopTimeoutMs?: number, readyTimeoutMs?: number, readyIntervalMs?: number, controlChannel?: ControlChannel }} LauncherOptions */
 
 function runtimeStateFile(repositoryRoot) {
   const identifier = createHash("sha256").update(repositoryRoot).digest("hex").slice(0, 16);
@@ -171,7 +172,7 @@ async function createControlServer(handleMessage) {
     });
     socket.once("end", async () => {
       const response = await handleMessage(request.trim());
-      socket.end(`${response}\n`);
+      if (!socket.destroyed) socket.end(`${response}\n`);
     });
   });
   await new Promise((resolve, reject) => {
@@ -247,6 +248,7 @@ export function createPopcornLauncher({
   environmentFile = path.join(repositoryRoot, ".env.local"),
   stateFile = runtimeStateFile(repositoryRoot),
   controlTimeoutMs = CONTROL_TIMEOUT_MS,
+  stopTimeoutMs = STOP_TIMEOUT_MS,
   readyTimeoutMs = READY_TIMEOUT_MS,
   readyIntervalMs = READY_INTERVAL_MS,
   runCommand = (command, args) => commandExit(command, args, { cwd: repositoryRoot, stdio: "ignore" }),
@@ -340,8 +342,12 @@ export function createPopcornLauncher({
         if (!claimId || request?.claimId !== claimId) return "invalid";
         if (request.action === "ping") return "pong";
         if (request.action === "stop") {
-          cleanup().catch(() => {});
-          return "stopping";
+          try {
+            await cleanup();
+            return "stopped";
+          } catch {
+            return "failed";
+          }
         }
         return "invalid";
       });
@@ -411,9 +417,26 @@ export function createPopcornLauncher({
         const response = await controlChannel.request(
           state.port,
           controlMessage("stop", state.claimId),
-          controlTimeoutMs,
+          stopTimeoutMs,
         );
-        if (["stopping", "stopped"].includes(response ?? "")) return;
+        if (response === "stopped") return;
+        if (response === "failed") {
+          throw new Error("Popcorn owner cleanup failed");
+        }
+        if (response === null) {
+          const currentState = await readState(stateFile);
+          if (!sameState(currentState, state)) {
+            throw new Error("Popcorn owner cleanup status is unknown");
+          }
+          const ownerResponse = await controlChannel.request(
+            state.port,
+            controlMessage("ping", state.claimId),
+            controlTimeoutMs,
+          );
+          if (ownerResponse === "pong") {
+            throw new Error("Popcorn owner cleanup did not complete in time");
+          }
+        }
       }
       await discardStaleState(stateFile, state);
       const nextState = await readState(stateFile);

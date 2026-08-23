@@ -259,6 +259,67 @@ cleanup rather than waiting for completion; the owner keeps liveness until it
 finishes, but a later external `supabase stop` command failure is not propagated
 back to the already-returned remote CLI.
 
+## Independent review fix round 3/5
+
+### Root cause and RED
+
+The authenticated stop handler started the shared cleanup promise but returned
+`stopping` immediately, and the remote caller treated that acknowledgement as
+success. The real `pnpm popcorn:stop` process could therefore exit 0 before
+owner cleanup completed, while a later Supabase-stop rejection was swallowed
+inside the owner process.
+
+The original `204890b` runtime was restored before running the focused RED:
+
+```bash
+./node_modules/.bin/vitest run tests/integration/jobs/popcorn-local-runtime.test.ts \
+  -t "keeps the owner claim|real remote stop CLI|bounded remote stop timeout"
+```
+
+All three selected tests failed (16 skipped): the remote stop settled while
+owner cleanup was still blocked, the real spawned CLI exited 0 after the
+owner's Supabase-stop failure, and the bounded stop request resolved instead
+of preserving the responsive owner's authority.
+
+### Repair and GREEN
+
+An authenticated owner now awaits its existing shared cleanup promise before
+replying `stopped`, and replies `failed` if cleanup rejects. The remote command
+returns success only for `stopped`; `failed` reaches the existing generic CLI
+error boundary, so the injected credential sentinel is not printed.
+
+Stop requests use a separate 30-second bound instead of the two-second ping
+bound. After a stop timeout, the caller rereads the exact claim and performs a
+short authenticated ping. A matching responsive owner causes a generic failure
+without state quarantine or local Supabase fallback, leaving that owner
+authoritative until its cleanup releases state. A later retry after safe state
+release can take the ordinary Supabase-stop path. The control server also
+avoids a late write to a client socket that already timed out.
+
+```bash
+./node_modules/.bin/vitest run tests/integration/jobs/popcorn-local-runtime.test.ts \
+  -t "keeps the owner claim|real remote stop CLI|bounded remote stop timeout"
+./node_modules/.bin/vitest run tests/integration/jobs/popcorn-local-runtime.test.ts
+./node_modules/.bin/vitest run \
+  tests/integration/jobs/popcorn-local-runtime.test.ts \
+  tests/integration/jobs/local-worker.test.ts \
+  tests/release/self-host-docs.test.ts
+./node_modules/.bin/tsc --noEmit
+./node_modules/.bin/eslint \
+  scripts/popcorn-local.mjs \
+  tests/integration/jobs/popcorn-local-runtime.test.ts \
+  tests/release/self-host-docs.test.ts
+git diff --check 229ecac96fd7572a81ab930056af965e66eeec32
+```
+
+The selected tests passed 3/3 (16 skipped), the runtime suite passed 19/19,
+and the focused gate passed 3 files and 38 tests. Full TypeScript, scoped
+ESLint, and the baseline diff check completed with exit 0.
+
+No live Docker/Supabase smoke was run. The remaining external-integration risk
+is unchanged: real local service startup and teardown were not exercised in
+this environment.
+
 ## Controller-owned root aliases
 
 The controller added only the approved root package interfaces:

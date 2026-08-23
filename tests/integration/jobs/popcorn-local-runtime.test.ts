@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { spawn as spawnChild } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createServer, type Server, type Socket } from "node:net";
@@ -469,10 +469,11 @@ describe("Popcorn local launcher", () => {
       stateFile,
       runCommand: async (_command: string, args: string[]) => { remoteStopEvents.push(args.join(" ")); },
       controlTimeoutMs: 100,
+      stopTimeoutMs: 500,
     });
-    const pendingRemoteStop = remoteStopper.stop();
+    let remoteStopSettled = false;
+    const pendingRemoteStop = remoteStopper.stop().finally(() => { remoteStopSettled = true; });
     await stopEntered.promise;
-    await pendingRemoteStop;
     const duringTeardown = createPopcornLauncher({
       environmentFile,
       repositoryRoot: directory,
@@ -489,6 +490,12 @@ describe("Popcorn local launcher", () => {
     let duringTeardownStarted = false;
 
     try {
+      const earlyStopOutcome = await Promise.race([
+        pendingRemoteStop.then(() => "settled", () => "settled"),
+        new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 75)),
+      ]);
+      expect(earlyStopOutcome).toBe("pending");
+      expect(remoteStopSettled).toBe(false);
       const outcome = await duringTeardown.start().then(
         () => { duringTeardownStarted = true; return "fulfilled"; },
         (error: unknown) => error,
@@ -500,10 +507,12 @@ describe("Popcorn local launcher", () => {
       expect(await readFile(stateFile, "utf8")).toBe(ownerStateBeforeStop);
     } finally {
       stopCanFinish.resolve();
+      await pendingRemoteStop;
       await owner.stop();
       if (duringTeardownStarted) await duringTeardown.stop();
     }
 
+    expect(remoteStopSettled).toBe(true);
     await expect(readFile(stateFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     const successor = createPopcornLauncher({
       environmentFile,
@@ -541,6 +550,133 @@ describe("Popcorn local launcher", () => {
       "supabase stop entered",
       "supabase stop complete",
     ]);
+  });
+
+  test("the real remote stop CLI exits nonzero with only a generic error when owner cleanup fails", async () => {
+    const directory = await temporaryDirectory("popcorn remote stop failure ");
+    const repositoryRoot = await realpath(directory);
+    const environmentFile = path.join(directory, ".env.local");
+    const binDirectory = path.join(directory, "bin");
+    const fallbackLog = path.join(directory, "fallback-pnpm.log");
+    const credentialSentinel = "SUPABASE_SERVICE_ROLE_KEY=owner-cleanup-secret";
+    await mkdir(binDirectory);
+    await writeFile(environmentFile, localEnvironment());
+    await writeFile(path.join(binDirectory, "pnpm"), [
+      "#!/bin/sh",
+      `printf '%s\\n' '${credentialSentinel}'`,
+      "printf '%s\\n' \"$*\" >> \"$POPCORN_TEST_FALLBACK_LOG\"",
+      "exit 0",
+      "",
+    ].join("\n"));
+    await chmod(path.join(binDirectory, "pnpm"), 0o755);
+    const ownerEvents: string[] = [];
+    const { createPopcornLauncher } = await launcherModule();
+    const owner = createPopcornLauncher({
+      environmentFile,
+      repositoryRoot,
+      runCommand: async (_command: string, args: string[]) => {
+        ownerEvents.push(args.join(" "));
+        if (args.at(-1) === "stop") throw new Error(credentialSentinel);
+      },
+      spawnService: longRunningChild,
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlTimeoutMs: 100,
+      stopTimeoutMs: 500,
+    });
+    await owner.start();
+    const environment = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH}`,
+      POPCORN_TEST_FALLBACK_LOG: fallbackLog,
+    };
+
+    let result: Awaited<ReturnType<typeof runCaptured>>;
+    try {
+      result = await runCaptured(
+        process.execPath,
+        [path.join(root, "scripts/popcorn-local.mjs"), "stop"],
+        { cwd: repositoryRoot, env: environment },
+      );
+    } finally {
+      await owner.stop().catch(() => {});
+    }
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr.trim()).toBe(
+      "Popcorn could not complete the local launcher command. Check .env.local and local services.",
+    );
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain(credentialSentinel);
+    await expect(readFile(fallbackLog, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(ownerEvents).toEqual(["exec supabase start", "exec supabase stop"]);
+  });
+
+  test("a bounded remote stop timeout leaves the same responsive owner authoritative", async () => {
+    const directory = await temporaryDirectory("popcorn bounded live owner stop ");
+    const environmentFile = path.join(directory, ".env.local");
+    const stateFile = path.join(directory, "runtime-state.json");
+    await writeFile(environmentFile, localEnvironment());
+    const stopEntered = deferred();
+    const stopCanFinish = deferred();
+    const ownerEvents: string[] = [];
+    const remoteEvents: string[] = [];
+    const contenderEvents: string[] = [];
+    const { createPopcornLauncher } = await launcherModule();
+    const owner = createPopcornLauncher({
+      environmentFile,
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async (_command: string, args: string[]) => {
+        ownerEvents.push(args.join(" "));
+        if (args.at(-1) === "stop") {
+          stopEntered.resolve();
+          await stopCanFinish.promise;
+        }
+      },
+      spawnService: longRunningChild,
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlTimeoutMs: 25,
+      stopTimeoutMs: 75,
+    });
+    await owner.start();
+    const ownerState = await readFile(stateFile, "utf8");
+    const remoteStopper = createPopcornLauncher({
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async (_command: string, args: string[]) => { remoteEvents.push(args.join(" ")); },
+      controlTimeoutMs: 25,
+      stopTimeoutMs: 75,
+    });
+    const pendingRemoteStop = remoteStopper.stop();
+    await stopEntered.promise;
+    const contender = createPopcornLauncher({
+      environmentFile,
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async (_command: string, args: string[]) => { contenderEvents.push(args.join(" ")); },
+      controlTimeoutMs: 25,
+    });
+
+    try {
+      const outcome = await pendingRemoteStop.then(
+        () => "resolved",
+        (error: unknown) => error,
+      );
+
+      expect(outcome).toBeInstanceOf(Error);
+      expect(remoteEvents).toEqual([]);
+      expect(await readFile(stateFile, "utf8")).toBe(ownerState);
+      await expect(contender.start()).rejects.toThrow("Popcorn is already running for this repository");
+      expect(contenderEvents).toEqual([]);
+    } finally {
+      stopCanFinish.resolve();
+      await owner.stop();
+    }
+
+    await remoteStopper.stop();
+    expect(remoteEvents).toEqual(["exec supabase stop"]);
   });
 
   test("a signal before the startup boundary prevents Supabase, Web, and worker launch", async () => {
@@ -671,6 +807,7 @@ describe("Popcorn local launcher", () => {
       repositoryRoot: directory,
       stateFile,
       controlTimeoutMs: 50,
+      stopTimeoutMs: 50,
       runCommand: async (_command: string, args: string[]) => { events.push(args.join(" ")); },
     });
 
