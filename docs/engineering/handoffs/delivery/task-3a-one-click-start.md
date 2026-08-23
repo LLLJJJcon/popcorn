@@ -193,6 +193,72 @@ quarantine and unlink can leave an inert, non-secret `.stale` file in the OS
 temporary directory; it is never treated as ownership state or used for PID
 control.
 
+## Independent review fix round 2/5
+
+### Root cause and RED
+
+Control requests were unauthenticated plain `ping` and `stop` strings. A stale
+repository-A record pointing at a port reused by live repository B therefore
+received B's owner response and stopped B. Cleanup also closed its control
+server and removed state before ordinary Supabase stop, so a successor could
+acquire while the old owner's teardown was still pending.
+
+The real-loopback P1 regression command was run before production changes:
+
+```bash
+./node_modules/.bin/vitest run tests/integration/jobs/popcorn-local-runtime.test.ts \
+  -t "cannot authenticate|keeps the owner claim"
+```
+
+Vitest failed both selected tests (15 skipped). Repository A never ran its own
+ordinary Supabase stop because its stale claim stopped B, and the teardown
+contender fulfilled instead of rejecting. After the first ownership-ordering
+fix, the teardown test was strengthened to start cleanup through the real
+control protocol and wait until the remote stop command returned. The targeted
+test was again genuinely RED: its contender fulfilled because the bounded
+request timed out and the remote stopper discarded the still-live claim.
+
+### Repair and GREEN
+
+Control messages are now JSON records containing an action and the expected
+non-secret `claimId`. A control handler returns owner responses only when that
+identity matches its immutable published claim; missing or mismatched identity
+cannot ping or stop the launcher. Stale A state is claim-qualified/quarantined,
+then only A's injected stack receives ordinary Supabase stop.
+
+Owner cleanup retains its authenticated control server and exact state record
+while awaiting Supabase startup, terminating owned children, and completing
+ordinary Supabase stop. An authenticated remote stop starts that shared cleanup
+promise and immediately acknowledges `stopping`, preventing its bounded caller
+from applying stale fallback. Only after Supabase stop completes does cleanup
+atomically quarantine/remove the exact owned record and close its own server.
+A teardown contender therefore rejects without spawning; after release a fresh
+successor starts, and later old-owner stop calls cannot remove or stop it.
+
+```bash
+./node_modules/.bin/vitest run tests/integration/jobs/popcorn-local-runtime.test.ts \
+  -t "cannot authenticate|keeps the owner claim"
+./node_modules/.bin/vitest run \
+  tests/integration/jobs/popcorn-local-runtime.test.ts \
+  tests/integration/jobs/local-worker.test.ts \
+  tests/release/self-host-docs.test.ts
+./node_modules/.bin/tsc --noEmit
+./node_modules/.bin/eslint \
+  scripts/popcorn-local.mjs \
+  tests/integration/jobs/popcorn-local-runtime.test.ts \
+  tests/release/self-host-docs.test.ts
+git diff --check 229ecac96fd7572a81ab930056af965e66eeec32
+```
+
+The selected P1 tests passed 2/2; the focused gate passed 3 files and 36
+tests. Full TypeScript, scoped ESLint, and the baseline diff check completed
+with exit 0.
+
+No live Docker/Supabase smoke was run. Remote stop now acknowledges accepted
+cleanup rather than waiting for completion; the owner keeps liveness until it
+finishes, but a later external `supabase stop` command failure is not propagated
+back to the already-returned remote CLI.
+
 ## Controller-owned root aliases
 
 The controller added only the approved root package interfaces:

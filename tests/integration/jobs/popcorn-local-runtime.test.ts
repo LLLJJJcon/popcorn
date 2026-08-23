@@ -52,16 +52,18 @@ function longRunningChild() {
 }
 
 function memoryControlChannel() {
-  let handler: ((message: string) => Promise<string>) | undefined;
+  let nextPort = 3011;
+  const handlers = new Map<number, (message: string) => Promise<string>>();
   return {
     listen: async (nextHandler: (message: string) => Promise<string>) => {
-      handler = nextHandler;
+      const port = nextPort++;
+      handlers.set(port, nextHandler);
       return {
-        port: 3011,
-        server: { close: () => { handler = undefined; } },
+        port,
+        server: { close: () => { handlers.delete(port); } },
       };
     },
-    request: async (_port: number, message: string) => handler ? handler(message) : null,
+    request: async (port: number, message: string) => handlers.get(port)?.(message) ?? null,
   };
 }
 
@@ -370,6 +372,175 @@ describe("Popcorn local launcher", () => {
     expect(events[0]).toEqual(["exec supabase start"]);
     await launchers[0].stop();
     expect(events[0]).toEqual(["exec supabase start", "exec supabase stop"]);
+  });
+
+  test("a stale claim pointing at another live launcher cannot authenticate or stop that owner", async () => {
+    const directoryA = await temporaryDirectory("popcorn stale repository A ");
+    const directoryB = await temporaryDirectory("popcorn live repository B ");
+    const stateFileA = path.join(directoryA, "runtime-state.json");
+    const stateFileB = path.join(directoryB, "runtime-state.json");
+    const environmentFileB = path.join(directoryB, ".env.local");
+    await writeFile(environmentFileB, localEnvironment());
+    const eventsA: string[] = [];
+    const eventsB: string[] = [];
+    const childrenB: ReturnType<typeof longRunningChild>[] = [];
+    const { createPopcornLauncher } = await launcherModule();
+    const ownerB = createPopcornLauncher({
+      environmentFile: environmentFileB,
+      repositoryRoot: directoryB,
+      stateFile: stateFileB,
+      runCommand: async (_command: string, args: string[]) => { eventsB.push(args.join(" ")); },
+      spawnService: () => {
+        const child = longRunningChild();
+        childrenB.push(child);
+        return child;
+      },
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlTimeoutMs: 100,
+    });
+    await ownerB.start();
+    const ownerStateBefore = await readFile(stateFileB, "utf8");
+    const ownerState = JSON.parse(ownerStateBefore) as { port: number };
+    await writeFile(stateFileA, JSON.stringify({
+      repositoryRoot: directoryA,
+      claimId: "stale-claim-for-repository-a",
+      port: ownerState.port,
+    }));
+    const staleA = createPopcornLauncher({
+      repositoryRoot: directoryA,
+      stateFile: stateFileA,
+      runCommand: async (_command: string, args: string[]) => { eventsA.push(args.join(" ")); },
+      controlTimeoutMs: 100,
+    });
+
+    try {
+      await staleA.stop();
+
+      expect(eventsA).toEqual(["exec supabase stop"]);
+      await expect(readFile(stateFileA, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(stateFileB, "utf8")).toBe(ownerStateBefore);
+      expect(eventsB).toEqual(["exec supabase start"]);
+      expect(childrenB.every((child) => child.exitCode === null)).toBe(true);
+    } finally {
+      await ownerB.stop();
+    }
+  });
+
+  test("keeps the owner claim live through Supabase stop before a successor can acquire", async () => {
+    const directory = await temporaryDirectory("popcorn teardown successor race ");
+    const environmentFile = path.join(directory, ".env.local");
+    const stateFile = path.join(directory, "runtime-state.json");
+    await writeFile(environmentFile, localEnvironment());
+    const stopEntered = deferred();
+    const stopCanFinish = deferred();
+    const ownerEvents: string[] = [];
+    const remoteStopEvents: string[] = [];
+    const rejectedEvents: string[] = [];
+    const successorEvents: string[] = [];
+    const successorChildren: ReturnType<typeof longRunningChild>[] = [];
+    const { createPopcornLauncher } = await launcherModule();
+    const owner = createPopcornLauncher({
+      environmentFile,
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async (_command: string, args: string[]) => {
+        if (args.at(-1) === "stop") {
+          ownerEvents.push("supabase stop entered");
+          stopEntered.resolve();
+          await stopCanFinish.promise;
+          ownerEvents.push("supabase stop complete");
+          return;
+        }
+        ownerEvents.push(args.join(" "));
+      },
+      spawnService: (_command: string, args: string[]) => {
+        ownerEvents.push(`service ${args.join(" ")}`);
+        return longRunningChild();
+      },
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlTimeoutMs: 100,
+    });
+    await owner.start();
+    const ownerStateBeforeStop = await readFile(stateFile, "utf8");
+    const remoteStopper = createPopcornLauncher({
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async (_command: string, args: string[]) => { remoteStopEvents.push(args.join(" ")); },
+      controlTimeoutMs: 100,
+    });
+    const pendingRemoteStop = remoteStopper.stop();
+    await stopEntered.promise;
+    await pendingRemoteStop;
+    const duringTeardown = createPopcornLauncher({
+      environmentFile,
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async (_command: string, args: string[]) => { rejectedEvents.push(args.join(" ")); },
+      spawnService: (_command: string, args: string[]) => {
+        rejectedEvents.push(`service ${args.join(" ")}`);
+        return longRunningChild();
+      },
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlTimeoutMs: 100,
+    });
+    let duringTeardownStarted = false;
+
+    try {
+      const outcome = await duringTeardown.start().then(
+        () => { duringTeardownStarted = true; return "fulfilled"; },
+        (error: unknown) => error,
+      );
+
+      expect(outcome).toMatchObject({ message: "Popcorn is already running for this repository" });
+      expect(remoteStopEvents).toEqual([]);
+      expect(rejectedEvents).toEqual([]);
+      expect(await readFile(stateFile, "utf8")).toBe(ownerStateBeforeStop);
+    } finally {
+      stopCanFinish.resolve();
+      await owner.stop();
+      if (duringTeardownStarted) await duringTeardown.stop();
+    }
+
+    await expect(readFile(stateFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    const successor = createPopcornLauncher({
+      environmentFile,
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async (_command: string, args: string[]) => { successorEvents.push(args.join(" ")); },
+      spawnService: (_command: string, args: string[]) => {
+        successorEvents.push(`service ${args.join(" ")}`);
+        const child = longRunningChild();
+        successorChildren.push(child);
+        return child;
+      },
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlTimeoutMs: 100,
+    });
+    await successor.start();
+    const successorState = await readFile(stateFile, "utf8");
+
+    await owner.stop();
+
+    expect(await readFile(stateFile, "utf8")).toBe(successorState);
+    expect(successorEvents).toEqual([
+      "exec supabase start",
+      "service dev",
+      "service worker:local",
+    ]);
+    expect(successorChildren.every((child) => child.exitCode === null)).toBe(true);
+    await successor.stop();
+    expect(successorEvents.at(-1)).toBe("exec supabase stop");
+    expect(ownerEvents).toEqual([
+      "exec supabase start",
+      "service dev",
+      "service worker:local",
+      "supabase stop entered",
+      "supabase stop complete",
+    ]);
   });
 
   test("a signal before the startup boundary prevents Supabase, Web, and worker launch", async () => {

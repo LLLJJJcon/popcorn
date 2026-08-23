@@ -122,6 +122,21 @@ async function readState(stateFile) {
   }
 }
 
+function controlMessage(action, claimId) {
+  return JSON.stringify({ action, claimId: typeof claimId === "string" ? claimId : null });
+}
+
+function parseControlMessage(message) {
+  try {
+    const request = JSON.parse(message);
+    if (!["ping", "stop"].includes(request?.action)) return null;
+    if (typeof request?.claimId !== "string") return null;
+    return request;
+  } catch {
+    return null;
+  }
+}
+
 /** @returns {Promise<string | null>} */
 export function sendControl(port, message, timeoutMs = CONTROL_TIMEOUT_MS) {
   return new Promise((resolve) => {
@@ -250,6 +265,7 @@ export function createPopcornLauncher({
   let started = false;
   let readinessController;
   let claimId;
+  let ownedState;
   let ownsClaim = false;
   let starting = false;
   let cancelled = false;
@@ -266,26 +282,30 @@ export function createPopcornLauncher({
   function cleanup() {
     if (cleanupPromise) return cleanupPromise;
     cleanupPromise = (async () => {
-      closeControlServer();
       readinessController?.abort();
-      await supabaseStart?.catch(() => {});
-      await Promise.all(children.map(terminate));
-      children = [];
-      const state = await readState(stateFile);
-      if (ownsClaim && state?.claimId === claimId) await removeFile(stateFile);
-      await runCommand("pnpm", ["exec", "supabase", "stop"]);
-      ownsClaim = false;
-      started = false;
+      try {
+        await supabaseStart?.catch(() => {});
+        await Promise.all(children.map(terminate));
+        children = [];
+        await runCommand("pnpm", ["exec", "supabase", "stop"]);
+      } finally {
+        if (ownsClaim && ownedState) await discardStaleState(stateFile, ownedState);
+        closeControlServer();
+        ownedState = undefined;
+        ownsClaim = false;
+        started = false;
+      }
     })();
     return cleanupPromise;
   }
 
   async function acquireClaim(port) {
     claimId = randomUUID();
-    const state = JSON.stringify({ repositoryRoot, claimId, port });
+    const state = { repositoryRoot, claimId, port };
     while (!cancelled) {
       try {
-        await writeFile(stateFile, state, { flag: "wx" });
+        await writeFile(stateFile, JSON.stringify(state), { flag: "wx" });
+        ownedState = state;
         ownsClaim = true;
         return;
       } catch (error) {
@@ -296,7 +316,11 @@ export function createPopcornLauncher({
       if (
         existing?.repositoryRoot === repositoryRoot
         && existing.port
-        && await controlChannel.request(existing.port, "ping", controlTimeoutMs) === "pong"
+        && await controlChannel.request(
+          existing.port,
+          controlMessage("ping", existing.claimId),
+          controlTimeoutMs,
+        ) === "pong"
       ) {
         rejectedByOwner = true;
         closeControlServer();
@@ -312,10 +336,12 @@ export function createPopcornLauncher({
       const environmentValues = await readRequiredEnvironment(environmentFile);
       if (cancelled) return;
       const control = await controlChannel.listen(async (message) => {
-        if (message === "ping") return "pong";
-        if (message === "stop") {
-          await cleanup();
-          return "stopped";
+        const request = parseControlMessage(message);
+        if (!claimId || request?.claimId !== claimId) return "invalid";
+        if (request.action === "ping") return "pong";
+        if (request.action === "stop") {
+          cleanup().catch(() => {});
+          return "stopping";
         }
         return "invalid";
       });
@@ -382,8 +408,12 @@ export function createPopcornLauncher({
     let state = await readState(stateFile);
     while (state) {
       if (state.port) {
-        const response = await controlChannel.request(state.port, "stop", controlTimeoutMs);
-        if (response === "stopped") return;
+        const response = await controlChannel.request(
+          state.port,
+          controlMessage("stop", state.claimId),
+          controlTimeoutMs,
+        );
+        if (["stopping", "stopped"].includes(response ?? "")) return;
       }
       await discardStaleState(stateFile, state);
       const nextState = await readState(stateFile);
