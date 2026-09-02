@@ -28,6 +28,39 @@ function expectInOrder(haystack: string, needles: string[]) {
 }
 
 describe("fresh-clone personal self-host documentation", () => {
+  test("links to a Chinese daily-use guide with local and signed-in gateway boundaries", async () => {
+    const readme = await text("README.md");
+    const guidePath = "docs/operations/user-guide.zh-CN.md";
+    const guide = await text(guidePath);
+
+    expect(readme).toMatch(/\[[^\]]*中文[^\]]*\]\(docs\/operations\/user-guide\.zh-CN\.md\)/);
+    expect(guide, "the README-linked Chinese guide must resolve").not.toBe("");
+
+    for (const field of [
+      "APP_URL",
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SUPADATA_API_KEY",
+      "INTERNAL_JOB_SECRET",
+    ]) {
+      expect(guide, `missing local runtime field: ${field}`).toContain(field);
+    }
+
+    for (const input of ["显示名称", "HTTPS API 根地址", "模型 ID", "API 密钥"]) {
+      expect(guide, `missing Web-only gateway input: ${input}`).toContain(input);
+    }
+
+    for (const entryPoint of [
+      "pnpm popcorn:start",
+      "pnpm popcorn:stop",
+      "Start Popcorn.command",
+      "Stop Popcorn.command",
+    ]) {
+      expect(guide, `missing daily entry point: ${entryPoint}`).toContain(entryPoint);
+    }
+  });
+
   test("separates one-time setup from the daily one-click launcher and preserves manual fallback commands", async () => {
     const readme = await text("README.md");
     const guide = await text("docs/operations/local-self-host.md");

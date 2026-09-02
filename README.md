@@ -5,6 +5,8 @@ learning moments from the YouTube video they are currently watching. This
 repository supports personal self-hosting on one machine: the Next.js Web app,
 local Supabase, the local worker, and an unpacked Chrome extension.
 
+> 中文用户请从这里开始：[中文使用指南](docs/operations/user-guide.zh-CN.md)。
+
 ## Daily local start
 
 After completing the one-time setup in the complete
