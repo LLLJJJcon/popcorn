@@ -32,6 +32,12 @@ describe("fresh-clone personal self-host documentation", () => {
     const readme = await text("README.md");
     const guidePath = "docs/operations/user-guide.zh-CN.md";
     const guide = await text(guidePath);
+    const localConfigurationStart = guide.indexOf("| `.env.local` 字段");
+    const localConfigurationEnd = guide.indexOf("### 4.", localConfigurationStart);
+    const gatewayStart = guide.indexOf("### 5.");
+    const gatewayEnd = guide.indexOf("### 6.", gatewayStart);
+    const localConfiguration = guide.slice(localConfigurationStart, localConfigurationEnd);
+    const gatewaySection = guide.slice(gatewayStart, gatewayEnd);
 
     expect(readme).toMatch(/\[[^\]]*中文[^\]]*\]\(docs\/operations\/user-guide\.zh-CN\.md\)/);
     expect(guide, "the README-linked Chinese guide must resolve").not.toBe("");
@@ -47,9 +53,22 @@ describe("fresh-clone personal self-host documentation", () => {
       expect(guide, `missing local runtime field: ${field}`).toContain(field);
     }
 
+    expect(localConfigurationStart, "missing .env.local configuration table").toBeGreaterThanOrEqual(0);
+    expect(gatewayStart, "missing Web gateway section").toBeGreaterThanOrEqual(0);
+    expect(gatewayEnd, "missing end of Web gateway section").toBeGreaterThan(gatewayStart);
+
     for (const input of ["显示名称", "HTTPS API 根地址", "模型 ID", "API 密钥"]) {
-      expect(guide, `missing Web-only gateway input: ${input}`).toContain(input);
+      expect(gatewaySection, `missing Web-only gateway row: ${input}`).toMatch(
+        new RegExp(`^\\| ${input} \\|`, "m"),
+      );
+      expect(localConfiguration, `gateway input must not be an .env.local row: ${input}`).not.toMatch(
+        new RegExp(`^\\| ${input} \\|`, "m"),
+      );
     }
+
+    expect(gatewaySection, "gateway API key must stay out of local files, shells, Chrome, Git, and chat").toMatch(
+      /API 密钥[\s\S]{0,180}\.env\.local[\s\S]{0,180}终端[\s\S]{0,180}Chrome[\s\S]{0,180}Git[\s\S]{0,180}聊天/,
+    );
 
     for (const entryPoint of [
       "pnpm popcorn:start",

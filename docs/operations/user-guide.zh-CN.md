@@ -80,7 +80,7 @@ pnpm db:reset
 
 使用每日的一键启动方式：`pnpm popcorn:start` 或 `Start Popcorn.command`。浏览器打开后，在 `http://127.0.0.1:3000/sign-in` 创建本地账号并登录。
 
-登录后进入 `/settings/model-gateway`。这里的 API 密钥只在已登录的 Web 设置中输入，绝不放进 `.env.local`、终端命令、Chrome 扩展或 Git。OpenAI 并非必需；你可以选择任何你已确认兼容的服务商，并只参考该服务商自己的官方 API 文档与控制台。
+登录后进入 `/settings/model-gateway`。这里的 API 密钥只在已登录的 Web 设置中输入，绝不放进 `.env.local`、终端命令、Chrome 扩展、Git 或聊天。OpenAI 并非必需；你可以选择任何你已确认兼容的服务商，并只参考该服务商自己的官方 API 文档与控制台。
 
 | Web 设置字段 | 填写内容 | 取得方式 | 注意事项 |
 | --- | --- | --- | --- |
@@ -121,7 +121,7 @@ pnpm extension:local
 | Web 页面打不开 | 用每日启动命令重新启动；确认地址为 `http://127.0.0.1:3000`，并确认 `.env.local` 的 `APP_URL` 是同一地址。 |
 | 扩展没有反应或更新未出现 | 回到 `chrome://extensions`，确认扩展已启用；重新运行 `pnpm extension:local` 后选择“重新加载”，并确认登录的是同一账号。 |
 | 转录一直显示等待 | 确认 `SUPADATA_API_KEY` 已在 `.env.local` 本地填写且有效；让 Popcorn 保持启动。没有真实 Supadata 密钥时，转录不能完成。 |
-| AI 项目一直显示等待或需要同意 | 在 `/settings/model-gateway` 检查四个 Web 字段，核对显示的准确目标地址，再同意并启用；不要把网关 API 密钥放入终端或 `.env.local`。 |
+| AI 项目一直显示等待或需要同意 | 在 `/settings/model-gateway` 检查四个 Web 字段，核对显示的准确目标地址，再同意并启用；不要把网关 API 密钥放入 `.env.local`、终端、Chrome、Git 或聊天。 |
 | 想运行 `pnpm db:reset` | 先停止。它会删除本地数据库的全部账号和学习资料；只在你确认要完整重建本地演示时使用。 |
 
 若一键停止没有完成，可在启动窗口按 `Ctrl-C`，再运行 `pnpm exec supabase stop`。这同样不会删除正常保存的数据或已加载的扩展。
