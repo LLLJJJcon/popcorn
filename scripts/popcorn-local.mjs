@@ -353,6 +353,7 @@ export function createPopcornLauncher({
     starting = true;
     try {
       const environmentValues = await readRequiredEnvironment(environmentFile);
+      const applicationUrl = new URL(environmentValues.APP_URL);
       if (cancelled) return;
       const control = await controlChannel.listen(async (message) => {
         const request = parseControlMessage(message);
@@ -387,8 +388,10 @@ export function createPopcornLauncher({
         return;
       }
       const environment = { ...process.env, ...environmentValues };
+      const webArgs = ["dev", "--hostname", applicationUrl.hostname];
+      if (applicationUrl.port) webArgs.push("--port", applicationUrl.port);
       children = [
-        spawnService("pnpm", ["dev"], environment),
+        spawnService("pnpm", webArgs, environment),
         spawnService("pnpm", ["worker:local"], environment),
       ];
       readinessController = new AbortController();

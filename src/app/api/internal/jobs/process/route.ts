@@ -22,7 +22,12 @@ const ProcessorEnvSchema = ServerEnvSchema.pick({
 });
 
 function runtimeRoute() {
-  const environment = ProcessorEnvSchema.parse(process.env);
+  const environment = ProcessorEnvSchema.parse({
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    SUPADATA_API_KEY: process.env.SUPADATA_API_KEY,
+    INTERNAL_JOB_SECRET: process.env.INTERNAL_JOB_SECRET,
+  });
   const service = createServiceJobClient(
     environment.NEXT_PUBLIC_SUPABASE_URL,
     environment.SUPABASE_SERVICE_ROLE_KEY,

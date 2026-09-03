@@ -25,6 +25,28 @@ describe("bounded internal knowledge-job endpoint", () => {
     expect(Object.keys(processRouteModule).sort()).toEqual(["POST"]);
   });
 
+  test("returns 401 instead of rejecting ordinary process environment variables", async () => {
+    const originalEnvironment = { ...process.env };
+    try {
+      process.env.NEXT_PUBLIC_SUPABASE_URL = "https://supabase.example.test";
+      process.env.SUPABASE_SERVICE_ROLE_KEY = "inert-service-role";
+      process.env.SUPADATA_API_KEY = "inert-supadata-key";
+      process.env.INTERNAL_JOB_SECRET = "inert-job-secret";
+      process.env.POPCORN_ORDINARY_RUNTIME_VARIABLE = "allowed";
+
+      const response = await processRouteModule.POST(new Request("https://popcorn.test", {
+        method: "POST",
+      }));
+
+      expect(response.status).toBe(401);
+    } finally {
+      for (const name of Object.keys(process.env)) {
+        if (!(name in originalEnvironment)) delete process.env[name];
+      }
+      Object.assign(process.env, originalEnvironment);
+    }
+  });
+
   test("requires the exact bearer, processes five, and returns counts only", async () => {
     const processBounded = vi.fn(async () => ({
       claimed: 5,

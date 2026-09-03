@@ -260,7 +260,7 @@ describe("Popcorn local launcher", () => {
 
     expect(events).toEqual([
       "command exec supabase start",
-      "service dev",
+      "service dev --hostname 127.0.0.1 --port 3010",
       "service worker:local",
       "ready http://127.0.0.1:3010",
       "browser http://127.0.0.1:3010",
@@ -384,7 +384,7 @@ describe("Popcorn local launcher", () => {
     expect(events[loserIndex]).toEqual([]);
     expect(events[winnerIndex]).toEqual([
       "exec supabase start",
-      "service dev",
+      "service dev --hostname 127.0.0.1 --port 3010",
       "service worker:local",
     ]);
     expect(children[winnerIndex].every((child) => child.exitCode === null)).toBe(true);
@@ -455,7 +455,7 @@ describe("Popcorn local launcher", () => {
       expect.soft(events[0]).toEqual([]);
       expect.soft(events[1]).toEqual([
         "exec supabase start",
-        "service dev",
+        "service dev --hostname 127.0.0.1 --port 3010",
         "service worker:local",
       ]);
       expect.soft(children[1].every((child) => child.exitCode === null)).toBe(true);
@@ -675,7 +675,7 @@ describe("Popcorn local launcher", () => {
     expect(await readFile(stateFile, "utf8")).toBe(successorState);
     expect(successorEvents).toEqual([
       "exec supabase start",
-      "service dev",
+      "service dev --hostname 127.0.0.1 --port 3010",
       "service worker:local",
     ]);
     expect(successorChildren.every((child) => child.exitCode === null)).toBe(true);
@@ -683,7 +683,7 @@ describe("Popcorn local launcher", () => {
     expect(successorEvents.at(-1)).toBe("exec supabase stop");
     expect(ownerEvents).toEqual([
       "exec supabase start",
-      "service dev",
+      "service dev --hostname 127.0.0.1 --port 3010",
       "service worker:local",
       "supabase stop entered",
       "supabase stop complete",
@@ -1003,7 +1003,7 @@ describe("Popcorn local launcher", () => {
     expect(result).toBe("rejected");
     expect(events).toEqual([
       "command exec supabase start",
-      "service dev",
+      `service dev --hostname 127.0.0.1 --port ${unusedPort}`,
       "service worker:local",
       "command exec supabase stop",
     ]);
