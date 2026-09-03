@@ -62,8 +62,8 @@ temporary port, so its expected Web event now uses that fixture port.
 
 Minimal change: after validated `.env.local` is read, the launcher parses
 `APP_URL` once and spawns the Web service as `pnpm dev --hostname <hostname>`;
-it appends `--port <port>` only when the parsed URL has an explicit port. The
-worker invocation remains `pnpm worker:local`; readiness and browser URLs are
+it appends `--port <port>` when the validated URL specifies one. The worker
+invocation remains `pnpm worker:local`; readiness and browser URLs are
 unchanged.
 
 Commands:
@@ -77,6 +77,42 @@ Results: ordering test passed (1 passed, 19 skipped); complete launcher suite
 passed (1 file passed, 20 tests passed) when run with the approved test-only
 loopback permission.
 
+## Review fix — explicit default APP_URL port
+
+Independent review found that `URL.port` normalizes explicit default ports to
+an empty string (`http://127.0.0.1:80`), which would omit `--port` and make
+Next select its own default port.
+
+### RED
+
+Command:
+
+```bash
+pnpm vitest run tests/integration/jobs/popcorn-local-runtime.test.ts -t 'passes an explicit default APP_URL port to the Web service'
+```
+
+Result: 1 failed and 20 skipped. The new observable launcher fixture supplied
+`APP_URL=http://127.0.0.1:80`; its expected event was
+`service dev --hostname 127.0.0.1 --port 80`, but the observed event omitted
+the port.
+
+### GREEN
+
+Minimal change: retain `URL.hostname` and its non-default `port`, while also
+extracting an explicitly supplied authority port from the already validated
+raw `APP_URL` when URL normalization elides a default. No validation rules,
+browser URL, worker arguments, or Next configuration changed.
+
+Commands:
+
+```bash
+pnpm vitest run tests/integration/jobs/popcorn-local-runtime.test.ts -t 'passes an explicit default APP_URL port to the Web service'
+pnpm vitest run tests/integration/jobs/popcorn-local-runtime.test.ts
+```
+
+Results: regression fixture passed (1 passed, 20 skipped); complete launcher
+suite passed (21/21) with approved test-only loopback permission.
+
 ## Focused verification
 
 ```bash
@@ -88,7 +124,7 @@ git diff --check
 git status --short
 ```
 
-Results: processor suite passed (26/26), launcher suite passed (20/20), ESLint
+Results: processor suite passed (26/26), launcher suite passed (21/21), ESLint
 completed with exit 0, `tsc --noEmit` completed with exit 0, and `git diff
 --check` completed with exit 0. The pre-commit status listed only the five
 allowed files named below.
@@ -109,7 +145,8 @@ allowed files named below.
 - The route's public export surface remains exactly `POST`.
 - Web host and port come from validated `APP_URL`, are not hard-coded, and do
   not alter manual `pnpm dev`, `next.config.ts`, the browser URL, worker
-  arguments, sequencing, state ownership, or cleanup.
+  arguments, sequencing, state ownership, or cleanup. Explicit default ports
+  are retained despite URL normalization.
 - All test changes assert observable behavior. The environment-boundary test
   uses inert values and restores the original process environment.
 

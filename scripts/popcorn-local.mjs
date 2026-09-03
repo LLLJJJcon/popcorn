@@ -55,6 +55,10 @@ function exactApplicationUrl(value) {
   }
 }
 
+function explicitApplicationPort(value) {
+  return value.match(/^https?:\/\/(?:\[[^\]]+\]|[^/:]+):(\d+)(?:\/|$)/i)?.[1];
+}
+
 async function readRequiredEnvironment(environmentFile) {
   let contents;
   try {
@@ -354,6 +358,7 @@ export function createPopcornLauncher({
     try {
       const environmentValues = await readRequiredEnvironment(environmentFile);
       const applicationUrl = new URL(environmentValues.APP_URL);
+      const applicationPort = applicationUrl.port || explicitApplicationPort(environmentValues.APP_URL);
       if (cancelled) return;
       const control = await controlChannel.listen(async (message) => {
         const request = parseControlMessage(message);
@@ -389,7 +394,7 @@ export function createPopcornLauncher({
       }
       const environment = { ...process.env, ...environmentValues };
       const webArgs = ["dev", "--hostname", applicationUrl.hostname];
-      if (applicationUrl.port) webArgs.push("--port", applicationUrl.port);
+      if (applicationPort) webArgs.push("--port", applicationPort);
       children = [
         spawnService("pnpm", webArgs, environment),
         spawnService("pnpm", ["worker:local"], environment),

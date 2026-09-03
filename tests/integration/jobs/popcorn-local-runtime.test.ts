@@ -274,6 +274,44 @@ describe("Popcorn local launcher", () => {
     }));
   });
 
+  test("passes an explicit default APP_URL port to the Web service", async () => {
+    const directory = await temporaryDirectory("popcorn explicit default port ");
+    const environmentFile = path.join(directory, ".env.local");
+    const stateFile = path.join(directory, "runtime-state.json");
+    await writeFile(environmentFile, localEnvironment({ APP_URL: "http://127.0.0.1:80" }));
+    const events: string[] = [];
+    const children: ReturnType<typeof longRunningChild>[] = [];
+    const { createPopcornLauncher } = await launcherModule();
+    const launcher = createPopcornLauncher({
+      environmentFile,
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async (_command: string, args: string[]) => { events.push(`command ${args.join(" ")}`); },
+      spawnService: (_command: string, args: string[]) => {
+        events.push(`service ${args.join(" ")}`);
+        const child = longRunningChild();
+        children.push(child);
+        return child;
+      },
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlChannel: memoryControlChannel(),
+    });
+
+    await launcher.start();
+
+    expect(events).toEqual([
+      "command exec supabase start",
+      "service dev --hostname 127.0.0.1 --port 80",
+      "service worker:local",
+    ]);
+
+    await launcher.stop();
+    await Promise.all(children.map(async (child) => {
+      if (child.exitCode === null) await once(child, "exit");
+    }));
+  });
+
   test("rejects a duplicate live launcher for the same repository", async () => {
     const directory = await temporaryDirectory("popcorn duplicate launcher ");
     const environmentFile = path.join(directory, ".env.local");
