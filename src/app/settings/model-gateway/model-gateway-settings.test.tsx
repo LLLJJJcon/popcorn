@@ -93,15 +93,31 @@ describe("ModelGatewaySettings", () => {
     expect(document.body).not.toHaveTextContent(/vault-secret|provider failure/i);
   });
 
-  it("shows direct gateway inputs and fixed pending-consent disclosures", async () => {
+  it("isolates direct gateway inputs from login autofill and shows fixed pending-consent disclosures", async () => {
     mockFetch(response(settings([pending])));
     render(<ModelGatewaySettings />);
 
     expect(await screen.findByRole("heading", { name: "Model gateway settings" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Gateway base URL")).toHaveValue("");
+    const createForm = screen.getByRole("form", { name: "Add a model gateway" });
+    expect(createForm).toHaveAttribute("autocomplete", "off");
+    const baseUrl = screen.getByLabelText("Gateway base URL");
+    expect(baseUrl).toHaveValue("");
+    expect(baseUrl).toHaveAttribute("id", "model-gateway-base-url");
+    expect(baseUrl).toHaveAttribute("name", "model-gateway-base-url");
+    expect(baseUrl).toHaveAttribute("autocomplete", "off");
+    const displayName = screen.getByLabelText("Display name");
+    expect(displayName).toHaveAttribute("id", "model-gateway-display-name");
+    expect(displayName).toHaveAttribute("name", "model-gateway-display-name");
+    expect(displayName).toHaveAttribute("autocomplete", "off");
+    const model = screen.getByLabelText("Model");
+    expect(model).toHaveAttribute("id", "model-gateway-model");
+    expect(model).toHaveAttribute("name", "model-gateway-model");
+    expect(model).toHaveAttribute("autocomplete", "off");
     const key = screen.getByLabelText("API key");
+    expect(key).toHaveAttribute("id", "model-gateway-api-key");
+    expect(key).toHaveAttribute("name", "model-gateway-api-key");
     expect(key).toHaveAttribute("type", "password");
-    expect(key).toHaveAttribute("autocomplete", "off");
+    expect(key).toHaveAttribute("autocomplete", "new-password");
     expect(key).toHaveAttribute("spellcheck", "false");
     expect(screen.queryByLabelText(/custom url|base path|provider headers|prompt|extension/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/screenshot|image input|generic url/i)).not.toBeInTheDocument();
@@ -115,6 +131,21 @@ describe("ModelGatewaySettings", () => {
     expect(consent).toHaveTextContent("Versioned prompt");
     expect(within(consent).getByRole("checkbox", { name: /I confirm/ })).not.toBeChecked();
     expect(within(consent).getByRole("button", { name: "Activate gateway" })).toBeDisabled();
+  });
+
+  it("keeps the conditional key rotation form outside login autofill", async () => {
+    mockFetch(response(settings([active])));
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Rotate key for My Gateway" }));
+    const rotationForm = screen.getByRole("form", { name: "Rotate API key for My Gateway" });
+    expect(rotationForm).toHaveAttribute("autocomplete", "off");
+    const rotation = screen.getByLabelText("New API key for My Gateway");
+    expect(rotation).toHaveAttribute("id", "model-gateway-rotation-api-key");
+    expect(rotation).toHaveAttribute("name", "model-gateway-rotation-api-key");
+    expect(rotation).toHaveAttribute("type", "password");
+    expect(rotation).toHaveAttribute("autocomplete", "new-password");
   });
 
   it("shows non-secret active and revoked state with text labels", async () => {
@@ -218,7 +249,7 @@ describe("ModelGatewaySettings", () => {
     const rotation = screen.getByLabelText("New API key for Renamed Gateway");
     expect(rotation).toHaveValue("");
     expect(rotation).toHaveAttribute("type", "password");
-    expect(rotation).toHaveAttribute("autocomplete", "off");
+    expect(rotation).toHaveAttribute("autocomplete", "new-password");
     expect(rotation).toHaveAttribute("spellcheck", "false");
     await user.type(rotation, "rotation-secret");
     await user.click(screen.getByRole("button", { name: "Save new key for Renamed Gateway" }));

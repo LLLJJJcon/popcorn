@@ -213,11 +213,14 @@ export function ModelGatewaySettings() {
               </div>
               <p>Your key is sent directly to the server and is never shown again.</p>
             </div>
-            <form className={styles.formGrid} onSubmit={createGateway} aria-describedby={createInvalid ? "gateway-action-error" : undefined}>
-                <label>
+            <form className={styles.formGrid} onSubmit={createGateway} aria-label="Add a model gateway" aria-describedby={createInvalid ? "gateway-action-error" : undefined} autoComplete="off">
+                <label htmlFor="model-gateway-base-url">
                   Gateway base URL
                   <input
+                    id="model-gateway-base-url"
+                    name="model-gateway-base-url"
                     type="url"
+                    autoComplete="off"
                     value={baseUrl}
                     onChange={(event) => setBaseUrl(event.target.value)}
                     maxLength={453}
@@ -227,9 +230,12 @@ export function ModelGatewaySettings() {
                     disabled={busy}
                   />
                 </label>
-                <label>
+                <label htmlFor="model-gateway-display-name">
                   Display name
                   <input
+                    id="model-gateway-display-name"
+                    name="model-gateway-display-name"
+                    autoComplete="off"
                     value={displayName}
                     onChange={(event) => setDisplayName(event.target.value)}
                     maxLength={80}
@@ -238,9 +244,12 @@ export function ModelGatewaySettings() {
                     disabled={busy}
                   />
                 </label>
-                <label>
+                <label htmlFor="model-gateway-model">
                   Model
                   <input
+                    id="model-gateway-model"
+                    name="model-gateway-model"
+                    autoComplete="off"
                     value={model}
                     onChange={(event) => setModel(event.target.value)}
                     maxLength={100}
@@ -249,11 +258,13 @@ export function ModelGatewaySettings() {
                     disabled={busy}
                   />
                 </label>
-                <label>
+                <label htmlFor="model-gateway-api-key">
                   API key
                   <input
+                    id="model-gateway-api-key"
+                    name="model-gateway-api-key"
                     type="password"
-                    autoComplete="off"
+                    autoComplete="new-password"
                     spellCheck={false}
                     value={apiKey}
                     onChange={(event) => setApiKey(event.target.value)}
@@ -347,12 +358,14 @@ export function ModelGatewaySettings() {
                         </form>
 
                         {rotatingId === config.id ? (
-                          <form onSubmit={(event) => void rotate(config, event)}>
-                            <label>
+                          <form onSubmit={(event) => void rotate(config, event)} aria-label={`Rotate API key for ${config.displayName}`} autoComplete="off">
+                            <label htmlFor="model-gateway-rotation-api-key">
                               New API key for {config.displayName}
                               <input
+                                id="model-gateway-rotation-api-key"
+                                name="model-gateway-rotation-api-key"
                                 type="password"
-                                autoComplete="off"
+                                autoComplete="new-password"
                                 spellCheck={false}
                                 value={rotationKeys[config.id] ?? ""}
                                 onChange={(event) => {

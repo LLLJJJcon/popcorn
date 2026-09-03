@@ -1,6 +1,8 @@
+import styles from "./sign-in.module.css";
+
 export function SignInForm() {
   return (
-    <form aria-label="Email and password sign in" action="/auth/sign-in" method="post">
+    <form className={styles.form} aria-label="Email and password sign in" action="/auth/sign-in" method="post">
       <label htmlFor="email">Email address</label>
       <input
         id="email"
@@ -21,8 +23,8 @@ export function SignInForm() {
         maxLength={128}
         required
       />
-      <button type="submit" name="intent" value="sign-in">Sign in</button>
-      <button type="submit" name="intent" value="sign-up">Create account</button>
+      <button className={styles.primaryAction} type="submit" name="intent" value="sign-in">Sign in</button>
+      <button className={styles.secondaryAction} type="submit" name="intent" value="sign-up">Create account</button>
     </form>
   );
 }

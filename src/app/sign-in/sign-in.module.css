@@ -1,0 +1,147 @@
+.page {
+  --cream: #fff8ec;
+  --paper: #fffdf8;
+  --ink: #2d2925;
+  --muted: #6f665e;
+  --terracotta: #b9533d;
+  --terracotta-dark: #873929;
+  display: grid;
+  min-height: 100vh;
+  padding: clamp(1.25rem, 5vw, 5rem);
+  place-items: center;
+  background: radial-gradient(circle at top right, #f0ddc5 0, transparent 34%), var(--cream);
+  color: var(--ink);
+  font-family: ui-rounded, "Avenir Next", Avenir, system-ui, sans-serif;
+}
+
+.card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(18rem, 0.95fr);
+  width: min(100%, 68rem);
+  overflow: hidden;
+  border: 1px solid #dbcdbb;
+  border-radius: 1.5rem;
+  background: var(--paper);
+  box-shadow: 0 1.25rem 3.5rem rgb(73 50 31 / 14%);
+}
+
+.purpose,
+.account {
+  padding: clamp(1.5rem, 5vw, 4rem);
+}
+
+.purpose {
+  display: grid;
+  align-content: center;
+  gap: 1rem;
+  background: #f1dfca;
+}
+
+.brand,
+.eyebrow {
+  margin: 0;
+  color: var(--terracotta-dark);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.purpose h1,
+.account h2 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1;
+}
+
+.purpose h1 {
+  max-width: 12ch;
+  font-size: clamp(2.35rem, 5vw, 4.5rem);
+}
+
+.purpose > p:last-child,
+.account > p:last-child {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.account {
+  display: grid;
+  align-content: center;
+  gap: 0.75rem;
+}
+
+.account h2 {
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+}
+
+.form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.form label {
+  font-weight: 700;
+}
+
+.form input {
+  min-height: 2.8rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #ad9b89;
+  border-radius: 0.65rem;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+
+.primaryAction,
+.secondaryAction {
+  min-height: 2.8rem;
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.primaryAction {
+  margin-top: 0.5rem;
+  border: 1px solid var(--terracotta);
+  background: var(--terracotta);
+  color: white;
+}
+
+.secondaryAction {
+  border: 1px solid #7d6f62;
+  background: transparent;
+  color: var(--ink);
+}
+
+.form input:focus-visible,
+.primaryAction:focus-visible,
+.secondaryAction:focus-visible {
+  outline: 3px solid #236fa1;
+  outline-offset: 3px;
+}
+
+@media (max-width: 42rem) {
+  .page {
+    display: block;
+    padding: 1rem;
+  }
+
+  .card {
+    grid-template-columns: 1fr;
+  }
+
+  .purpose,
+  .account {
+    padding: 1.5rem;
+  }
+
+  .purpose h1 {
+    max-width: 16ch;
+  }
+}
