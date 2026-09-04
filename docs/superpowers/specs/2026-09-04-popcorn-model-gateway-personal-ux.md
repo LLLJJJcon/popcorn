@@ -1,7 +1,7 @@
 # Popcorn Personal Model Gateway UX Design
 
 **Date:** 2026-09-04  
-**Status:** User-approved interaction direction; pending written-spec review  
+**Status:** Approved by the user on 2026-09-04
 **Scope:** Local, personal/school-project model gateway configuration
 
 ## Context
