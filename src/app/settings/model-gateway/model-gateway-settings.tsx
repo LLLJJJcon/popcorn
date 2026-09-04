@@ -61,6 +61,15 @@ async function requestConfig(
 
 type SessionKey = { readonly value: string; readonly revealed: boolean };
 
+function isValidGatewayBaseUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === "https:" || parsed.protocol === "http:") && Boolean(parsed.host);
+  } catch {
+    return false;
+  }
+}
+
 function DataSharingSummary({ exactBaseUrl }: { readonly exactBaseUrl: string }) {
   return (
     <div className={styles.consentSummary}>
@@ -82,11 +91,14 @@ function SessionKeyDisplay({
   readonly onToggle: () => void;
 }) {
   const label = `API key entered this session for ${config.displayName}`;
+  const inputId = `session-key-${config.id}`;
+  const action = sessionKey.revealed ? "Hide" : "Show";
   return (
     <div className={styles.sessionKey}>
       <label>
         {label}
         <input
+          id={inputId}
           type={sessionKey.revealed ? "text" : "password"}
           readOnly
           value={sessionKey.value}
@@ -96,8 +108,14 @@ function SessionKeyDisplay({
         />
       </label>
       <p id={`session-key-lifetime-${config.id}`}>Available until you refresh or leave this page.</p>
-      <button className={styles.secondaryButton} type="button" onClick={onToggle}>
-        {sessionKey.revealed ? "Hide key" : "Show key"}
+      <button
+        className={styles.secondaryButton}
+        type="button"
+        aria-controls={inputId}
+        aria-label={`${action} key for ${config.displayName}`}
+        onClick={onToggle}
+      >
+        {action} key
       </button>
     </div>
   );
@@ -124,6 +142,8 @@ export function ModelGatewaySettings() {
   const [rotationInvalidId, setRotationInvalidId] = useState<string | null>(null);
   const [revokeId, setRevokeId] = useState<string | null>(null);
   const revokeConfirmRef = useRef<HTMLButtonElement | null>(null);
+  const trimmedBaseUrl = baseUrl.trim();
+  const hasValidBaseUrl = isValidGatewayBaseUrl(trimmedBaseUrl);
 
   useEffect(() => {
     let active = true;
@@ -176,7 +196,7 @@ export function ModelGatewaySettings() {
   async function createGateway(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const writeOnlyKey = apiKey;
-    const valid = Boolean(baseUrl.trim() && displayName.trim() && model.trim() && writeOnlyKey.trim() && createConsent);
+    const valid = Boolean(hasValidBaseUrl && displayName.trim() && model.trim() && writeOnlyKey.trim() && createConsent);
     setCreateInvalid(!valid);
     setActionError(valid ? null : "Complete all fields before saving.");
     if (!valid || busy) return;
@@ -210,17 +230,22 @@ export function ModelGatewaySettings() {
         model: model.trim(),
         apiKey: writeOnlyKey,
       });
+      const createdConfig = created;
       const activated = await requestConfig(CONSENT_ENDPOINT, "POST", {
-        configId: created.id,
-        exactBaseUrl: created.baseUrl,
+        configId: createdConfig.id,
+        exactBaseUrl: createdConfig.baseUrl,
         policyVersion: "model-egress-v1",
         confirmed: true,
       });
-      if (activated.id !== created.id || activated.state !== "active") {
+      if (activated.id !== createdConfig.id || activated.state !== "active") {
         throw new TypeError("mutation failed");
       }
       requestedSettings = true;
       refetchedSettings = await requestSettings();
+      const authoritativeConfig = refetchedSettings.configs.find((config) => config.id === createdConfig.id);
+      if (authoritativeConfig?.state !== "active") {
+        throw new TypeError("activation unconfirmed");
+      }
       finishActivation(refetchedSettings, activated.id);
     } catch {
       if (created) {
@@ -240,8 +265,7 @@ export function ModelGatewaySettings() {
           return;
         }
         setSettings((current) => {
-          if (recoveredSettings) return recoveredSettings;
-          const configs = current?.configs ?? [];
+          const configs = (recoveredSettings ?? current)?.configs ?? [];
           const existingIndex = configs.findIndex((config) => config.id === createdConfig.id);
           const nextConfigs = existingIndex === -1
             ? [...configs, createdConfig]
@@ -409,7 +433,10 @@ export function ModelGatewaySettings() {
                     type="url"
                     autoComplete="off"
                     value={baseUrl}
-                    onChange={(event) => setBaseUrl(event.target.value)}
+                    onChange={(event) => {
+                      setBaseUrl(event.target.value);
+                      setCreateConsent(false);
+                    }}
                     maxLength={453}
                     placeholder="https://api.example.com/v1"
                     aria-invalid={createInvalid && !baseUrl.trim()}
@@ -461,10 +488,10 @@ export function ModelGatewaySettings() {
                     disabled={busy}
                   />
                 </label>
-                {baseUrl || displayName || model || apiKey ? (
+                {hasValidBaseUrl ? (
                   <fieldset className={styles.consent}>
                     <legend>Review destination and data sharing</legend>
-                    <DataSharingSummary exactBaseUrl={baseUrl.trim()} />
+                    <DataSharingSummary exactBaseUrl={trimmedBaseUrl} />
                     <label className={styles.checkLabel}>
                       <input
                         type="checkbox"
@@ -487,7 +514,7 @@ export function ModelGatewaySettings() {
                 <button
                   className={styles.primaryButton}
                   type="submit"
-                  disabled={busy || !baseUrl.trim() || !displayName.trim() || !model.trim() || !apiKey.trim() || !createConsent}
+                  disabled={busy || !hasValidBaseUrl || !displayName.trim() || !model.trim() || !apiKey.trim() || !createConsent}
                 >
                   Save and activate gateway
                 </button>

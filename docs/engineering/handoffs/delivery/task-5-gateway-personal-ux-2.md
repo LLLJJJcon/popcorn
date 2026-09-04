@@ -57,6 +57,23 @@ consent DTO. Rotation and revoke assert their unchanged existing DTOs.
   and HTTP, parse, and network rotation failures retaining the typed key without
   status/error or storage leakage.
 
+## Final cumulative review fix round
+
+- Step 1 only renders its confirmation after an HTTP(S) base URL is valid; any
+  base-URL edit clears confirmation before another create can be submitted.
+- The normal final settings refetch must contain the created ID in `active`
+  state. Pending, missing, or wrong-ID views fall through to the existing
+  deterministic recovery path, which merges the created public view without a
+  duplicate create request.
+- HTTP, malformed-response, and network failures of the post-create recovery
+  refetch retain one masked pending-card key and clear the form for recovery.
+- Session-key inputs now have stable configuration-specific IDs. Visible
+  Show/Hide text is unchanged, while their controls identify the target card
+  accessibly through `aria-label` and `aria-controls`.
+- The final focused RED run had 6 failures and 3 passing controls: destination
+  binding, final-refetch authority, and control linkage were absent. The focused
+  GREEN run passed 9/9.
+
 ## Mutation evidence
 
 - Omitting the create-flow consent POST failed the normal-flow test.
@@ -69,7 +86,7 @@ Each mutation was restored before final verification.
 
 ## Final verification
 
-- Component suite: 26/26 passed.
+- Component suite: 34/34 passed.
 - Settings integration regressions: 39/39 passed across 4 files.
 - Targeted ESLint, `pnpm typecheck`, and `git diff --check`: passed.
 

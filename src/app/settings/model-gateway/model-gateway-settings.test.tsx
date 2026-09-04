@@ -201,8 +201,13 @@ describe("ModelGatewaySettings", () => {
     await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
 
     const sessionKey = await screen.findByLabelText("API key entered this session for Study Gateway");
+    const sessionKeyId = `session-key-${CONFIG_ID}`;
+    expect(sessionKey).toHaveAttribute("id", sessionKeyId);
     expect(sessionKey).toHaveAttribute("type", "password");
     expect(sessionKey).toHaveValue("create-secret");
+    const reveal = screen.getByRole("button", { name: "Show key for Study Gateway" });
+    expect(reveal).toHaveTextContent("Show key");
+    expect(reveal).toHaveAttribute("aria-controls", sessionKeyId);
     expect(screen.getByRole("status")).toHaveTextContent("Gateway saved and activated.");
     expect(key).toHaveValue("");
     expect(screen.getByLabelText("Gateway base URL")).toHaveValue("");
@@ -238,6 +243,165 @@ describe("ModelGatewaySettings", () => {
     });
     expect(fetchMock.mock.calls[3]?.[0]).toBe("/api/v1/settings/model-gateway");
     expect(document.body).not.toHaveTextContent("create-secret");
+  });
+
+  it("withholds create confirmation until the exact destination is valid", async () => {
+    const fetchMock = mockFetch(response(settings()));
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+    await screen.findByLabelText("Gateway base URL");
+
+    await user.type(screen.getByLabelText("Display name"), "Study Gateway");
+    await user.type(screen.getByLabelText("Model"), "model-v2");
+    await user.type(screen.getByLabelText("API key"), "destination-key");
+    await user.type(screen.getByLabelText("Gateway base URL"), "not-a-url");
+    expect(screen.queryByRole("checkbox", { name: /confirm this exact destination/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save and activate gateway" })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Gateway base URL"));
+    await user.type(screen.getByLabelText("Gateway base URL"), "https://gateway.example.com/v1");
+    expect(screen.getByRole("checkbox", { name: /confirm this exact destination/i })).toBeEnabled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires reconfirmation after changing the reviewed destination", async () => {
+    const revisedBaseUrl = "https://gateway-two.example.com/v1";
+    const created = { ...pending, displayName: "Study Gateway", model: "model-v2", baseUrl: revisedBaseUrl };
+    const activated: ModelGatewayConfigView = {
+      ...created,
+      state: "active",
+      consent: {
+        exactBaseUrl: revisedBaseUrl,
+        policyVersion: "model-egress-v1",
+        consentedAt: NOW,
+      },
+    };
+    const fetchMock = mockFetch(
+      response(settings()),
+      response(created, 201),
+      response(activated),
+      response(settings([activated])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+    await screen.findByLabelText("Gateway base URL");
+    await user.type(screen.getByLabelText("Gateway base URL"), "https://gateway.example.com/v1");
+    await user.type(screen.getByLabelText("Display name"), "Study Gateway");
+    await user.type(screen.getByLabelText("Model"), "model-v2");
+    await user.type(screen.getByLabelText("API key"), "destination-key");
+    const checkbox = screen.getByRole("checkbox", { name: /confirm this exact destination/i });
+    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    await user.clear(screen.getByLabelText("Gateway base URL"));
+    await user.type(screen.getByLabelText("Gateway base URL"), revisedBaseUrl);
+    const reviewedAgain = screen.getByRole("checkbox", { name: /confirm this exact destination/i });
+    expect(reviewedAgain).not.toBeChecked();
+    const submit = screen.getByRole("button", { name: "Save and activate gateway" });
+    expect(submit).toBeDisabled();
+    await user.click(submit);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.click(reviewedAgain);
+    await user.click(submit);
+    await screen.findByText("Active");
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      displayName: "Study Gateway",
+      baseUrl: revisedBaseUrl,
+      model: "model-v2",
+      apiKey: "destination-key",
+    });
+  });
+
+  it.each([
+    { name: "still-pending", finalConfigs: (created: ModelGatewayConfigView) => [created] },
+    { name: "missing", finalConfigs: () => [] },
+    { name: "wrong-ID", finalConfigs: () => [{ ...active, id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" }] },
+  ])("keeps creation recoverable when the final settings refetch is $name", async ({ finalConfigs }) => {
+    const created = { ...pending, displayName: "Study Gateway", model: "model-v2" };
+    const activated: ModelGatewayConfigView = {
+      ...created,
+      state: "active",
+      consent: {
+        exactBaseUrl: created.baseUrl,
+        policyVersion: "model-egress-v1",
+        consentedAt: NOW,
+      },
+    };
+    const fetchMock = mockFetch(
+      response(settings()),
+      response(created, 201),
+      response(activated),
+      response(settings(finalConfigs(created))),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+    await screen.findByLabelText("Gateway base URL");
+    await user.type(screen.getByLabelText("Gateway base URL"), created.baseUrl);
+    await user.type(screen.getByLabelText("Display name"), created.displayName);
+    await user.type(screen.getByLabelText("Model"), created.model);
+    await user.type(screen.getByLabelText("API key"), "final-refetch-key");
+    await user.click(screen.getByRole("checkbox", { name: /confirm this exact destination/i }));
+    await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Gateway saved but not activated. Finish activation below.",
+    );
+    expect(screen.getAllByRole("region", { name: "Study Gateway" })).toHaveLength(1);
+    const sessionKey = screen.getByLabelText("API key entered this session for Study Gateway");
+    expect(sessionKey).toHaveAttribute("type", "password");
+    expect(sessionKey).toHaveValue("final-refetch-key");
+    expect(screen.getByLabelText("Gateway base URL")).toHaveValue("");
+    expect(screen.getByLabelText("Display name")).toHaveValue("");
+    expect(screen.getByLabelText("Model")).toHaveValue("");
+    expect(screen.getByLabelText("API key")).toHaveValue("");
+    expect(screen.queryByRole("checkbox", { name: /confirm this exact destination/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm and finish activation" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url, options]) =>
+      url === "/api/v1/settings/model-gateway" && options?.method === "PUT"
+    )).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([
+    { name: "HTTP", recovery: Response.json({ raw: "settings unavailable" }, { status: 500 }) },
+    { name: "malformed JSON", recovery: Response.json({ raw: "settings unavailable" }) },
+    { name: "network", recovery: new Error("settings unavailable") },
+  ])("keeps one recoverable pending card when the recovery settings refetch has a $name failure", async ({ recovery }) => {
+    const created = { ...pending, displayName: "Study Gateway", model: "model-v2" };
+    const fetchMock = mockFetch(
+      response(settings()),
+      response(created, 201),
+      Response.json({ raw: "activation unavailable" }, { status: 500 }),
+      recovery,
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+    await screen.findByLabelText("Gateway base URL");
+    await user.type(screen.getByLabelText("Gateway base URL"), created.baseUrl);
+    await user.type(screen.getByLabelText("Display name"), created.displayName);
+    await user.type(screen.getByLabelText("Model"), created.model);
+    await user.type(screen.getByLabelText("API key"), "recovery-refetch-key");
+    await user.click(screen.getByRole("checkbox", { name: /confirm this exact destination/i }));
+    await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Gateway saved but not activated. Finish activation below.",
+    );
+    expect(screen.getAllByRole("region", { name: "Study Gateway" })).toHaveLength(1);
+    const sessionKey = screen.getByLabelText("API key entered this session for Study Gateway");
+    expect(sessionKey).toHaveAttribute("type", "password");
+    expect(sessionKey).toHaveValue("recovery-refetch-key");
+    expect(screen.getByLabelText("Gateway base URL")).toHaveValue("");
+    expect(screen.getByLabelText("Display name")).toHaveValue("");
+    expect(screen.getByLabelText("Model")).toHaveValue("");
+    expect(screen.getByLabelText("API key")).toHaveValue("");
+    expect(screen.queryByRole("checkbox", { name: /confirm this exact destination/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm and finish activation" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url, options]) =>
+      url === "/api/v1/settings/model-gateway" && options?.method === "PUT"
+    )).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("keeps one pending gateway when activation fails", async () => {
@@ -417,9 +581,9 @@ describe("ModelGatewaySettings", () => {
     expect(rotatedKey).toHaveAttribute("type", "password");
     expect(rotatedKey).toHaveValue("rotation-secret");
     const callsBeforeToggle = fetchMock.mock.calls.length;
-    await user.click(screen.getByRole("button", { name: "Show key" }));
+    await user.click(screen.getByRole("button", { name: "Show key for Renamed Gateway" }));
     expect(rotatedKey).toHaveAttribute("type", "text");
-    await user.click(screen.getByRole("button", { name: "Hide key" }));
+    await user.click(screen.getByRole("button", { name: "Hide key for Renamed Gateway" }));
     expect(rotatedKey).toHaveAttribute("type", "password");
     expect(fetchMock).toHaveBeenCalledTimes(callsBeforeToggle);
     expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toEqual({
@@ -450,7 +614,7 @@ describe("ModelGatewaySettings", () => {
     await user.click(within(confirmation).getByRole("button", { name: "Confirm revoke" }));
     await screen.findByText("Revoked");
     expect(screen.queryByLabelText("API key entered this session for My Gateway")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Show key" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show key for My Gateway" })).not.toBeInTheDocument();
     expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toEqual({ configId: CONFIG_ID });
     expect(fetchMock.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
     expect(fetchMock).toHaveBeenCalledTimes(5);
@@ -613,9 +777,9 @@ describe("ModelGatewaySettings", () => {
     expect(sessionKey).toHaveAttribute("type", "password");
     expect(sessionKey).toHaveValue("create-secret");
     const callsBeforeToggle = fetchMock.mock.calls.length;
-    await user.click(screen.getByRole("button", { name: "Show key" }));
+    await user.click(screen.getByRole("button", { name: "Show key for Study Gateway" }));
     expect(sessionKey).toHaveAttribute("type", "text");
-    await user.click(screen.getByRole("button", { name: "Hide key" }));
+    await user.click(screen.getByRole("button", { name: "Hide key for Study Gateway" }));
     expect(sessionKey).toHaveAttribute("type", "password");
     expect(fetchMock).toHaveBeenCalledTimes(callsBeforeToggle);
 
