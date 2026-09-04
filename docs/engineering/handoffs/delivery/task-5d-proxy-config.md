@@ -81,3 +81,24 @@ system-proxy detection and external traffic. A self-host user must choose a
 reachable HTTP/Mixed endpoint when browser-only routing needs one; the
 documented fallback is to correct the endpoint or leave the optional setting
 empty and restart.
+
+## Fix round 1/5 — reject normalized dot-segment paths
+
+### RED
+
+The malformed-input table gained three dot-segment path regressions: a parent
+segment, a current-directory segment, and an encoded current-directory segment.
+Before the repair, the focused runtime test failed because the WHATWG URL
+parser normalized each to `/`, and the launcher reached the injected readiness
+boundary instead of rejecting it before service startup.
+
+### GREEN
+
+Validation now limits the original value to an HTTP(S) authority with at most
+one literal root slash before constructing the URL. This preserves the existing
+URL checks for credentials and malformed authorities while refusing any raw
+path, query, or fragment before normalization. The focused regression passed,
+then the task's full verification passed: 45/45 Vitest tests plus TypeScript,
+scoped ESLint, syntax, and diff checks.
+
+Fix commit: `f757d6349924fa52760ec339565f9524fa3de876`.
