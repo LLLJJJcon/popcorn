@@ -53,12 +53,51 @@ the old generic terminal message.
 ### GREEN
 
 - Continuations now retain the first received job ID and poll at 500 ms for at
-  most 120 seconds, below the existing 130-second message watchdog.
+  most 60 seconds, leaving a full minute below the existing 130-second message
+  watchdog.
 - A pending result that outlives that finite window renders `Translation is
   still processing. Please Retry.` rather than an unavailable result.
 - Terminal learning-artifact failure is reduced to a bounded, actionable
   model-gateway settings message; internal job failure material is not shown.
 - The regression uses injected timers, so it does not wait in wall-clock time.
+
+```bash
+node --test extension/tests/translation.test.js
+```
+
+Result: 23/23 passed.
+
+### Fix round 1 — polling-window review
+
+Review found that the original 120-second schedule could start its final
+500 ms poll at the window boundary and then wait for the status response,
+leaving insufficient watchdog headroom. The earlier exhaustion rendering test
+also did not drive the polling loop.
+
+#### RED
+
+The replacement fake-timer regression sends an initial pending registration
+followed by enough pending status results to exhaust the real continuation
+loop. It requires exactly 120 continuation delays of 500 ms (60 seconds), one
+initial plus 120 continuation messages, the original job ID on each
+continuation, and the returned pending result to render processing/retry rather
+than watchdog or unavailable text.
+
+```bash
+node --test extension/tests/translation.test.js
+```
+
+Result: 23 tests total, 22 passed and 1 failed. The old schedule sent 241
+messages rather than the required 121, proving it continued for 120 seconds
+instead of preserving meaningful 130-second watchdog headroom.
+
+#### GREEN
+
+The finite polling window is now 60 seconds at the existing 500 ms interval.
+The test uses fake timers (no wall-clock wait), observes exactly 120 scheduled
+poll delays totaling 60,000 ms, retains the original job ID, receives the
+pending result before the 130,000 ms watchdog, and renders the explicit
+processing/retry state.
 
 ```bash
 node --test extension/tests/translation.test.js
@@ -84,6 +123,9 @@ files listed below.
 - `extension/background.js`
 - `extension/tests/translation.test.js`
 - `docs/engineering/handoffs/delivery/task-5a-translation-recovery.md`
+
+Fix round 1 changed only `extension/sidepanel.js`,
+`extension/tests/translation.test.js`, and this handoff.
 
 ## Residual risk
 

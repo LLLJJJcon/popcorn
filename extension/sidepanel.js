@@ -378,7 +378,7 @@ let transcriptScrollObserver = null;
 let transcriptParagraphCache = new Map();
 const TRANSLATION_MESSAGE_TIMEOUT_MS = 130_000;
 const TRANSLATION_POLL_INTERVAL_MS = 500;
-const TRANSLATION_POLLING_WINDOW_MS = 120_000;
+const TRANSLATION_POLLING_WINDOW_MS = 60_000;
 
 /**
  * Prevent a stopped service worker or dead message channel from leaving the

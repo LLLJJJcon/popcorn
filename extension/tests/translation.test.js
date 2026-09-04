@@ -484,16 +484,58 @@ test("translation recovery keeps polling one job until a delayed real result suc
   assert.equal(sent[0].jobId, undefined);
   assert.ok(sent.slice(1).every((message) => message.jobId === "translation-job-42"));
   assert.ok(sent.every((message) => !Object.hasOwn(message, "providerUrl") && !Object.hasOwn(message, "apiKey")));
-  assert.ok(nextTimerId < 260);
+  assert.equal(nextTimerId, 7);
 });
 
-test("an exhausted pending translation renders a processing state with retry", () => {
-  const sidepanel = loadSidepanelHelpers();
+test("an exhausted translation poll window returns a processing state before watchdog timeout", async () => {
+  const sent = [];
+  const pollDelays = [];
+  const watchdogDelays = [];
+  const responses = Array.from(
+    { length: 241 },
+    () => ({ success: true, pending: true, jobId: "translation-job-42", status: "pending" }),
+  );
+  let nextTimerId = 0;
+  const sidepanel = loadSidepanelHelpers({
+    sendMessage(message) {
+      sent.push({ ...message });
+      return Promise.resolve(responses.shift());
+    },
+    setTimeoutImpl(callback, delay) {
+      const timerId = ++nextTimerId;
+      if (delay === 500) {
+        pollDelays.push(delay);
+        Promise.resolve().then(callback);
+      } else {
+        watchdogDelays.push(delay);
+      }
+      return timerId;
+    },
+  });
+  const result = await sidepanel.sendTranslationMessage({
+    action: "translateSegments",
+    videoId: "abc123XYZ00",
+    snapshotId: "snapshot-1",
+    segmentIds: ["segment-1"],
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: true,
+    pending: true,
+    jobId: "translation-job-42",
+    status: "pending",
+  });
+  assert.equal(sent.length, 121);
+  assert.ok(sent.slice(1).every((message) => message.jobId === "translation-job-42"));
+  assert.deepEqual(pollDelays, Array(120).fill(500));
+  assert.deepEqual(watchdogDelays, [130_000]);
+  assert.equal(pollDelays.reduce((total, delay) => total + delay, 0), 60_000);
+
   const segment = { id: "segment-1", text: "仍在处理中。" };
   const [pending] = sidepanel.alignTranslatedSegmentBatch(
     [segment],
-    [],
-    { pending: true },
+    result.content?.segments,
+    { pending: result.success && result.pending },
   );
   const html = sidepanel.renderTranscriptSegmentContent(
     segment,
