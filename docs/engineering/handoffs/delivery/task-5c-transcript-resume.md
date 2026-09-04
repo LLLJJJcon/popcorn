@@ -73,7 +73,7 @@ authorized live smoke remains the delivery-wide acceptance step.
 
 ## Commit
 
-Commit: pending final amend.
+Implementation and handoff commit: `7ff120082d89a0b74d296291c117532ba98a9b1c`.
 
 ## Upstream and license
 
