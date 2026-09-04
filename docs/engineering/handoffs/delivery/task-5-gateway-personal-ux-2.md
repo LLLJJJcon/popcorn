@@ -89,6 +89,24 @@ consent DTO. Rotation and revoke assert their unchanged existing DTOs.
   response instead of the authoritative pending or revoked view. The focused
   GREEN run passed 2/2, and asserted one create PUT and four requests per case.
 
+## Final reconciliation fix round
+
+- Create recovery, recovery confirmation, and key rotation now reconcile a
+  valid settings refetch through one path. A same-ID returned configuration is
+  committed intact, preserving its server name, model, revision, and state; a
+  missing target is appended once to the returned public list.
+- A revoked reconciliation clears the matching session key, rotation draft,
+  validation state, editor, and revoke confirmation. Revoked cards never
+  render a session-key display even if stale local state somehow remains.
+- The create-recovery message promises `Finish activation below.` only when
+  the committed state is pending or the fallback remains pending. An
+  authoritative revoked view instead says that activation could not be
+  completed, without referring to an unavailable action.
+- The focused RED run failed 5/5: non-active recovery refetches stayed stale,
+  a revoked rotation retained its key, a missing rotation target disappeared,
+  and revoked create recovery promised an action. The focused GREEN run passed
+  5/5.
+
 ## Mutation evidence
 
 - Omitting the create-flow consent POST failed the normal-flow test.
@@ -101,7 +119,7 @@ Each mutation was restored before final verification.
 
 ## Final verification
 
-- Component suite: 36/36 passed.
+- Component suite: 40/40 passed.
 - Settings integration regressions: 39/39 passed across 4 files.
 - Targeted ESLint, `pnpm typecheck`, and `git diff --check`: passed.
 

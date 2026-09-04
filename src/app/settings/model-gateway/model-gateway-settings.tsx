@@ -80,6 +80,17 @@ function appendCreatedConfig(
     : { configs: [...configs, createdConfig] };
 }
 
+function reconcileFetchedSettings(
+  settings: ModelGatewaySettingsView,
+  fallbackConfig: ModelGatewayConfigView,
+) {
+  const config = settings.configs.find((candidate) => candidate.id === fallbackConfig.id);
+  return {
+    settings: config ? settings : appendCreatedConfig(settings, fallbackConfig),
+    config: config ?? fallbackConfig,
+  };
+}
+
 function DataSharingSummary({ exactBaseUrl }: { readonly exactBaseUrl: string }) {
   return (
     <div className={styles.consentSummary}>
@@ -178,6 +189,34 @@ export function ModelGatewaySettings() {
     if (revokeId) revokeConfirmRef.current?.focus();
   }, [revokeId]);
 
+  function clearConfigTransientState(configId: string) {
+    setSessionKeys((current) => {
+      const next = { ...current };
+      delete next[configId];
+      return next;
+    });
+    setRotationKeys((current) => {
+      const next = { ...current };
+      delete next[configId];
+      return next;
+    });
+    setRotationInvalidId((current) => current === configId ? null : current);
+    setRotatingId((current) => current === configId ? null : current);
+    setRevokeId((current) => current === configId ? null : current);
+  }
+
+  function commitFetchedSettings(
+    nextSettings: ModelGatewaySettingsView,
+    fallbackConfig: ModelGatewayConfigView,
+  ) {
+    const reconciliation = reconcileFetchedSettings(nextSettings, fallbackConfig);
+    setSettings(reconciliation.settings);
+    if (reconciliation.config.state === "revoked") {
+      clearConfigTransientState(reconciliation.config.id);
+    }
+    return reconciliation;
+  }
+
   async function mutate(
     endpoint: string,
     method: "PUT" | "POST" | "DELETE",
@@ -274,24 +313,23 @@ export function ModelGatewaySettings() {
           finishActivation(recoveredSettings, createdConfig.id);
           return;
         }
-        const recoveryConfig = authoritativeConfig ?? createdConfig;
-        setSettings((current) => recoveredSettings
-          ? appendCreatedConfig(recoveredSettings, createdConfig)
-          : appendCreatedConfig(current, createdConfig));
+        const recoveryConfig = recoveredSettings
+          ? commitFetchedSettings(recoveredSettings, createdConfig).config
+          : createdConfig;
+        if (!recoveredSettings) {
+          setSettings((current) => appendCreatedConfig(current, createdConfig));
+        }
         setPageError(null);
-        setSessionKeys((current) => {
-          if (recoveryConfig.state === "revoked") {
-            const remaining = { ...current };
-            delete remaining[createdConfig.id];
-            return remaining;
-          }
-          return {
+        if (recoveryConfig.state !== "revoked") {
+          setSessionKeys((current) => ({
             ...current,
             [createdConfig.id]: { value: writeOnlyKey, revealed: false },
-          };
-        });
+          }));
+        }
         clearCreateForm();
-        setActionError("Gateway saved but not activated. Finish activation below.");
+        setActionError(recoveryConfig.state === "revoked"
+          ? "Gateway was revoked before activation could be completed."
+          : "Gateway saved but not activated. Finish activation below.");
         setStatus("");
         return;
       }
@@ -320,11 +358,11 @@ export function ModelGatewaySettings() {
       }
       const nextSettings = await requestSettings();
       const authoritativeConfig = nextSettings.configs.find((candidate) => candidate.id === config.id);
+      commitFetchedSettings(nextSettings, config);
       const responseMatchesActivation = consented?.id === config.id && consented.state === "active";
       if (authoritativeConfig?.state !== "active") {
         throw new TypeError(responseMatchesActivation ? "activation unavailable" : "activation unconfirmed");
       }
-      setSettings(nextSettings);
       setPageError(null);
       setStatus("Gateway activated.");
     } catch {
@@ -369,19 +407,23 @@ export function ModelGatewaySettings() {
         apiKey: writeOnlyKey,
       });
       const nextSettings = await requestSettings();
-      setSettings(nextSettings);
+      const reconciliation = commitFetchedSettings(nextSettings, config);
       setPageError(null);
-      setSessionKeys((current) => ({
-        ...current,
-        [config.id]: { value: writeOnlyKey, revealed: false },
-      }));
-      setRotationKeys((current) => {
-        const next = { ...current };
-        delete next[config.id];
-        return next;
-      });
-      setRotatingId(null);
-      setStatus("API key replaced.");
+      if (reconciliation.config.state === "revoked") {
+        setStatus("Gateway was revoked. API key was not retained.");
+      } else {
+        setSessionKeys((current) => ({
+          ...current,
+          [config.id]: { value: writeOnlyKey, revealed: false },
+        }));
+        setRotationKeys((current) => {
+          const next = { ...current };
+          delete next[config.id];
+          return next;
+        });
+        setRotatingId(null);
+        setStatus("API key replaced.");
+      }
     } catch {
       setActionError(GENERIC_ERROR);
       setStatus("");
@@ -396,17 +438,7 @@ export function ModelGatewaySettings() {
       configId: config.id,
     }, "Gateway revoked.");
     if (changed) {
-      setSessionKeys((current) => {
-        const next = { ...current };
-        delete next[config.id];
-        return next;
-      });
-      setRotationKeys((current) => {
-        const next = { ...current };
-        delete next[config.id];
-        return next;
-      });
-      setRevokeId(null);
+      clearConfigTransientState(config.id);
     }
   }
 
@@ -563,7 +595,7 @@ export function ModelGatewaySettings() {
                       <div><dt>Credential</dt><dd>{config.hasApiKey ? "Key saved" : "No key saved"}</dd></div>
                     </dl>
 
-                    {sessionKeys[config.id] ? (
+                    {config.state !== "revoked" && sessionKeys[config.id] ? (
                       <SessionKeyDisplay
                         config={config}
                         sessionKey={sessionKeys[config.id]}

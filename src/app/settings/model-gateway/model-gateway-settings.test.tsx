@@ -472,7 +472,7 @@ describe("ModelGatewaySettings", () => {
     await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Gateway saved but not activated. Finish activation below.",
+      "Gateway was revoked before activation could be completed.",
     );
     const card = screen.getByRole("region", { name: "Gateway revoked on server" });
     expect(card).toHaveTextContent("Revoked");
@@ -574,6 +574,77 @@ describe("ModelGatewaySettings", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Gateway activated.");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("commits an updated same-ID pending recovery-action refetch and keeps it actionable", async () => {
+    const updatedPending: ModelGatewayConfigView = {
+      ...pending,
+      displayName: "Gateway updated during recovery",
+      model: "reconciled-model-v2",
+      revision: 4,
+    };
+    const fetchMock = mockFetch(
+      response(settings([pending])),
+      response(active),
+      response(settings([updatedPending])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Confirm and finish activation" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save gateway settings. Try again.");
+    const card = screen.getByRole("region", { name: "Gateway updated during recovery" });
+    expect(card).toHaveTextContent("reconciled-model-v2");
+    expect(card).toHaveTextContent("Revision 4");
+    expect(within(card).getByRole("button", { name: "Confirm and finish activation" })).toBeEnabled();
+    expect(screen.queryByRole("region", { name: "My Gateway" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("commits a revoked recovery-action refetch and clears the create-time transient key", async () => {
+    const created = { ...pending, displayName: "Study Gateway", model: "model-v2" };
+    const revokedDuringRecovery: ModelGatewayConfigView = {
+      ...created,
+      displayName: "Gateway revoked during recovery",
+      model: "revoked-server-model",
+      revision: 5,
+      state: "revoked",
+      hasApiKey: false,
+    };
+    const fetchMock = mockFetch(
+      response(settings()),
+      response(created, 201),
+      Response.json({ raw: "activation unavailable" }, { status: 500 }),
+      response(settings([created])),
+      response({ ...created, ...active }),
+      response(settings([revokedDuringRecovery])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+    await screen.findByLabelText("Gateway base URL");
+    await user.type(screen.getByLabelText("Gateway base URL"), created.baseUrl);
+    await user.type(screen.getByLabelText("Display name"), created.displayName);
+    await user.type(screen.getByLabelText("Model"), created.model);
+    await user.type(screen.getByLabelText("API key"), "recovery-revoked-key");
+    await user.click(screen.getByRole("checkbox", { name: /confirm this exact destination/i }));
+    await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
+    await screen.findByLabelText("API key entered this session for Study Gateway");
+
+    await user.click(screen.getByRole("button", { name: "Confirm and finish activation" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save gateway settings. Try again.");
+    const card = screen.getByRole("region", { name: "Gateway revoked during recovery" });
+    expect(card).toHaveTextContent("Revoked");
+    expect(card).toHaveTextContent("revoked-server-model");
+    expect(card).toHaveTextContent("Revision 5");
+    expect(screen.queryByLabelText("API key entered this session for Gateway revoked during recovery")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("recovery-revoked-key")).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: /show key|hide key|confirm and finish activation/i })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url, options]) =>
+      url === "/api/v1/settings/model-gateway" && options?.method === "PUT"
+    )).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it.each([
@@ -703,6 +774,59 @@ describe("ModelGatewaySettings", () => {
     expect(fetchMock.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
     expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(document.body).not.toHaveTextContent("rotation-secret");
+  });
+
+  it("discards a rotated transient key when the authoritative refetch is revoked", async () => {
+    const revokedAfterRotation: ModelGatewayConfigView = {
+      ...active,
+      displayName: "Gateway revoked after rotation",
+      model: "revoked-server-model",
+      revision: 6,
+      state: "revoked",
+      hasApiKey: false,
+    };
+    const fetchMock = mockFetch(
+      response(settings([active])),
+      response({ ...active, revision: 2 }),
+      response(settings([revokedAfterRotation])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Rotate key for My Gateway" }));
+    await user.type(screen.getByLabelText("New API key for My Gateway"), "rotation-revoked-key");
+    await user.click(screen.getByRole("button", { name: "Save new key for My Gateway" }));
+
+    const card = await screen.findByRole("region", { name: "Gateway revoked after rotation" });
+    expect(card).toHaveTextContent("Revoked");
+    expect(card).toHaveTextContent("revoked-server-model");
+    expect(card).toHaveTextContent("Revision 6");
+    expect(screen.queryByRole("form", { name: "Rotate API key for Gateway revoked after rotation" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("API key entered this session for Gateway revoked after rotation")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("rotation-revoked-key")).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: /show key|hide key|rotate|revoke/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Gateway was revoked. API key was not retained.");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("retains the current rotation card when a valid authoritative refetch omits it", async () => {
+    const returnedOtherConfig = { ...revoked, revision: 7 };
+    const fetchMock = mockFetch(
+      response(settings([active])),
+      response({ ...active, revision: 2 }),
+      response(settings([returnedOtherConfig])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Rotate key for My Gateway" }));
+    await user.type(screen.getByLabelText("New API key for My Gateway"), "rotation-missing-key");
+    await user.click(screen.getByRole("button", { name: "Save new key for My Gateway" }));
+
+    expect(await screen.findByRole("region", { name: "My Gateway" })).toHaveTextContent("Active");
+    expect(screen.getByRole("region", { name: "Old Gateway" })).toHaveTextContent("Revision 7");
+    expect(screen.getByLabelText("API key entered this session for My Gateway")).toHaveValue("rotation-missing-key");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("associates an empty rename error with its input and clears invalid state on edit", async () => {
