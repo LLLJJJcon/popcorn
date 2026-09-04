@@ -42,6 +42,74 @@ function parseEnvironment(contents) {
   return values;
 }
 
+function rawEnvironmentValue(contents, expectedName) {
+  let value;
+  for (const line of contents.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=(.*)$/);
+    if (match?.[1] === expectedName) value = match[2];
+  }
+  return value;
+}
+
+function optionalProxyUrl(contents) {
+  const rawValue = rawEnvironmentValue(contents, "POPCORN_PROXY_URL");
+  if (rawValue === undefined || rawValue.trim() === "") return undefined;
+  if (/\s/.test(rawValue)) {
+    throw new Error("POPCORN_PROXY_URL must be an exact HTTP(S) proxy origin");
+  }
+  const value = rawValue.replace(/^(?:\"([\s\S]*)\"|'([\s\S]*)')$/, "$1$2");
+  if (!value) return undefined;
+  if (!/^https?:\/\//i.test(value)) {
+    throw new Error("POPCORN_PROXY_URL must be an exact HTTP(S) proxy origin");
+  }
+  try {
+    const parsed = new URL(value);
+    if (
+      !["http:", "https:"].includes(parsed.protocol)
+      || parsed.username
+      || parsed.password
+      || parsed.pathname !== "/"
+      || parsed.search
+      || parsed.hash
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error("POPCORN_PROXY_URL must be an exact HTTP(S) proxy origin");
+  }
+  return value;
+}
+
+function noProxyWithLoopback(value) {
+  const entries = [];
+  const seen = new Set();
+  for (const entry of String(value ?? "").split(",").map((item) => item.trim()).filter(Boolean)) {
+    const normalized = entry.toLowerCase();
+    if (!seen.has(normalized)) {
+      entries.push(entry);
+      seen.add(normalized);
+    }
+  }
+  for (const loopback of ["127.0.0.1", "localhost", "::1"]) {
+    if (!seen.has(loopback)) {
+      entries.push(loopback);
+      seen.add(loopback);
+    }
+  }
+  return entries.join(", ");
+}
+
+export function deriveChildServiceEnvironment(environment, proxyUrl) {
+  if (!proxyUrl) return environment;
+  return {
+    ...environment,
+    HTTP_PROXY: proxyUrl,
+    HTTPS_PROXY: proxyUrl,
+    NODE_USE_ENV_PROXY: "1",
+    NO_PROXY: noProxyWithLoopback(environment.NO_PROXY),
+  };
+}
+
 function exactApplicationUrl(value) {
   try {
     const parsed = new URL(value);
@@ -68,6 +136,7 @@ async function readRequiredEnvironment(environmentFile) {
   }
 
   const values = parseEnvironment(contents);
+  const proxyUrl = optionalProxyUrl(contents);
   const missing = REQUIRED_FIELDS.filter((field) => !values[field]);
   if (missing.length > 0) {
     throw new Error(`Missing required .env.local fields: ${missing.join(", ")}`);
@@ -75,6 +144,7 @@ async function readRequiredEnvironment(environmentFile) {
   if (!exactApplicationUrl(values.APP_URL)) {
     throw new Error("APP_URL must be an exact HTTP(S) application URL");
   }
+  if (proxyUrl) values.POPCORN_PROXY_URL = proxyUrl;
   return values;
 }
 
@@ -392,7 +462,10 @@ export function createPopcornLauncher({
         await cleanupPromise;
         return;
       }
-      const environment = { ...process.env, ...environmentValues };
+      const environment = deriveChildServiceEnvironment(
+        { ...process.env, ...environmentValues },
+        environmentValues.POPCORN_PROXY_URL,
+      );
       const webArgs = ["dev", "--hostname", applicationUrl.hostname];
       if (applicationPort) webArgs.push("--port", applicationPort);
       children = [

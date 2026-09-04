@@ -87,6 +87,14 @@ describe("fixture acceptance entry", () => {
 });
 
 describe("slim fixture CI", () => {
+  test("uses the Node 24 built-in environment proxy runtime required by local self-hosting", async () => {
+    const workflow = await source(".github/workflows/ci.yml");
+    const packageManifest = JSON.parse(await source("package.json"));
+
+    expect(packageManifest.engines).toMatchObject({ node: ">=24.5.0" });
+    expect(workflow).toMatch(/node-version:\s*["']?24\.5\.0["']?/);
+  });
+
   test("runs one ordered fixture-only release job with the complete acceptance entry", async () => {
     const workflow = await source(".github/workflows/ci.yml");
 

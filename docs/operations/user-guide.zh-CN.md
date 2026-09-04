@@ -26,7 +26,7 @@ pnpm popcorn:stop
 
 - [Git](https://git-scm.com/downloads)
 - 正在运行的 [Docker Desktop](https://docs.docker.com/get-started/introduction/get-docker-desktop/)
-- [Node.js 20](https://nodejs.org/en/download)
+- [Node.js 24.5 或更高版本](https://nodejs.org/en/download)（Node 24.5 起才有下面可选设置所需的内置环境代理支持）
 - [pnpm 11.19.0](https://pnpm.io/installation)
 - [Chrome 116+](https://www.google.com/chrome/)
 
@@ -63,8 +63,21 @@ pnpm exec supabase status
 | `SUPABASE_SERVICE_ROLE_KEY` | 同名行后 | 同一份 status 输出中的 service-role/secret key | 一串密钥字符 | 是，仅服务器使用 |
 | `SUPADATA_API_KEY` | 同名行后 | 在 [Supadata dashboard](https://dash.supadata.ai/) 注册后取得；入门说明见 [Supadata 文档](https://docs.supadata.ai/) | 一串 API 密钥字符 | 是，仅服务器使用 |
 | `INTERNAL_JOB_SECRET` | 同名行后 | 在你自己的电脑上运行 `openssl rand -hex 32`，将输出**只粘贴到该本地文件** | 64 个十六进制字符 | 是，仅服务器使用 |
+| `POPCORN_PROXY_URL`（可选） | 同名行后 | 仅在需要时，从你的代理应用查看 HTTP/Mixed 代理端口 | `http://127.0.0.1:8080` | 否 |
 
 不要把 service-role key 放进 Chrome 扩展。不要把任何秘密作为终端命令参数输入。表中的 `openssl` 命令只在本机生成值；生成后请直接写入 `.env.local`，不要复制到聊天、Git 或日志。
+
+#### 可选：本地 HTTP 代理
+
+`POPCORN_PROXY_URL` 只影响本地 Web 和 worker，可不填。只能填写你自己的一个完整 `http://` 或 `https://` 代理来源地址；不能含路径（根 `/` 除外）、查询、片段、用户名或密码。
+
+- **直连**：留空。
+- **真正的 TUN/全局路由**：通常留空；这种路由已经同时覆盖 Node 和浏览器。
+- **只让浏览器/系统代理生效**：在这里填写一次你的本地 **HTTP/Mixed** 代理来源地址，例如代理应用显示的端口为 `8080` 时可填 `http://127.0.0.1:8080`。不要填写只支持 SOCKS 的端口。
+
+在代理应用的网络、端口或监听器页面找到 **HTTP/Mixed** 代理端口，再据此填写。Popcorn 不会自动检测或修改 macOS、Windows 或 Linux 的系统代理设置；直连或真正的 TUN/全局路由也不需要此值。
+
+修改后用原有的一键命令重启：先运行 `pnpm popcorn:stop`，再运行 `pnpm popcorn:start`（或双击对应的 macOS command 文件）。若代理错误或不可用，改正主机/端口，或留空后重启。模型 API 密钥仍只在已登录的网关页面填写，绝不放进 `.env.local`。
 
 ### 4. 第一次建立本地数据
 

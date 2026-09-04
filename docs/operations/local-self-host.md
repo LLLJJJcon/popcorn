@@ -25,7 +25,8 @@ the troubleshooting and fallback path when a setup step needs attention.
 
 ## 1. Prerequisites
 
-- Node.js 20
+- Node.js 24.5 or later (Node 24.5 introduced the built-in environment proxy
+  support used by the optional setting below)
 - pnpm 11.19.0
 - Docker running locally
 - Chrome 116+
@@ -68,6 +69,7 @@ Use the current `pnpm exec supabase status` output to fill `.env.local`:
 - secret/service-role key → `SUPABASE_SERVICE_ROLE_KEY`
 - your Supadata key → `SUPADATA_API_KEY`
 - a personal random value → `INTERNAL_JOB_SECRET`
+- optional local HTTP/Mixed proxy origin → `POPCORN_PROXY_URL`
 
 The URL and anon key are public, browser-safe configuration. The service-role
 key, Supadata key, and job secret are server-only. Generate a personal job
@@ -76,6 +78,29 @@ the same value when starting the worker. Never commit `.env.local`.
 
 The user model gateway API key is deliberately not an environment value. You
 enter it only in the signed-in Web settings described below.
+
+### Optional local HTTP proxy
+
+`POPCORN_PROXY_URL` is optional and affects only the local Web app and worker.
+Use one exact `http://` or `https://` proxy origin, with no path, query, hash,
+username, or password.
+
+- **Direct access:** leave it blank.
+- **True TUN/global routing:** normally leave it blank; that routing already
+  covers Node as well as the browser.
+- **Browser/system-proxy-only routing:** enter your own local **HTTP/Mixed**
+  proxy origin once, for example `http://127.0.0.1:8080` if that is the port
+  shown by your proxy application. Do not use a SOCKS-only port here.
+
+Open the proxy application's network, port, or listener page and find the HTTP/Mixed proxy port; use that port to form the origin above. Popcorn does
+not auto-detect or change macOS, Windows, or Linux proxy settings. It does not
+need the value for direct access or true TUN/global routing.
+
+After changing the value, stop and restart with the usual one-click commands:
+`pnpm popcorn:stop`, then `pnpm popcorn:start` (or the matching macOS command
+files). If the proxy is wrong or unavailable, correct its host/port or leave
+the setting blank and restart. The model API key still belongs only in the
+signed-in gateway page, never in `.env.local`.
 
 ## 4. Apply the local schema
 

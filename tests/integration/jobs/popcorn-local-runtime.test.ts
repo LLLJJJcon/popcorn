@@ -312,6 +312,142 @@ describe("Popcorn local launcher", () => {
     }));
   });
 
+  test("derives one validated HTTP proxy environment for both child services", async () => {
+    const directory = await temporaryDirectory("popcorn proxy child environment ");
+    const environmentFile = path.join(directory, ".env.local");
+    const stateFile = path.join(directory, "runtime-state.json");
+    await writeFile(environmentFile, localEnvironment({
+      POPCORN_PROXY_URL: "http://proxy.local.test:8080",
+      NO_PROXY: "internal.local, localhost, INTERNAL.LOCAL",
+    }));
+    const children: ReturnType<typeof longRunningChild>[] = [];
+    const childEnvironments: NodeJS.ProcessEnv[] = [];
+    const commands: string[] = [];
+    const { createPopcornLauncher } = await launcherModule();
+    const launcher = createPopcornLauncher({
+      environmentFile,
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async (_command: string, args: string[]) => { commands.push(args.join(" ")); },
+      spawnService: (_command: string, _args: string[], environment: NodeJS.ProcessEnv) => {
+        childEnvironments.push(environment);
+        const child = longRunningChild();
+        children.push(child);
+        return child;
+      },
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlChannel: memoryControlChannel(),
+    });
+
+    await launcher.start();
+
+    expect(commands).toEqual(["exec supabase start"]);
+    expect(childEnvironments).toHaveLength(2);
+    for (const environment of childEnvironments) {
+      expect(environment).toMatchObject({
+        HTTP_PROXY: "http://proxy.local.test:8080",
+        HTTPS_PROXY: "http://proxy.local.test:8080",
+        NODE_USE_ENV_PROXY: "1",
+        NO_PROXY: "internal.local, localhost, 127.0.0.1, ::1",
+      });
+    }
+
+    await launcher.stop();
+    await Promise.all(children.map(async (child) => {
+      if (child.exitCode === null) await once(child, "exit");
+    }));
+  });
+
+  test("leaves child proxy settings unchanged when the optional proxy value is blank", async () => {
+    const directory = await temporaryDirectory("popcorn blank proxy ");
+    const environmentFile = path.join(directory, ".env.local");
+    const stateFile = path.join(directory, "runtime-state.json");
+    await writeFile(environmentFile, localEnvironment({
+      POPCORN_PROXY_URL: "",
+      HTTP_PROXY: "",
+      HTTPS_PROXY: "",
+      NODE_USE_ENV_PROXY: "",
+      NO_PROXY: "internal.local",
+    }));
+    const children: ReturnType<typeof longRunningChild>[] = [];
+    const childEnvironments: NodeJS.ProcessEnv[] = [];
+    const { createPopcornLauncher } = await launcherModule();
+    const launcher = createPopcornLauncher({
+      environmentFile,
+      repositoryRoot: directory,
+      stateFile,
+      runCommand: async () => {},
+      spawnService: (_command: string, _args: string[], environment: NodeJS.ProcessEnv) => {
+        childEnvironments.push(environment);
+        const child = longRunningChild();
+        children.push(child);
+        return child;
+      },
+      waitForReady: async () => {},
+      openBrowser: async () => {},
+      controlChannel: memoryControlChannel(),
+    });
+
+    await launcher.start();
+
+    expect(childEnvironments).toHaveLength(2);
+    for (const environment of childEnvironments) {
+      expect(environment).toMatchObject({
+        POPCORN_PROXY_URL: "",
+        HTTP_PROXY: "",
+        HTTPS_PROXY: "",
+        NODE_USE_ENV_PROXY: "",
+        NO_PROXY: "internal.local",
+      });
+    }
+
+    await launcher.stop();
+    await Promise.all(children.map(async (child) => {
+      if (child.exitCode === null) await once(child, "exit");
+    }));
+  });
+
+  test("rejects invalid proxy values before services start without exposing them", async () => {
+    const invalidValues = [
+      "http:proxy.local.test:8080",
+      "http://proxy.local.test:8080/path",
+      "https://proxy.local.test:8080?query=value",
+      "http://proxy.local.test:8080#hash",
+      "http://user:password@proxy.local.test:8080",
+      " http://proxy.local.test:8080",
+    ];
+
+    for (const proxyValue of invalidValues) {
+      const directory = await temporaryDirectory("popcorn invalid proxy ");
+      const environmentFile = path.join(directory, ".env.local");
+      await writeFile(environmentFile, localEnvironment({ POPCORN_PROXY_URL: proxyValue }));
+      const events: string[] = [];
+      const { createPopcornLauncher } = await launcherModule();
+      const launcher = createPopcornLauncher({
+        environmentFile,
+        repositoryRoot: directory,
+        runCommand: async () => { events.push("command"); },
+        spawnService: () => {
+          events.push("service");
+          return longRunningChild();
+        },
+        waitForReady: async () => { throw new Error("unexpected readiness"); },
+        openBrowser: async () => {},
+        controlChannel: memoryControlChannel(),
+      });
+
+      const error = await launcher.start().then(
+        () => new Error("launcher unexpectedly started"),
+        (reason: unknown) => reason as Error,
+      );
+
+      expect(error.message).toBe("POPCORN_PROXY_URL must be an exact HTTP(S) proxy origin");
+      expect(error.message).not.toContain(proxyValue);
+      expect(events).toEqual([]);
+    }
+  });
+
   test("rejects a duplicate live launcher for the same repository", async () => {
     const directory = await temporaryDirectory("popcorn duplicate launcher ");
     const environmentFile = path.join(directory, ".env.local");

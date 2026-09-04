@@ -138,7 +138,7 @@ describe("fresh-clone personal self-host documentation", () => {
   test("pins the actual local prerequisites, endpoints, and account path", async () => {
     const guide = await text("docs/operations/local-self-host.md");
     const prose = normalizeMarkdownWhitespace(guide);
-    for (const prerequisite of ["Node.js 20", "pnpm 11.19.0", "Docker", "Chrome 116+"]) {
+    for (const prerequisite of ["Node.js 24.5", "pnpm 11.19.0", "Docker", "Chrome 116+"]) {
       expect(guide).toContain(prerequisite);
     }
     expect(prose).toMatch(/(?:project-local|project dependency|project's dependency).{0,100}Supabase CLI|Supabase CLI.{0,100}(?:project-local|project dependency|project's dependency)/i);
@@ -177,6 +177,26 @@ describe("fresh-clone personal self-host documentation", () => {
     expect(prose).toMatch(/service-role.{0,180}server-only|server-only.{0,180}service-role/i);
     expect(prose).toMatch(/Supadata.{0,180}server-only|server-only.{0,180}Supadata/i);
     expect(prose).toMatch(/job secret.{0,180}server-only|server-only.{0,180}job secret/i);
+  });
+
+  test("documents an optional HTTP proxy value without placing model credentials in local configuration", async () => {
+    const environment = await text(".env.example");
+    const localGuide = await text("docs/operations/local-self-host.md");
+    const ChineseGuide = await text("docs/operations/user-guide.zh-CN.md");
+    const allGuidance = `${environment}\n${localGuide}\n${ChineseGuide}`;
+
+    expect(environment).toMatch(/^POPCORN_PROXY_URL=$/m);
+    expect(environment).not.toMatch(/^\s*(?:OPENAI_API_KEY|OPENAI_MODEL|MODEL_GATEWAY_API_KEY|USER_GATEWAY_API_KEY)\s*=/m);
+    expect(localGuide).toMatch(/direct access.{0,180}leave (?:it )?blank/i);
+    expect(localGuide).toMatch(/(?:TUN|global).{0,180}leave (?:it )?blank/i);
+    expect(localGuide).toMatch(/(?:browser|system).{0,80}proxy.{0,180}HTTP\/Mixed/i);
+    expect(localGuide).toMatch(/find.{0,160}HTTP\/Mixed.{0,120}port/i);
+    expect(localGuide).toMatch(/wrong|unavailable/i);
+    expect(ChineseGuide).toMatch(/直连[\s\S]{0,180}留空/);
+    expect(ChineseGuide).toMatch(/(?:TUN|全局)[\s\S]{0,180}留空/);
+    expect(ChineseGuide).toMatch(/(?:浏览器|系统)[\s\S]{0,120}HTTP\/Mixed/);
+    expect(ChineseGuide).toMatch(/HTTP\/Mixed[\s\S]{0,120}端口/);
+    expect(allGuidance).not.toContain("7897");
   });
 
   test("puts gateway identity, endpoint, model, key, and consent only in signed-in Web settings", async () => {
