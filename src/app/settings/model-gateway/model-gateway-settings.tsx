@@ -70,6 +70,16 @@ function isValidGatewayBaseUrl(value: string): boolean {
   }
 }
 
+function appendCreatedConfig(
+  settings: ModelGatewaySettingsView | null,
+  createdConfig: ModelGatewayConfigView,
+): ModelGatewaySettingsView {
+  const configs = settings?.configs ?? [];
+  return configs.some((config) => config.id === createdConfig.id)
+    ? { configs }
+    : { configs: [...configs, createdConfig] };
+}
+
 function DataSharingSummary({ exactBaseUrl }: { readonly exactBaseUrl: string }) {
   return (
     <div className={styles.consentSummary}>
@@ -264,19 +274,22 @@ export function ModelGatewaySettings() {
           finishActivation(recoveredSettings, createdConfig.id);
           return;
         }
-        setSettings((current) => {
-          const configs = (recoveredSettings ?? current)?.configs ?? [];
-          const existingIndex = configs.findIndex((config) => config.id === createdConfig.id);
-          const nextConfigs = existingIndex === -1
-            ? [...configs, createdConfig]
-            : configs.map((config) => config.id === createdConfig.id ? createdConfig : config);
-          return { configs: nextConfigs };
-        });
+        const recoveryConfig = authoritativeConfig ?? createdConfig;
+        setSettings((current) => recoveredSettings
+          ? appendCreatedConfig(recoveredSettings, createdConfig)
+          : appendCreatedConfig(current, createdConfig));
         setPageError(null);
-        setSessionKeys((current) => ({
-          ...current,
-          [createdConfig.id]: { value: writeOnlyKey, revealed: false },
-        }));
+        setSessionKeys((current) => {
+          if (recoveryConfig.state === "revoked") {
+            const remaining = { ...current };
+            delete remaining[createdConfig.id];
+            return remaining;
+          }
+          return {
+            ...current,
+            [createdConfig.id]: { value: writeOnlyKey, revealed: false },
+          };
+        });
         clearCreateForm();
         setActionError("Gateway saved but not activated. Finish activation below.");
         setStatus("");

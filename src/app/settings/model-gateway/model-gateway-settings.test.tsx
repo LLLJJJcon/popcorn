@@ -404,6 +404,90 @@ describe("ModelGatewaySettings", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("preserves the authoritative same-ID pending configuration after failed activation", async () => {
+    const created = { ...pending, displayName: "Study Gateway", model: "model-v2" };
+    const authoritativePending: ModelGatewayConfigView = {
+      ...created,
+      displayName: "Gateway renamed on server",
+      model: "server-model-v3",
+      revision: 7,
+    };
+    const fetchMock = mockFetch(
+      response(settings()),
+      response(created, 201),
+      Response.json({ raw: "activation unavailable" }, { status: 500 }),
+      response(settings([authoritativePending])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+    await screen.findByLabelText("Gateway base URL");
+    await user.type(screen.getByLabelText("Gateway base URL"), created.baseUrl);
+    await user.type(screen.getByLabelText("Display name"), created.displayName);
+    await user.type(screen.getByLabelText("Model"), created.model);
+    await user.type(screen.getByLabelText("API key"), "authoritative-pending-key");
+    await user.click(screen.getByRole("checkbox", { name: /confirm this exact destination/i }));
+    await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Gateway saved but not activated. Finish activation below.",
+    );
+    const card = screen.getByRole("region", { name: "Gateway renamed on server" });
+    expect(card).toHaveTextContent("server-model-v3");
+    expect(card).toHaveTextContent("Revision 7");
+    expect(screen.queryByRole("region", { name: "Study Gateway" })).not.toBeInTheDocument();
+    const sessionKey = screen.getByLabelText("API key entered this session for Gateway renamed on server");
+    expect(sessionKey).toHaveAttribute("type", "password");
+    expect(sessionKey).toHaveValue("authoritative-pending-key");
+    expect(within(card).getByRole("button", { name: "Confirm and finish activation" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url, options]) =>
+      url === "/api/v1/settings/model-gateway" && options?.method === "PUT"
+    )).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("preserves an authoritative same-ID revoked configuration without a transient key or recovery action", async () => {
+    const created = { ...pending, displayName: "Study Gateway", model: "model-v2" };
+    const authoritativeRevoked: ModelGatewayConfigView = {
+      ...created,
+      displayName: "Gateway revoked on server",
+      model: "server-model-v3",
+      revision: 8,
+      state: "revoked",
+      hasApiKey: false,
+    };
+    const fetchMock = mockFetch(
+      response(settings()),
+      response(created, 201),
+      Response.json({ raw: "activation unavailable" }, { status: 500 }),
+      response(settings([authoritativeRevoked])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+    await screen.findByLabelText("Gateway base URL");
+    await user.type(screen.getByLabelText("Gateway base URL"), created.baseUrl);
+    await user.type(screen.getByLabelText("Display name"), created.displayName);
+    await user.type(screen.getByLabelText("Model"), created.model);
+    await user.type(screen.getByLabelText("API key"), "authoritative-revoked-key");
+    await user.click(screen.getByRole("checkbox", { name: /confirm this exact destination/i }));
+    await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Gateway saved but not activated. Finish activation below.",
+    );
+    const card = screen.getByRole("region", { name: "Gateway revoked on server" });
+    expect(card).toHaveTextContent("Revoked");
+    expect(card).toHaveTextContent("server-model-v3");
+    expect(card).toHaveTextContent("Revision 8");
+    expect(screen.queryByRole("region", { name: "Study Gateway" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("API key entered this session for Gateway revoked on server")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("authoritative-revoked-key")).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: /show key|hide key|confirm and finish activation/i })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url, options]) =>
+      url === "/api/v1/settings/model-gateway" && options?.method === "PUT"
+    )).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it("keeps one pending gateway when activation fails", async () => {
     const created = { ...pending, displayName: "Study Gateway", model: "model-v2" };
     const fetchMock = mockFetch(
