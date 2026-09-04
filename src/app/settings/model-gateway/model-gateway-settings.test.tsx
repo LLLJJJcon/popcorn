@@ -93,7 +93,7 @@ describe("ModelGatewaySettings", () => {
     expect(document.body).not.toHaveTextContent(/vault-secret|provider failure/i);
   });
 
-  it("isolates direct gateway inputs from login autofill and shows fixed pending-consent disclosures", async () => {
+  it("isolates direct gateway inputs from login autofill and shows recovery-only pending disclosures", async () => {
     mockFetch(response(settings([pending])));
     render(<ModelGatewaySettings />);
 
@@ -122,15 +122,15 @@ describe("ModelGatewaySettings", () => {
     expect(screen.queryByLabelText(/custom url|base path|provider headers|prompt|extension/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/screenshot|image input|generic url/i)).not.toBeInTheDocument();
 
-    const consent = screen.getByRole("group", { name: "Confirm data sharing for My Gateway" });
-    expect(consent).toHaveTextContent("https://gateway.example.com/v1");
-    expect(consent).toHaveTextContent("model-egress-v1");
-    expect(consent).toHaveTextContent("Video title");
-    expect(consent).toHaveTextContent("Necessary Chinese transcript excerpt or selection");
-    expect(consent).toHaveTextContent("Timestamps");
-    expect(consent).toHaveTextContent("Versioned prompt");
-    expect(within(consent).getByRole("checkbox", { name: /I confirm/ })).not.toBeChecked();
-    expect(within(consent).getByRole("button", { name: "Activate gateway" })).toBeDisabled();
+    const pendingCard = screen.getByRole("region", { name: "My Gateway" });
+    expect(pendingCard).toHaveTextContent("https://gateway.example.com/v1");
+    expect(pendingCard).toHaveTextContent("model-egress-v1");
+    expect(pendingCard).toHaveTextContent("Video title");
+    expect(pendingCard).toHaveTextContent("Necessary Chinese transcript excerpt or selection");
+    expect(pendingCard).toHaveTextContent("Timestamps");
+    expect(pendingCard).toHaveTextContent("Versioned prompt");
+    expect(within(pendingCard).queryByRole("checkbox", { name: /I confirm/ })).not.toBeInTheDocument();
+    expect(within(pendingCard).getByRole("button", { name: "Confirm and finish activation" })).toBeEnabled();
   });
 
   it("keeps the conditional key rotation form outside login autofill", async () => {
@@ -208,7 +208,7 @@ describe("ModelGatewaySettings", () => {
     expect(screen.getByLabelText("Gateway base URL")).toHaveValue("");
     expect(screen.getByLabelText("Display name")).toHaveValue("");
     expect(screen.getByLabelText("Model")).toHaveValue("");
-    expect(consent).not.toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: /confirm this exact destination/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save gateway" })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Confirm data sharing for Study Gateway" })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -240,15 +240,67 @@ describe("ModelGatewaySettings", () => {
     expect(document.body).not.toHaveTextContent("create-secret");
   });
 
-  it("activates only checked exact consent and refetches the active view", async () => {
-    const fetchMock = mockFetch(response(settings([pending])), response(active), response(settings([active])));
+  it("keeps one pending gateway when activation fails", async () => {
+    const created = { ...pending, displayName: "Study Gateway", model: "model-v2" };
+    const fetchMock = mockFetch(
+      response(settings()),
+      response(created, 201),
+      Response.json({ raw: "activation unavailable" }, { status: 500 }),
+      response(settings([created])),
+    );
     const user = userEvent.setup();
     render(<ModelGatewaySettings />);
-    const pendingConsent = await screen.findByRole("group", { name: "Confirm data sharing for My Gateway" });
-    const checkbox = within(pendingConsent).getByRole("checkbox", { name: /I confirm/ });
-    await user.click(checkbox);
-    await user.click(within(pendingConsent).getByRole("button", { name: "Activate gateway" }));
+    await screen.findByLabelText("Gateway base URL");
+    await user.type(screen.getByLabelText("Gateway base URL"), "https://gateway.example.com/v1");
+    await user.type(screen.getByLabelText("Display name"), "Study Gateway");
+    await user.type(screen.getByLabelText("Model"), "model-v2");
+    await user.type(screen.getByLabelText("API key"), "partial-failure-key");
+    await user.click(screen.getByRole("checkbox", { name: /confirm this exact destination and data sharing/i }));
+    await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Gateway saved but not activated. Finish activation below.",
+    );
+    expect(screen.getAllByRole("region", { name: "Study Gateway" })).toHaveLength(1);
+    const sessionKey = screen.getByLabelText("API key entered this session for Study Gateway");
+    expect(sessionKey).toHaveAttribute("type", "password");
+    expect(sessionKey).toHaveValue("partial-failure-key");
+    expect(screen.getByRole("button", {
+      name: "Confirm and finish activation",
+    })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", {
+      name: /confirm this exact destination/i,
+    })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url, options]) =>
+      url === "/api/v1/settings/model-gateway" && options?.method === "PUT"
+    )).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("finishes activation with one recovery action", async () => {
+    const created = { ...pending, displayName: "Study Gateway", model: "model-v2" };
+    const activated: ModelGatewayConfigView = {
+      ...created,
+      state: "active",
+      consent: {
+        exactBaseUrl: "https://gateway.example.com/v1",
+        policyVersion: "model-egress-v1",
+        consentedAt: NOW,
+      },
+    };
+    const fetchMock = mockFetch(
+      response(settings([created])),
+      response(activated),
+      response(settings([activated])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Confirm and finish activation" }));
     await screen.findByText("Active");
+
+    expect(screen.getByRole("status")).toHaveTextContent("Gateway activated.");
+    expect(screen.queryByRole("checkbox", { name: /confirm this exact destination/i })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/settings/model-gateway/consent");
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
@@ -259,15 +311,13 @@ describe("ModelGatewaySettings", () => {
     });
   });
 
-  it("renames, rotates with an empty-open password, and revokes through frozen DTOs with refetch", async () => {
+  it("renames, rotates with an empty-open password, and keeps the new key in the matching card", async () => {
     const renamed = { ...active, displayName: "Renamed Gateway" };
     const rotated = { ...renamed, revision: 2 };
-    const revokedRenamed = { ...rotated, state: "revoked" as const, hasApiKey: false };
     const fetchMock = mockFetch(
       response(settings([active])),
       response(renamed), response(settings([renamed])),
       response(rotated), response(settings([rotated])),
-      response(revokedRenamed), response(settings([revokedRenamed])),
     );
     const user = userEvent.setup();
     render(<ModelGatewaySettings />);
@@ -290,20 +340,48 @@ describe("ModelGatewaySettings", () => {
     await user.type(rotation, "rotation-secret");
     await user.click(screen.getByRole("button", { name: "Save new key for Renamed Gateway" }));
     await waitFor(() => expect(screen.getByText("Revision 2")).toBeInTheDocument());
-    expect(rotation).toHaveValue("");
+    expect(screen.queryByRole("form", { name: "Rotate API key for Renamed Gateway" })).not.toBeInTheDocument();
+    const rotatedKey = screen.getByLabelText("API key entered this session for Renamed Gateway");
+    expect(rotatedKey).toHaveAttribute("type", "password");
+    expect(rotatedKey).toHaveValue("rotation-secret");
+    const callsBeforeToggle = fetchMock.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Show key" }));
+    expect(rotatedKey).toHaveAttribute("type", "text");
+    await user.click(screen.getByRole("button", { name: "Hide key" }));
+    expect(rotatedKey).toHaveAttribute("type", "password");
+    expect(fetchMock).toHaveBeenCalledTimes(callsBeforeToggle);
     expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toEqual({
       configId: CONFIG_ID,
       apiKey: "rotation-secret",
     });
+  });
 
-    await user.click(screen.getByRole("button", { name: "Revoke Renamed Gateway" }));
-    const confirmation = screen.getByRole("group", { name: "Confirm revoke Renamed Gateway" });
+  it("removes the transient key after revoke", async () => {
+    const rotated = { ...active, revision: 2 };
+    const revokedGateway = { ...rotated, state: "revoked" as const, hasApiKey: false };
+    const fetchMock = mockFetch(
+      response(settings([active])),
+      response(rotated), response(settings([rotated])),
+      response(revokedGateway), response(settings([revokedGateway])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Rotate key for My Gateway" }));
+    await user.type(screen.getByLabelText("New API key for My Gateway"), "rotation-secret");
+    await user.click(screen.getByRole("button", { name: "Save new key for My Gateway" }));
+    await screen.findByLabelText("API key entered this session for My Gateway");
+
+    await user.click(screen.getByRole("button", { name: "Revoke My Gateway" }));
+    const confirmation = screen.getByRole("group", { name: "Confirm revoke My Gateway" });
     expect(within(confirmation).getByRole("button", { name: "Confirm revoke" })).toHaveFocus();
     await user.click(within(confirmation).getByRole("button", { name: "Confirm revoke" }));
     await screen.findByText("Revoked");
-    expect(JSON.parse(String(fetchMock.mock.calls[5]?.[1]?.body))).toEqual({ configId: CONFIG_ID });
-    expect(fetchMock.mock.calls[5]?.[1]).toMatchObject({ method: "DELETE" });
-    expect(fetchMock).toHaveBeenCalledTimes(7);
+    expect(screen.queryByLabelText("API key entered this session for My Gateway")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show key" })).not.toBeInTheDocument();
+    expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toEqual({ configId: CONFIG_ID });
+    expect(fetchMock.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(document.body).not.toHaveTextContent("rotation-secret");
   });
 
@@ -328,7 +406,7 @@ describe("ModelGatewaySettings", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("associates an empty rotation error, clears it on edit, and immediately clears a submitted key", async () => {
+  it("associates an empty rotation error, clears it on edit, and closes after a successful replacement", async () => {
     const rotated = { ...active, revision: 2 };
     const fetchMock = mockFetch(
       response(settings([active])),
@@ -355,11 +433,11 @@ describe("ModelGatewaySettings", () => {
 
     await user.click(screen.getByRole("button", { name: "Save new key for My Gateway" }));
     await waitFor(() => expect(screen.getByText("Revision 2")).toBeInTheDocument());
-    expect(rotation).toHaveValue("");
-    expect(rotation).not.toHaveAttribute("aria-invalid", "true");
-    expect(rotation).not.toHaveAttribute("aria-describedby");
+    expect(screen.queryByRole("form", { name: "Rotate API key for My Gateway" })).not.toBeInTheDocument();
+    const sessionKey = screen.getByLabelText("API key entered this session for My Gateway");
+    expect(sessionKey).toHaveAttribute("type", "password");
+    expect(sessionKey).toHaveValue("fresh-rotation-secret");
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(document.documentElement.outerHTML).not.toContain("fresh-rotation-secret");
   });
 
   it.each([

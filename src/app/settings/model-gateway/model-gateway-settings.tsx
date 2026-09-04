@@ -117,7 +117,6 @@ export function ModelGatewaySettings() {
   const [createInvalid, setCreateInvalid] = useState(false);
   const [createConsent, setCreateConsent] = useState(false);
   const [sessionKeys, setSessionKeys] = useState<Record<string, SessionKey>>({});
-  const [consents, setConsents] = useState<Record<string, boolean>>({});
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
   const [renameInvalidId, setRenameInvalidId] = useState<string | null>(null);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
@@ -183,8 +182,29 @@ export function ModelGatewaySettings() {
     if (!valid || busy) return;
     setBusy(true);
     setActionError(null);
+    let created: ModelGatewayConfigView | null = null;
+    let refetchedSettings: ModelGatewaySettingsView | null = null;
+    let requestedSettings = false;
+    const clearCreateForm = () => {
+      setBaseUrl("");
+      setDisplayName("");
+      setModel("");
+      setApiKey("");
+      setCreateConsent(false);
+      setCreateInvalid(false);
+    };
+    const finishActivation = (nextSettings: ModelGatewaySettingsView, configId: string) => {
+      setSettings(nextSettings);
+      setPageError(null);
+      setSessionKeys((current) => ({
+        ...current,
+        [configId]: { value: writeOnlyKey, revealed: false },
+      }));
+      clearCreateForm();
+      setStatus("Gateway saved and activated.");
+    };
     try {
-      const created = await requestConfig(SETTINGS_ENDPOINT, "PUT", {
+      created = await requestConfig(SETTINGS_ENDPOINT, "PUT", {
         displayName: displayName.trim(),
         baseUrl: baseUrl.trim(),
         model: model.trim(),
@@ -199,21 +219,45 @@ export function ModelGatewaySettings() {
       if (activated.id !== created.id || activated.state !== "active") {
         throw new TypeError("mutation failed");
       }
-      const nextSettings = await requestSettings();
-      setSettings(nextSettings);
-      setPageError(null);
-      setSessionKeys((current) => ({
-        ...current,
-        [activated.id]: { value: writeOnlyKey, revealed: false },
-      }));
-      setBaseUrl("");
-      setDisplayName("");
-      setModel("");
-      setApiKey("");
-      setCreateConsent(false);
-      setCreateInvalid(false);
-      setStatus("Gateway saved and activated.");
+      requestedSettings = true;
+      refetchedSettings = await requestSettings();
+      finishActivation(refetchedSettings, activated.id);
     } catch {
+      if (created) {
+        const createdConfig = created;
+        if (!requestedSettings) {
+          requestedSettings = true;
+          try {
+            refetchedSettings = await requestSettings();
+          } catch {
+            refetchedSettings = null;
+          }
+        }
+        const recoveredSettings = refetchedSettings;
+        const authoritativeConfig = recoveredSettings?.configs.find((config) => config.id === createdConfig.id);
+        if (authoritativeConfig?.state === "active" && recoveredSettings) {
+          finishActivation(recoveredSettings, createdConfig.id);
+          return;
+        }
+        setSettings((current) => {
+          if (recoveredSettings) return recoveredSettings;
+          const configs = current?.configs ?? [];
+          const existingIndex = configs.findIndex((config) => config.id === createdConfig.id);
+          const nextConfigs = existingIndex === -1
+            ? [...configs, createdConfig]
+            : configs.map((config) => config.id === createdConfig.id ? createdConfig : config);
+          return { configs: nextConfigs };
+        });
+        setPageError(null);
+        setSessionKeys((current) => ({
+          ...current,
+          [createdConfig.id]: { value: writeOnlyKey, revealed: false },
+        }));
+        clearCreateForm();
+        setActionError("Gateway saved but not activated. Finish activation below.");
+        setStatus("");
+        return;
+      }
       setActionError(GENERIC_ERROR);
       setStatus("");
     } finally {
@@ -222,7 +266,7 @@ export function ModelGatewaySettings() {
   }
 
   async function consent(config: ModelGatewayConfigView) {
-    if (!consents[config.id] || busy) return;
+    if (busy) return;
     await mutate(CONSENT_ENDPOINT, "POST", {
       configId: config.id,
       exactBaseUrl: config.baseUrl,
@@ -250,7 +294,6 @@ export function ModelGatewaySettings() {
   async function rotate(config: ModelGatewayConfigView, event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const writeOnlyKey = rotationKeys[config.id] ?? "";
-    setRotationKeys((current) => ({ ...current, [config.id]: "" }));
     if (!writeOnlyKey.trim()) {
       setRotationInvalidId(config.id);
       setActionError("Enter a new API key before saving.");
@@ -258,10 +301,33 @@ export function ModelGatewaySettings() {
     }
     if (busy) return;
     setRotationInvalidId(null);
-    await mutate(SETTINGS_ENDPOINT, "PUT", {
-      configId: config.id,
-      apiKey: writeOnlyKey,
-    }, "API key replaced.");
+    setBusy(true);
+    setActionError(null);
+    try {
+      await requestConfig(SETTINGS_ENDPOINT, "PUT", {
+        configId: config.id,
+        apiKey: writeOnlyKey,
+      });
+      const nextSettings = await requestSettings();
+      setSettings(nextSettings);
+      setPageError(null);
+      setSessionKeys((current) => ({
+        ...current,
+        [config.id]: { value: writeOnlyKey, revealed: false },
+      }));
+      setRotationKeys((current) => {
+        const next = { ...current };
+        delete next[config.id];
+        return next;
+      });
+      setRotatingId(null);
+      setStatus("API key replaced.");
+    } catch {
+      setActionError(GENERIC_ERROR);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function revoke(config: ModelGatewayConfigView) {
@@ -270,12 +336,17 @@ export function ModelGatewaySettings() {
       configId: config.id,
     }, "Gateway revoked.");
     if (changed) {
-      setRevokeId(null);
       setSessionKeys((current) => {
-        const remaining = { ...current };
-        delete remaining[config.id];
-        return remaining;
+        const next = { ...current };
+        delete next[config.id];
+        return next;
       });
+      setRotationKeys((current) => {
+        const next = { ...current };
+        delete next[config.id];
+        return next;
+      });
+      setRevokeId(null);
     }
   }
 
@@ -367,27 +438,29 @@ export function ModelGatewaySettings() {
                     disabled={busy}
                   />
                 </label>
-                <fieldset className={styles.consent}>
-                  <legend>Review destination and data sharing</legend>
-                  <DataSharingSummary exactBaseUrl={baseUrl.trim()} />
-                  <label className={styles.checkLabel}>
-                    <input
-                      type="checkbox"
-                      checked={createConsent}
-                      onChange={(event) => {
-                        setCreateConsent(event.target.checked);
-                        if (createInvalid) {
-                          setCreateInvalid(false);
-                          setActionError(null);
-                        }
-                      }}
-                      aria-invalid={createInvalid && !createConsent}
-                      aria-describedby={createInvalid ? "gateway-action-error" : undefined}
-                      disabled={busy}
-                    />
-                    I confirm this exact destination and data sharing.
-                  </label>
-                </fieldset>
+                {baseUrl || displayName || model || apiKey ? (
+                  <fieldset className={styles.consent}>
+                    <legend>Review destination and data sharing</legend>
+                    <DataSharingSummary exactBaseUrl={baseUrl.trim()} />
+                    <label className={styles.checkLabel}>
+                      <input
+                        type="checkbox"
+                        checked={createConsent}
+                        onChange={(event) => {
+                          setCreateConsent(event.target.checked);
+                          if (createInvalid) {
+                            setCreateInvalid(false);
+                            setActionError(null);
+                          }
+                        }}
+                        aria-invalid={createInvalid && !createConsent}
+                        aria-describedby={createInvalid ? "gateway-action-error" : undefined}
+                        disabled={busy}
+                      />
+                      I confirm this exact destination and data sharing.
+                    </label>
+                  </fieldset>
+                ) : null}
                 <button
                   className={styles.primaryButton}
                   type="submit"
@@ -427,45 +500,36 @@ export function ModelGatewaySettings() {
                       <div><dt>Credential</dt><dd>{config.hasApiKey ? "Key saved" : "No key saved"}</dd></div>
                     </dl>
 
+                    {sessionKeys[config.id] ? (
+                      <SessionKeyDisplay
+                        config={config}
+                        sessionKey={sessionKeys[config.id]}
+                        onToggle={() => setSessionKeys((current) => ({
+                          ...current,
+                          [config.id]: {
+                            ...current[config.id],
+                            revealed: !current[config.id].revealed,
+                          },
+                        }))}
+                      />
+                    ) : null}
+
                     {config.state === "pending_consent" ? (
-                      <fieldset className={styles.consent}>
-                        <legend>Confirm data sharing for {config.displayName}</legend>
+                      <div className={styles.consent}>
                         <DataSharingSummary exactBaseUrl={config.baseUrl} />
-                        <label className={styles.checkLabel}>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(consents[config.id])}
-                            onChange={(event) => setConsents((current) => ({ ...current, [config.id]: event.target.checked }))}
-                            disabled={busy}
-                          />
-                          I confirm this exact destination and data sharing.
-                        </label>
                         <button
                           className={styles.primaryButton}
                           type="button"
-                          disabled={busy || !consents[config.id]}
+                          disabled={busy}
                           onClick={() => void consent(config)}
                         >
-                          Activate gateway
+                          Confirm and finish activation
                         </button>
-                      </fieldset>
+                      </div>
                     ) : null}
 
                     {config.state === "active" ? (
                       <div className={styles.actions}>
-                        {sessionKeys[config.id] ? (
-                          <SessionKeyDisplay
-                            config={config}
-                            sessionKey={sessionKeys[config.id]}
-                            onToggle={() => setSessionKeys((current) => ({
-                              ...current,
-                              [config.id]: {
-                                ...current[config.id],
-                                revealed: !current[config.id].revealed,
-                              },
-                            }))}
-                          />
-                        ) : null}
                         <form onSubmit={(event) => void rename(config, event)}>
                           <label>
                             New display name for {config.displayName}
