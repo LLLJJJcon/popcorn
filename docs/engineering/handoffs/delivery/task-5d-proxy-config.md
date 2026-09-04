@@ -102,3 +102,23 @@ then the task's full verification passed: 45/45 Vitest tests plus TypeScript,
 scoped ESLint, syntax, and diff checks.
 
 Fix commit: `f757d6349924fa52760ec339565f9524fa3de876`.
+
+## Fix round 2/5 — reject backslash-normalized paths
+
+### RED
+
+The malformed-input table gained two backslash-based path regressions: a
+backslash current-directory form and a nested backslash parent-segment form.
+Before the repair, the focused runtime test reached the injected readiness
+boundary because WHATWG URL handling treats those backslashes as path
+separators and normalizes them to the root path.
+
+### GREEN
+
+The optional setting now rejects any raw backslash before URL parsing. This is
+limited to invalid path-separator syntax and leaves valid HTTP(S) origins and
+an optional literal root slash unchanged. The focused regression passed, then
+the full task gate passed: 45/45 Vitest tests plus TypeScript, scoped ESLint,
+syntax, and diff checks.
+
+Fix commit: `21d0ca69002f5f7e5db7242cca2fb48303f579ef`.
