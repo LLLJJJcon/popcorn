@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { z } from "zod";
+
 import type { ApiErrorCode } from "@/contracts/api";
 import { YouTubeVideoIdSchema } from "@/contracts/source";
 import { failure, success } from "@/server/api/respond";
@@ -80,6 +82,11 @@ type TranscriptRouteContext = {
 };
 
 export interface TranscriptRouteStore {
+  readSnapshot(
+    expectedUserId: string,
+    videoId: string,
+    snapshotId: string,
+  ): Promise<NativeTranscriptSnapshot | null>;
   saveReady(
     expectedUserId: string,
     videoId: string,
@@ -105,6 +112,20 @@ function noStoreJson(body: unknown, status: number): Response {
     status,
     headers: { "Cache-Control": "no-store" },
   });
+}
+
+function unavailableSnapshot(requestId: string): Response {
+  return noStoreJson(
+    failure(
+      {
+        code: "TRANSCRIPT_UNAVAILABLE",
+        message: "Transcript snapshot is unavailable",
+        retryable: false,
+      },
+      requestId,
+    ),
+    404,
+  );
 }
 
 /** Testable HTTP boundary kept outside Next's restricted route-module exports. */
@@ -135,6 +156,29 @@ export function createTranscriptRoute(dependencies: TranscriptRouteDependencies)
           requestId,
         ),
         400,
+      );
+    }
+
+    const suppliedSnapshotId = new URL(request.url).searchParams.get("snapshotId");
+    if (suppliedSnapshotId !== null) {
+      const parsedSnapshotId = z.string().uuid().safeParse(suppliedSnapshotId);
+      if (!parsedSnapshotId.success) return unavailableSnapshot(requestId);
+      const snapshot = await dependencies.store.readSnapshot(
+        authenticated.userId,
+        parsedVideoId.data,
+        parsedSnapshotId.data,
+      );
+      if (!snapshot) return unavailableSnapshot(requestId);
+      return noStoreJson(
+        success(
+          {
+            kind: "ready" as const,
+            snapshotId: parsedSnapshotId.data,
+            snapshot,
+          },
+          requestId,
+        ),
+        200,
       );
     }
 

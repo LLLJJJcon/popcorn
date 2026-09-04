@@ -37,6 +37,31 @@ const SOURCE_ID = "20000000-0000-4000-8000-000000000001";
 const SAVE_ID = "30000000-0000-4000-8000-000000000001";
 const SNAPSHOT_ID = "40000000-0000-4000-8000-000000000001";
 
+const persistedSnapshot: NativeTranscriptSnapshot = {
+  language: "zh-CN",
+  transcriptHash: "e".repeat(64),
+  plainText: "第一句。 第二句。",
+  timestampedText: "[0:02] 第一句。\n[1:05] 第二句。",
+  segments: [
+    {
+      stableId: "d".repeat(64),
+      position: 0,
+      originalChinese: "第一句。",
+      startSeconds: 2,
+      endSeconds: 4,
+      language: "zh-CN",
+    },
+    {
+      stableId: "e".repeat(64),
+      position: 1,
+      originalChinese: "第二句。",
+      startSeconds: 65,
+      endSeconds: 67,
+      language: "zh-CN",
+    },
+  ],
+};
+
 function job(overrides: Partial<KnowledgeJob> = {}): KnowledgeJob {
   return KnowledgeJobSchema.parse({
     id: JOB_ID,
@@ -493,6 +518,69 @@ describe("durable resolve_snapshot processing", () => {
 });
 
 describe("CONTRACT-006 Supabase RPC adapters", () => {
+  test("reads one owned persisted snapshot in segment position order and reconstructs native text", async () => {
+    const sourceQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({
+        data: { id: SOURCE_ID, user_id: USER_A, youtube_video_id: "abc123XYZ00" },
+        error: null,
+      })),
+    };
+    const snapshotQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({
+        data: {
+          id: SNAPSHOT_ID,
+          user_id: USER_A,
+          video_source_id: SOURCE_ID,
+          transcript_hash: persistedSnapshot.transcriptHash,
+          transcript_language: "zh-CN",
+        },
+        error: null,
+      })),
+    };
+    const segmentsQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      order: vi.fn(async () => ({
+        data: [
+          {
+            stable_id: "e".repeat(64), position: 1, original_chinese: "第二句。",
+            start_seconds: 65, end_seconds: 67, language: "zh-CN",
+            user_id: USER_A, snapshot_id: SNAPSHOT_ID,
+          },
+          {
+            stable_id: "d".repeat(64), position: 0, original_chinese: "第一句。",
+            start_seconds: 2, end_seconds: 4, language: "zh-CN",
+            user_id: USER_A, snapshot_id: SNAPSHOT_ID,
+          },
+        ],
+        error: null,
+      })),
+    };
+    const from = vi.fn((table: string) => {
+      if (table === "video_sources") return sourceQuery;
+      if (table === "video_snapshots") return snapshotQuery;
+      if (table === "transcript_segments") return segmentsQuery;
+      throw new Error(`unexpected table ${table}`);
+    });
+    const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
+
+    await expect(store.readSnapshot(USER_A, "abc123XYZ00", SNAPSHOT_ID)).resolves.toEqual(
+      persistedSnapshot,
+    );
+    expect(sourceQuery.eq).toHaveBeenCalledWith("user_id", USER_A);
+    expect(sourceQuery.eq).toHaveBeenCalledWith("youtube_video_id", "abc123XYZ00");
+    expect(snapshotQuery.eq).toHaveBeenCalledWith("user_id", USER_A);
+    expect(snapshotQuery.eq).toHaveBeenCalledWith("video_source_id", SOURCE_ID);
+    expect(snapshotQuery.eq).toHaveBeenCalledWith("id", SNAPSHOT_ID);
+    expect(segmentsQuery.eq).toHaveBeenCalledWith("user_id", USER_A);
+    expect(segmentsQuery.eq).toHaveBeenCalledWith("snapshot_id", SNAPSHOT_ID);
+    expect(segmentsQuery.order).toHaveBeenCalledWith("position", { ascending: true });
+  });
+
   test("registers a conflict through one RPC and never mutates job tables", async () => {
     const sourceQuery = {
       select: vi.fn(function (this: unknown) { return this; }),
@@ -587,13 +675,15 @@ describe("route security and public shapes", () => {
 
   test("HTTP 200 persists the owner snapshot and returns a no-store ready result", async () => {
     const saveReady = vi.fn(async () => ({ snapshotId: SNAPSHOT_ID }));
+    const readSnapshot = vi.fn();
+    const provider = {
+      request: vi.fn(async () => ({ kind: "ready" as const, snapshot })),
+      poll: vi.fn(),
+    };
     const route = createTranscriptRoute({
       authenticate: async () => ({ userId: USER_A }),
-      provider: {
-        request: vi.fn(async () => ({ kind: "ready" as const, snapshot })),
-        poll: vi.fn(),
-      },
-      store: { saveReady, savePending: vi.fn() },
+      provider,
+      store: { readSnapshot, saveReady, savePending: vi.fn() },
       requestId: () => "request-ready",
     });
 
@@ -603,11 +693,76 @@ describe("route security and public shapes", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(provider.request).toHaveBeenCalledExactlyOnceWith("abc123XYZ00");
+    expect(readSnapshot).not.toHaveBeenCalled();
     expect(saveReady).toHaveBeenCalledWith(USER_A, "abc123XYZ00", snapshot);
     expect(await response.json()).toMatchObject({
       ok: true,
       data: { kind: "ready", snapshotId: SNAPSHOT_ID, snapshot },
     });
+  });
+
+  test("a snapshot continuation returns the exact owned snapshot without Provider access", async () => {
+    const provider = {
+      request: vi.fn(),
+      poll: vi.fn(),
+    };
+    const readSnapshot = vi.fn(async () => persistedSnapshot);
+    const route = createTranscriptRoute({
+      authenticate: async () => ({ userId: USER_A }),
+      provider,
+      store: { readSnapshot, saveReady: vi.fn(), savePending: vi.fn() },
+      requestId: () => "request-continuation",
+    });
+
+    const response = await route(
+      new Request(`https://popcorn.test?snapshotId=${SNAPSHOT_ID}`),
+      { params: Promise.resolve({ videoId: "abc123XYZ00" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(readSnapshot).toHaveBeenCalledExactlyOnceWith(USER_A, "abc123XYZ00", SNAPSHOT_ID);
+    expect(provider.request).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      data: { kind: "ready", snapshotId: SNAPSHOT_ID, snapshot: persistedSnapshot },
+    });
+  });
+
+  test.each([
+    ["a malformed", "not-a-snapshot", undefined],
+    ["a foreign or wrong-video", SNAPSHOT_ID, null],
+  ])("%s snapshot continuation is bounded and never falls back to Provider", async (
+    _label,
+    snapshotId,
+    readResult,
+  ) => {
+    const provider = { request: vi.fn(), poll: vi.fn() };
+    const readSnapshot = vi.fn(async (): Promise<NativeTranscriptSnapshot | null> => readResult ?? null);
+    const route = createTranscriptRoute({
+      authenticate: async () => ({ userId: USER_A }),
+      provider,
+      store: { readSnapshot, saveReady: vi.fn(), savePending: vi.fn() },
+      requestId: () => "request-bounded",
+    });
+
+    const response = await route(
+      new Request(`https://popcorn.test?snapshotId=${snapshotId}`),
+      { params: Promise.resolve({ videoId: "abc123XYZ00" }) },
+    );
+
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toMatchObject({
+      code: "TRANSCRIPT_UNAVAILABLE",
+      retryable: false,
+    });
+    expect(provider.request).not.toHaveBeenCalled();
+    if (snapshotId === SNAPSHOT_ID) {
+      expect(readSnapshot).toHaveBeenCalledExactlyOnceWith(USER_A, "abc123XYZ00", SNAPSHOT_ID);
+    } else {
+      expect(readSnapshot).not.toHaveBeenCalled();
+    }
   });
 
   test("HTTP 202 stores a private Provider ID and returns only Popcorn's job UUID", async () => {
@@ -619,6 +774,7 @@ describe("route security and public shapes", () => {
         poll: vi.fn(),
       },
       store: {
+        readSnapshot: vi.fn(),
         saveReady: vi.fn(),
         savePending,
       },

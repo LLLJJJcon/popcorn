@@ -317,6 +317,48 @@ test("one status poll is one independent short Popcorn request", async () => {
   assert.deepEqual(paths, ["https://app.popcorn.local/api/v1/jobs/job-1"]);
 });
 
+test("a succeeded transcript job resumes the returned snapshot without starting another transcript job", async () => {
+  const paths = [];
+  const snapshotId = "40000000-0000-4000-8000-000000000001";
+  const helpers = loadBackgroundHelpers({ fetchImpl: async (url) => {
+    paths.push(url);
+    if (url.endsWith("/api/v1/jobs/job-1")) {
+      return {
+        status: 200,
+        json: async () => ({ ok: true, data: { status: "succeeded", result: { snapshotId } } }),
+      };
+    }
+    return {
+      status: 200,
+      json: async () => ({
+        ok: true,
+        data: {
+          kind: "ready",
+          snapshotId,
+          snapshot: {
+            language: "zh-CN",
+            transcriptHash: "a".repeat(64),
+            plainText: "你好",
+            timestampedText: "[0:00] 你好",
+            segments: [{
+              stableId: "b".repeat(64), originalChinese: "你好",
+              startSeconds: 0, endSeconds: 1, language: "zh-CN",
+            }],
+          },
+        },
+      }),
+    };
+  } });
+
+  const result = await helpers.handleFetchTranscript("abc123XYZ00", "job-1");
+
+  assert.equal(result.success, true);
+  assert.deepEqual(paths, [
+    "https://app.popcorn.local/api/v1/jobs/job-1",
+    `https://app.popcorn.local/api/v1/youtube/abc123XYZ00/transcript?snapshotId=${snapshotId}`,
+  ]);
+});
+
 test("artifact polling never accepts a Provider URL from the message", async () => {
   const paths = [];
   const helpers = loadBackgroundHelpers({ fetchImpl: async (url) => {

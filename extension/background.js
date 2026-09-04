@@ -145,6 +145,11 @@ async function handleFetchTranscript(videoId, jobId) {
     if (status.status !== "succeeded" || !status.result?.snapshotId) {
       return { success: false, error: status.lastErrorCode || "TRANSCRIPT_UNAVAILABLE" };
     }
+    const result = await apiFetch(
+      `/api/v1/youtube/${encodeURIComponent(videoId)}/transcript?snapshotId=${encodeURIComponent(status.result.snapshotId)}`,
+      { method: "GET" },
+    );
+    return normalizeTranscriptResult(result.data);
   }
   const result = await apiFetch(`/api/v1/youtube/${encodeURIComponent(videoId)}/transcript`, { method: "GET" });
   if (result.status === 202) {
