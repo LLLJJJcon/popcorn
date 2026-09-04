@@ -377,6 +377,8 @@ let transcriptScrollObserver = null;
 // Stable keys include the video, source mode, language, and semantic segment ID.
 let transcriptParagraphCache = new Map();
 const TRANSLATION_MESSAGE_TIMEOUT_MS = 130_000;
+const TRANSLATION_POLL_INTERVAL_MS = 500;
+const TRANSLATION_POLLING_WINDOW_MS = 120_000;
 
 /**
  * Prevent a stopped service worker or dead message channel from leaving the
@@ -418,11 +420,15 @@ function sendTranslationMessage(message) {
   });
 }
 
-async function sendCloudAction(message, maxPolls = 4) {
+async function sendCloudAction(
+  message,
+  maxPolls = Math.floor(TRANSLATION_POLLING_WINDOW_MS / TRANSLATION_POLL_INTERVAL_MS),
+) {
   let result = await chrome.runtime.sendMessage(message);
-  for (let poll = 0; result?.success && result.pending && poll < maxPolls; poll += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    result = await chrome.runtime.sendMessage({ ...message, jobId: result.jobId });
+  const jobId = result?.jobId;
+  for (let poll = 0; result?.success && result.pending && jobId && poll < maxPolls; poll += 1) {
+    await new Promise((resolve) => setTimeout(resolve, TRANSLATION_POLL_INTERVAL_MS));
+    result = await chrome.runtime.sendMessage({ ...message, jobId });
   }
   return result;
 }
@@ -2492,7 +2498,7 @@ function renderTranscriptModeRows(segments, mode) {
  * Rebuilds a provider response in source order. Unknown IDs are ignored and
  * missing IDs remain explicit errors, never positional guesses.
  */
-function alignTranslatedSegmentBatch(sourceSegments, responseSegments) {
+function alignTranslatedSegmentBatch(sourceSegments, responseSegments, { pending = false } = {}) {
   const translatedById = new Map();
   const duplicateIds = new Set();
   if (Array.isArray(responseSegments)) {
@@ -2512,7 +2518,11 @@ function alignTranslatedSegmentBatch(sourceSegments, responseSegments) {
   return sourceSegments.map((segment) => ({
     id: segment.id,
     text: translatedById.get(segment.id) || "",
-    error: translatedById.has(segment.id) ? "" : "Translation unavailable.",
+    error: translatedById.has(segment.id)
+      ? ""
+      : pending
+        ? "Translation is still processing. Please Retry."
+        : "Translation unavailable.",
   }));
 }
 
@@ -2587,7 +2597,9 @@ async function requestTranscriptTranslationBatch(
     const responseSegments = result?.success
       ? result.content?.segments
       : [];
-    const aligned = alignTranslatedSegmentBatch(sourceBatch, responseSegments);
+    const aligned = alignTranslatedSegmentBatch(sourceBatch, responseSegments, {
+      pending: result?.success && result.pending,
+    });
     aligned.forEach((item, batchIndex) => {
       if (!result?.success) {
         item.error = result?.error || "Translation failed.";

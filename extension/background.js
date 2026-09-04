@@ -160,7 +160,10 @@ async function submitArtifact(path, payload, jobId) {
       return { success: true, pending: true, jobId, status: status.status };
     }
     if (status.status !== "succeeded" || !status.result?.artifactId) {
-      return { success: false, error: "Learning artifact job failed." };
+      return {
+        success: false,
+        error: "The learning artifact could not be completed. Check your model gateway settings and retry.",
+      };
     }
   }
   const result = await apiFetch(path, { method: "POST", body: JSON.stringify(payload) });

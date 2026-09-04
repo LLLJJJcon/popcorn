@@ -118,6 +118,7 @@ function loadBackgroundHelpers({
     YTD_SETTINGS: {
       DEFAULTS: { boundedCachePrefix: "popcorn:test" },
     },
+    POPCORN_RUNTIME_CONFIG: { appUrl: "https://app.popcorn.local" },
     POPCORN_AUTH: {
       createAuthClient: () => ({
         initialize: async () => {},
@@ -329,6 +330,32 @@ test("artifact polling never accepts a Provider URL from the message", async () 
   assert.deepEqual(paths, ["https://app.popcorn.local/api/v1/youtube/abc123XYZ00/translations"]);
 });
 
+test("a terminal learning-artifact failure gives a safe model-gateway settings recovery message", async () => {
+  const helpers = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 200,
+    json: async () => ({
+      ok: true,
+      data: {
+        status: "failed",
+        lastErrorCode: "PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY",
+      },
+    }),
+  }) });
+
+  const result = await helpers.translateSegments({
+    videoId: "abc123XYZ00",
+    snapshotId: "snapshot-1",
+    segmentIds: ["segment-1"],
+    jobId: "translation-job-42",
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: false,
+    error: "The learning artifact could not be completed. Check your model gateway settings and retry.",
+  });
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY/);
+});
+
 test("Popcorn API errors expose only bounded public error fields", async () => {
   const helpers = loadBackgroundHelpers({ fetchImpl: async () => ({
     status: 503,
@@ -412,6 +439,72 @@ test("translation message watchdog rejects, clears its timer, and ignores late r
   assert.equal(successClearCount, 1);
   successTimeoutCallback();
   assert.equal(successClearCount, 1);
+});
+
+test("translation recovery keeps polling one job until a delayed real result succeeds", async () => {
+  const sent = [];
+  const responses = [
+    { success: true, pending: true, jobId: "translation-job-42", status: "pending" },
+    { success: true, pending: true, jobId: "translation-job-42", status: "pending" },
+    { success: true, pending: true, jobId: "translation-job-42", status: "pending" },
+    { success: true, pending: true, jobId: "translation-job-42", status: "pending" },
+    { success: true, pending: true, jobId: "translation-job-42", status: "pending" },
+    { success: true, pending: true, jobId: "translation-job-42", status: "pending" },
+    {
+      success: true,
+      content: { segments: [{ id: "segment-1", english: "Recovered translation." }] },
+    },
+  ];
+  let nextTimerId = 0;
+  const helpers = loadSidepanelHelpers({
+    sendMessage(message) {
+      sent.push({ ...message });
+      return Promise.resolve(responses.shift());
+    },
+    setTimeoutImpl(callback, delay) {
+      const timerId = ++nextTimerId;
+      if (delay === 500) Promise.resolve().then(callback);
+      return timerId;
+    },
+  });
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(await helpers.sendTranslationMessage({
+      action: "translateSegments",
+      videoId: "abc123XYZ00",
+      snapshotId: "snapshot-1",
+      segmentIds: ["segment-1"],
+    }))),
+    {
+      success: true,
+      content: { segments: [{ id: "segment-1", english: "Recovered translation." }] },
+    },
+  );
+  assert.equal(sent.length, 7);
+  assert.equal(sent[0].jobId, undefined);
+  assert.ok(sent.slice(1).every((message) => message.jobId === "translation-job-42"));
+  assert.ok(sent.every((message) => !Object.hasOwn(message, "providerUrl") && !Object.hasOwn(message, "apiKey")));
+  assert.ok(nextTimerId < 260);
+});
+
+test("an exhausted pending translation renders a processing state with retry", () => {
+  const sidepanel = loadSidepanelHelpers();
+  const segment = { id: "segment-1", text: "仍在处理中。" };
+  const [pending] = sidepanel.alignTranslatedSegmentBatch(
+    [segment],
+    [],
+    { pending: true },
+  );
+  const html = sidepanel.renderTranscriptSegmentContent(
+    segment,
+    "en",
+    pending.text,
+    pending.error,
+  );
+
+  assert.match(html, /still processing/i);
+  assert.match(html, /Retry/);
+  assert.doesNotMatch(html, /Translation unavailable/i);
 });
 
 test("a real two-row Range projects exact UTF-16 cross-line explanation evidence", () => {
