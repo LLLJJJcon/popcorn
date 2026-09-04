@@ -2,16 +2,19 @@
 
 ## Delivered
 
-- Code and tests: `948d551` (`feat: retry failed transcript translations in one job`)
+- Initial code and tests: `948d551` (`feat: retry failed transcript translations in one job`)
+- Review fixes: `f83b4fb` (`fix: preserve retry state across digest refresh`)
 - A hidden `Retry failed` action now sits immediately before `Copy` and displays the current failure count.
 - One click collects the failed rendered semantic rows, marks all of them retrying, and sends their stable IDs in one authenticated translation message with one client-generated UUID retry identity.
 - Returned translations are applied by stable ID only. Unknown, duplicate, missing, or stale results leave an explicit failure instead of receiving a positional guess.
 - The background forwards only `snapshotId`, `segmentIds`, and the optional `retryId`. The server admits `retryId` only to the translation dedupe payload, so it makes a fresh idempotent job without altering private job input, Provider evidence, or the prompt.
 - Translation request, private job, Provider-response, and artifact content paths no longer impose a four-row array ceiling. Existing 65,536-byte route and Provider request limits and the Provider response/artifact bounds still apply.
+- Any actual digest refresh, including a same-video refresh after an error, now invalidates the prior translation generation and clears its busy ownership before rendering the replacement transcript. A stale completion cannot clear a retry started from that fresh view.
+- Response IDs are marked seen before their English value is accepted, so blank-first and malformed-first duplicate IDs remain explicit failed rows instead of allowing a later value to be guessed as authoritative.
 
 ## Verification
 
-- `node --test extension/tests/translation.test.js` — 29 passing.
+- `node --test extension/tests/translation.test.js` — 32 passing, including same-video refresh ownership and blank/malformed duplicate-ID regressions.
 - `CI=true /private/tmp/popcorn-youtube-learning/node_modules/.bin/vitest run tests/integration/youtube/learning-artifacts.test.ts tests/integration/model-gateway/runtime-resolver.test.ts` — 72 passing.
 - Type check and both JavaScript syntax checks passed.
 

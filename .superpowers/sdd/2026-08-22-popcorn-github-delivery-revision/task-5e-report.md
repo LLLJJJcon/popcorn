@@ -4,6 +4,7 @@
 
 - Baseline: `f559af0efb574149c2826e28d8477ba95f8c8435`
 - Implementation commit: `948d551`
+- Review-fix commit: `f83b4fb`
 - No database, migration, generated type, cache, queue/backoff, prompt wording, model-gateway settings, or deployment change was made.
 - The untracked worktree-local `node_modules` symlink was used for checks and was not staged.
 
@@ -31,6 +32,14 @@ node --test extension/tests/translation.test.js
 
 It exited nonzero with `Retry failed (2)` where `Retry failed (1)` was required.
 
+Review-fix RED evidence:
+
+```text
+node --test extension/tests/translation.test.js
+```
+
+This exited nonzero with three expected failures: blank-first and malformed-first duplicate IDs incorrectly accepted the later English value, and a same-video digest refresh left the new transcript's `Retry failed` action disabled by the prior retry.
+
 ## GREEN evidence
 
 The required focused commands were re-run after the final implementation:
@@ -39,7 +48,7 @@ The required focused commands were re-run after the final implementation:
 node --test extension/tests/translation.test.js
 ```
 
-Exited 0: 29 passing tests.
+Exited 0: 32 passing tests, including the two ambiguous duplicate-ID cases and same-video refresh retry ownership.
 
 ```text
 CI=true /private/tmp/popcorn-youtube-learning/node_modules/.bin/vitest run tests/integration/youtube/learning-artifacts.test.ts tests/integration/model-gateway/runtime-resolver.test.ts
