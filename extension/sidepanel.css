@@ -1274,11 +1274,10 @@ body {
 }
 
 /* ============================================================
-   NOTES TAB
+   SAVED TAB
    ============================================================ */
 
-/* Segmented filter control (This Video / All Notes) */
-.notes-filter {
+.saved-filter {
   display: flex;
   gap: 3px;
   padding: 3px;
@@ -1286,7 +1285,7 @@ body {
   border-radius: var(--r-pill);
 }
 
-.notes-filter .enhance-btn {
+.saved-filter .enhance-btn {
   padding: 5px 12px;
   font-size: 11px;
   border: none;
@@ -1294,124 +1293,122 @@ body {
   color: var(--text-muted);
 }
 
-.notes-filter .enhance-btn:hover:not(:disabled) {
+.saved-filter .enhance-btn:hover:not(:disabled) {
   background: transparent;
   color: var(--text-secondary);
 }
 
-.notes-filter .enhance-btn:focus-visible {
+.saved-filter .enhance-btn:focus-visible {
   outline: 3px solid var(--accent-hover);
   outline-offset: 2px;
 }
 
-.notes-filter .enhance-btn.active {
+.saved-filter .enhance-btn.active {
   background: var(--accent);
   color: white;
   box-shadow: 0 2px 6px rgba(200, 103, 79, 0.3);
 }
 
-.notes-filter .enhance-btn.active:hover:not(:disabled) {
+.saved-filter .enhance-btn.active:hover:not(:disabled) {
   background: var(--accent-hover);
   color: white;
 }
 
-.notes-filter .enhance-btn.active:focus-visible {
+.saved-filter .enhance-btn.active:focus-visible {
   background: var(--accent);
   color: white;
 }
 
-.notes-intro {
+.saved-library-state {
   font-family: var(--font-reading);
   font-size: 13.5px;
   color: var(--text-muted);
   text-align: center;
-  padding: 44px 20px;
+  padding: 36px 20px;
   line-height: 1.7;
 }
 
-.note-item {
+.saved-library-state[hidden],
+.saved-list[hidden] {
+  display: none;
+}
+
+.saved-library-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.saved-list {
+  display: grid;
+  gap: 11px;
+}
+
+.saved-library-item {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   padding: 15px 16px;
-  margin-bottom: 11px;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
   transition: all 0.18s ease;
 }
 
-.note-item:hover {
+.saved-library-item:hover {
   border-color: var(--accent);
   box-shadow: var(--shadow-md);
 }
 
-.note-header {
+.saved-library-title {
+  font-family: var(--font-reading);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.saved-library-channel {
+  font-family: var(--font-reading);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.saved-library-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 11px;
-}
-
-.note-timestamp {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--accent);
-  background: var(--accent-dim);
-  padding: 3px 9px;
-  border-radius: var(--r-pill);
-  cursor: pointer;
-  transition: all 0.18s ease;
-}
-
-.note-timestamp:hover {
-  background: var(--accent);
-  color: white;
-}
-
-.note-video-title {
-  font-family: var(--font-reading);
-  font-size: 11.5px;
-  color: var(--text-muted);
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.note-delete {
-  font-family: var(--font-body);
-  font-size: 14px;
-  background: none;
-  border: none;
-  border-radius: var(--r-pill);
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 2px 8px;
-  transition: all 0.18s ease;
-}
-
-.note-delete:hover {
-  color: var(--accent);
-  background: var(--accent-dim);
-}
-
-.note-text {
-  font-family: var(--font-reading);
-  font-size: 14px;
-  line-height: 1.65;
-  color: var(--text);
-  margin-bottom: 12px;
-}
-
-.note-actions {
-  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 11.5px;
 }
 
-.note-action-btn {
+.saved-processing {
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  background: var(--surface-raised);
+}
+
+.saved-processing-ready {
+  color: var(--success, #26734d);
+}
+
+.saved-processing-failed,
+.saved-processing-unsupported {
+  color: var(--accent);
+}
+
+.saved-library-open {
   font-family: var(--font-body);
   font-weight: 600;
   font-size: 11.5px;
   padding: 6px 12px;
+  margin-top: 12px;
   background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--r-pill);
@@ -1420,8 +1417,13 @@ body {
   transition: all 0.18s ease;
 }
 
-.note-action-btn:hover {
+.saved-library-open:hover {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--accent-dim);
+}
+
+.saved-library-open:focus-visible {
+  outline: 3px solid var(--accent-hover);
+  outline-offset: 2px;
 }

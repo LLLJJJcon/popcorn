@@ -367,6 +367,9 @@ let currentVideoDuration = 0;
 let isAnalysisLoading = false; // Track if analysis is in progress
 let youtubeTabId = null; // Store the YouTube tab ID for reliable messaging
 let errorAction = null;
+let savedLibrarySummaries = [];
+let savedLibraryShowAll = false;
+let savedLibraryLoadGeneration = 0;
 
 // --- Translation state ---
 // Native Chinese is immediate; English is requested only when explicitly shown.
@@ -614,14 +617,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "transcriptProgress") {
     // Background is telling us the transcript fetch status changed
     updateLoading(message.title, message.subtitle);
-    sendResponse({ success: true });
-  }
-  if (message.action === "noteSaved") {
-    // Refresh notes list when a new note is saved
-    const filterAll = document
-      .getElementById("notesFilterAll")
-      ?.classList.contains("active");
-    loadNotes(filterAll ? null : currentVideoId);
     sendResponse({ success: true });
   }
   return false;
@@ -935,24 +930,30 @@ function setupEventListeners() {
       }
     });
 
-  // Notes filter buttons
-  document.getElementById("notesFilterThis")?.addEventListener("click", () => {
-    setNotesFilter(false);
-    loadNotes(currentVideoId);
+  document.getElementById("savedFilterThis")?.addEventListener("click", () => {
+    setSavedFilter(false);
+    renderSavedLibrary();
   });
-  document.getElementById("notesFilterAll")?.addEventListener("click", () => {
-    setNotesFilter(true);
-    loadNotes(null); // Load all notes
+  document.getElementById("savedFilterAll")?.addEventListener("click", () => {
+    setSavedFilter(true);
+    renderSavedLibrary();
+  });
+  document.getElementById("savedRetryBtn")?.addEventListener("click", () => {
+    void loadSavedLibrary();
+  });
+  document.getElementById("openSavedLibraryBtn")?.addEventListener("click", () => {
+    void chrome.runtime.sendMessage({ action: "openSavedLibrary" });
   });
 }
 
-function setNotesFilter(showAll) {
-  const thisVideoButton = document.getElementById("notesFilterThis");
-  const allNotesButton = document.getElementById("notesFilterAll");
+function setSavedFilter(showAll) {
+  savedLibraryShowAll = showAll;
+  const thisVideoButton = document.getElementById("savedFilterThis");
+  const allSavedButton = document.getElementById("savedFilterAll");
   thisVideoButton?.classList.toggle("active", !showAll);
   thisVideoButton?.setAttribute("aria-pressed", String(!showAll));
-  allNotesButton?.classList.toggle("active", showAll);
-  allNotesButton?.setAttribute("aria-pressed", String(showAll));
+  allSavedButton?.classList.toggle("active", showAll);
+  allSavedButton?.setAttribute("aria-pressed", String(showAll));
 }
 
 // ============================================================
@@ -1520,6 +1521,9 @@ function switchTab(tabName) {
   if (tabName === "overview" && !currentAnalysis && !isAnalysisLoading) {
     triggerAnalysis();
   }
+  if (tabName === "saved") {
+    void loadSavedLibrary();
+  }
 }
 
 /**
@@ -1616,22 +1620,6 @@ async function seekTo(seconds) {
     debugLog("[YouTube Digest Panel] seekTo relay result:", result);
   } catch (error) {
     console.error("[YouTube Digest Panel] seekTo error:", error);
-  }
-}
-
-/**
- * Plays a saved note at its timestamp.
- * - If the note belongs to the video currently open, we seek the player in place.
- * - If it belongs to a DIFFERENT video (e.g. viewing "All Notes"), seeking the
- *   current player would jump to the wrong content, so we open that video in a
- *   new tab at the right timestamp instead.
- */
-function playNote(note) {
-  if (note.videoId && note.videoId === currentVideoId) {
-    seekTo(note.timestampSeconds);
-  } else {
-    // note.timestampedUrl already includes the &t=<seconds>s anchor
-    chrome.tabs.create({ url: note.timestampedUrl });
   }
 }
 
@@ -2092,133 +2080,140 @@ async function updateCache() {
 }
 
 // ============================================================
-// NOTES
+// SAVED LIBRARY
 // ============================================================
 
-/**
- * Loads and renders notes from storage.
- * @param {string|null} videoId - Filter by video ID, or null for all notes
- */
-async function loadNotes(videoId) {
-  try {
-    const result = await chrome.runtime.sendMessage({
-      action: "getNotes",
-      videoId: videoId,
-    });
+const SAVED_PROCESSING_LABELS = Object.freeze({
+  saved: "Waiting to organize",
+  resolving_source: "Organizing",
+  organizing: "Organizing",
+  ready: "Ready",
+  unsupported: "Needs attention",
+  failed: "Could not organize",
+});
 
-    if (result.success) {
-      renderNotes(result.notes, videoId);
-    }
-  } catch (error) {
-    console.error("[YouTube Digest Panel] Load notes error:", error);
-  }
+function boundedSavedText(value, maximum, fallback = "") {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, maximum) : fallback;
 }
 
-/**
- * Renders the notes list in the Notes tab.
- */
-function renderNotes(notes, filteredVideoId) {
-  const notesList = document.getElementById("notesList");
-  const notesIntro = document.getElementById("notesIntro");
+function normalizeSavedSummary(value) {
+  if (!value || typeof value !== "object") return null;
+  if (!SAVE_UUID_PATTERN.test(value.sourceId || "")) return null;
+  if (!SAVE_VIDEO_ID_PATTERN.test(value.youtubeVideoId || "")) return null;
+  if (!Number.isInteger(value.savedCount) || value.savedCount < 1) return null;
+  if (!(value.processingState in SAVED_PROCESSING_LABELS)) return null;
+  return {
+    sourceId: value.sourceId,
+    youtubeVideoId: value.youtubeVideoId,
+    title: boundedSavedText(value.title, 200, "Saved YouTube video"),
+    channel: boundedSavedText(value.channel, 120),
+    savedCount: Math.min(value.savedCount, 99_999),
+    processingState: value.processingState,
+  };
+}
 
-  if (!notesList) return;
+function showSavedLibraryState(message, { loading = false } = {}) {
+  const state = document.getElementById("savedLibraryState");
+  const messageElement = document.getElementById("savedLibraryMessage");
+  const list = document.getElementById("savedList");
+  const retry = document.getElementById("savedRetryBtn");
+  if (!state || !messageElement || !list || !retry) return;
+  messageElement.textContent = message;
+  state.hidden = false;
+  list.hidden = true;
+  retry.hidden = loading;
+  retry.disabled = loading;
+}
 
-  notesList.innerHTML = "";
-
-  if (!notes || notes.length === 0) {
-    notesIntro.style.display = "block";
-    notesIntro.textContent = filteredVideoId
-      ? "No notes for this video yet. Hover over the video and click 📝 Note to save."
-      : "No notes saved yet. Hover over a video and click 📝 Note to save.";
+function showSavedLibraryFailure(result) {
+  if (result?.code === "AUTH_REQUIRED") {
+    showSavedLibraryState("Sign in to Popcorn to view your Saved library.");
     return;
   }
-
-  notesIntro.style.display = "none";
-
-  notes.forEach((note) => {
-    const noteEl = document.createElement("div");
-    noteEl.className = "note-item";
-    noteEl.innerHTML = `
-      <div class="note-header">
-        <span class="note-timestamp" data-url="${escapeHtml(note.timestampedUrl)}" data-seconds="${Number(note.timestampSeconds) || 0}">${escapeHtml(note.timestamp)}</span>
-        ${!filteredVideoId ? `<span class="note-video-title">${escapeHtml(note.videoTitle)}</span>` : ""}
-        <button class="note-delete" data-id="${escapeHtml(note.id)}" title="Delete note">✕</button>
-      </div>
-      <div class="note-text">"${escapeHtml(note.text)}"</div>
-      <div class="note-actions">
-        <button class="note-action-btn note-copy-text">⧉ Copy text</button>
-        <button class="note-action-btn note-copy-link" data-url="${escapeHtml(note.timestampedUrl)}">🔗 Copy timestamp</button>
-        <button class="note-action-btn note-play" data-seconds="${Number(note.timestampSeconds) || 0}">▶ Play</button>
-      </div>
-    `;
-
-    // Timestamp click - play from this point (in this tab or a new one)
-    noteEl.querySelector(".note-timestamp").addEventListener("click", () => {
-      playNote(note);
-    });
-
-    // Delete button
-    noteEl
-      .querySelector(".note-delete")
-      .addEventListener("click", async (e) => {
-        e.stopPropagation();
-        await deleteNote(note.id);
-        loadNotes(filteredVideoId);
-      });
-
-    // Copy text button — copies just the note's text
-    noteEl
-      .querySelector(".note-copy-text")
-      .addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(note.text);
-          const btn = noteEl.querySelector(".note-copy-text");
-          btn.textContent = "✓ Copied!";
-          setTimeout(() => {
-            btn.textContent = "⧉ Copy text";
-          }, 2000);
-        } catch (err) {
-          console.error("Copy failed:", err);
-        }
-      });
-
-    // Copy timestamp button — copies the timestamped YouTube link
-    noteEl
-      .querySelector(".note-copy-link")
-      .addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(note.timestampedUrl);
-          const btn = noteEl.querySelector(".note-copy-link");
-          btn.textContent = "✓ Copied!";
-          setTimeout(() => {
-            btn.textContent = "🔗 Copy timestamp";
-          }, 2000);
-        } catch (err) {
-          console.error("Copy failed:", err);
-        }
-      });
-
-    // Play button (in this tab if it's the current video, else a new tab)
-    noteEl.querySelector(".note-play").addEventListener("click", () => {
-      playNote(note);
-    });
-
-    notesList.appendChild(noteEl);
-  });
+  if (result?.code === "SESSION_EXPIRED") {
+    showSavedLibraryState("Your Popcorn session expired. Sign in again to view Saved.");
+    return;
+  }
+  showSavedLibraryState("Saved is temporarily unavailable. Try again.");
 }
 
-/**
- * Deletes a note by ID.
- */
-async function deleteNote(noteId) {
+async function loadSavedLibrary() {
+  const generation = ++savedLibraryLoadGeneration;
+  showSavedLibraryState("Loading your Saved library…", { loading: true });
   try {
-    await chrome.runtime.sendMessage({
-      action: "deleteNote",
-      noteId: noteId,
+    const result = await chrome.runtime.sendMessage({
+      action: "getSavedLibrary",
     });
-  } catch (error) {
-    console.error("[YouTube Digest Panel] Delete note error:", error);
+    if (generation !== savedLibraryLoadGeneration) return;
+    if (!result?.success) {
+      showSavedLibraryFailure(result);
+      return;
+    }
+    savedLibrarySummaries = Array.isArray(result.summaries)
+      ? result.summaries.map(normalizeSavedSummary).filter(Boolean)
+      : [];
+    renderSavedLibrary();
+  } catch (_error) {
+    if (generation === savedLibraryLoadGeneration) {
+      showSavedLibraryState("Saved is temporarily unavailable. Try again.");
+    }
   }
+}
+
+function renderSavedLibrary() {
+  const state = document.getElementById("savedLibraryState");
+  const list = document.getElementById("savedList");
+  if (!state || !list) return;
+  list.textContent = "";
+  const visible = savedLibraryShowAll
+    ? savedLibrarySummaries
+    : savedLibrarySummaries.filter(({ youtubeVideoId }) => youtubeVideoId === currentVideoId);
+  if (visible.length === 0) {
+    const scope = savedLibraryShowAll ? "your library" : "this video";
+    showSavedLibraryState(
+      `No synced saves in ${scope} yet. A save queued locally may appear after sync.`,
+    );
+    return;
+  }
+  state.hidden = true;
+  list.hidden = false;
+  visible.forEach((summary) => {
+    const item = document.createElement("article");
+    item.className = "saved-library-item";
+    const title = document.createElement("h3");
+    title.className = "saved-library-title";
+    title.textContent = summary.title;
+    item.appendChild(title);
+    if (summary.channel) {
+      const channel = document.createElement("p");
+      channel.className = "saved-library-channel";
+      channel.textContent = summary.channel;
+      item.appendChild(channel);
+    }
+    const meta = document.createElement("div");
+    meta.className = "saved-library-meta";
+    const count = document.createElement("span");
+    count.textContent = `${summary.savedCount} ${summary.savedCount === 1 ? "save" : "saves"}`;
+    const processing = document.createElement("span");
+    processing.className = `saved-processing saved-processing-${summary.processingState}`;
+    processing.textContent = SAVED_PROCESSING_LABELS[summary.processingState];
+    meta.append(count, processing);
+    item.appendChild(meta);
+    const open = document.createElement("button");
+    open.className = "saved-library-open";
+    open.type = "button";
+    open.textContent = "Open in Popcorn";
+    open.addEventListener("click", () => {
+      void chrome.runtime.sendMessage({
+        action: "openSavedDetail",
+        sourceId: summary.sourceId,
+      });
+    });
+    item.appendChild(open);
+    list.appendChild(item);
+  });
 }
 
 // ============================================================

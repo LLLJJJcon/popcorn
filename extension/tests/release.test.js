@@ -193,23 +193,23 @@ test("notes filters preserve selected contrast and expose pressed state", () => 
 
   assert.match(
     html,
-    /id="notesFilterThis"[\s\S]*?aria-pressed="true"[\s\S]*?>[\s\S]*?This Video/,
+    /id="savedFilterThis"[\s\S]*?aria-pressed="true"[\s\S]*?>[\s\S]*?This video/,
   );
   assert.match(
     html,
-    /id="notesFilterAll"[\s\S]*?aria-pressed="false"[\s\S]*?>[\s\S]*?All Notes/,
+    /id="savedFilterAll"[\s\S]*?aria-pressed="false"[\s\S]*?>[\s\S]*?All saved/,
   );
   assert.match(
     css,
-    /\.notes-filter \.enhance-btn\.active:hover:not\(:disabled\)\s*\{[^}]*background:\s*var\(--accent-hover\);[^}]*color:\s*white;/,
+    /\.saved-filter \.enhance-btn\.active:hover:not\(:disabled\)\s*\{[^}]*background:\s*var\(--accent-hover\);[^}]*color:\s*white;/,
   );
   assert.match(
     css,
-    /\.notes-filter \.enhance-btn:hover:not\(:disabled\)\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-secondary\);/,
+    /\.saved-filter \.enhance-btn:hover:not\(:disabled\)\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-secondary\);/,
   );
-  assert.match(css, /\.notes-filter \.enhance-btn:focus-visible\s*\{[^}]*outline:/);
-  assert.match(js, /setNotesFilter\(false\)/);
-  assert.match(js, /setNotesFilter\(true\)/);
+  assert.match(css, /\.saved-filter \.enhance-btn:focus-visible\s*\{[^}]*outline:/);
+  assert.match(js, /setSavedFilter\(false\)/);
+  assert.match(js, /setSavedFilter\(true\)/);
   assert.match(js, /setAttribute\("aria-pressed", String\(!showAll\)\)/);
   assert.match(js, /setAttribute\("aria-pressed", String\(showAll\)\)/);
 });

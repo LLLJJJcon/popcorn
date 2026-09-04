@@ -201,30 +201,36 @@
         <div class="tab-panel" data-panel="saved">
           <div class="section">
             <div class="section-header">
-              <div class="section-title">Saved to Popcorn</div>
-              <div class="notes-filter">
+              <div class="section-title">Saved library</div>
+              <div class="saved-filter" role="group" aria-label="Saved library filter">
                 <button
                   class="enhance-btn active"
-                  id="notesFilterThis"
+                  id="savedFilterThis"
+                  type="button"
                   aria-pressed="true"
                 >
-                  This Video
+                  This video
                 </button>
                 <button
                   class="enhance-btn"
-                  id="notesFilterAll"
+                  id="savedFilterAll"
+                  type="button"
                   aria-pressed="false"
                 >
-                  All Notes
+                  All saved
                 </button>
               </div>
             </div>
-            <p class="notes-intro" id="notesIntro">
-              Move your mouse over the video and click the 📝 Note button to
-              save timestamped notes, or press the "n" key while the video is
-              focused.
-            </p>
-            <div id="notesList"></div>
+            <div class="saved-library-state" id="savedLibraryState" role="status">
+              <p id="savedLibraryMessage">Open Saved to load your Popcorn library.</p>
+              <div class="saved-library-actions">
+                <button class="enhance-btn" id="savedRetryBtn" type="button">Retry</button>
+                <button class="enhance-btn" id="openSavedLibraryBtn" type="button">
+                  Open Saved in Popcorn
+                </button>
+              </div>
+            </div>
+            <div id="savedList" class="saved-list" hidden></div>
           </div>
         </div>
       </div>

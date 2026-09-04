@@ -204,6 +204,37 @@ async function explainSelection(message) {
   return submitArtifact("/api/v1/explanations", payload, message.jobId);
 }
 
+async function getSavedLibrary() {
+  await ensurePopcornAuthReady();
+  const session = await popcornAuthClient.getSession();
+  if (!session?.user?.id) {
+    const error = new Error("Sign in to view Saved.");
+    error.code = "AUTH_REQUIRED";
+    error.retryable = false;
+    throw error;
+  }
+  let result;
+  try {
+    result = await apiFetch("/api/v1/extension/saved", { method: "GET" });
+  } catch (error) {
+    if (!error.code && /session (?:refresh failed|was invalidated)/i.test(error.message || "")) {
+      error.message = "Your session expired. Sign in again.";
+      error.code = "SESSION_EXPIRED";
+      error.retryable = false;
+    }
+    throw error;
+  }
+  if (!Array.isArray(result.data)) {
+    throw new Error("Popcorn returned an invalid Saved library.");
+  }
+  return { success: true, summaries: result.data };
+}
+
+function isSavedSourceId(value) {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 /** Pinned MAIN-world player metadata read, retained for exact video identity. */
 async function getPlayerVideoDetails(tabId) {
   try {
@@ -350,6 +381,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === "explainSelection") return respondFrom(explainSelection(message), sendResponse);
   }
 
+  if (message?.action === "getSavedLibrary") {
+    if (!isTrustedSidePanelSender(sender)) {
+      sendResponse({ success: false, error: "forbidden" });
+      return false;
+    }
+    return respondFrom(getSavedLibrary(), sendResponse);
+  }
+
+  if (["openSavedLibrary", "openSavedDetail"].includes(message?.action)) {
+    if (!isTrustedSidePanelSender(sender)) {
+      sendResponse({ success: false, error: "forbidden" });
+      return false;
+    }
+    if (message.action === "openSavedDetail" && !isSavedSourceId(message.sourceId)) {
+      sendResponse({ success: false, error: "invalid saved source" });
+      return false;
+    }
+    const suffix = message.action === "openSavedDetail" ? `/saved/${message.sourceId}` : "/saved";
+    return respondFrom(
+      chrome.tabs.create({ url: `${POPCORN_API_ORIGIN}${suffix}` })
+        .then(() => ({ success: true })),
+      sendResponse,
+    );
+  }
+
   if (message?.action === "relayToContent" && isTrustedSidePanelSender(sender)) {
     return respondFrom((async () => {
       const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -419,5 +475,6 @@ globalThis.__POPCORN_CLOUD_TESTING__ = {
   requestOverview,
   translateSegments,
   explainSelection,
+  getSavedLibrary,
   getPlayerVideoDetails,
 };

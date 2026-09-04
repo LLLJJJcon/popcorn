@@ -506,6 +506,18 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
   };
 }
 
+export function createSavedLibraryRuntime() {
+  const environment = getModelGatewaySettingsEnv();
+  const client = createClient<Database>(
+    environment.NEXT_PUBLIC_SUPABASE_URL,
+    environment.SUPABASE_SERVICE_ROLE_KEY,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+  return {
+    service: createSavedLibraryService(createSavedLibraryRepository(client)),
+  };
+}
+
 export async function createSavedRuntime() {
   const environment = getModelGatewaySettingsEnv();
   const cookieStore = await cookies();
