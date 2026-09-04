@@ -42,6 +42,21 @@ create PUT, one failed consent POST, and one recovery GET. It asserts a single
 create PUT. The recovery action and normal path assert the unchanged exact
 consent DTO. Rotation and revoke assert their unchanged existing DTOs.
 
+## Review fix round
+
+- Recovery consent no longer uses the generic mutation helper. Its response is
+  checked for the requested ID and `active` state, then the settings refetch is
+  authoritative: only that same configuration appearing active completes the
+  action. Malformed, wrong-ID, and still-pending mutation responses otherwise
+  leave the card pending with the generic retryable error.
+- The review regressions first ran RED with 3 failures and 4 controls passing:
+  malformed consent never refetched, while wrong-ID and pending responses were
+  announced as activated. The focused fix round then passed 7/7.
+- The fixtures cover malformed, wrong-ID, and non-active responses; an
+  authoritative active refetch; rapid recovery-action double click (one POST);
+  and HTTP, parse, and network rotation failures retaining the typed key without
+  status/error or storage leakage.
+
 ## Mutation evidence
 
 - Omitting the create-flow consent POST failed the normal-flow test.
@@ -54,7 +69,7 @@ Each mutation was restored before final verification.
 
 ## Final verification
 
-- Component suite: 19/19 passed.
+- Component suite: 26/26 passed.
 - Settings integration regressions: 39/39 passed across 4 files.
 - Targeted ESLint, `pnpm typecheck`, and `git diff --check`: passed.
 

@@ -267,12 +267,35 @@ export function ModelGatewaySettings() {
 
   async function consent(config: ModelGatewayConfigView) {
     if (busy) return;
-    await mutate(CONSENT_ENDPOINT, "POST", {
-      configId: config.id,
-      exactBaseUrl: config.baseUrl,
-      policyVersion: "model-egress-v1",
-      confirmed: true,
-    }, "Gateway activated.");
+    setBusy(true);
+    setActionError(null);
+    try {
+      let consented: ModelGatewayConfigView | null = null;
+      try {
+        consented = await requestConfig(CONSENT_ENDPOINT, "POST", {
+          configId: config.id,
+          exactBaseUrl: config.baseUrl,
+          policyVersion: "model-egress-v1",
+          confirmed: true,
+        });
+      } catch {
+        consented = null;
+      }
+      const nextSettings = await requestSettings();
+      const authoritativeConfig = nextSettings.configs.find((candidate) => candidate.id === config.id);
+      const responseMatchesActivation = consented?.id === config.id && consented.state === "active";
+      if (authoritativeConfig?.state !== "active") {
+        throw new TypeError(responseMatchesActivation ? "activation unavailable" : "activation unconfirmed");
+      }
+      setSettings(nextSettings);
+      setPageError(null);
+      setStatus("Gateway activated.");
+    } catch {
+      setActionError(GENERIC_ERROR);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function rename(config: ModelGatewayConfigView, event: FormEvent<HTMLFormElement>) {

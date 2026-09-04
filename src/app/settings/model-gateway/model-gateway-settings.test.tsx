@@ -311,6 +311,78 @@ describe("ModelGatewaySettings", () => {
     });
   });
 
+  it("uses an authoritative active refetch after a malformed recovery-consent response", async () => {
+    const fetchMock = mockFetch(
+      response(settings([pending])),
+      Response.json({ ok: true, data: { apiKey: "not-a-public-config" } }),
+      response(settings([active])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Confirm and finish activation" }));
+    await screen.findByText("Active");
+
+    expect(screen.getByRole("status")).toHaveTextContent("Gateway activated.");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    {
+      name: "a different configuration",
+      consentResult: { ...active, id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" },
+    },
+    {
+      name: "a still-pending configuration",
+      consentResult: pending,
+    },
+  ])("keeps recovery pending when consent returns $name", async ({ consentResult }) => {
+    const fetchMock = mockFetch(
+      response(settings([pending])),
+      response(consentResult),
+      response(settings([pending])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Confirm and finish activation" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save gateway settings. Try again.");
+    expect(screen.getByText("Pending consent")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm and finish activation" })).toBeEnabled();
+    expect(screen.getByRole("status")).not.toHaveTextContent("Gateway activated.");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/settings/model-gateway/consent");
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      configId: CONFIG_ID,
+      exactBaseUrl: "https://gateway.example.com/v1",
+      policyVersion: "model-egress-v1",
+      confirmed: true,
+    });
+  });
+
+  it("allows only one recovery-consent request while the action is in flight", async () => {
+    let resolve!: (value: Response) => void;
+    const waiting = new Promise<Response>((done) => { resolve = done; });
+    const fetchMock = mockFetch(
+      response(settings([pending])),
+      waiting,
+      response(settings([active])),
+    );
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+    const recovery = await screen.findByRole("button", { name: "Confirm and finish activation" });
+
+    await user.click(recovery);
+    expect(recovery).toBeDisabled();
+    await user.click(recovery);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => resolve(response(active)));
+    await screen.findByText("Active");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("renames, rotates with an empty-open password, and keeps the new key in the matching card", async () => {
     const renamed = { ...active, displayName: "Renamed Gateway" };
     const rotated = { ...renamed, revision: 2 };
@@ -438,6 +510,32 @@ describe("ModelGatewaySettings", () => {
     expect(sessionKey).toHaveAttribute("type", "password");
     expect(sessionKey).toHaveValue("fresh-rotation-secret");
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    { name: "HTTP", mutation: Response.json({ raw: "rotation unavailable" }, { status: 500 }) },
+    { name: "parse", mutation: Response.json({ ok: true, data: { apiKey: "not-a-public-config" } }) },
+    { name: "network", mutation: new Error("rotation unavailable") },
+  ])("keeps a typed rotation key for correction after $name failure without leaking it", async ({ mutation }) => {
+    const fetchMock = mockFetch(response(settings([active])), mutation);
+    const storage = vi.spyOn(Storage.prototype, "setItem");
+    const user = userEvent.setup();
+    render(<ModelGatewaySettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Rotate key for My Gateway" }));
+    const rotation = screen.getByLabelText("New API key for My Gateway");
+    await user.type(rotation, "rotation-failure-key");
+    await user.click(screen.getByRole("button", { name: "Save new key for My Gateway" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save gateway settings. Try again.");
+    expect(rotation).toHaveValue("rotation-failure-key");
+    expect(screen.getByRole("form", { name: "Rotate API key for My Gateway" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("API key entered this session for My Gateway")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).not.toHaveTextContent("rotation-failure-key");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("rotation-failure-key");
+    expect(document.body).not.toHaveTextContent("rotation-failure-key");
+    expect(storage).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it.each([
