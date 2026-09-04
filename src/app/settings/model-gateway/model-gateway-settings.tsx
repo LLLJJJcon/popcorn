@@ -80,6 +80,16 @@ function appendCreatedConfig(
     : { configs: [...configs, createdConfig] };
 }
 
+function replaceOrAppendConfig(
+  settings: ModelGatewaySettingsView | null,
+  replacementConfig: ModelGatewayConfigView,
+): ModelGatewaySettingsView {
+  const configs = settings?.configs ?? [];
+  return configs.some((config) => config.id === replacementConfig.id)
+    ? { configs: configs.map((config) => config.id === replacementConfig.id ? replacementConfig : config) }
+    : { configs: [...configs, replacementConfig] };
+}
+
 function reconcileFetchedSettings(
   settings: ModelGatewaySettingsView,
   fallbackConfig: ModelGatewayConfigView,
@@ -434,11 +444,35 @@ export function ModelGatewaySettings() {
 
   async function revoke(config: ModelGatewayConfigView) {
     if (busy) return;
-    const changed = await mutate(SETTINGS_ENDPOINT, "DELETE", {
-      configId: config.id,
-    }, "Gateway revoked.");
-    if (changed) {
-      clearConfigTransientState(config.id);
+    setBusy(true);
+    setActionError(null);
+    try {
+      const deleted = await requestConfig(SETTINGS_ENDPOINT, "DELETE", {
+        configId: config.id,
+      });
+      if (deleted.id !== config.id || deleted.state !== "revoked") {
+        throw new TypeError("revoke unconfirmed");
+      }
+      try {
+        const nextSettings = await requestSettings();
+        const reconciliation = commitFetchedSettings(nextSettings, deleted);
+        if (reconciliation.config.state !== "revoked") {
+          throw new TypeError("revoke unconfirmed");
+        }
+      } catch (error) {
+        if (error instanceof TypeError && error.message === "revoke unconfirmed") {
+          throw error;
+        }
+        setSettings((current) => replaceOrAppendConfig(current, deleted));
+        clearConfigTransientState(deleted.id);
+      }
+      setPageError(null);
+      setStatus("Gateway revoked.");
+    } catch {
+      setActionError(GENERIC_ERROR);
+      setStatus("");
+    } finally {
+      setBusy(false);
     }
   }
 

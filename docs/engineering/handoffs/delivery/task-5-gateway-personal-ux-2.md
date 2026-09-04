@@ -107,6 +107,22 @@ consent DTO. Rotation and revoke assert their unchanged existing DTOs.
   and revoked create recovery promised an action. The focused GREEN run passed
   5/5.
 
+## Final revoke-reconciliation fix round
+
+- Revoke now validates that its DELETE response is for the requested
+  configuration and is `revoked`. It then reconciles the settings refetch
+  before reporting success.
+- A same-ID active or pending refetch is committed intact, retains page-memory
+  key/reveal state and retryable controls, and reports only the generic
+  non-secret error. Only a reconciled revoked target clears transient key and
+  rotation state, closes confirmation, and announces `Gateway revoked.`
+- Missing, unavailable, or malformed settings views fall back to the validated
+  non-secret revoked DELETE response, replacing or appending the target once.
+- The focused RED run failed 7/9, with two existing success controls passing:
+  active/pending state was treated as successful revoke, missing or unavailable
+  refetches lost the revoked target, and invalid DELETE responses were accepted.
+  The focused GREEN run passed 9/9.
+
 ## Mutation evidence
 
 - Omitting the create-flow consent POST failed the normal-flow test.
@@ -119,7 +135,7 @@ Each mutation was restored before final verification.
 
 ## Final verification
 
-- Component suite: 40/40 passed.
+- Component suite: 48/48 passed.
 - Settings integration regressions: 39/39 passed across 4 files.
 - Targeted ESLint, `pnpm typecheck`, and `git diff --check`: passed.
 
