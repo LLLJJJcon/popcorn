@@ -415,6 +415,8 @@ describe("Popcorn local launcher", () => {
       "http://proxy.local.test:8080/a/..",
       "http://proxy.local.test:8080/.",
       "http://proxy.local.test:8080/%2e",
+      "http://proxy.local.test:8080\\.",
+      "http://proxy.local.test:8080\\segment\\..",
       "https://proxy.local.test:8080?query=value",
       "http://proxy.local.test:8080#hash",
       "http://user:password@proxy.local.test:8080",

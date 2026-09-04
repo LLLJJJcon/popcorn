@@ -54,7 +54,7 @@ function rawEnvironmentValue(contents, expectedName) {
 function optionalProxyUrl(contents) {
   const rawValue = rawEnvironmentValue(contents, "POPCORN_PROXY_URL");
   if (rawValue === undefined || rawValue.trim() === "") return undefined;
-  if (/\s/.test(rawValue)) {
+  if (/\s/.test(rawValue) || rawValue.includes("\\")) {
     throw new Error("POPCORN_PROXY_URL must be an exact HTTP(S) proxy origin");
   }
   const value = rawValue.replace(/^(?:\"([\s\S]*)\"|'([\s\S]*)')$/, "$1$2");
