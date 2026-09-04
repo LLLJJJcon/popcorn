@@ -412,6 +412,9 @@ describe("Popcorn local launcher", () => {
     const invalidValues = [
       "http:proxy.local.test:8080",
       "http://proxy.local.test:8080/path",
+      "http://proxy.local.test:8080/a/..",
+      "http://proxy.local.test:8080/.",
+      "http://proxy.local.test:8080/%2e",
       "https://proxy.local.test:8080?query=value",
       "http://proxy.local.test:8080#hash",
       "http://user:password@proxy.local.test:8080",

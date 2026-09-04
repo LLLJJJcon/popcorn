@@ -59,7 +59,7 @@ function optionalProxyUrl(contents) {
   }
   const value = rawValue.replace(/^(?:\"([\s\S]*)\"|'([\s\S]*)')$/, "$1$2");
   if (!value) return undefined;
-  if (!/^https?:\/\//i.test(value)) {
+  if (!/^https?:\/\/[^/?#]+\/?$/i.test(value)) {
     throw new Error("POPCORN_PROXY_URL must be an exact HTTP(S) proxy origin");
   }
   try {
