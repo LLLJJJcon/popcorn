@@ -1071,14 +1071,14 @@ async function startDigest(videoId, videoUrl) {
     return;
   }
 
-  // Every video change invalidates observer work and in-flight translations.
-  if (videoId !== currentVideoId) {
-    translationGeneration += 1;
-    retryFailedTranslationsInFlight = false;
-    retryFailedTranslationsCount = 0;
-    if (transcriptScrollObserver) transcriptScrollObserver.disconnect();
-    transcriptScrollObserver = null;
-  }
+  // Every actual digest refresh replaces the transcript view, even for the
+  // same video after an error. Advance the generation so a previous retry
+  // cannot clear the refreshed view or a retry started from it.
+  translationGeneration += 1;
+  retryFailedTranslationsInFlight = false;
+  retryFailedTranslationsCount = 0;
+  if (transcriptScrollObserver) transcriptScrollObserver.disconnect();
+  transcriptScrollObserver = null;
 
   // Check cache for this video
   const cached = await loadFromCache(videoId);
@@ -2507,14 +2507,15 @@ function renderTranscriptModeRows(segments, mode) {
 function alignTranslatedSegmentBatch(sourceSegments, responseSegments, { pending = false } = {}) {
   const translatedById = new Map();
   const duplicateIds = new Set();
+  const seenIds = new Set();
   if (Array.isArray(responseSegments)) {
     responseSegments.forEach((item) => {
-      if (!item || typeof item.id !== "string" || typeof item.english !== "string")
-        return;
+      if (!item || typeof item.id !== "string") return;
+      if (seenIds.has(item.id)) duplicateIds.add(item.id);
+      seenIds.add(item.id);
+      if (typeof item.english !== "string") return;
       const text = item.english.trim();
-      if (translatedById.has(item.id)) {
-        duplicateIds.add(item.id);
-      } else if (text) {
+      if (text) {
         translatedById.set(item.id, text);
       }
     });

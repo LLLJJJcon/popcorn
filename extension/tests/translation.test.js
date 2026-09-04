@@ -36,7 +36,10 @@ function loadSidepanelHelpers({
     clearTimeout: clearTimeoutImpl,
     setInterval() {},
     clearInterval() {},
-    IntersectionObserver: class {},
+    IntersectionObserver: class {
+      observe() {}
+      disconnect() {}
+    },
     CSS: { escape: (value) => value },
     crypto: cryptoImpl,
     window: windowImpl || { getSelection: () => null, close() {} },
@@ -228,6 +231,38 @@ test("structured translation batches align by stable ID and expose missing fallb
   assert.equal(aligned[1].text, "A complete second sentence.");
 });
 
+test("structured translation batches reject blank-first duplicate IDs as ambiguous", () => {
+  const [aligned] = loadSidepanelHelpers().alignTranslatedSegmentBatch(
+    [{ id: "segment-1", text: "Original sentence." }],
+    [
+      { id: "segment-1", english: " " },
+      { id: "segment-1", english: "A later translation." },
+    ],
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(aligned)), {
+    id: "segment-1",
+    text: "",
+    error: "Translation unavailable.",
+  });
+});
+
+test("structured translation batches reject malformed-first duplicate IDs as ambiguous", () => {
+  const [aligned] = loadSidepanelHelpers().alignTranslatedSegmentBatch(
+    [{ id: "segment-1", text: "Original sentence." }],
+    [
+      { id: "segment-1", english: null },
+      { id: "segment-1", english: "A later translation." },
+    ],
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(aligned)), {
+    id: "segment-1",
+    text: "",
+    error: "Translation unavailable.",
+  });
+});
+
 test("Retry failed submits more than four failed rows once and maps the one result by stable ID", async () => {
   const ids = ["a", "b", "c", "d", "e"].map((value) => value.repeat(64));
   const dom = new JSDOM(`
@@ -366,6 +401,100 @@ test("Retry failed leaves partial malformed IDs explicit and ignores a stale res
     { id: ids[1], text: "", error: "Translation unavailable." },
     { id: ids[2], text: "", error: "Translation unavailable." },
   ]);
+});
+
+test("a same-video digest refresh clears old retry busy state without letting it clear a new retry", async () => {
+  const oldId = "a".repeat(64);
+  const freshId = "b".repeat(64);
+  const dom = new JSDOM(`
+    <div id="welcomeState"></div>
+    <div id="loadingState"></div>
+    <div id="errorState"></div>
+    <div id="resultsState"></div>
+    <div id="tabsNav"></div>
+    <div id="loadingText"></div>
+    <div id="loadingSubtext"></div>
+    <button id="followPlaybackBtn"></button>
+    <div id="contentArea"><div id="transcriptList">
+      <div class="transcript-entry translation-failed" data-segment-id="${oldId}" data-segment-index="0">
+        <span class="transcript-copy"><span class="transcript-translation translation-error">Old failure</span></span>
+      </div>
+    </div></div>
+    <button id="retryFailedTranslationsBtn">Retry failed (1)</button>
+    <span id="langSpinner"></span>
+  `);
+  let resolveOldRetry;
+  let resolveRefresh;
+  let resolveFreshRetry;
+  let translationRequests = 0;
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000003" },
+    sendMessage(message) {
+      if (message.action === "fetchTranscript") {
+        return new Promise((resolve) => { resolveRefresh = resolve; });
+      }
+      if (message.action !== "translateSegments") return Promise.resolve({ success: true });
+      translationRequests += 1;
+      if (translationRequests === 1) {
+        return new Promise((resolve) => { resolveOldRetry = resolve; });
+      }
+      if (translationRequests === 2) {
+        return Promise.resolve({ success: false, error: "Fresh failure" });
+      }
+      return new Promise((resolve) => { resolveFreshRetry = resolve; });
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentVideoUrl = "https://www.youtube.com/watch?v=abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptMode = "en";
+    translationGeneration = 7;
+    currentAnalysis = null;
+    currentTranscript = [{ stableId: "${oldId}", text: "Old Chinese.", start: 0, duration: 1 }];
+  `);
+
+  const oldRetry = helpers.retryFailedTranslations();
+  assert.equal(dom.window.document.getElementById("retryFailedTranslationsBtn").disabled, true);
+
+  const refresh = helpers.evaluateInSidepanel(
+    'startDigest("abc123XYZ00", "https://www.youtube.com/watch?v=abc123XYZ00")',
+  );
+  await Promise.resolve();
+  resolveRefresh({
+    success: true,
+    transcript: [{ stableId: freshId, text: "Fresh Chinese.", start: 0, duration: 1 }],
+    transcriptText: "Fresh Chinese.",
+    transcriptTextTimestamped: "0:00 Fresh Chinese.",
+    language: "zh",
+    snapshotId: "40000000-0000-4000-8000-000000000002",
+    transcriptHash: "c".repeat(64),
+  });
+  await refresh;
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const button = dom.window.document.getElementById("retryFailedTranslationsBtn");
+  assert.equal(button.hidden, false);
+  assert.equal(button.disabled, false);
+  assert.equal(button.textContent, "Retry failed (1)");
+
+  const freshRetry = helpers.retryFailedTranslations();
+  assert.equal(button.disabled, true);
+  resolveOldRetry({
+    success: true,
+    content: { segments: [{ id: oldId, english: "Old result" }] },
+  });
+  await oldRetry;
+  assert.equal(button.disabled, true);
+
+  resolveFreshRetry({
+    success: true,
+    content: { segments: [{ id: freshId, english: "Fresh result" }] },
+  });
+  await freshRetry;
+  assert.equal(button.hidden, true);
 });
 
 test("an individual row retry immediately updates the Retry failed count", () => {
