@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { ModelGatewayConfigView, ModelGatewaySettingsView } from "@/contracts/model-gateway";
@@ -164,12 +164,22 @@ describe("ModelGatewaySettings", () => {
     expect(within(revokedCard).queryByRole("button", { name: /rename|rotate|revoke/i })).not.toBeInTheDocument();
   });
 
-  it("creates with the frozen DTO, clears the key, discards the mutation response, and refetches", async () => {
+  it("creates and activates with one confirmation", async () => {
     const created = { ...pending, displayName: "Study Gateway", model: "model-v2" };
+    const activated: ModelGatewayConfigView = {
+      ...created,
+      state: "active" as const,
+      consent: {
+        exactBaseUrl: "https://gateway.example.com/v1",
+        policyVersion: "model-egress-v1",
+        consentedAt: NOW,
+      },
+    };
     const fetchMock = mockFetch(
       response(settings()),
       response(created, 201),
-      response(settings([created])),
+      response(activated),
+      response(settings([activated])),
     );
     const user = userEvent.setup();
     render(<ModelGatewaySettings />);
@@ -179,11 +189,29 @@ describe("ModelGatewaySettings", () => {
     await user.type(screen.getByLabelText("Model"), "model-v2");
     const key = screen.getByLabelText("API key");
     await user.type(key, "create-secret");
-    await user.click(screen.getByRole("button", { name: "Save gateway" }));
+    const consent = screen.getByRole("checkbox", {
+      name: /confirm this exact destination and data sharing/i,
+    });
+    expect(screen.getByText("Exact destination:", { exact: false })).toHaveTextContent("Exact destination: https://gateway.example.com/v1");
+    expect(screen.getByText("Video title")).toBeInTheDocument();
+    expect(screen.getByText("Necessary Chinese transcript excerpt or selection")).toBeInTheDocument();
+    expect(screen.getByText("Timestamps")).toBeInTheDocument();
+    expect(screen.getByText("Versioned prompt")).toBeInTheDocument();
+    await user.click(consent);
+    await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
 
-    await screen.findByRole("region", { name: "Study Gateway" });
+    const sessionKey = await screen.findByLabelText("API key entered this session for Study Gateway");
+    expect(sessionKey).toHaveAttribute("type", "password");
+    expect(sessionKey).toHaveValue("create-secret");
+    expect(screen.getByRole("status")).toHaveTextContent("Gateway saved and activated.");
     expect(key).toHaveValue("");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByLabelText("Gateway base URL")).toHaveValue("");
+    expect(screen.getByLabelText("Display name")).toHaveValue("");
+    expect(screen.getByLabelText("Model")).toHaveValue("");
+    expect(consent).not.toBeChecked();
+    expect(screen.queryByRole("button", { name: "Save gateway" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Confirm data sharing for Study Gateway" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(fetchMock.mock.calls[0]).toEqual(["/api/v1/settings/model-gateway", {
       credentials: "same-origin",
       cache: "no-store",
@@ -201,7 +229,14 @@ describe("ModelGatewaySettings", () => {
       model: "model-v2",
       apiKey: "create-secret",
     });
-    expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/v1/settings/model-gateway");
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/v1/settings/model-gateway/consent");
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      configId: CONFIG_ID,
+      exactBaseUrl: "https://gateway.example.com/v1",
+      policyVersion: "model-egress-v1",
+      confirmed: true,
+    });
+    expect(fetchMock.mock.calls[3]?.[0]).toBe("/api/v1/settings/model-gateway");
     expect(document.body).not.toHaveTextContent("create-secret");
   });
 
@@ -209,9 +244,10 @@ describe("ModelGatewaySettings", () => {
     const fetchMock = mockFetch(response(settings([pending])), response(active), response(settings([active])));
     const user = userEvent.setup();
     render(<ModelGatewaySettings />);
-    const checkbox = await screen.findByRole("checkbox", { name: /I confirm/ });
+    const pendingConsent = await screen.findByRole("group", { name: "Confirm data sharing for My Gateway" });
+    const checkbox = within(pendingConsent).getByRole("checkbox", { name: /I confirm/ });
     await user.click(checkbox);
-    await user.click(screen.getByRole("button", { name: "Activate gateway" }));
+    await user.click(within(pendingConsent).getByRole("button", { name: "Activate gateway" }));
     await screen.findByText("Active");
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/settings/model-gateway/consent");
@@ -331,7 +367,7 @@ describe("ModelGatewaySettings", () => {
     { name: "HTTP", mutation: Response.json({ raw: "failure-secret supplied-key" }, { status: 500 }) },
     { name: "parse", mutation: Response.json({ ok: true, data: { apiKey: "supplied-key" } }) },
     { name: "network", mutation: new Error("network supplied-key") },
-  ])("clears a write-only key after $name failure without echo or persistence", async ({ mutation }) => {
+  ])("keeps a write-only key available after $name failure without persistence", async ({ mutation }) => {
     const fetchMock = mutation === null
       ? mockFetch(response(settings()))
       : mockFetch(response(settings()), mutation);
@@ -350,10 +386,14 @@ describe("ModelGatewaySettings", () => {
     }
     const key = screen.getByLabelText("API key");
     await user.type(key, "supplied-key");
-    await user.click(screen.getByRole("button", { name: "Save gateway" }));
-    await waitFor(() => expect(key).toHaveValue(""));
+    if (mutation === null) {
+      fireEvent.submit(screen.getByRole("form", { name: "Add a model gateway" }));
+    } else {
+      await user.click(screen.getByRole("checkbox", { name: /confirm this exact destination and data sharing/i }));
+      await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
+    }
+    await waitFor(() => expect(key).toHaveValue("supplied-key"));
     expect(await screen.findByRole("alert")).toHaveTextContent(/complete all fields|could not save/i);
-    expect(document.documentElement.outerHTML).not.toContain("supplied-key");
     expect(storage).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
@@ -362,22 +402,63 @@ describe("ModelGatewaySettings", () => {
     expect(fetchMock).toHaveBeenCalledTimes(mutation === null ? 1 : 2);
   });
 
-  it("does not persist a typed key across unmount and remount", async () => {
-    mockFetch(response(settings()), response(settings()));
+  it("keeps a newly entered key only for the mounted page", async () => {
+    const created = { ...pending, displayName: "Study Gateway", model: "model-v2" };
+    const activated: ModelGatewayConfigView = {
+      ...created,
+      state: "active" as const,
+      consent: {
+        exactBaseUrl: "https://gateway.example.com/v1",
+        policyVersion: "model-egress-v1",
+        consentedAt: NOW,
+      },
+    };
+    const fetchMock = mockFetch(
+      response(settings()),
+      response(created, 201),
+      response(activated),
+      response(settings([activated])),
+      response(settings([activated])),
+    );
+    const storage = vi.spyOn(Storage.prototype, "setItem");
+    const push = vi.spyOn(window.history, "pushState");
+    const replace = vi.spyOn(window.history, "replaceState");
     const user = userEvent.setup();
     const first = render(<ModelGatewaySettings />);
-    const key = await screen.findByLabelText("API key");
-    await user.type(key, "temporary-secret");
+    await screen.findByLabelText("Gateway base URL");
+    await user.type(screen.getByLabelText("Gateway base URL"), "https://gateway.example.com/v1");
+    await user.type(screen.getByLabelText("Display name"), "Study Gateway");
+    await user.type(screen.getByLabelText("Model"), "model-v2");
+    await user.type(screen.getByLabelText("API key"), "create-secret");
+    await user.click(screen.getByRole("checkbox", { name: /confirm this exact destination and data sharing/i }));
+    await user.click(screen.getByRole("button", { name: "Save and activate gateway" }));
+
+    const sessionKey = await screen.findByLabelText("API key entered this session for Study Gateway");
+    expect(sessionKey).toHaveAttribute("type", "password");
+    expect(sessionKey).toHaveValue("create-secret");
+    const callsBeforeToggle = fetchMock.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Show key" }));
+    expect(sessionKey).toHaveAttribute("type", "text");
+    await user.click(screen.getByRole("button", { name: "Hide key" }));
+    expect(sessionKey).toHaveAttribute("type", "password");
+    expect(fetchMock).toHaveBeenCalledTimes(callsBeforeToggle);
+
     first.unmount();
     render(<ModelGatewaySettings />);
-    expect(await screen.findByLabelText("API key")).toHaveValue("");
-    expect(document.documentElement.outerHTML).not.toContain("temporary-secret");
+    await screen.findByRole("region", { name: "Study Gateway" });
+    expect(screen.queryByLabelText("API key entered this session for Study Gateway")).not.toBeInTheDocument();
+    expect(screen.getByText("Key saved")).toBeInTheDocument();
+    expect(storage).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    expect(window.location.href).not.toContain("create-secret");
+    expect(document.documentElement.outerHTML).not.toContain("create-secret");
   });
 
   it("prevents duplicate mutation submits while a request is in flight", async () => {
     let resolve!: (value: Response) => void;
     const waiting = new Promise<Response>((done) => { resolve = done; });
-    const fetchMock = mockFetch(response(settings()), waiting, response(settings([pending])));
+    const fetchMock = mockFetch(response(settings()), waiting, response(active), response(settings([active])));
     const user = userEvent.setup();
     render(<ModelGatewaySettings />);
     await screen.findByLabelText("Gateway base URL");
@@ -385,13 +466,14 @@ describe("ModelGatewaySettings", () => {
     await user.type(screen.getByLabelText("Display name"), "Gateway");
     await user.type(screen.getByLabelText("Model"), "model-a");
     await user.type(screen.getByLabelText("API key"), "one-secret");
-    const submit = screen.getByRole("button", { name: "Save gateway" });
+    await user.click(screen.getByRole("checkbox", { name: /confirm this exact destination and data sharing/i }));
+    const submit = screen.getByRole("button", { name: "Save and activate gateway" });
     await user.click(submit);
     expect(submit).toBeDisabled();
     await user.click(submit);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     await act(async () => resolve(response(pending, 201)));
-    await screen.findByRole("region", { name: "My Gateway" });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await screen.findByText("Active");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });

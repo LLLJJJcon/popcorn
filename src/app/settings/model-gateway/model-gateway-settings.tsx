@@ -41,6 +41,68 @@ async function requestSettings(): Promise<ModelGatewaySettingsView> {
   return parsed.data.data;
 }
 
+async function requestConfig(
+  endpoint: string,
+  method: "PUT" | "POST" | "DELETE",
+  body: unknown,
+): Promise<ModelGatewayConfigView> {
+  const response = await fetch(endpoint, {
+    method,
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new TypeError("mutation failed");
+  const parsed = apiSuccessSchema(ModelGatewayConfigViewSchema).safeParse(await parseJson(response));
+  if (!parsed.success) throw new TypeError("mutation failed");
+  return parsed.data.data;
+}
+
+type SessionKey = { readonly value: string; readonly revealed: boolean };
+
+function DataSharingSummary({ exactBaseUrl }: { readonly exactBaseUrl: string }) {
+  return (
+    <div className={styles.consentSummary}>
+      <p>Exact destination: <span className={styles.origin}>{exactBaseUrl || "Enter a gateway base URL to review its exact destination."}</span></p>
+      <p>Policy: <strong>model-egress-v1</strong></p>
+      <p>Popcorn may send:</p>
+      <ul>{DATA_CLASSES.map((item) => <li key={item}>{item}</li>)}</ul>
+    </div>
+  );
+}
+
+function SessionKeyDisplay({
+  config,
+  sessionKey,
+  onToggle,
+}: {
+  readonly config: ModelGatewayConfigView;
+  readonly sessionKey: SessionKey;
+  readonly onToggle: () => void;
+}) {
+  const label = `API key entered this session for ${config.displayName}`;
+  return (
+    <div className={styles.sessionKey}>
+      <label>
+        {label}
+        <input
+          type={sessionKey.revealed ? "text" : "password"}
+          readOnly
+          value={sessionKey.value}
+          autoComplete="off"
+          spellCheck={false}
+          aria-describedby={`session-key-lifetime-${config.id}`}
+        />
+      </label>
+      <p id={`session-key-lifetime-${config.id}`}>Available until you refresh or leave this page.</p>
+      <button className={styles.secondaryButton} type="button" onClick={onToggle}>
+        {sessionKey.revealed ? "Hide key" : "Show key"}
+      </button>
+    </div>
+  );
+}
+
 export function ModelGatewaySettings() {
   const [settings, setSettings] = useState<ModelGatewaySettingsView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +115,8 @@ export function ModelGatewaySettings() {
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [createInvalid, setCreateInvalid] = useState(false);
+  const [createConsent, setCreateConsent] = useState(false);
+  const [sessionKeys, setSessionKeys] = useState<Record<string, SessionKey>>({});
   const [consents, setConsents] = useState<Record<string, boolean>>({});
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
   const [renameInvalidId, setRenameInvalidId] = useState<string | null>(null);
@@ -95,16 +159,7 @@ export function ModelGatewaySettings() {
     setBusy(true);
     setActionError(null);
     try {
-      const response = await fetch(endpoint, {
-        method,
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) throw new TypeError("mutation failed");
-      const parsed = apiSuccessSchema(ModelGatewayConfigViewSchema).safeParse(await parseJson(response));
-      if (!parsed.success) throw new TypeError("mutation failed");
+      await requestConfig(endpoint, method, body);
       const nextSettings = await requestSettings();
       setSettings(nextSettings);
       setPageError(null);
@@ -122,17 +177,48 @@ export function ModelGatewaySettings() {
   async function createGateway(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const writeOnlyKey = apiKey;
-    setApiKey("");
-    const valid = Boolean(baseUrl.trim() && displayName.trim() && model.trim() && writeOnlyKey.trim());
+    const valid = Boolean(baseUrl.trim() && displayName.trim() && model.trim() && writeOnlyKey.trim() && createConsent);
     setCreateInvalid(!valid);
     setActionError(valid ? null : "Complete all fields before saving.");
     if (!valid || busy) return;
-    await mutate(SETTINGS_ENDPOINT, "PUT", {
-      displayName: displayName.trim(),
-      baseUrl: baseUrl.trim(),
-      model: model.trim(),
-      apiKey: writeOnlyKey,
-    }, "Gateway saved. Confirm data sharing to activate it.");
+    setBusy(true);
+    setActionError(null);
+    try {
+      const created = await requestConfig(SETTINGS_ENDPOINT, "PUT", {
+        displayName: displayName.trim(),
+        baseUrl: baseUrl.trim(),
+        model: model.trim(),
+        apiKey: writeOnlyKey,
+      });
+      const activated = await requestConfig(CONSENT_ENDPOINT, "POST", {
+        configId: created.id,
+        exactBaseUrl: created.baseUrl,
+        policyVersion: "model-egress-v1",
+        confirmed: true,
+      });
+      if (activated.id !== created.id || activated.state !== "active") {
+        throw new TypeError("mutation failed");
+      }
+      const nextSettings = await requestSettings();
+      setSettings(nextSettings);
+      setPageError(null);
+      setSessionKeys((current) => ({
+        ...current,
+        [activated.id]: { value: writeOnlyKey, revealed: false },
+      }));
+      setBaseUrl("");
+      setDisplayName("");
+      setModel("");
+      setApiKey("");
+      setCreateConsent(false);
+      setCreateInvalid(false);
+      setStatus("Gateway saved and activated.");
+    } catch {
+      setActionError(GENERIC_ERROR);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function consent(config: ModelGatewayConfigView) {
@@ -183,7 +269,14 @@ export function ModelGatewaySettings() {
     const changed = await mutate(SETTINGS_ENDPOINT, "DELETE", {
       configId: config.id,
     }, "Gateway revoked.");
-    if (changed) setRevokeId(null);
+    if (changed) {
+      setRevokeId(null);
+      setSessionKeys((current) => {
+        const remaining = { ...current };
+        delete remaining[config.id];
+        return remaining;
+      });
+    }
   }
 
   return (
@@ -211,7 +304,7 @@ export function ModelGatewaySettings() {
                 <p className={styles.step}>Step 1</p>
                 <h2 id="new-gateway-title">Add a gateway</h2>
               </div>
-              <p>Your key is sent directly to the server and is never shown again.</p>
+              <p>Your key is sent directly to the server and is available here only until you refresh or leave this page.</p>
             </div>
             <form className={styles.formGrid} onSubmit={createGateway} aria-label="Add a model gateway" aria-describedby={createInvalid ? "gateway-action-error" : undefined} autoComplete="off">
                 <label htmlFor="model-gateway-base-url">
@@ -274,7 +367,34 @@ export function ModelGatewaySettings() {
                     disabled={busy}
                   />
                 </label>
-                <button className={styles.primaryButton} type="submit" disabled={busy}>Save gateway</button>
+                <fieldset className={styles.consent}>
+                  <legend>Review destination and data sharing</legend>
+                  <DataSharingSummary exactBaseUrl={baseUrl.trim()} />
+                  <label className={styles.checkLabel}>
+                    <input
+                      type="checkbox"
+                      checked={createConsent}
+                      onChange={(event) => {
+                        setCreateConsent(event.target.checked);
+                        if (createInvalid) {
+                          setCreateInvalid(false);
+                          setActionError(null);
+                        }
+                      }}
+                      aria-invalid={createInvalid && !createConsent}
+                      aria-describedby={createInvalid ? "gateway-action-error" : undefined}
+                      disabled={busy}
+                    />
+                    I confirm this exact destination and data sharing.
+                  </label>
+                </fieldset>
+                <button
+                  className={styles.primaryButton}
+                  type="submit"
+                  disabled={busy || !baseUrl.trim() || !displayName.trim() || !model.trim() || !apiKey.trim() || !createConsent}
+                >
+                  Save and activate gateway
+                </button>
               </form>
           </section>
 
@@ -310,10 +430,7 @@ export function ModelGatewaySettings() {
                     {config.state === "pending_consent" ? (
                       <fieldset className={styles.consent}>
                         <legend>Confirm data sharing for {config.displayName}</legend>
-                        <p>Exact destination: <span className={styles.origin}>{config.baseUrl}</span></p>
-                        <p>Policy: <strong>model-egress-v1</strong></p>
-                        <p>Popcorn may send:</p>
-                        <ul>{DATA_CLASSES.map((item) => <li key={item}>{item}</li>)}</ul>
+                        <DataSharingSummary exactBaseUrl={config.baseUrl} />
                         <label className={styles.checkLabel}>
                           <input
                             type="checkbox"
@@ -336,6 +453,19 @@ export function ModelGatewaySettings() {
 
                     {config.state === "active" ? (
                       <div className={styles.actions}>
+                        {sessionKeys[config.id] ? (
+                          <SessionKeyDisplay
+                            config={config}
+                            sessionKey={sessionKeys[config.id]}
+                            onToggle={() => setSessionKeys((current) => ({
+                              ...current,
+                              [config.id]: {
+                                ...current[config.id],
+                                revealed: !current[config.id].revealed,
+                              },
+                            }))}
+                          />
+                        ) : null}
                         <form onSubmit={(event) => void rename(config, event)}>
                           <label>
                             New display name for {config.displayName}

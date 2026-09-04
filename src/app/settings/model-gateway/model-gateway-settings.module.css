@@ -259,6 +259,10 @@
   font-weight: 900;
 }
 
+.consentSummary ul {
+  padding-left: 1.25rem;
+}
+
 .checkLabel {
   display: flex;
   gap: 0.6rem;
@@ -276,6 +280,42 @@
 .actions {
   padding-top: 1rem;
   border-top: 1px solid #e5d8c7;
+}
+
+.sessionKey {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+  border: 1px solid #d8c9b7;
+  border-radius: 0.8rem;
+  background: #fbf5e9;
+}
+
+.sessionKey label {
+  display: grid;
+  gap: 0.45rem;
+  font-weight: 700;
+}
+
+.sessionKey input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #ad9b89;
+  border-radius: 0.65rem;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+
+.sessionKey input:focus-visible {
+  outline: 3px solid #236fa1;
+  outline-offset: 3px;
+}
+
+.sessionKey p {
+  margin: 0;
+  color: var(--muted);
 }
 
 @media (max-width: 42rem) {
