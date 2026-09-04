@@ -187,9 +187,14 @@ async function requestOverview(message) {
 }
 
 async function translateSegments(message) {
+  const payload = {
+    snapshotId: message.snapshotId,
+    segmentIds: message.segmentIds,
+  };
+  if (typeof message.retryId === "string") payload.retryId = message.retryId;
   return submitArtifact(
     `/api/v1/youtube/${encodeURIComponent(message.videoId)}/translations`,
-    { snapshotId: message.snapshotId, segmentIds: message.segmentIds },
+    payload,
     message.jobId,
   );
 }

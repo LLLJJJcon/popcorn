@@ -14,6 +14,7 @@ const USER_B = "00000000-0000-4000-8000-000000000002";
 const CONFIG_ID = "60000000-0000-4000-8000-000000000001";
 const FINGERPRINT = "a".repeat(64);
 const SEGMENT_ID = "b".repeat(64);
+const BULK_SEGMENT_IDS = ["a", "b", "c", "d", "e"].map((value) => value.repeat(64));
 
 const pin = {
   configId: CONFIG_ID,
@@ -44,6 +45,16 @@ const evidence = {
     startSeconds: 0,
     endSeconds: 2,
   }],
+};
+
+const bulkEvidence = {
+  ...evidence,
+  segments: BULK_SEGMENT_IDS.map((stableId, index) => ({
+    stableId,
+    originalChinese: `第${index + 1}个句子。`,
+    startSeconds: index,
+    endSeconds: index + 1,
+  })),
 };
 
 function completion(value: unknown): Response {
@@ -172,6 +183,29 @@ describe("closed runtime provider registry", () => {
         "Content-Type": "application/json",
       },
     });
+  });
+
+  test("production sends one Provider request for a translation group larger than four", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => completion({
+      translations: BULK_SEGMENT_IDS.map((_id, segmentIndex) => ({
+        segmentIndex,
+        english: `English sentence ${segmentIndex + 1}.`,
+      })),
+    }));
+    const resolver = createLearningArtifactProviderResolver({
+      ci: false,
+      createRuntimeResolver: () => ({ resolve: vi.fn(async () => runtime) }),
+      fetchImpl,
+    });
+
+    const resolved = await resolver.resolve(USER_A, pin);
+    await expect(resolved.provider.translateSegments(bulkEvidence, BULK_SEGMENT_IDS)).resolves.toEqual({
+      segments: BULK_SEGMENT_IDS.map((id, index) => ({
+        id,
+        english: `English sentence ${index + 1}.`,
+      })),
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   test("unknown runtime adapter fails closed before fetch", async () => {

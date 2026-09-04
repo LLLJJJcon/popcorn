@@ -7,7 +7,7 @@ export const TranslationContentSchema = z.strictObject({
   segments: z.array(z.strictObject({
     id: StableId,
     english: z.string().trim().min(1).max(4_000).refine((value) => !/[\u3400-\u9fff]/.test(value), "Expected English translation"),
-  })).min(1).max(4),
+  })).min(1),
 });
 
 export function buildTranslationPrompt(

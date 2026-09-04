@@ -376,6 +376,8 @@ let savedLibraryLoadGeneration = 0;
 let currentTranscriptMode = "zh";
 let translationGeneration = 0; // Invalidates responses from older UI modes/videos.
 let translationWorkCount = 0;
+let retryFailedTranslationsInFlight = false;
+let retryFailedTranslationsCount = 0;
 let transcriptScrollObserver = null;
 // Stable keys include the video, source mode, language, and semantic segment ID.
 let transcriptParagraphCache = new Map();
@@ -909,6 +911,9 @@ function setupEventListeners() {
   document
     .getElementById("copyTranscriptBtn")
     ?.addEventListener("click", copyTranscript);
+  document
+    .getElementById("retryFailedTranslationsBtn")
+    ?.addEventListener("click", retryFailedTranslations);
   document.querySelectorAll(".transcript-mode-btn").forEach((button) => {
     button.addEventListener("click", () => {
       handleTranscriptModeChange(button.dataset.transcriptMode);
@@ -1069,6 +1074,8 @@ async function startDigest(videoId, videoUrl) {
   // Every video change invalidates observer work and in-flight translations.
   if (videoId !== currentVideoId) {
     translationGeneration += 1;
+    retryFailedTranslationsInFlight = false;
+    retryFailedTranslationsCount = 0;
     if (transcriptScrollObserver) transcriptScrollObserver.disconnect();
     transcriptScrollObserver = null;
   }
@@ -1450,6 +1457,7 @@ function renderTranscript() {
 
   // Start tracking video playback for auto-scroll
   startPlaybackTracking();
+  updateRetryFailedTranslationsButton();
 }
 
 function copyTranscript() {
@@ -2396,6 +2404,8 @@ async function handleTranscriptModeChange(mode) {
   currentTranscriptMode = mode;
   translationGeneration += 1;
   translationWorkCount = 0;
+  retryFailedTranslationsInFlight = false;
+  retryFailedTranslationsCount = 0;
   setTranslatingSpinner(false);
   if (transcriptScrollObserver) transcriptScrollObserver.disconnect();
   transcriptScrollObserver = null;
@@ -2486,6 +2496,7 @@ function renderTranscriptModeRows(segments, mode) {
   });
 
   startPlaybackTracking();
+  updateRetryFailedTranslationsButton();
   return rows;
 }
 
@@ -2547,6 +2558,7 @@ function updateTranslatedRow(segment, index, alignedItem, generation) {
   row.classList.toggle("translated", !!alignedItem.text);
   row.classList.toggle("translating", false);
   row.classList.toggle("translation-failed", !alignedItem.text);
+  updateRetryFailedTranslationsButton();
 
   const retry = row.querySelector(".translation-retry-btn");
   if (retry) {
@@ -2636,7 +2648,107 @@ function retryTranslationSegment(index, generation) {
       translation.textContent = "Retrying…";
     }
   }
+  updateRetryFailedTranslationsButton();
   activeTranslationQueue.enqueue(index, true);
+}
+
+function failedTranslationRows() {
+  return [...document.querySelectorAll(".transcript-entry.translation-failed")];
+}
+
+function updateRetryFailedTranslationsButton() {
+  const button = document.getElementById("retryFailedTranslationsBtn");
+  if (!button) return;
+  const count = failedTranslationRows().length;
+  const visibleCount = retryFailedTranslationsInFlight
+    ? retryFailedTranslationsCount
+    : count;
+  button.hidden = !retryFailedTranslationsInFlight && count === 0;
+  button.disabled = retryFailedTranslationsInFlight || count === 0;
+  button.textContent = `Retry failed (${visibleCount})`;
+}
+
+function markTranscriptRowRetrying(row) {
+  row.classList.add("translating");
+  row.classList.remove("translation-failed");
+  const translation = row.querySelector(".transcript-translation");
+  if (translation) {
+    translation.className = "transcript-translation translation-pending";
+    translation.textContent = "Retrying…";
+  }
+}
+
+async function retryFailedTranslations() {
+  if (retryFailedTranslationsInFlight || currentTranscriptMode === "zh") return;
+  const rows = failedTranslationRows();
+  if (!rows.length || !currentVideoId || !currentSnapshotId) return;
+
+  const segments = getActiveTranscriptSegments();
+  const indexById = new Map(segments.map((segment, index) => [segment.id, index]));
+  const selected = rows.map((row) => {
+    const id = row.dataset.segmentId || "";
+    const index = indexById.get(id);
+    return index === undefined ? null : { row, segment: segments[index], index };
+  });
+  if (selected.some((item) => item === null)) return;
+
+  const selectedRows = selected;
+  const ids = selectedRows.map(({ segment }) => segment.id);
+  if (new Set(ids).size !== ids.length) return;
+
+  const generation = translationGeneration;
+  const videoId = currentVideoId;
+  const snapshotId = currentSnapshotId;
+  const mode = currentTranscriptMode;
+  retryFailedTranslationsInFlight = true;
+  retryFailedTranslationsCount = selectedRows.length;
+  selectedRows.forEach(({ row }) => markTranscriptRowRetrying(row));
+  updateRetryFailedTranslationsButton();
+
+  const isStale = () =>
+    generation !== translationGeneration ||
+    videoId !== currentVideoId ||
+    snapshotId !== currentSnapshotId ||
+    mode !== currentTranscriptMode;
+
+  try {
+    const result = await sendTranslationMessage({
+      action: "translateSegments",
+      videoId,
+      snapshotId,
+      segmentIds: ids,
+      retryId: crypto.randomUUID(),
+    });
+    if (isStale()) return;
+
+    const aligned = alignTranslatedSegmentBatch(
+      selectedRows.map(({ segment }) => segment),
+      result?.success ? result.content?.segments : [],
+      { pending: result?.success && result.pending },
+    );
+    aligned.forEach((item, selectedIndex) => {
+      if (!result?.success) item.error = result?.error || "Translation failed.";
+      const selectedRow = selectedRows[selectedIndex];
+      updateTranslatedRow(selectedRow.segment, selectedRow.index, item, generation);
+    });
+    await updateCache();
+  } catch (error) {
+    if (isStale()) return;
+    selectedRows.forEach(({ segment, index }) => {
+      updateTranslatedRow(
+        segment,
+        index,
+        { id: segment.id, text: "", error: error.message || "Translation failed." },
+        generation,
+      );
+    });
+  } finally {
+    if (!isStale()) {
+      retryFailedTranslationsInFlight = false;
+      retryFailedTranslationsCount = 0;
+      updateRetryFailedTranslationsButton();
+    }
+  }
 }
 
 /**
@@ -2731,6 +2843,8 @@ globalThis.__YTD_TRANSCRIPT_TESTING__ = {
   groupTranscriptEntries,
   splitOversizedThought,
   alignTranslatedSegmentBatch,
+  retryFailedTranslations,
+  retryTranslationSegment,
   renderSubtitleInlineMarkup,
   renderTranscriptSegmentContent,
   projectTranscriptSelection,

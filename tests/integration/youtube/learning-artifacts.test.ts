@@ -6,7 +6,9 @@ import {
   createLearningArtifactJobKey,
   createLearningArtifactRoute,
   createSupabaseLearningArtifactRouteStore,
+  TranslationJobInputSchema,
   validateOverviewContent,
+  validateTranslationContent,
   type LearningArtifactEvidence,
   type LearningArtifactProvider,
   type LearningArtifactRouteStore,
@@ -29,6 +31,7 @@ const JOB_ID = "10000000-0000-4000-8000-000000000001";
 const ARTIFACT_ID = "50000000-0000-4000-8000-000000000001";
 const SEGMENT_A = "a".repeat(64);
 const SEGMENT_B = "b".repeat(64);
+const BULK_SEGMENT_IDS = ["a", "b", "c", "d", "e"].map((value) => value.repeat(64));
 const CONFIG_ID = "60000000-0000-4000-8000-000000000001";
 const GATEWAY_FINGERPRINT = "f".repeat(64);
 const GATEWAY_PIN = {
@@ -57,6 +60,16 @@ const evidence: LearningArtifactEvidence = {
     { stableId: SEGMENT_A, originalChinese: "这个表达很自然。", startSeconds: 0, endSeconds: 2 },
     { stableId: SEGMENT_B, originalChinese: "你可以直接这样说。", startSeconds: 2, endSeconds: 5 },
   ],
+};
+
+const bulkEvidence: LearningArtifactEvidence = {
+  ...evidence,
+  segments: BULK_SEGMENT_IDS.map((stableId, index) => ({
+    stableId,
+    originalChinese: `第${index + 1}个完整句子。`,
+    startSeconds: index * 2,
+    endSeconds: index * 2 + 2,
+  })),
 };
 
 const validOverview = {
@@ -115,6 +128,29 @@ async function expectGatewayCode(
 }
 
 describe("bounded openai-compatible adapter", () => {
+  test("accepts one structured translation group larger than four through Provider and artifact schemas", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => completionResponse({
+      translations: BULK_SEGMENT_IDS.map((_id, segmentIndex) => ({
+        segmentIndex,
+        english: `Complete English sentence ${segmentIndex + 1}.`,
+      })),
+    }));
+    const configured = createOpenAiCompatibleLearningArtifactProvider({
+      config: RUNTIME_CONFIG,
+      fetchImpl,
+    });
+    const expected = {
+      segments: BULK_SEGMENT_IDS.map((id, index) => ({
+        id,
+        english: `Complete English sentence ${index + 1}.`,
+      })),
+    };
+
+    await expect(configured.translateSegments(bulkEvidence, BULK_SEGMENT_IDS)).resolves.toEqual(expected);
+    expect(validateTranslationContent(expected, BULK_SEGMENT_IDS)).toEqual(expected);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   test("uses exact chat-completions transport and sends only requested translation evidence", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => completionResponse({
       translations: [{ segmentIndex: 0, english: "You can say it exactly this way." }],
@@ -379,6 +415,42 @@ function routeStore(overrides: Partial<LearningArtifactRouteStore> = {}): Learni
 }
 
 describe("fast durable learning-artifact request routes", () => {
+  test("a retry UUID changes only translation dedupe identity and is absent from private Provider input", async () => {
+    const store = routeStore({
+      resolveEvidence: vi.fn(async () => bulkEvidence),
+    });
+    const route = createLearningArtifactRoute({
+      jobType: "translate_segments",
+      authenticate: async () => ({ userId: USER_A }),
+      store,
+      promptVersion: "translation-v1",
+      requestId: () => "request-retry",
+    });
+    const submit = (retryId: string) => route(new Request(
+      "https://app.popcorn.local/api/v1/youtube/abc123XYZ00/translations",
+      {
+        method: "POST",
+        body: JSON.stringify({ snapshotId: SNAPSHOT_ID, segmentIds: BULK_SEGMENT_IDS, retryId }),
+      },
+    ), { params: Promise.resolve({ videoId: "abc123XYZ00" }) });
+
+    const first = await submit("70000000-0000-4000-8000-000000000001");
+    const replay = await submit("70000000-0000-4000-8000-000000000001");
+    const fresh = await submit("70000000-0000-4000-8000-000000000002");
+
+    expect([first.status, replay.status, fresh.status]).toEqual([202, 202, 202]);
+    const registrations = vi.mocked(store.register).mock.calls.map(([registration]) => registration);
+    expect(registrations[0].dedupeKey).toBe(registrations[1].dedupeKey);
+    expect(registrations[2].dedupeKey).not.toBe(registrations[0].dedupeKey);
+    expect(registrations.map(({ input }) => input)).toEqual([
+      registrations[0].input,
+      registrations[0].input,
+      registrations[0].input,
+    ]);
+    expect(registrations[0].input).not.toHaveProperty("retryId");
+    expect(TranslationJobInputSchema.parse(registrations[0].input).segmentIds).toEqual(BULK_SEGMENT_IDS);
+  });
+
   test.each([
     ["generate_overview", "overview"],
     ["translate_segments", "translation"],

@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { randomUUID } = require("node:crypto");
 const { JSDOM } = require("jsdom");
 
 const root = path.resolve(__dirname, "..");
@@ -14,6 +15,7 @@ function loadSidepanelHelpers({
   clearTimeoutImpl = () => {},
   documentImpl,
   windowImpl,
+  cryptoImpl = { randomUUID },
 } = {}) {
   const listeners = { addListener() {} };
   const injectedDocument = documentImpl
@@ -36,6 +38,7 @@ function loadSidepanelHelpers({
     clearInterval() {},
     IntersectionObserver: class {},
     CSS: { escape: (value) => value },
+    crypto: cryptoImpl,
     window: windowImpl || { getSelection: () => null, close() {} },
     document: injectedDocument || {
       addEventListener() {},
@@ -66,7 +69,11 @@ function loadSidepanelHelpers({
     YTD_SETTINGS: {},
   };
   sandbox.globalThis = sandbox;
-  vm.runInNewContext(read("sidepanel.js"), sandbox);
+  const context = vm.createContext(sandbox);
+  vm.runInContext(read("sidepanel.js"), context);
+  Object.defineProperty(sandbox.__YTD_TRANSCRIPT_TESTING__, "evaluateInSidepanel", {
+    value: (source) => vm.runInContext(source, context),
+  });
   return sandbox.__YTD_TRANSCRIPT_TESTING__;
 }
 
@@ -143,6 +150,16 @@ test("Transcript header exposes and wires Chinese, English, and bilingual modes"
   assert.doesNotMatch(js, /English \+ Chinese|Original \(\$\{language\}\)/);
 });
 
+test("transcript header places a hidden Retry failed action immediately beside Copy", () => {
+  const document = new JSDOM(read("sidepanel.html")).window.document;
+  const copy = document.getElementById("copyTranscriptBtn");
+  const retry = copy.previousElementSibling;
+
+  assert.equal(retry.id, "retryFailedTranslationsBtn");
+  assert.equal(retry.hidden, true);
+  assert.match(retry.textContent, /Retry failed/);
+});
+
 test("semantic segmentation rebuilds sentences across caption boundaries", () => {
   const { groupTranscriptEntries } = loadSidepanelHelpers();
   const segments = groupTranscriptEntries(
@@ -209,6 +226,171 @@ test("structured translation batches align by stable ID and expose missing fallb
   assert.equal(aligned[0].text, "");
   assert.match(aligned[0].error, /unavailable/i);
   assert.equal(aligned[1].text, "A complete second sentence.");
+});
+
+test("Retry failed submits more than four failed rows once and maps the one result by stable ID", async () => {
+  const ids = ["a", "b", "c", "d", "e"].map((value) => value.repeat(64));
+  const dom = new JSDOM(`
+    <button id="retryFailedTranslationsBtn" hidden>Retry failed</button>
+    <span id="langSpinner"></span>
+    <div id="transcriptList">
+      ${ids.map((id, index) => `
+        <div class="transcript-entry translation-failed" data-segment-id="${id}" data-segment-index="${index}">
+          <span class="transcript-copy"><span class="transcript-translation translation-error">Old failure</span></span>
+        </div>
+      `).join("")}
+    </div>
+  `);
+  const sent = [];
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000001" },
+    sendMessage(message) {
+      sent.push({ ...message });
+      const rows = [...dom.window.document.querySelectorAll(".transcript-entry")];
+      assert.ok(rows.every((row) => row.classList.contains("translating")));
+      assert.equal(dom.window.document.getElementById("retryFailedTranslationsBtn").disabled, true);
+      return Promise.resolve({
+        success: true,
+        content: {
+          segments: [...ids].reverse().map((id) => ({ id, english: `English ${id[0]}` })),
+        },
+      });
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptMode = "en";
+    translationGeneration = 9;
+    currentTranscript = ${JSON.stringify(ids.map((id, index) => ({
+      stableId: id,
+      text: `Chinese ${index}`,
+      start: index,
+      duration: 1,
+    })))};
+  `);
+
+  await helpers.retryFailedTranslations();
+
+  assert.equal(sent.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0])), {
+    action: "translateSegments",
+    videoId: "abc123XYZ00",
+    snapshotId: "40000000-0000-4000-8000-000000000001",
+    segmentIds: ids,
+    retryId: "70000000-0000-4000-8000-000000000001",
+  });
+  ids.forEach((id) => {
+    const row = dom.window.document.querySelector(`[data-segment-id="${id}"]`);
+    assert.equal(row.querySelector(".transcript-translation").textContent, `English ${id[0]}`);
+    assert.equal(row.classList.contains("translated"), true);
+  });
+  assert.equal(dom.window.document.getElementById("retryFailedTranslationsBtn").hidden, true);
+});
+
+test("Retry failed leaves partial malformed IDs explicit and ignores a stale result", async () => {
+  const ids = ["a", "b", "c"].map((value) => value.repeat(64));
+  const dom = new JSDOM(`
+    <button id="retryFailedTranslationsBtn">Retry failed (3)</button>
+    <span id="langSpinner"></span>
+    <div id="transcriptList">
+      ${ids.map((id, index) => `
+        <div class="transcript-entry translation-failed" data-segment-id="${id}" data-segment-index="${index}">
+          <span class="transcript-copy"><span class="transcript-translation translation-error">Old failure</span></span>
+        </div>
+      `).join("")}
+    </div>
+  `);
+  let resolveRequest;
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000002" },
+    sendMessage: () => new Promise((resolve) => { resolveRequest = resolve; }),
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptMode = "bilingual";
+    translationGeneration = 4;
+    currentTranscript = ${JSON.stringify(ids.map((id, index) => ({
+      stableId: id,
+      text: `Chinese ${index}`,
+      start: index,
+      duration: 1,
+    })))};
+  `);
+
+  const retry = helpers.retryFailedTranslations();
+  dom.window.document.getElementById("transcriptList").innerHTML = `
+    <div class="transcript-entry translated" data-segment-id="${"f".repeat(64)}" data-segment-index="0">
+      <span class="transcript-copy"><span class="transcript-translation">New video translation</span></span>
+    </div>
+  `;
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "newVideo000";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000099";
+    currentTranscriptMode = "en";
+    translationGeneration += 1;
+  `);
+  resolveRequest({
+    success: true,
+    content: {
+      segments: [
+        { id: ids[0], english: "Old video English" },
+        { id: ids[1], english: "First duplicate" },
+        { id: ids[1], english: "Second duplicate" },
+        { segmentIndex: 2, english: "Positional guess" },
+      ],
+    },
+  });
+  await retry;
+
+  const newRow = dom.window.document.querySelector(".transcript-entry");
+  assert.equal(newRow.dataset.segmentId, "f".repeat(64));
+  assert.equal(newRow.querySelector(".transcript-translation").textContent, "New video translation");
+
+  const aligned = helpers.alignTranslatedSegmentBatch(
+    ids.map((id) => ({ id })),
+    [
+      { id: ids[0], english: "Mapped by ID" },
+      { id: ids[1], english: "First duplicate" },
+      { id: ids[1], english: "Second duplicate" },
+      { segmentIndex: 2, english: "Positional guess" },
+    ],
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(aligned)), [
+    { id: ids[0], text: "Mapped by ID", error: "" },
+    { id: ids[1], text: "", error: "Translation unavailable." },
+    { id: ids[2], text: "", error: "Translation unavailable." },
+  ]);
+});
+
+test("an individual row retry immediately updates the Retry failed count", () => {
+  const firstId = "a".repeat(64);
+  const secondId = "b".repeat(64);
+  const dom = new JSDOM(`
+    <button id="retryFailedTranslationsBtn">Retry failed (2)</button>
+    <div id="transcriptList">
+      <div class="transcript-entry translation-failed" data-segment-id="${firstId}" data-segment-index="0">
+        <span class="transcript-translation translation-error">Old failure</span>
+      </div>
+      <div class="transcript-entry translation-failed" data-segment-id="${secondId}" data-segment-index="1">
+        <span class="transcript-translation translation-error">Other failure</span>
+      </div>
+    </div>
+  `);
+  const helpers = loadSidepanelHelpers({ documentImpl: dom.window.document, windowImpl: dom.window });
+  helpers.evaluateInSidepanel("translationGeneration = 3; activeTranslationQueue = { enqueue() {} };");
+
+  helpers.retryTranslationSegment(0, 3);
+
+  const button = dom.window.document.getElementById("retryFailedTranslationsBtn");
+  assert.equal(button.textContent, "Retry failed (1)");
+  assert.equal(button.hidden, false);
+  assert.equal(button.disabled, false);
 });
 
 test("English-only omits Chinese while bilingual renders aligned Chinese and English", () => {
@@ -424,6 +606,29 @@ test("translation sends stable IDs once and leaves retry policy to durable jobs"
     videoId: "abc123XYZ00", snapshotId: "snapshot-1", segmentIds: ["segment-a", "segment-b"],
   });
   assert.deepEqual(bodies, [{ snapshotId: "snapshot-1", segmentIds: ["segment-a", "segment-b"] }]);
+});
+
+test("explicit translation retry forwards one UUID identity and no Provider controls", async () => {
+  const bodies = [];
+  const helpers = loadBackgroundHelpers({ fetchImpl: async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return { status: 202, json: async () => ({ ok: true, data: { jobId: "job-1", status: "pending" } }) };
+  } });
+  await helpers.translateSegments({
+    videoId: "abc123XYZ00",
+    snapshotId: "snapshot-1",
+    segmentIds: ["segment-a", "segment-b"],
+    retryId: "70000000-0000-4000-8000-000000000001",
+    providerUrl: "https://attacker.example",
+    apiKey: "secret",
+    model: "attacker-model",
+  });
+
+  assert.deepEqual(bodies, [{
+    snapshotId: "snapshot-1",
+    segmentIds: ["segment-a", "segment-b"],
+    retryId: "70000000-0000-4000-8000-000000000001",
+  }]);
 });
 
 test("translation message watchdog rejects, clears its timer, and ignores late replies", async () => {

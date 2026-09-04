@@ -21,10 +21,11 @@ const MAX_REQUEST_BYTES = 65_536;
 const OverviewRequestSchema = z.strictObject({ snapshotId: SnapshotIdSchema });
 const TranslationRequestSchema = z.strictObject({
   snapshotId: SnapshotIdSchema,
-  segmentIds: z.array(StableIdSchema).min(1).max(4).refine(
+  segmentIds: z.array(StableIdSchema).min(1).refine(
     (ids) => new Set(ids).size === ids.length,
     "segment IDs must be unique",
   ),
+  retryId: z.string().uuid().optional(),
 });
 const ExplanationRequestSchema = z.strictObject({
   videoId: YouTubeVideoIdSchema,
@@ -271,6 +272,9 @@ export function createLearningArtifactRoute(dependencies: RouteDependencies) {
       : dependencies.jobType === "explain_selection"
         ? [...(parsed.data as z.infer<typeof ExplanationRequestSchema>).segmentIds]
         : [];
+    const retryId = dependencies.jobType === "translate_segments"
+      ? (parsed.data as z.infer<typeof TranslationRequestSchema>).retryId
+      : undefined;
     const knownIds = new Set(owned.segments.map((segment) => segment.stableId));
     if (segmentIds.some((id) => !knownIds.has(id))) {
       return noStoreJson(failure({ code: "VALIDATION_FAILED", message: "Unknown transcript segment", retryable: false }, requestId), 400);
@@ -323,7 +327,7 @@ export function createLearningArtifactRoute(dependencies: RouteDependencies) {
     const dedupePayload = dependencies.jobType === "generate_overview"
       ? { snapshotId: owned.snapshotId }
       : dependencies.jobType === "translate_segments"
-        ? { snapshotId: owned.snapshotId, segmentIds }
+        ? { snapshotId: owned.snapshotId, segmentIds, ...(retryId ? { retryId } : {}) }
         : parsed.data;
     const dedupeKey = createLearningArtifactJobKey(
       dependencies.jobType,

@@ -55,7 +55,7 @@ const GatewayTranslationSchema = z.strictObject({
   translations: z.array(z.strictObject({
     segmentIndex: SegmentIndexSchema,
     english: z.string(),
-  })).min(1).max(4),
+  })).min(1),
 });
 
 export type OpenAiCompatibleAdapterOptions = {
