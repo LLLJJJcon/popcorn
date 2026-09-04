@@ -113,4 +113,4 @@ No Provider request, schema, migration, generated type, configuration,
 dependency, lockfile, or unrelated behavior changed. Residual risk remains
 limited to the separately authorized live-service smoke.
 
-Fix commit: pending final SHA record.
+Fix commit: `ef47897135bd70afec3fc47d8549e4b7c0464821`.
