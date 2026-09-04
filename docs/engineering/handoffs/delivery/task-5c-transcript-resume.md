@@ -81,3 +81,36 @@ The existing YouTube Digest adaptation remains intact, including the canonical
 YouTube ID flow and short independent polling. No upstream material was
 fetched or copied. LLM Wiki remains methods-only; no GPLv3 code, tests,
 prompts, components, or assets were added.
+
+## Fix round 1 — persisted segment pagination
+
+Review found that the Data API can cap one transcript-segment query at 1,000
+rows while valid normalized snapshots may contain more. `readSnapshot` now
+retrieves ordered `position` pages of 1,000 rows until a short page signals
+exhaustion before reconstructing the native snapshot.
+
+### RED
+
+```text
+pnpm vitest run tests/integration/jobs/resolve-snapshot.test.ts
+```
+
+Baseline result: exit 1; the new 1,001-row persisted-read regression received
+only 1,000 segments. This isolated silent truncation at the store boundary.
+
+### GREEN
+
+- `pnpm vitest run tests/integration/jobs/resolve-snapshot.test.ts`: 26 passed.
+- `node --test extension/tests/translation.test.js`: 24 passed.
+- `pnpm exec tsc --noEmit`, focused eslint, `node --check extension/background.js`,
+  and `git diff --check`: passed.
+
+The capped-query test checks the final stable ID, position, times, language,
+and reconstructed final text after the second page, as well as page ranges
+`0..999` and `1000..1999`.
+
+No Provider request, schema, migration, generated type, configuration,
+dependency, lockfile, or unrelated behavior changed. Residual risk remains
+limited to the separately authorized live-service smoke.
+
+Fix commit: pending final SHA record.

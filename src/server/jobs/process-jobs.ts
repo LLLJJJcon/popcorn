@@ -33,6 +33,7 @@ import {
 import type { Database, Json } from "@/types/database.generated";
 
 export const MAX_PROCESS_BATCH_SIZE = 5;
+const TRANSCRIPT_SEGMENT_PAGE_SIZE = 1_000;
 
 export interface DurableJobStore {
   /**
@@ -832,21 +833,37 @@ export function createSupabaseTranscriptStore(
       ) return null;
       const persistedSnapshot = snapshot.data;
 
-      const segments = await client.from("transcript_segments")
-        .select("stable_id,position,original_chinese,start_seconds,end_seconds,language,user_id,snapshot_id")
-        .eq("user_id", expectedUserId)
-        .eq("snapshot_id", persistedSnapshot.id)
-        .order("position", { ascending: true });
-      if (segments.error) throw segments.error;
+      const segments: Array<Pick<
+        Database["public"]["Tables"]["transcript_segments"]["Row"],
+        | "stable_id"
+        | "position"
+        | "original_chinese"
+        | "start_seconds"
+        | "end_seconds"
+        | "language"
+        | "user_id"
+        | "snapshot_id"
+      >> = [];
+      for (let from = 0; ; from += TRANSCRIPT_SEGMENT_PAGE_SIZE) {
+        const page = await client.from("transcript_segments")
+          .select("stable_id,position,original_chinese,start_seconds,end_seconds,language,user_id,snapshot_id")
+          .eq("user_id", expectedUserId)
+          .eq("snapshot_id", persistedSnapshot.id)
+          .order("position", { ascending: true })
+          .range(from, from + TRANSCRIPT_SEGMENT_PAGE_SIZE - 1);
+        if (page.error) throw page.error;
+        segments.push(...page.data);
+        if (page.data.length < TRANSCRIPT_SEGMENT_PAGE_SIZE) break;
+      }
       if (
-        segments.data.length === 0 ||
-        segments.data.some((segment) =>
+        segments.length === 0 ||
+        segments.some((segment) =>
           segment.user_id !== expectedUserId ||
           segment.snapshot_id !== persistedSnapshot.id ||
           segment.language !== "zh-CN",
         )
       ) return null;
-      const ordered = [...segments.data].sort((left, right) => left.position - right.position);
+      const ordered = [...segments].sort((left, right) => left.position - right.position);
       const nativeSegments = ordered.map((segment) => ({
         stableId: segment.stable_id,
         position: segment.position,

@@ -544,7 +544,8 @@ describe("CONTRACT-006 Supabase RPC adapters", () => {
     const segmentsQuery = {
       select: vi.fn(function (this: unknown) { return this; }),
       eq: vi.fn(function (this: unknown) { return this; }),
-      order: vi.fn(async () => ({
+      order: vi.fn(function (this: unknown) { return this; }),
+      range: vi.fn(async () => ({
         data: [
           {
             stable_id: "e".repeat(64), position: 1, original_chinese: "第二句。",
@@ -579,6 +580,75 @@ describe("CONTRACT-006 Supabase RPC adapters", () => {
     expect(segmentsQuery.eq).toHaveBeenCalledWith("user_id", USER_A);
     expect(segmentsQuery.eq).toHaveBeenCalledWith("snapshot_id", SNAPSHOT_ID);
     expect(segmentsQuery.order).toHaveBeenCalledWith("position", { ascending: true });
+    expect(segmentsQuery.range).toHaveBeenCalledWith(0, 999);
+  });
+
+  test("paginates persisted segments beyond the 1,000-row Data API cap", async () => {
+    const rows = Array.from({ length: 1_001 }, (_, position) => ({
+      stable_id: `stable-${position}`,
+      position,
+      original_chinese: `第${position}句。`,
+      start_seconds: position,
+      end_seconds: position + 1,
+      language: "zh-CN",
+      user_id: USER_A,
+      snapshot_id: SNAPSHOT_ID,
+    }));
+    const sourceQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({
+        data: { id: SOURCE_ID, user_id: USER_A, youtube_video_id: "abc123XYZ00" },
+        error: null,
+      })),
+    };
+    const snapshotQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({
+        data: {
+          id: SNAPSHOT_ID,
+          user_id: USER_A,
+          video_source_id: SOURCE_ID,
+          transcript_hash: "f".repeat(64),
+          transcript_language: "zh-CN",
+        },
+        error: null,
+      })),
+    };
+    const segmentsQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      order: vi.fn(function (this: unknown) { return this; }),
+      range: vi.fn(async (from: number, to: number) => ({
+        data: rows.slice(from, to + 1),
+        error: null,
+      })),
+      then: (onfulfilled: (value: { data: typeof rows; error: null }) => unknown) =>
+        Promise.resolve({ data: rows.slice(0, 1_000), error: null }).then(onfulfilled),
+    };
+    const from = vi.fn((table: string) => {
+      if (table === "video_sources") return sourceQuery;
+      if (table === "video_snapshots") return snapshotQuery;
+      if (table === "transcript_segments") return segmentsQuery;
+      throw new Error(`unexpected table ${table}`);
+    });
+    const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
+
+    const result = await store.readSnapshot(USER_A, "abc123XYZ00", SNAPSHOT_ID);
+
+    expect(result?.segments).toHaveLength(1_001);
+    expect(result?.segments.at(-1)).toMatchObject({
+      stableId: "stable-1000",
+      position: 1_000,
+      startSeconds: 1_000,
+      endSeconds: 1_001,
+      language: "zh-CN",
+    });
+    expect(result?.plainText.endsWith("第1000句。")).toBe(true);
+    expect(result?.timestampedText.endsWith("[16:40] 第1000句。")).toBe(true);
+    expect(segmentsQuery.range).toHaveBeenCalledWith(0, 999);
+    expect(segmentsQuery.range).toHaveBeenCalledWith(1_000, 1_999);
   });
 
   test("registers a conflict through one RPC and never mutates job tables", async () => {
