@@ -69,8 +69,19 @@ export const AttemptRecordedSchema = z.strictObject({
   createdAt: IsoDateTimeSchema,
 });
 
+export const PracticeCoachingSchema = z.strictObject({
+  naturalRevisionChinese: TargetChineseTextSchema.max(5_000),
+});
+
+export const PracticeAttemptResponseSchema = z.strictObject({
+  attempt: AttemptRecordedSchema,
+  coaching: PracticeCoachingSchema.nullable(),
+});
+
 export type PracticeTaskKind = z.infer<typeof PracticeTaskKindSchema>;
 export type PracticeTask = z.infer<typeof PracticeTaskSchema>;
 export type AssistanceLevel = z.infer<typeof AssistanceLevelSchema>;
 export type EvaluationResult = z.infer<typeof EvaluationResultSchema>;
 export type AttemptRecorded = z.infer<typeof AttemptRecordedSchema>;
+export type PracticeCoaching = z.infer<typeof PracticeCoachingSchema>;
+export type PracticeAttemptResponse = z.infer<typeof PracticeAttemptResponseSchema>;

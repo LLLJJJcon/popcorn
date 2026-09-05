@@ -4,9 +4,19 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { MasteryStateSchema, type MasteryState } from "@/contracts/memory";
-import { AssistanceLevelSchema, EvaluationResultSchema, type EvaluationResult, type PracticeTask } from "@/contracts/practice";
+import {
+  AssistanceLevelSchema,
+  EvaluationResultSchema,
+  type EvaluationResult,
+  type PracticeCoaching,
+  type PracticeTask,
+} from "@/contracts/practice";
 import { TargetChineseTextSchema } from "@/contracts/source";
-import { EVALUATE_PRACTICE_PROMPT_VERSION, buildEvaluatePracticePrompt } from "@/server/ai/prompts/evaluate.v1";
+import {
+  EVALUATE_PRACTICE_PROMPT_VERSION,
+  buildEvaluatePracticePrompt,
+  parsePracticeEvaluationOutput,
+} from "@/server/ai/prompts/evaluate.v1";
 import type { StructuredJsonGateway, StructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
 import { failure, success } from "@/server/api/respond";
 import type { WebSessionResult } from "@/server/auth/web-session";
@@ -14,6 +24,7 @@ import { PracticeError, practiceErrorResponse, readPracticeMutation, resolvePrac
 import { scheduleReview } from "@/server/domain/schedule-review";
 import type { DueTransferTask } from "@/server/domain/create-transfer-task";
 import { buildDueTransferTask } from "@/server/domain/create-transfer-task";
+import type { PracticeMaterialRepository } from "@/server/repositories/practice-material-repository";
 import type { Database } from "@/types/database.generated";
 
 export type { DueTransferTask } from "@/server/domain/create-transfer-task";
@@ -188,6 +199,7 @@ export function createDuePracticeCompletionService(dependencies: {
       }
 
       let evaluation: EvaluationResult;
+      let coaching: PracticeCoaching | null = null;
       let completedAt: string;
       let evaluationPromptVersion: string | null;
       let evaluationModel: string | null;
@@ -214,10 +226,19 @@ export function createDuePracticeCompletionService(dependencies: {
         }
         const resolved = await resolvePracticeEgress(userId.data, dependencies);
         try {
-          evaluation = safeEvaluation(await resolved.gateway.complete(
-            EVALUATE_PRACTICE_PROMPT_VERSION,
-            buildEvaluatePracticePrompt(taskView(task), input.data.responseChinese),
-          ));
+          const parsed = parsePracticeEvaluationOutput(
+            await resolved.gateway.complete(
+              EVALUATE_PRACTICE_PROMPT_VERSION,
+              buildEvaluatePracticePrompt(taskView(task), input.data.responseChinese, input.data.assistanceLevel),
+            ),
+            task.targetExpression,
+          );
+          evaluation = parsed.evaluation;
+          coaching = parsed.coaching;
+          if (
+            evaluation.assistanceLevel !== input.data.assistanceLevel ||
+            evaluation.independentUse !== (input.data.assistanceLevel === "none")
+          ) throw new TypeError("Practice evaluation assistance does not match the submission");
         } catch (error) {
           if (error instanceof PracticeError) throw error;
           throw new PracticeError("PROVIDER_FAILED", true);
@@ -264,6 +285,7 @@ export function createDuePracticeCompletionService(dependencies: {
           independentUse: independent,
           assistanceLevel: input.data.assistanceLevel,
         },
+        coaching,
       };
     },
   };
@@ -558,6 +580,7 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
 export function createDueTransferHttpHandler(dependencies: {
   readonly authenticate: (request: Request) => Promise<WebSessionResult>;
   readonly repository: TransferCreationRepository;
+  readonly materialRepository: Pick<PracticeMaterialRepository, "findDueMaterial">;
   readonly now: () => string;
   readonly requestId: () => string;
 }) {
@@ -572,9 +595,14 @@ export function createDueTransferHttpHandler(dependencies: {
     if (!reviewTaskId.success) return practiceErrorResponse(new PracticeError("VALIDATION_FAILED"), requestId);
     try {
       const task = await dependencies.repository.ensureTransferTask(session.userId, reviewTaskId.data, dependencies.now());
+      const material = await dependencies.materialRepository.findDueMaterial(session.userId, reviewTaskId.data);
+      if (!material || material.task.kind !== "due_practice" || material.task.id !== task.id) {
+        throw new PracticeError("NOT_FOUND");
+      }
       return Response.json(success({
         id: task.id, reviewTaskId: task.reviewTaskId, targetExpression: task.targetExpression,
         promptChinese: task.promptChinese, instructionsEnglish: task.instructionsEnglish, goalEnglish: task.goalEnglish,
+        material,
       }, requestId), { headers: { "Cache-Control": "no-store" } });
     } catch (error) {
       return practiceErrorResponse(error, requestId);

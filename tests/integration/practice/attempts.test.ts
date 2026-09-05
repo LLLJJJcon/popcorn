@@ -65,6 +65,11 @@ const passingEvaluation = {
   assistanceLevel: "none" as const,
 };
 
+const providerPassingEvaluation = {
+  ...passingEvaluation,
+  naturalRevisionChinese: "这个价格也太离谱了吧。",
+};
+
 function artifact(overrides: Partial<CandidateArtifactRecord> = {}): CandidateArtifactRecord {
   return {
     id: ARTIFACT,
@@ -291,8 +296,8 @@ function attemptService(store: ReturnType<typeof memoryRepository>, options: {
   ids?: string[];
   promote?: (userId: string, draft: PracticeDraftRecord, attempt: PracticeDraftAttemptRecord) => Promise<PracticePromotionResult>;
 } = {}) {
-  const fixture = options.fixture ?? gateway(passingEvaluation, "fixture/evaluation-v1");
-  const live = options.live ?? gateway(passingEvaluation);
+  const fixture = options.fixture ?? gateway(providerPassingEvaluation, "fixture/evaluation-v1");
+  const live = options.live ?? gateway(providerPassingEvaluation);
   const ids = options.ids ?? [ATTEMPT];
   const liveResolver = resolver(live);
   const promote = vi.fn(options.promote ?? (async (_userId, draft, attempt) => ({
@@ -481,6 +486,50 @@ describe("learner-first practice activation", () => {
 });
 
 describe("evaluation and append-only revisions", () => {
+  test("returns transient coaching from the sole Provider call without persisting it", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    const harness = attemptService(store);
+
+    const response = await harness.service.submitOriginal(USER_A, {
+      taskId: task.id,
+      responseChinese: "这个价格也太离谱了。",
+    });
+
+    expect(response).toMatchObject({
+      attempt: { evaluation: passingEvaluation },
+      coaching: { naturalRevisionChinese: providerPassingEvaluation.naturalRevisionChinese },
+    });
+    expect(harness.fixture.complete).toHaveBeenCalledOnce();
+    expect(store.attempts).toHaveLength(1);
+    expect(JSON.stringify(store.attempts[0])).not.toMatch(/naturalRevision|revisionChinese/i);
+  });
+
+  test("records disclosed hint assistance and never promotes it as independent use", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    const hintedEvaluation = {
+      ...providerPassingEvaluation,
+      independentUse: false,
+      assistanceLevel: "hint" as const,
+    };
+    const harness = attemptService(store, { fixture: gateway(hintedEvaluation) });
+
+    const response = await harness.service.submitOriginal(USER_A, {
+      taskId: task.id,
+      responseChinese: "这个价格也太离谱了。",
+      assistanceLevel: "hint",
+    });
+
+    expect(response.attempt.evaluation).toMatchObject({ independentUse: false, assistanceLevel: "hint" });
+    expect(store.attempts[0]).toMatchObject({ independentUse: false, assistanceLevel: "hint" });
+    expect(harness.promote).not.toHaveBeenCalled();
+    expect(harness.fixture.complete).toHaveBeenCalledWith(
+      "evaluate-practice-v1",
+      expect.stringContaining('"assistanceLevel":"hint"'),
+    );
+  });
+
   test("replays the exact original and promotion before any second Provider resolution", async () => {
     const store = memoryRepository();
     const task = await activate(store);
@@ -489,7 +538,8 @@ describe("evaluation and append-only revisions", () => {
     const first = await harness.service.submitOriginal(USER_A, input);
     const replay = await harness.service.submitOriginal(USER_A, input);
 
-    expect(replay).toEqual(first);
+    expect(first.coaching).toEqual({ naturalRevisionChinese: providerPassingEvaluation.naturalRevisionChinese });
+    expect(replay).toEqual({ attempt: first.attempt, coaching: null });
     expect(harness.fixture.complete).toHaveBeenCalledTimes(1);
     expect(harness.promote).toHaveBeenCalledTimes(2);
     expect(store.attempts).toHaveLength(1);
@@ -498,12 +548,13 @@ describe("evaluation and append-only revisions", () => {
   test("replays a stored failed original without Provider use or promotion", async () => {
     const store = memoryRepository();
     const task = await activate(store);
-    const failed = { ...passingEvaluation, passed: false };
+    const failed = { ...providerPassingEvaluation, passed: false };
     const harness = attemptService(store, { fixture: gateway(failed) });
     const input = { taskId: task.id, responseChinese: "这个价格太离谱了我。" };
     const first = await harness.service.submitOriginal(USER_A, input);
     const replay = await harness.service.submitOriginal(USER_A, input);
-    expect(replay).toEqual(first);
+    expect(first.coaching).toEqual({ naturalRevisionChinese: providerPassingEvaluation.naturalRevisionChinese });
+    expect(replay).toEqual({ attempt: first.attempt, coaching: null });
     expect(harness.fixture.complete).toHaveBeenCalledTimes(1);
     expect(harness.promote).not.toHaveBeenCalled();
   });
@@ -524,7 +575,10 @@ describe("evaluation and append-only revisions", () => {
     const input = { taskId: task.id, responseChinese: "这个价格也太离谱了。" };
     await expect(harness.service.submitOriginal(USER_A, input)).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
     expect(store.attempts).toHaveLength(1);
-    await expect(harness.service.submitOriginal(USER_A, input)).resolves.toMatchObject({ id: ATTEMPT });
+    await expect(harness.service.submitOriginal(USER_A, input)).resolves.toMatchObject({
+      attempt: { id: ATTEMPT },
+      coaching: null,
+    });
     expect(harness.fixture.complete).toHaveBeenCalledTimes(1);
     expect(store.attempts).toHaveLength(1);
   });
@@ -575,7 +629,7 @@ describe("evaluation and append-only revisions", () => {
     const harness = attemptService(store);
     await expect(harness.service.submitOriginal(USER_A, {
       taskId: task.id, responseChinese: racedRecord.responseChinese,
-    })).resolves.toMatchObject({ id: ATTEMPT });
+    })).resolves.toMatchObject({ attempt: { id: ATTEMPT }, coaching: null });
     expect(harness.promote).toHaveBeenCalledTimes(1);
     expect(store.attempts).toHaveLength(1);
   });
@@ -594,8 +648,9 @@ describe("evaluation and append-only revisions", () => {
     const original = await harness.service.submitOriginal(USER_A, {
       taskId: task.id, responseChinese: "这个价格也太离谱了。",
     });
-    await expect(harness.service.submitRevision(USER_A, original.id, "真的太离谱了。")).resolves.toMatchObject({
-      responseChinese: "真的太离谱了。",
+    await expect(harness.service.submitRevision(USER_A, original.attempt.id, "真的太离谱了。")).resolves.toMatchObject({
+      attempt: { responseChinese: "真的太离谱了。" },
+      coaching: { naturalRevisionChinese: providerPassingEvaluation.naturalRevisionChinese },
     });
     expect(harness.promote).toHaveBeenCalledTimes(1);
     expect(store.attempts).toHaveLength(2);
@@ -604,16 +659,16 @@ describe("evaluation and append-only revisions", () => {
   test("a failed original followed by a passing revision never promotes", async () => {
     const store = memoryRepository();
     const task = await activate(store);
-    const evaluations = gateway({ ...passingEvaluation, passed: false });
+    const evaluations = gateway({ ...providerPassingEvaluation, passed: false });
     evaluations.complete
-      .mockResolvedValueOnce({ ...passingEvaluation, passed: false })
-      .mockResolvedValueOnce(passingEvaluation);
+      .mockResolvedValueOnce({ ...providerPassingEvaluation, passed: false })
+      .mockResolvedValueOnce(providerPassingEvaluation);
     const harness = attemptService(store, { fixture: evaluations, ids: [ATTEMPT, USER_B] });
     const original = await harness.service.submitOriginal(USER_A, {
       taskId: task.id, responseChinese: "这个价格太离谱了我。",
     });
-    await expect(harness.service.submitRevision(USER_A, original.id, "这个价格也太离谱了。")).resolves.toMatchObject({
-      evaluation: { passed: true },
+    await expect(harness.service.submitRevision(USER_A, original.attempt.id, "这个价格也太离谱了。")).resolves.toMatchObject({
+      attempt: { evaluation: { passed: true } },
     });
     expect(harness.promote).not.toHaveBeenCalled();
     expect(store.attempts).toHaveLength(2);
@@ -621,7 +676,7 @@ describe("evaluation and append-only revisions", () => {
   test("rejects empty and English-only responses before Provider use", async () => {
     const store = memoryRepository();
     const task = await activate(store);
-    const fixture = gateway(passingEvaluation);
+    const fixture = gateway(providerPassingEvaluation);
     const service = attemptService(store, { fixture }).service;
 
     await expect(service.submitOriginal(USER_A, { taskId: task.id, responseChinese: "" }))
@@ -646,18 +701,21 @@ describe("evaluation and append-only revisions", () => {
   test("stores distinct dimensions and exact live provenance", async () => {
     const store = memoryRepository();
     const task = await activate(store);
-    const live = gateway(passingEvaluation);
+    const live = gateway(providerPassingEvaluation);
     const { service, liveResolver } = attemptService(store, { ci: false, live });
     const recorded = await service.submitOriginal(USER_A, {
       taskId: task.id, responseChinese: "这个价格也太离谱了！",
     });
 
     expect(recorded).toMatchObject({
-      id: ATTEMPT,
-      userId: USER_A,
-      practiceTaskId: task.id,
-      userExpressionId: task.userExpressionId,
-      evaluation: passingEvaluation,
+      attempt: {
+        id: ATTEMPT,
+        userId: USER_A,
+        practiceTaskId: task.id,
+        userExpressionId: task.userExpressionId,
+        evaluation: passingEvaluation,
+      },
+      coaching: { naturalRevisionChinese: providerPassingEvaluation.naturalRevisionChinese },
     });
     expect(liveResolver.resolve).toHaveBeenCalledExactlyOnceWith(USER_A, {
       configId: CONFIG, revision: 3, fingerprint: FINGERPRINT,
@@ -678,14 +736,14 @@ describe("evaluation and append-only revisions", () => {
     const store = memoryRepository();
     const task = await activate(store);
     const failed = {
-      ...passingEvaluation,
+      ...providerPassingEvaluation,
       passed: false,
       accuracy: { score: 2, englishFeedback: "The expression is recognizable but the grammar is incomplete." },
     };
     const recorded = await attemptService(store, { fixture: gateway(failed) }).service.submitOriginal(USER_A, {
       taskId: task.id, responseChinese: "这个价格太离谱了我。",
     });
-    expect(recorded.evaluation.passed).toBe(false);
+    expect(recorded.attempt.evaluation.passed).toBe(false);
     expect(store.attempts).toHaveLength(1);
     expect(JSON.stringify(store.attempts[0])).not.toMatch(/mastery|reviewTask|dueAt|vault/i);
   });
@@ -698,20 +756,20 @@ describe("evaluation and append-only revisions", () => {
     const original = await service.submitOriginal(USER_A, {
       taskId: task.id, responseChinese: "这个价格也太离谱了。",
     });
-    const revision = await service.submitRevision(USER_A, original.id, "这个价格也太离谱了吧！");
+    const revision = await service.submitRevision(USER_A, original.attempt.id, "这个价格也太离谱了吧！");
 
     expect(store.attempts.map(({ revision, responseChinese }) => ({ revision, responseChinese }))).toEqual([
       { revision: 1, responseChinese: "这个价格也太离谱了。" },
       { revision: 2, responseChinese: "这个价格也太离谱了吧！" },
     ]);
-    await expect(service.submitRevision(USER_B, original.id, "太离谱了。"))
+    await expect(service.submitRevision(USER_B, original.attempt.id, "太离谱了。"))
       .rejects.toMatchObject({ code: "NOT_FOUND" });
 
     vi.spyOn(store.repository, "nextRevision").mockResolvedValueOnce(2);
-    await expect(service.submitRevision(USER_A, original.id, "真的太离谱了。"))
+    await expect(service.submitRevision(USER_A, original.attempt.id, "真的太离谱了。"))
       .rejects.toMatchObject({ code: "REVISION_CONFLICT" });
     expect(store.attempts).toHaveLength(2);
-    expect(revision.id).toBe("88888888-8888-4888-8888-888888888888");
+    expect(revision.attempt.id).toBe("88888888-8888-4888-8888-888888888888");
   });
 });
 
@@ -1194,9 +1252,9 @@ describe("production practice route wiring", () => {
       savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0,
     });
     expect(submitOriginal).toHaveBeenCalledExactlyOnceWith(USER_A, {
-      taskId: ATTEMPT, responseChinese: "太离谱了。",
+      taskId: ATTEMPT, responseChinese: "太离谱了。", assistanceLevel: "none",
     });
-    expect(submitRevision).toHaveBeenCalledExactlyOnceWith(USER_A, USER_B, "真的太离谱了。");
+    expect(submitRevision).toHaveBeenCalledExactlyOnceWith(USER_A, USER_B, "真的太离谱了。", "none");
     expect(createClient).toHaveBeenCalledTimes(3);
     expect(createClient).toHaveBeenCalledWith(
       "https://project.supabase.co",

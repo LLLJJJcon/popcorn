@@ -15,6 +15,7 @@ import { createEvaluationFixtureGateway } from "@/server/ai/prompts/evaluate.v1"
 import { createStructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
 import { getModelGatewaySettingsEnv } from "@/server/env";
 import { createSupabaseModelGatewayRuntimeResolver } from "@/server/model-gateway/runtime-resolver";
+import { createPracticeMaterialRepository } from "@/server/repositories/practice-material-repository";
 import type { Database } from "@/types/database.generated";
 
 type Context = { readonly params: Promise<{ readonly reviewTaskId?: string }> };
@@ -29,6 +30,7 @@ async function runtimeHandlers() {
     secureCookies: new URL(environment.APP_URL).protocol === "https:", cookieAdapter: async () => createNextCookieAdapter(await cookies()),
   });
   const repository = createSupabaseDuePracticeRepository(client);
+  const materialRepository = createPracticeMaterialRepository(client);
   const ci = process.env.CI === "true";
   const fixtureGateway = createEvaluationFixtureGateway();
   const complete = createDuePracticeCompletionService({
@@ -38,7 +40,9 @@ async function runtimeHandlers() {
     }), now: () => new Date().toISOString(),
   });
   return {
-    transfer: createDueTransferHttpHandler({ authenticate, repository, now: () => new Date().toISOString(), requestId: randomUUID }),
+    transfer: createDueTransferHttpHandler({
+      authenticate, repository, materialRepository, now: () => new Date().toISOString(), requestId: randomUUID,
+    }),
     complete: createDuePracticeHttpHandler({ authenticate, complete: complete.complete, appUrl: environment.APP_URL, requestId: randomUUID }),
   };
 }

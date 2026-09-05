@@ -98,12 +98,16 @@ describe("complete due Practice", () => {
       attemptId: "66666666-6666-4666-8666-666666666666",
       transition: { from: "tried", to: "reused" },
       created: true,
+      coaching: { naturalRevisionChinese: "这个价格也太离谱了吧。" },
     });
     expect(store.completeDuePractice).toHaveBeenCalledOnce();
     expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({
       userId: USER, reviewTaskId: REVIEW, practiceTaskId: TASK,
       assistanceLevel: "none", passed: true, completedAt: NOW,
     }));
+    expect(store.completeDuePractice).toHaveBeenCalledWith(
+      expect.not.objectContaining({ naturalRevisionChinese: expect.anything() }),
+    );
     expect(store.resolveActiveGatewayPin).not.toHaveBeenCalled();
   });
 
@@ -173,7 +177,19 @@ describe("complete due Practice", () => {
       masteryEventId: "77777777-7777-4777-8777-777777777777", nextReviewTaskId: "88888888-8888-4888-8888-888888888888",
       priorState: "reused" as const, newState: "reused" as const, nextDueAt: "2026-08-23T12:00:00.000Z", intervalDays: 1, created: true,
     }));
-    const { service: complete } = service(store);
+    const gateway = {
+      model: "fixture/hinted-evaluation",
+      complete: vi.fn(async () => ({
+        passed: true,
+        accuracy: { score: 4, englishFeedback: "Meaning is clear." },
+        naturalness: { score: 4, englishFeedback: "Natural in conversation." },
+        contextualFit: { score: 5, englishFeedback: "Fits the situation." },
+        independentUse: false,
+        assistanceLevel: "hint",
+        naturalRevisionChinese: "这个价格也太离谱了吧。",
+      })),
+    };
+    const { service: complete } = service(store, { gateway });
 
     await expect(complete.complete(USER, REVIEW, {
       responseChinese: "太离谱了。", assistanceLevel: "hint",
@@ -181,6 +197,10 @@ describe("complete due Practice", () => {
     expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({
       passed: true, assistanceLevel: "hint",
     }));
+    expect(gateway.complete).toHaveBeenCalledWith(
+      "evaluate-practice-v1",
+      expect.stringContaining('"assistanceLevel":"hint"'),
+    );
   });
 
   test("fails closed before evaluating or writing a cross-owner, stale, or mismatched task", async () => {
@@ -295,6 +315,7 @@ describe("complete due Practice", () => {
       assistanceLevel: persistedAttempt.assistanceLevel,
     })).resolves.toMatchObject({
       created: false,
+      coaching: null,
       evaluation: {
         passed: true,
         assistanceLevel: "none",

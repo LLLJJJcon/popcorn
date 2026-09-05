@@ -13,6 +13,8 @@ import {
   KnowledgeJobTypeSchema,
   MasteryStateSchema,
   NativeLanguageSchema,
+  PracticeAttemptResponseSchema,
+  PracticeCoachingSchema,
   PracticeTaskSchema,
   ReviewTaskSchema,
   SavedItemSchema,
@@ -486,6 +488,29 @@ describe("shared contracts", () => {
     });
 
     expect(EvaluationResultSchema.parse(evaluation)).toEqual(evaluation);
+  });
+
+  it("keeps transient Practice coaching strict and outside persisted evaluation", () => {
+    const attempt = makeAttemptRecorded();
+    const response = {
+      attempt,
+      coaching: { naturalRevisionChinese: "这个价格也太离谱了吧。" },
+    };
+
+    expect(PracticeCoachingSchema.parse(response.coaching)).toEqual(response.coaching);
+    expect(PracticeAttemptResponseSchema.parse(response)).toEqual(response);
+    expect(PracticeAttemptResponseSchema.parse({ ...response, coaching: null })).toEqual({
+      ...response,
+      coaching: null,
+    });
+    expect(EvaluationResultSchema.safeParse({
+      ...attempt.evaluation,
+      naturalRevisionChinese: response.coaching.naturalRevisionChinese,
+    }).success).toBe(false);
+    expect(PracticeCoachingSchema.safeParse({
+      naturalRevisionChinese: response.coaching.naturalRevisionChinese,
+      providerTrace: "hidden",
+    }).success).toBe(false);
   });
 
   it.each(["hint", "model_answer"] as const)(

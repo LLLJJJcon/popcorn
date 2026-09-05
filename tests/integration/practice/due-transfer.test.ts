@@ -6,6 +6,7 @@ import { buildDueTransferTask } from "@/server/domain/create-transfer-task";
 import {
   createDuePracticeCompletionService,
   createDuePracticeHttpHandler,
+  createDueTransferHttpHandler,
   createSupabaseDuePracticeRepository,
 } from "@/server/domain/complete-due-practice";
 
@@ -214,6 +215,73 @@ function completedReplayRepositoryHarness() {
 }
 
 describe("due Practice transfer boundary", () => {
+  test("returns owner-scoped learning material with the due transfer", async () => {
+    const transfer = buildDueTransferTask({
+      id: "33333333-3333-4333-8333-333333333333", userId: USER, reviewTaskId: REVIEW,
+      userExpressionId: EXPRESSION, targetExpression: "太离谱了",
+      originalPromptChinese: "朋友说演唱会门票贵得不合理。你会怎么回应？",
+      dueAt: "2026-08-21T12:00:00.000Z", masteryState: "tried",
+    });
+    const material = {
+      task: {
+        id: transfer.id, userExpressionId: EXPRESSION, kind: "due_practice" as const,
+        nativeLanguage: "en" as const, targetLanguage: "zh-CN" as const,
+        targetExpression: transfer.targetExpression, promptChinese: transfer.promptChinese,
+        instructionsEnglish: transfer.instructionsEnglish, goalEnglish: transfer.goalEnglish,
+        dueAt: transfer.dueAt, createdAt: transfer.dueAt,
+      },
+      masteryState: "tried" as const,
+      source: {
+        videoTitle: "Fixture video", youtubeUrl: "https://www.youtube.com/watch?v=abcdefghijk&t=42s",
+        evidenceText: "这也太离谱了。", startSeconds: 42,
+      },
+      expression: {
+        englishMeaning: "That is outrageous.", englishExplanation: "A strong spoken reaction.",
+        tone: "surprised", communicativeFunction: "reaction", register: "informal",
+      },
+    };
+    const ensureTransferTask = vi.fn(async () => transfer);
+    const findDueMaterial = vi.fn(async () => material);
+    const handler = createDueTransferHttpHandler({
+      authenticate: vi.fn(async () => ({ ok: true as const, userId: USER })),
+      repository: { ensureTransferTask }, materialRepository: { findDueMaterial },
+      now: () => "2026-08-22T12:00:00.000Z", requestId: () => "safe-request-id",
+    });
+
+    const response = await handler(new Request(`https://popcorn.example/api/v1/practice/due/${REVIEW}`), {
+      params: Promise.resolve({ reviewTaskId: REVIEW }),
+    });
+    const body = await response.json() as { data: Record<string, unknown> };
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({ id: transfer.id, reviewTaskId: REVIEW, material });
+    expect(JSON.stringify(body.data.material)).not.toMatch(/userId|gateway|api[_-]?key/i);
+    expect(ensureTransferTask).toHaveBeenCalledExactlyOnceWith(USER, REVIEW, "2026-08-22T12:00:00.000Z");
+    expect(findDueMaterial).toHaveBeenCalledExactlyOnceWith(USER, REVIEW);
+  });
+
+  test("fails closed when the transfer has no matching owner-scoped material", async () => {
+    const transfer = buildDueTransferTask({
+      id: "33333333-3333-4333-8333-333333333333", userId: USER, reviewTaskId: REVIEW,
+      userExpressionId: EXPRESSION, targetExpression: "太离谱了",
+      originalPromptChinese: "朋友说演唱会门票贵得不合理。你会怎么回应？",
+      dueAt: "2026-08-21T12:00:00.000Z", masteryState: "tried",
+    });
+    const handler = createDueTransferHttpHandler({
+      authenticate: vi.fn(async () => ({ ok: true as const, userId: USER })),
+      repository: { ensureTransferTask: vi.fn(async () => transfer) },
+      materialRepository: { findDueMaterial: vi.fn(async () => null) },
+      now: () => "2026-08-22T12:00:00.000Z", requestId: () => "safe-request-id",
+    });
+
+    const response = await handler(new Request(`https://popcorn.example/api/v1/practice/due/${REVIEW}`), {
+      params: Promise.resolve({ reviewTaskId: REVIEW }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toMatch(/database|userId|api[_-]?key|gateway|expression_sense/i);
+  });
+
   test("creates a different-context prompt that withholds a complete answer", () => {
     const originalPrompt = "这个价格也太离谱了吧，你会怎么说？";
     const transfer = buildDueTransferTask({

@@ -4,16 +4,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import {
+  AssistanceLevelSchema,
   AttemptRecordedSchema,
-  EvaluationResultSchema,
+  type AssistanceLevel,
   type AttemptRecorded,
-  type EvaluationResult,
+  type PracticeAttemptResponse,
+  type PracticeCoaching,
 } from "@/contracts/practice";
 import { TargetChineseTextSchema } from "@/contracts/source";
 import {
   EVALUATE_PRACTICE_PROMPT_VERSION,
   buildEvaluatePracticePrompt,
   createEvaluationFixtureGateway,
+  parsePracticeEvaluationOutput,
 } from "@/server/ai/prompts/evaluate.v1";
 import { createActivationFixtureGateway } from "@/server/ai/prompts/activate.v1";
 import {
@@ -47,9 +50,13 @@ const UserIdSchema = z.string().uuid();
 const OriginalAttemptInputSchema = z.strictObject({
   taskId: z.string().uuid(),
   responseChinese: TargetChineseTextSchema.max(5_000),
+  assistanceLevel: AssistanceLevelSchema.default("none"),
 });
 const AttemptIdSchema = z.string().uuid();
-const RevisionInputSchema = z.strictObject({ responseChinese: TargetChineseTextSchema.max(5_000) });
+const RevisionInputSchema = z.strictObject({
+  responseChinese: TargetChineseTextSchema.max(5_000),
+  assistanceLevel: AssistanceLevelSchema.default("none"),
+});
 
 export type PracticeDraftAttemptRecord = {
   readonly id: string;
@@ -104,16 +111,6 @@ function attemptView(record: PracticeDraftAttemptRecord): AttemptRecorded {
   });
 }
 
-function safeEvaluation(value: unknown): EvaluationResult {
-  const parsed = EvaluationResultSchema.safeParse(value);
-  if (
-    !parsed.success ||
-    parsed.data.assistanceLevel !== "none" ||
-    parsed.data.independentUse !== true
-  ) throw new PracticeError("PROVIDER_FAILED", true);
-  return parsed.data;
-}
-
 export function createPracticeAttemptService(dependencies: {
   readonly repository: PracticeAttemptRepository;
   readonly gatewayResolver: StructuredJsonGatewayResolver;
@@ -132,18 +129,29 @@ export function createPracticeAttemptService(dependencies: {
     draft: PracticeDraftRecord,
     responseChinese: string,
     revision: number,
-  ): Promise<PracticeDraftAttemptRecord> {
+    assistanceLevel: AssistanceLevel,
+  ): Promise<{ readonly record: PracticeDraftAttemptRecord; readonly coaching: PracticeCoaching }> {
     const resolved = await resolvePracticeEgress(userId, dependencies);
-    let evaluation: EvaluationResult;
+    let parsed: ReturnType<typeof parsePracticeEvaluationOutput>;
     try {
-      evaluation = safeEvaluation(await resolved.gateway.complete(
-        EVALUATE_PRACTICE_PROMPT_VERSION,
-        buildEvaluatePracticePrompt(practiceTaskView(draft), responseChinese),
-      ));
+      parsed = parsePracticeEvaluationOutput(
+        await resolved.gateway.complete(
+          EVALUATE_PRACTICE_PROMPT_VERSION,
+          buildEvaluatePracticePrompt(practiceTaskView(draft), responseChinese, assistanceLevel),
+        ),
+        draft.targetExpression,
+      );
+      if (
+        parsed.evaluation.assistanceLevel !== assistanceLevel ||
+        parsed.evaluation.independentUse !== (assistanceLevel === "none")
+      ) {
+        throw new TypeError("Practice evaluation assistance does not match the submission");
+      }
     } catch (error) {
       if (error instanceof PracticeError) throw error;
       throw new PracticeError("PROVIDER_FAILED", true);
     }
+    const evaluation = parsed.evaluation;
     const now = dependencies.now();
     const record: PracticeDraftAttemptRecord = {
       id: dependencies.attemptId(),
@@ -159,8 +167,8 @@ export function createPracticeAttemptService(dependencies: {
       naturalnessFeedbackEnglish: evaluation.naturalness.englishFeedback,
       contextualFitScore: evaluation.contextualFit.score,
       contextualFitFeedbackEnglish: evaluation.contextualFit.englishFeedback,
-      independentUse: true,
-      assistanceLevel: "none",
+      independentUse: assistanceLevel === "none",
+      assistanceLevel,
       submittedAt: now,
       evaluationPromptVersion: resolved.pin ? EVALUATE_PRACTICE_PROMPT_VERSION : null,
       evaluationModel: resolved.pin ? resolved.gateway.model : null,
@@ -170,7 +178,10 @@ export function createPracticeAttemptService(dependencies: {
       createdAt: now,
     };
     try {
-      return await dependencies.repository.insertAttempt(record);
+      return {
+        record: await dependencies.repository.insertAttempt(record),
+        coaching: parsed.coaching,
+      };
     } catch (error) {
       if (error instanceof RevisionConflictError) {
         throw new PracticeError("REVISION_CONFLICT");
@@ -184,7 +195,10 @@ export function createPracticeAttemptService(dependencies: {
     draft: PracticeDraftRecord,
     record: PracticeDraftAttemptRecord,
   ): Promise<void> {
-    if (record.revision !== 1 || !record.passed) return;
+    if (
+      record.revision !== 1 || !record.passed ||
+      !record.independentUse || record.assistanceLevel !== "none"
+    ) return;
     try {
       await dependencies.promoteValidAttempt(userId, draft, record);
     } catch {
@@ -196,16 +210,20 @@ export function createPracticeAttemptService(dependencies: {
     userId: string,
     draft: PracticeDraftRecord,
     responseChinese: string,
-  ): Promise<AttemptRecorded | null> {
+    assistanceLevel: AssistanceLevel,
+  ): Promise<PracticeAttemptResponse | null> {
     const existing = await dependencies.repository.findOriginalAttempt(userId, draft.id);
     if (!existing) return null;
-    if (existing.responseChinese !== responseChinese) throw new PracticeError("REVISION_CONFLICT");
+    if (
+      existing.responseChinese !== responseChinese ||
+      existing.assistanceLevel !== assistanceLevel
+    ) throw new PracticeError("REVISION_CONFLICT");
     await promoteIfEligible(userId, draft, existing);
-    return attemptView(existing);
+    return { attempt: attemptView(existing), coaching: null };
   }
 
   return {
-    async submitOriginal(userIdValue: string, inputValue: { taskId: string; responseChinese: string }) {
+    async submitOriginal(userIdValue: string, inputValue: z.input<typeof OriginalAttemptInputSchema>) {
       const userId = UserIdSchema.safeParse(userIdValue);
       const input = OriginalAttemptInputSchema.safeParse(inputValue);
       if (!userId.success || !input.success) throw new PracticeError("VALIDATION_FAILED");
@@ -213,29 +231,41 @@ export function createPracticeAttemptService(dependencies: {
       if (!draft || draft.userId !== userId.data || draft.status === "abandoned") {
         throw new PracticeError("NOT_FOUND");
       }
-      const recovered = await recoverOriginal(userId.data, draft, input.data.responseChinese);
+      const recovered = await recoverOriginal(
+        userId.data, draft, input.data.responseChinese, input.data.assistanceLevel,
+      );
       if (recovered) return recovered;
       if (draft.status !== "active") throw new PracticeError("NOT_FOUND");
       const revision = await dependencies.repository.nextRevision(userId.data, draft.id);
       if (revision !== 1) throw new PracticeError("REVISION_CONFLICT");
       try {
-        const record = await evaluateAndPersist(userId.data, draft, input.data.responseChinese, 1);
-        await promoteIfEligible(userId.data, draft, record);
-        return attemptView(record);
+        const result = await evaluateAndPersist(
+          userId.data, draft, input.data.responseChinese, 1, input.data.assistanceLevel,
+        );
+        await promoteIfEligible(userId.data, draft, result.record);
+        return { attempt: attemptView(result.record), coaching: result.coaching };
       } catch (error) {
         if (error instanceof PracticeError && error.code === "REVISION_CONFLICT") {
-          const raced = await recoverOriginal(userId.data, draft, input.data.responseChinese);
+          const raced = await recoverOriginal(
+            userId.data, draft, input.data.responseChinese, input.data.assistanceLevel,
+          );
           if (raced) return raced;
         }
         throw error;
       }
     },
 
-    async submitRevision(userIdValue: string, attemptIdValue: string, responseChineseValue: string) {
+    async submitRevision(
+      userIdValue: string,
+      attemptIdValue: string,
+      responseChineseValue: string,
+      assistanceLevelValue: AssistanceLevel = "none",
+    ) {
       const userId = UserIdSchema.safeParse(userIdValue);
       const attemptId = AttemptIdSchema.safeParse(attemptIdValue);
       const responseChinese = TargetChineseTextSchema.max(5_000).safeParse(responseChineseValue);
-      if (!userId.success || !attemptId.success || !responseChinese.success) {
+      const assistanceLevel = AssistanceLevelSchema.safeParse(assistanceLevelValue);
+      if (!userId.success || !attemptId.success || !responseChinese.success || !assistanceLevel.success) {
         throw new PracticeError("VALIDATION_FAILED");
       }
       const original = await dependencies.repository.findAttempt(userId.data, attemptId.data);
@@ -245,7 +275,10 @@ export function createPracticeAttemptService(dependencies: {
         throw new PracticeError("NOT_FOUND");
       }
       const revision = await dependencies.repository.nextRevision(userId.data, draft.id);
-      return attemptView(await evaluateAndPersist(userId.data, draft, responseChinese.data, revision));
+      const result = await evaluateAndPersist(
+        userId.data, draft, responseChinese.data, revision, assistanceLevel.data,
+      );
+      return { attempt: attemptView(result.record), coaching: result.coaching };
     },
   };
 }
@@ -253,7 +286,9 @@ export function createPracticeAttemptService(dependencies: {
 export function createPracticeAttemptHttpHandlers(dependencies: {
   readonly authenticate: (request: Request) => Promise<WebSessionResult>;
   readonly submitOriginal: (userId: string, input: z.infer<typeof OriginalAttemptInputSchema>) => Promise<unknown>;
-  readonly submitRevision: (userId: string, attemptId: string, responseChinese: string) => Promise<unknown>;
+  readonly submitRevision: (
+    userId: string, attemptId: string, responseChinese: string, assistanceLevel: AssistanceLevel,
+  ) => Promise<unknown>;
   readonly appUrl: string;
   readonly requestId: () => string;
 }) {
@@ -292,7 +327,9 @@ export function createPracticeAttemptHttpHandlers(dependencies: {
       }
       try {
         return Response.json(success(
-          await dependencies.submitRevision(result.userId, attemptId.data, input.data.responseChinese),
+          await dependencies.submitRevision(
+            result.userId, attemptId.data, input.data.responseChinese, input.data.assistanceLevel,
+          ),
           requestId,
         ), { status: 201, headers: { "Cache-Control": "no-store" } });
       } catch (error) {
