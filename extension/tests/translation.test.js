@@ -177,6 +177,39 @@ test("Overview has a hidden accessible retry action beside its title", () => {
   assert.equal(retry.previousElementSibling, title);
 });
 
+test("a pending Overview keeps a two-minute progress message while it starts and resumes", async () => {
+  const dom = new JSDOM(`
+    <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
+    <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
+  `);
+  const helpers = loadSidepanelHelpers({ documentImpl: dom.window.document, windowImpl: dom.window });
+  helpers.evaluateInSidepanel(`
+    sendCloudAction = async (message) => {
+      globalThis.overviewMessages.push(message);
+      return { success: true, pending: true, jobId: "overview-pending-job" };
+    };
+    globalThis.overviewMessages = [];
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "第一条中文内容。" }];
+    currentAnalysis = null;
+  `);
+
+  await helpers.triggerAnalysis();
+  const overviewText = dom.window.document.getElementById("overviewText");
+  assert.match(overviewText.textContent, /generating overview.*about two minutes/i);
+  assert.doesNotMatch(overviewText.textContent, /will appear here/i);
+
+  await helpers.triggerAnalysis();
+  assert.match(overviewText.textContent, /generating overview.*about two minutes/i);
+  assert.deepEqual(JSON.parse(helpers.evaluateInSidepanel("JSON.stringify(globalThis.overviewMessages[1])")), {
+    action: "requestOverview",
+    videoId: "abc123XYZ00",
+    snapshotId: "40000000-0000-4000-8000-000000000001",
+    jobId: "overview-pending-job",
+  });
+});
+
 test("a failed Overview reveals one explicit UUID retry and suppresses duplicates while it is in flight", async () => {
   const dom = new JSDOM(`
     <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
@@ -264,7 +297,10 @@ test("a late Overview response for video A cannot overwrite video B or release B
   await requestA;
   assert.equal(helpers.evaluateInSidepanel("currentAnalysis"), null);
   assert.equal(helpers.evaluateInSidepanel("isAnalysisLoading"), true);
-  assert.equal(dom.window.document.getElementById("overviewText").textContent, "");
+  assert.match(
+    dom.window.document.getElementById("overviewText").textContent,
+    /generating overview.*about two minutes/i,
+  );
 
   responses[1].resolve({ success: true, content: content("B") });
   await requestB;

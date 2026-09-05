@@ -368,6 +368,7 @@ let isAnalysisLoading = false; // Track if analysis is in progress
 let overviewRetryAvailable = false;
 let overviewGeneration = 0;
 let overviewRequest = null;
+const OVERVIEW_PROGRESS_COPY = "Generating overview — this can take about two minutes.";
 let youtubeTabId = null; // Store the YouTube tab ID for reliable messaging
 let errorAction = null;
 let savedLibrarySummaries = [];
@@ -1648,9 +1649,11 @@ async function triggerAnalysis(retryId) {
   updateOverviewRetryButton();
 
   // Show loading indicators in the Overview tab
+  const overviewText = document.getElementById("overviewText");
   const chapterList = document.getElementById("chapterList");
   const quotesList = document.getElementById("quotesList");
 
+  if (overviewText) overviewText.textContent = OVERVIEW_PROGRESS_COPY;
   if (chapterList)
     chapterList.innerHTML =
       '<li class="chapter-item" style="color: var(--text-muted); border: none;">Loading chapters...</li>';

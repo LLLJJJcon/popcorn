@@ -383,7 +383,10 @@ describe("bounded openai-compatible adapter", () => {
       config: RUNTIME_CONFIG,
       fetchImpl: fetchImpl as typeof fetch,
     });
-    await expectGatewayCode(adapter.generateOverview(evidence), "PROVIDER_UNAVAILABLE");
+    await expectGatewayCode(
+      adapter.translateSegments(evidence, [SEGMENT_B]),
+      "PROVIDER_UNAVAILABLE",
+    );
     await adapter.generateOverview(evidence).catch((error: unknown) => {
       expect(String(error)).not.toContain("secret");
       expect(String(error)).not.toContain("models.example");
@@ -401,7 +404,46 @@ describe("bounded openai-compatible adapter", () => {
       fetchImpl,
       timeoutMs: 1,
     });
-    await expectGatewayCode(adapter.generateOverview(evidence), "PROVIDER_UNAVAILABLE");
+    await expectGatewayCode(
+      adapter.translateSegments(evidence, [SEGMENT_B]),
+      "PROVIDER_UNAVAILABLE",
+    );
+  });
+
+  test("gives an Overview its separate timeout budget while translations keep the generic timeout", async () => {
+    const delayedOverviewResponse = vi.fn((_url: URL | RequestInfo, options?: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new Error("private timeout detail")));
+        setTimeout(() => resolve(completionResponse(gatewayOverview)), 10);
+      }));
+    const overviewOptions = {
+      config: RUNTIME_CONFIG,
+      fetchImpl: delayedOverviewResponse,
+      timeoutMs: 5,
+      overviewTimeoutMs: 25,
+    } as Parameters<typeof createOpenAiCompatibleLearningArtifactProvider>[0];
+    const provider = createOpenAiCompatibleLearningArtifactProvider(overviewOptions);
+
+    await expect(provider.generateOverview(evidence)).resolves.toEqual(validOverview);
+
+    const delayedTranslationResponse = vi.fn((_url: URL | RequestInfo, options?: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new Error("private timeout detail")));
+        setTimeout(() => resolve(completionResponse({
+          translations: [{ segmentIndex: 0, english: "You can say it exactly this way." }],
+        })), 10);
+      }));
+    const translationProvider = createOpenAiCompatibleLearningArtifactProvider({
+      config: RUNTIME_CONFIG,
+      fetchImpl: delayedTranslationResponse,
+      timeoutMs: 5,
+      overviewTimeoutMs: 25,
+    } as Parameters<typeof createOpenAiCompatibleLearningArtifactProvider>[0]);
+
+    await expectGatewayCode(
+      translationProvider.translateSegments(evidence, [SEGMENT_B]),
+      "PROVIDER_UNAVAILABLE",
+    );
   });
 
   test("keeps the timeout active while a successful response body is still streaming", async () => {
@@ -426,7 +468,7 @@ describe("bounded openai-compatible adapter", () => {
     });
 
     const result = await Promise.race([
-      adapter.generateOverview(evidence).catch((error: unknown) => error),
+      adapter.translateSegments(evidence, [SEGMENT_B]).catch((error: unknown) => error),
       new Promise<"still-pending">((resolve) => setTimeout(() => resolve("still-pending"), 50)),
     ]);
 

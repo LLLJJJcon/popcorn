@@ -25,6 +25,7 @@ import {
 import type { ModelGatewayRuntimeConfig } from "@/server/model-gateway/runtime-resolver";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_OVERVIEW_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_REQUEST_BYTES = 65_536;
 const DEFAULT_MAX_RESPONSE_BYTES = 524_288;
 
@@ -66,12 +67,13 @@ export type OpenAiCompatibleAdapterOptions = {
   readonly config: ModelGatewayRuntimeConfig;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
+  readonly overviewTimeoutMs?: number;
   readonly maxRequestBytes?: number;
   readonly maxResponseBytes?: number;
 };
 
 export interface StructuredJsonCompletionClient {
-  complete(promptVersion: string, prompt: string): Promise<unknown>;
+  complete(promptVersion: string, prompt: string, timeoutMs?: number): Promise<unknown>;
 }
 
 function outputInvalid(): ModelGatewayError {
@@ -166,7 +168,11 @@ export function createOpenAiCompatibleStructuredJsonClient(
   );
   const endpoint = `${options.config.canonicalOrigin}${options.config.basePath}/chat/completions`;
 
-  async function complete(promptVersion: string, prompt: string): Promise<unknown> {
+  async function complete(
+    promptVersion: string,
+    prompt: string,
+    requestTimeoutMs = timeoutMs,
+  ): Promise<unknown> {
     const body = JSON.stringify({
       model: options.config.model,
       messages: [
@@ -182,7 +188,10 @@ export function createOpenAiCompatibleStructuredJsonClient(
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(
+      () => controller.abort(),
+      boundedPositiveInteger(requestTimeoutMs, timeoutMs),
+    );
     try {
       const response = await fetchImpl(endpoint, {
         method: "POST",
@@ -213,6 +222,10 @@ export function createOpenAiCompatibleLearningArtifactProvider(
   options: OpenAiCompatibleAdapterOptions,
 ): LearningArtifactProvider {
   const { complete } = createOpenAiCompatibleStructuredJsonClient(options);
+  const overviewTimeoutMs = boundedPositiveInteger(
+    options.overviewTimeoutMs,
+    DEFAULT_OVERVIEW_TIMEOUT_MS,
+  );
 
   return {
     async generateOverview(evidence) {
@@ -220,6 +233,7 @@ export function createOpenAiCompatibleLearningArtifactProvider(
       const raw = await complete(
         YOUTUBE_OVERVIEW_PROMPT_VERSION,
         buildOverviewPrompt(evidence.title, blocks),
+        overviewTimeoutMs,
       );
       try {
         const gateway = GatewayOverviewSchema.parse(raw);
