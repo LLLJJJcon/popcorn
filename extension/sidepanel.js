@@ -434,12 +434,19 @@ function sendTranslationMessage(message) {
 async function sendCloudAction(
   message,
   maxPolls = Math.floor(TRANSLATION_POLLING_WINDOW_MS / TRANSLATION_POLL_INTERVAL_MS),
+  onPending,
 ) {
   let result = await chrome.runtime.sendMessage(message);
   const jobId = result?.jobId;
+  if (result?.success && result.pending && jobId && onPending) {
+    await onPending(jobId);
+  }
   for (let poll = 0; result?.success && result.pending && jobId && poll < maxPolls; poll += 1) {
     await new Promise((resolve) => setTimeout(resolve, TRANSLATION_POLL_INTERVAL_MS));
     result = await chrome.runtime.sendMessage({ ...message, jobId });
+    if (result?.success && result.pending && onPending) {
+      await onPending(result.jobId || jobId);
+    }
   }
   return result;
 }
@@ -1691,11 +1698,12 @@ async function loadOverviewResumeRecord(videoId, snapshotId) {
 
 async function persistOverviewResumeRecord(request) {
   const record = overviewResumeRecordFor(request);
-  if (!record) return;
+  if (!record) return false;
   try {
     await chrome.storage.local.set({ [OVERVIEW_RESUME_STORAGE_KEY]: record });
+    return true;
   } catch {
-    // A browser storage failure must not turn an existing Overview request into a retry.
+    return false;
   }
 }
 
@@ -1722,23 +1730,46 @@ function isCurrentOverviewRequest(request) {
     request.snapshotId === currentSnapshotId;
 }
 
+function isCurrentOverviewOwner(owner) {
+  return overviewRequest === owner.request &&
+    owner.generation === overviewGeneration &&
+    owner.videoId === currentVideoId &&
+    owner.snapshotId === currentSnapshotId;
+}
+
+function showOverviewRetryPersistenceFailure() {
+  const overviewText = document.getElementById("overviewText");
+  const chapterList = document.getElementById("chapterList");
+  if (overviewText) overviewText.textContent = "";
+  if (chapterList) {
+    chapterList.innerHTML = '<li class="chapter-item" style="color: var(--accent); border: none;">Could not save retry state. Please retry overview again.</li>';
+  }
+}
+
 async function triggerAnalysis(retryId) {
   if (!currentTranscriptTimestamped || isAnalysisLoading || currentAnalysis)
     return;
 
+  const owner = {
+    request: overviewRequest,
+    generation: overviewGeneration,
+    videoId: currentVideoId,
+    snapshotId: currentSnapshotId,
+  };
   isAnalysisLoading = true;
   overviewRetryAvailable = false;
   updateOverviewRetryButton();
 
-  const memoryRequest = !retryId && overviewRequest?.jobId &&
-    overviewRequest.generation === overviewGeneration &&
-    overviewRequest.videoId === currentVideoId &&
-    overviewRequest.snapshotId === currentSnapshotId
-    ? overviewRequest
+  const memoryRequest = !retryId && owner.request?.jobId &&
+    owner.request.generation === owner.generation &&
+    owner.request.videoId === owner.videoId &&
+    owner.request.snapshotId === owner.snapshotId
+    ? owner.request
     : null;
   const storedRecord = !retryId && !memoryRequest
-    ? await loadOverviewResumeRecord(currentVideoId, currentSnapshotId)
+    ? await loadOverviewResumeRecord(owner.videoId, owner.snapshotId)
     : null;
+  if (!isCurrentOverviewOwner(owner)) return;
   const request = memoryRequest
     || (storedRecord
       ? {
@@ -1755,8 +1786,16 @@ async function triggerAnalysis(retryId) {
       retryId,
       jobId: undefined,
     });
+  if (retryId && !(await persistOverviewResumeRecord(request))) {
+    if (!isCurrentOverviewOwner(owner)) return;
+    isAnalysisLoading = false;
+    overviewRetryAvailable = true;
+    updateOverviewRetryButton();
+    showOverviewRetryPersistenceFailure();
+    return;
+  }
+  if (!isCurrentOverviewOwner(owner)) return;
   overviewRequest = request;
-  if (retryId) await persistOverviewResumeRecord(request);
   let clearRequest = false;
 
   // Show loading indicators in the Overview tab
@@ -1779,6 +1818,10 @@ async function triggerAnalysis(retryId) {
       snapshotId: request.snapshotId,
       ...(request.retryId ? { retryId: request.retryId } : {}),
       ...(request.jobId ? { jobId: request.jobId } : {}),
+    }, undefined, async (jobId) => {
+      if (!isCurrentOverviewRequest(request)) return;
+      request.jobId = jobId;
+      await persistOverviewResumeRecord(request);
     });
     if (!isCurrentOverviewRequest(request)) return;
 
@@ -1787,8 +1830,10 @@ async function triggerAnalysis(retryId) {
       if (chapterList)
         chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Analysis failed: ${escapeHtml(analysisResult.error || "Unknown error")}</li>`;
       overviewRetryAvailable = true;
-      await clearMatchingOverviewResumeRecord(request);
-      clearRequest = true;
+      if (analysisResult.terminal === true) {
+        await clearMatchingOverviewResumeRecord(request);
+        clearRequest = true;
+      }
       return;
     }
     if (analysisResult.pending) {
@@ -1814,7 +1859,6 @@ async function triggerAnalysis(retryId) {
     if (chapterList)
       chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Error: ${escapeHtml(error.message)}</li>`;
     overviewRetryAvailable = true;
-    await clearMatchingOverviewResumeRecord(request);
     clearRequest = true;
   } finally {
     if (!isCurrentOverviewRequest(request)) return;

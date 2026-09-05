@@ -212,6 +212,7 @@ async function submitArtifact(path, payload, jobId) {
     if (status.status !== "succeeded" || !status.result?.artifactId) {
       return {
         success: false,
+        ...(status.status === "terminal_failed" ? { terminal: true } : {}),
         error: "The learning artifact could not be completed. Check your model gateway settings and retry.",
       };
     }

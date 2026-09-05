@@ -450,6 +450,9 @@ test("a pending explicit Overview retry survives a recreated Side Panel and clea
   const second = loadSidepanelHelpers({ storageLocal });
   second.evaluateInSidepanel(`
     globalThis.overviewMessages = [];
+    renderAnalysisResults = () => {};
+    highlightMomentsOnPage = () => {};
+    saveToCache = async () => {};
     sendCloudAction = async (message) => {
       globalThis.overviewMessages.push(message);
       return { success: true, content: { overview: "Recovered", chapters: [], keyQuotes: [], keyMoments: [] } };
@@ -488,6 +491,9 @@ test("a pending original Overview stores and resumes its job without a retry UUI
   const second = loadSidepanelHelpers({ storageLocal });
   second.evaluateInSidepanel(`
     globalThis.overviewMessages = [];
+    renderAnalysisResults = () => {};
+    highlightMomentsOnPage = () => {};
+    saveToCache = async () => {};
     sendCloudAction = async (message) => {
       globalThis.overviewMessages.push(message);
       return { success: true, content: { overview: "Original recovered", chapters: [], keyQuotes: [], keyMoments: [] } };
@@ -613,7 +619,179 @@ test("a stale terminal Overview result cannot remove a newer resume record but a
     currentAnalysis = null;
   `);
   await current.triggerAnalysis();
+  assert.deepEqual(storageLocal.snapshot()[resumeKey], newerRecord);
+
+  const thrown = loadSidepanelHelpers({ storageLocal });
+  thrown.evaluateInSidepanel(`
+    sendCloudAction = async () => { throw new Error("transient transport failure"); };
+    currentVideoId = ${JSON.stringify(videoId)};
+    currentSnapshotId = ${JSON.stringify(snapshotId)};
+    currentTranscriptTimestamped = [{ text: "抛出失败字幕" }];
+    currentAnalysis = null;
+  `);
+  await thrown.triggerAnalysis();
+  assert.deepEqual(storageLocal.snapshot()[resumeKey], newerRecord);
+
+  const terminal = loadSidepanelHelpers({ storageLocal });
+  terminal.evaluateInSidepanel(`
+    sendCloudAction = async () => ({ success: false, terminal: true, error: "Current terminal failure" });
+    currentVideoId = ${JSON.stringify(videoId)};
+    currentSnapshotId = ${JSON.stringify(snapshotId)};
+    currentTranscriptTimestamped = [{ text: "终态任务字幕" }];
+    currentAnalysis = null;
+  `);
+  await terminal.triggerAnalysis();
   assert.equal(storageLocal.snapshot()[resumeKey], undefined);
+});
+
+test("the first pending Overview poll writes its job before its poll delay or Side Panel lifetime ends", async () => {
+  const resumeKey = "popcorn:overview-resume:v1";
+  const jobId = "60000000-0000-4000-8000-000000000006";
+  const storageLocal = createStorageLocal();
+  const messages = [];
+  let runPollDelay;
+  let requestCount = 0;
+  const helpers = loadSidepanelHelpers({
+    storageLocal,
+    sendMessage(message) {
+      messages.push(message);
+      requestCount += 1;
+      return Promise.resolve(requestCount === 1
+        ? { success: true, pending: true, jobId }
+        : { success: false, terminal: true, error: "done" });
+    },
+    setTimeoutImpl(resolve) {
+      runPollDelay = resolve;
+      return 1;
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "等待轮询字幕" }];
+    currentAnalysis = null;
+  `);
+
+  const pendingOverview = helpers.triggerAnalysis();
+  await new Promise((resolve) => setImmediate(resolve));
+  try {
+    assert.equal(typeof runPollDelay, "function");
+    assert.equal(messages.length, 1);
+    assert.deepEqual(storageLocal.snapshot()[resumeKey], {
+      videoId: "abc123XYZ00",
+      snapshotId: "40000000-0000-4000-8000-000000000001",
+      jobId,
+    });
+
+    loadSidepanelHelpers({ storageLocal });
+    assert.deepEqual(storageLocal.snapshot()[resumeKey], {
+      videoId: "abc123XYZ00",
+      snapshotId: "40000000-0000-4000-8000-000000000001",
+      jobId,
+    });
+  } finally {
+    runPollDelay();
+    await pendingOverview;
+  }
+});
+
+test("an explicit Overview retry does not register when its resume identity cannot be stored", async () => {
+  const dom = new JSDOM(`
+    <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
+    <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
+  `);
+  const messages = [];
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    storageLocal: {
+      get: () => Promise.resolve({}),
+      set: () => Promise.reject(new Error("storage unavailable")),
+      remove: () => Promise.resolve(),
+    },
+    cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000001" },
+    sendMessage(message) {
+      messages.push(message);
+      return Promise.resolve({ success: false, terminal: true, error: "unexpected registration" });
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    overviewRetryAvailable = true;
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "不可保存重试字幕" }];
+    currentAnalysis = null;
+  `);
+
+  await helpers.retryOverview();
+  const retry = dom.window.document.getElementById("retryOverviewBtn");
+  assert.equal(messages.length, 0);
+  assert.equal(retry.hidden, false);
+  assert.equal(retry.disabled, false);
+  assert.match(dom.window.document.getElementById("chapterList").textContent, /could not save retry state/i);
+});
+
+test("a delayed resume read cannot send or release a stale Overview after another video starts", async () => {
+  const resumeKey = "popcorn:overview-resume:v1";
+  let resolveFirstRead;
+  let reads = 0;
+  const storageLocal = {
+    get() {
+      reads += 1;
+      return reads === 1
+        ? new Promise((resolve) => { resolveFirstRead = resolve; })
+        : Promise.resolve({});
+    },
+    set: () => Promise.resolve(),
+    remove: () => Promise.resolve(),
+  };
+  const messages = [];
+  const settleMessages = [];
+  const helpers = loadSidepanelHelpers({
+    storageLocal,
+    sendMessage(message) {
+      messages.push(message);
+      return new Promise((resolve) => settleMessages.push(resolve));
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "videoAAAAAA";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "A 字幕" }];
+    currentAnalysis = null;
+  `);
+  void helpers.triggerAnalysis();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  helpers.evaluateInSidepanel(`
+    overviewGeneration += 1;
+    overviewRequest = null;
+    isAnalysisLoading = false;
+    currentVideoId = "videoBBBBBB";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000002";
+    currentTranscriptTimestamped = [{ text: "B 字幕" }];
+    currentAnalysis = null;
+  `);
+  void helpers.triggerAnalysis();
+  await new Promise((resolve) => setImmediate(resolve));
+  resolveFirstRead({ [resumeKey]: {
+    videoId: "videoAAAAAA",
+    snapshotId: "40000000-0000-4000-8000-000000000001",
+    jobId: "60000000-0000-4000-8000-000000000008",
+  } });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  try {
+    assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{
+      action: "requestOverview",
+      videoId: "videoBBBBBB",
+      snapshotId: "40000000-0000-4000-8000-000000000002",
+    }]);
+    assert.equal(helpers.evaluateInSidepanel("isAnalysisLoading"), true);
+  } finally {
+    settleMessages.forEach((resolve) => resolve({ success: false, terminal: true, error: "done" }));
+    await new Promise((resolve) => setImmediate(resolve));
+  }
 });
 
 test("semantic segmentation rebuilds sentences across caption boundaries", () => {
@@ -1654,7 +1832,7 @@ test("a terminal learning-artifact failure gives a safe model-gateway settings r
     json: async () => ({
       ok: true,
       data: {
-        status: "failed",
+        status: "terminal_failed",
         lastErrorCode: "PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY",
       },
     }),
@@ -1669,9 +1847,40 @@ test("a terminal learning-artifact failure gives a safe model-gateway settings r
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), {
     success: false,
+    terminal: true,
     error: "The learning artifact could not be completed. Check your model gateway settings and retry.",
   });
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY/);
+});
+
+test("background emits terminal only for an authenticated terminal job status and not transient status errors", async () => {
+  const terminal = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 200,
+    json: async () => ({ ok: true, data: { status: "terminal_failed" } }),
+  }) });
+  const retryable = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 200,
+    json: async () => ({ ok: true, data: { status: "retryable_failed" } }),
+  }) });
+  const succeededWithoutArtifact = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 200,
+    json: async () => ({ ok: true, data: { status: "succeeded", result: null } }),
+  }) });
+  const transport = loadBackgroundHelpers({ fetchImpl: async () => {
+    throw new Error("offline");
+  } });
+  const message = {
+    videoId: "abc123XYZ00",
+    snapshotId: "snapshot-1",
+    jobId: "60000000-0000-4000-8000-000000000009",
+  };
+
+  assert.equal((await terminal.requestOverview(message)).terminal, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(await retryable.requestOverview(message))), {
+    success: true, pending: true, jobId: message.jobId, status: "retryable_failed",
+  });
+  assert.equal((await succeededWithoutArtifact.requestOverview(message)).terminal, undefined);
+  await assert.rejects(transport.requestOverview(message), (error) => error.terminal === undefined);
 });
 
 test("Popcorn API errors expose only bounded public error fields", async () => {
