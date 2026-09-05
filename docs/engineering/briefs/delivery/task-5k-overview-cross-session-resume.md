@@ -45,12 +45,13 @@ terminal result even though the explicit retry job is still running.
 Allowed:
 
 - `extension/sidepanel.js`
+- `extension/background.js`
 - `extension/tests/translation.test.js`
 - `docs/engineering/handoffs/delivery/task-5k-overview-cross-session-resume.md`
 
 Forbidden:
 
-- server/provider/prompt/API/background/auth code;
+- server/provider/prompt/API/auth code;
 - database/migrations/contracts/generated types;
 - HTML/CSS, root config, dependencies, lockfile, other product areas.
 
@@ -62,6 +63,15 @@ Promise-based `chrome.storage.local` APIs.
 
 Produces a small validated cross-Side-Panel resume record only. The existing
 background continues to poll the owner-scoped server job.
+
+Controller ruling after review: the pre-existing background response does not
+distinguish a terminal owner-scoped job result from transport/auth/transient
+failure, so the Side Panel cannot obey the clear-only-on-terminal requirement
+without guessing from display text. `extension/background.js` is therefore
+allowed to add one bounded boolean `terminal: true` only when its authenticated
+job-status response proves the job is terminal. It must not expose job input,
+Provider details, owner IDs, credentials, or raw server errors. All transient
+and transport failures omit/false this marker.
 
 ## Required RED/GREEN tests
 
