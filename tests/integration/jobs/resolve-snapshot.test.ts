@@ -36,6 +36,7 @@ const JOB_ID = "10000000-0000-4000-8000-000000000001";
 const SOURCE_ID = "20000000-0000-4000-8000-000000000001";
 const SAVE_ID = "30000000-0000-4000-8000-000000000001";
 const SNAPSHOT_ID = "40000000-0000-4000-8000-000000000001";
+const LATEST_SNAPSHOT_ID = "40000000-0000-4000-8000-000000000002";
 
 const persistedSnapshot: NativeTranscriptSnapshot = {
   language: "zh-CN",
@@ -518,6 +519,176 @@ describe("durable resolve_snapshot processing", () => {
 });
 
 describe("CONTRACT-006 Supabase RPC adapters", () => {
+  // Mutation caught: stopping the candidate scan after Supabase's first 1,000-row page.
+  test("finds an older complete snapshot after a full page of incomplete candidates", async () => {
+    const incompleteCandidates = Array.from({ length: 1_000 }, (_, position) => ({
+      id: `40000000-0000-4000-8000-${(position + 10).toString(16).padStart(12, "0")}`,
+      user_id: USER_A,
+      video_source_id: SOURCE_ID,
+      transcript_hash: "a".repeat(64),
+      transcript_language: "zh-CN",
+    }));
+    const candidates = [
+      ...incompleteCandidates,
+      {
+        id: SNAPSHOT_ID,
+        user_id: USER_A,
+        video_source_id: SOURCE_ID,
+        transcript_hash: persistedSnapshot.transcriptHash,
+        transcript_language: "zh-CN",
+      },
+    ];
+    const sourceQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({
+        data: { id: SOURCE_ID, user_id: USER_A, youtube_video_id: "abc123XYZ00" },
+        error: null,
+      })),
+    };
+    const snapshotQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      order: vi.fn(function (this: unknown) { return this; }),
+      range: vi.fn(async (from: number, to: number) => ({
+        data: candidates.slice(from, to + 1),
+        error: null,
+      })),
+      then: (onfulfilled: (value: { data: typeof incompleteCandidates; error: null }) => unknown) =>
+        Promise.resolve({ data: incompleteCandidates, error: null }).then(onfulfilled),
+    };
+    const segmentsQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: { snapshotId: string }, column: string, value: string) {
+        if (column === "snapshot_id") this.snapshotId = value;
+        return this;
+      }),
+      order: vi.fn(function (this: unknown) { return this; }),
+      snapshotId: "",
+      range: vi.fn(async function (this: { snapshotId: string }) {
+        return {
+          data: this.snapshotId === SNAPSHOT_ID
+            ? [{
+                stable_id: "complete-stable-id",
+                position: 0,
+                original_chinese: "完整快照。",
+                start_seconds: 0,
+                end_seconds: 1,
+                language: "zh-CN",
+                user_id: USER_A,
+                snapshot_id: SNAPSHOT_ID,
+              }]
+            : [],
+          error: null,
+        };
+      }),
+    };
+    const from = vi.fn((table: string) => {
+      if (table === "video_sources") return sourceQuery;
+      if (table === "video_snapshots") return snapshotQuery;
+      if (table === "transcript_segments") return segmentsQuery;
+      throw new Error(`unexpected table ${table}`);
+    });
+    const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
+
+    const latest = await store.readLatestSnapshot(USER_A, "abc123XYZ00");
+
+    expect(latest).toMatchObject({
+      snapshotId: SNAPSHOT_ID,
+      snapshot: { plainText: "完整快照。" },
+    });
+    expect(snapshotQuery.range).toHaveBeenCalledWith(0, 999);
+    expect(snapshotQuery.range).toHaveBeenCalledWith(1_000, 1_999);
+    expect(segmentsQuery.eq).toHaveBeenCalledWith("snapshot_id", SNAPSHOT_ID);
+  });
+
+  // Mutation caught: selecting a non-latest snapshot or truncating paged transcript evidence.
+  test("reads the latest owned snapshot with all paged segments and deterministic filters", async () => {
+    const rows = Array.from({ length: 1_001 }, (_, position) => ({
+      stable_id: `latest-stable-${position}`,
+      position,
+      original_chinese: `最新第${position}句。`,
+      start_seconds: position,
+      end_seconds: position + 1,
+      language: "zh-CN",
+      user_id: USER_A,
+      snapshot_id: LATEST_SNAPSHOT_ID,
+    }));
+    const sourceQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({
+        data: { id: SOURCE_ID, user_id: USER_A, youtube_video_id: "abc123XYZ00" },
+        error: null,
+      })),
+    };
+    const latestCandidateRows = [
+      {
+        id: LATEST_SNAPSHOT_ID,
+        user_id: USER_A,
+        video_source_id: SOURCE_ID,
+        transcript_hash: "a".repeat(64),
+        transcript_language: "zh-CN",
+        captured_at: "2026-08-17T00:00:00.000Z",
+      },
+      {
+        id: SNAPSHOT_ID,
+        user_id: USER_A,
+        video_source_id: SOURCE_ID,
+        transcript_hash: "b".repeat(64),
+        transcript_language: "zh-CN",
+        captured_at: "2026-08-16T00:00:00.000Z",
+      },
+    ];
+    const snapshotQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      order: vi.fn(function (this: unknown) { return this; }),
+      range: vi.fn(async () => ({ data: latestCandidateRows, error: null })),
+    };
+    const segmentsQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      order: vi.fn(function (this: unknown) { return this; }),
+      range: vi.fn(async (from: number, to: number) => ({
+        data: rows.slice(from, to + 1),
+        error: null,
+      })),
+    };
+    const from = vi.fn((table: string) => {
+      if (table === "video_sources") return sourceQuery;
+      if (table === "video_snapshots") return snapshotQuery;
+      if (table === "transcript_segments") return segmentsQuery;
+      throw new Error(`unexpected table ${table}`);
+    });
+    const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
+
+    const latest = await store.readLatestSnapshot(USER_A, "abc123XYZ00");
+
+    expect(latest?.snapshotId).toBe(LATEST_SNAPSHOT_ID);
+    expect(latest?.snapshot.transcriptHash).toBe("a".repeat(64));
+    expect(latest?.snapshot.segments).toHaveLength(1_001);
+    expect(latest?.snapshot.segments.at(0)).toMatchObject({
+      stableId: "latest-stable-0",
+      position: 0,
+    });
+    expect(latest?.snapshot.segments.at(-1)).toMatchObject({
+      stableId: "latest-stable-1000",
+      position: 1_000,
+    });
+    expect(sourceQuery.eq).toHaveBeenCalledWith("user_id", USER_A);
+    expect(sourceQuery.eq).toHaveBeenCalledWith("youtube_video_id", "abc123XYZ00");
+    expect(snapshotQuery.eq).toHaveBeenCalledWith("user_id", USER_A);
+    expect(snapshotQuery.eq).toHaveBeenCalledWith("video_source_id", SOURCE_ID);
+    expect(snapshotQuery.eq).toHaveBeenCalledWith("transcript_language", "zh-CN");
+    expect(snapshotQuery.order).toHaveBeenCalledWith("captured_at", { ascending: false });
+    expect(snapshotQuery.order).toHaveBeenCalledWith("id", { ascending: false });
+    expect(segmentsQuery.eq).toHaveBeenCalledWith("user_id", USER_A);
+    expect(segmentsQuery.eq).toHaveBeenCalledWith("snapshot_id", LATEST_SNAPSHOT_ID);
+    expect(segmentsQuery.range).toHaveBeenCalledWith(0, 999);
+    expect(segmentsQuery.range).toHaveBeenCalledWith(1_000, 1_999);
+  });
+
   test("reads one owned persisted snapshot in segment position order and reconstructs native text", async () => {
     const sourceQuery = {
       select: vi.fn(function (this: unknown) { return this; }),
@@ -583,6 +754,64 @@ describe("CONTRACT-006 Supabase RPC adapters", () => {
     expect(segmentsQuery.range).toHaveBeenCalledWith(0, 999);
   });
 
+  // Mutation caught: applying latest-cache completeness validation to explicit snapshot continuation.
+  test("retains sparse but owned explicit snapshot evidence", async () => {
+    const sourceQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({
+        data: { id: SOURCE_ID, user_id: USER_A, youtube_video_id: "abc123XYZ00" },
+        error: null,
+      })),
+    };
+    const snapshotQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({
+        data: {
+          id: SNAPSHOT_ID,
+          user_id: USER_A,
+          video_source_id: SOURCE_ID,
+          transcript_hash: persistedSnapshot.transcriptHash,
+          transcript_language: "zh-CN",
+        },
+        error: null,
+      })),
+    };
+    const segmentsQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      order: vi.fn(function (this: unknown) { return this; }),
+      range: vi.fn(async () => ({
+        data: [
+          {
+            stable_id: "sparse-0", position: 0, original_chinese: "第一句。",
+            start_seconds: 0, end_seconds: 1, language: "zh-CN",
+            user_id: USER_A, snapshot_id: SNAPSHOT_ID,
+          },
+          {
+            stable_id: "sparse-2", position: 2, original_chinese: "第三句。",
+            start_seconds: 2, end_seconds: 3, language: "zh-CN",
+            user_id: USER_A, snapshot_id: SNAPSHOT_ID,
+          },
+        ],
+        error: null,
+      })),
+    };
+    const from = vi.fn((table: string) => {
+      if (table === "video_sources") return sourceQuery;
+      if (table === "video_snapshots") return snapshotQuery;
+      if (table === "transcript_segments") return segmentsQuery;
+      throw new Error(`unexpected table ${table}`);
+    });
+    const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
+
+    await expect(store.readSnapshot(USER_A, "abc123XYZ00", SNAPSHOT_ID)).resolves.toMatchObject({
+      segments: [{ position: 0 }, { position: 2 }],
+      plainText: "第一句。 第三句。",
+    });
+  });
+
   test("paginates persisted segments beyond the 1,000-row Data API cap", async () => {
     const rows = Array.from({ length: 1_001 }, (_, position) => ({
       stable_id: `stable-${position}`,
@@ -624,8 +853,6 @@ describe("CONTRACT-006 Supabase RPC adapters", () => {
         data: rows.slice(from, to + 1),
         error: null,
       })),
-      then: (onfulfilled: (value: { data: typeof rows; error: null }) => unknown) =>
-        Promise.resolve({ data: rows.slice(0, 1_000), error: null }).then(onfulfilled),
     };
     const from = vi.fn((table: string) => {
       if (table === "video_sources") return sourceQuery;
@@ -743,6 +970,72 @@ describe("route security and public shapes", () => {
     );
   });
 
+  // Mutation caught: removing the no-snapshot cache lookup and calling Provider first.
+  test("returns the latest owned snapshot before requesting the Provider", async () => {
+    const provider = { request: vi.fn(), poll: vi.fn() };
+    const readLatestSnapshot = vi.fn(async () => ({
+      snapshotId: SNAPSHOT_ID,
+      snapshot: persistedSnapshot,
+    }));
+    const route = createTranscriptRoute({
+      authenticate: async () => ({ userId: USER_A }),
+      provider,
+      store: {
+        readLatestSnapshot,
+        readSnapshot: vi.fn(),
+        saveReady: vi.fn(),
+        savePending: vi.fn(),
+      },
+      requestId: () => "request-cache-hit",
+    });
+
+    const response = await route(new Request("https://popcorn.test"), {
+      params: Promise.resolve({ videoId: "abc123XYZ00" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(readLatestSnapshot).toHaveBeenCalledExactlyOnceWith(USER_A, "abc123XYZ00");
+    expect(provider.request).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      data: { kind: "ready", snapshotId: SNAPSHOT_ID, snapshot: persistedSnapshot },
+    });
+  });
+
+  // Mutation caught: treating a cache miss as ready instead of retaining Provider fallback.
+  test("calls the Provider exactly once after a latest-snapshot cache miss", async () => {
+    const provider = {
+      request: vi.fn(async () => ({ kind: "ready" as const, snapshot })),
+      poll: vi.fn(),
+    };
+    const readLatestSnapshot = vi.fn(async () => null);
+    const saveReady = vi.fn(async () => ({ snapshotId: SNAPSHOT_ID }));
+    const route = createTranscriptRoute({
+      authenticate: async () => ({ userId: USER_A }),
+      provider,
+      store: {
+        readLatestSnapshot,
+        readSnapshot: vi.fn(),
+        saveReady,
+        savePending: vi.fn(),
+      },
+      requestId: () => "request-cache-miss",
+    });
+
+    const response = await route(new Request("https://popcorn.test"), {
+      params: Promise.resolve({ videoId: "abc123XYZ00" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(readLatestSnapshot).toHaveBeenCalledExactlyOnceWith(USER_A, "abc123XYZ00");
+    expect(provider.request).toHaveBeenCalledExactlyOnceWith("abc123XYZ00");
+    expect(saveReady).toHaveBeenCalledExactlyOnceWith(USER_A, "abc123XYZ00", snapshot);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      data: { kind: "ready", snapshotId: SNAPSHOT_ID, snapshot },
+    });
+  });
+
   test("HTTP 200 persists the owner snapshot and returns a no-store ready result", async () => {
     const saveReady = vi.fn(async () => ({ snapshotId: SNAPSHOT_ID }));
     const readSnapshot = vi.fn();
@@ -753,7 +1046,12 @@ describe("route security and public shapes", () => {
     const route = createTranscriptRoute({
       authenticate: async () => ({ userId: USER_A }),
       provider,
-      store: { readSnapshot, saveReady, savePending: vi.fn() },
+      store: {
+        readLatestSnapshot: vi.fn(async () => null),
+        readSnapshot,
+        saveReady,
+        savePending: vi.fn(),
+      },
       requestId: () => "request-ready",
     });
 
@@ -781,7 +1079,12 @@ describe("route security and public shapes", () => {
     const route = createTranscriptRoute({
       authenticate: async () => ({ userId: USER_A }),
       provider,
-      store: { readSnapshot, saveReady: vi.fn(), savePending: vi.fn() },
+      store: {
+        readLatestSnapshot: vi.fn(async () => null),
+        readSnapshot,
+        saveReady: vi.fn(),
+        savePending: vi.fn(),
+      },
       requestId: () => "request-continuation",
     });
 
@@ -813,7 +1116,12 @@ describe("route security and public shapes", () => {
     const route = createTranscriptRoute({
       authenticate: async () => ({ userId: USER_A }),
       provider,
-      store: { readSnapshot, saveReady: vi.fn(), savePending: vi.fn() },
+      store: {
+        readLatestSnapshot: vi.fn(async () => null),
+        readSnapshot,
+        saveReady: vi.fn(),
+        savePending: vi.fn(),
+      },
       requestId: () => "request-bounded",
     });
 
@@ -844,6 +1152,7 @@ describe("route security and public shapes", () => {
         poll: vi.fn(),
       },
       store: {
+        readLatestSnapshot: vi.fn(async () => null),
         readSnapshot: vi.fn(),
         saveReady: vi.fn(),
         savePending,

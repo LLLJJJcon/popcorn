@@ -804,11 +804,118 @@ async function ownedSourceId(
   return raced.data.id;
 }
 
+type PersistedTranscriptSnapshot = Pick<
+  Database["public"]["Tables"]["video_snapshots"]["Row"],
+  "id" | "user_id" | "video_source_id" | "transcript_hash" | "transcript_language"
+>;
+
+async function readPersistedTranscriptSnapshot(
+  client: SupabaseClient<Database>,
+  expectedUserId: string,
+  persistedSnapshot: PersistedTranscriptSnapshot,
+  requireContiguousPositions = false,
+): Promise<NativeTranscriptSnapshot | null> {
+  const segments: Array<Pick<
+    Database["public"]["Tables"]["transcript_segments"]["Row"],
+    | "stable_id"
+    | "position"
+    | "original_chinese"
+    | "start_seconds"
+    | "end_seconds"
+    | "language"
+    | "user_id"
+    | "snapshot_id"
+  >> = [];
+  for (let from = 0; ; from += TRANSCRIPT_SEGMENT_PAGE_SIZE) {
+    const page = await client.from("transcript_segments")
+      .select("stable_id,position,original_chinese,start_seconds,end_seconds,language,user_id,snapshot_id")
+      .eq("user_id", expectedUserId)
+      .eq("snapshot_id", persistedSnapshot.id)
+      .order("position", { ascending: true })
+      .range(from, from + TRANSCRIPT_SEGMENT_PAGE_SIZE - 1);
+    if (page.error) throw page.error;
+    segments.push(...page.data);
+    if (page.data.length < TRANSCRIPT_SEGMENT_PAGE_SIZE) break;
+  }
+  if (
+    segments.length === 0 ||
+    segments.some((segment) =>
+      segment.user_id !== expectedUserId ||
+      segment.snapshot_id !== persistedSnapshot.id ||
+      segment.language !== "zh-CN",
+    )
+  ) return null;
+  const ordered = [...segments].sort((left, right) => left.position - right.position);
+  if (
+    requireContiguousPositions &&
+    ordered.some((segment, index) => segment.position !== index)
+  ) return null;
+  const nativeSegments = ordered.map((segment) => ({
+    stableId: segment.stable_id,
+    position: segment.position,
+    originalChinese: segment.original_chinese,
+    startSeconds: segment.start_seconds,
+    endSeconds: segment.end_seconds,
+    language: "zh-CN" as const,
+  }));
+  const timestamp = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+  return {
+    language: "zh-CN",
+    transcriptHash: persistedSnapshot.transcript_hash,
+    segments: nativeSegments,
+    plainText: nativeSegments.map((segment) => segment.originalChinese).join(" "),
+    timestampedText: nativeSegments
+      .map((segment) => `[${timestamp(segment.startSeconds)}] ${segment.originalChinese}`)
+      .join("\n"),
+  };
+}
+
 export function createSupabaseTranscriptStore(
   client: SupabaseClient<Database>,
   now: () => string = () => new Date().toISOString(),
 ): TranscriptRouteStore {
   return {
+    async readLatestSnapshot(expectedUserId, videoId) {
+      const source = await client.from("video_sources")
+        .select("id,user_id,youtube_video_id")
+        .eq("user_id", expectedUserId)
+        .eq("youtube_video_id", videoId)
+        .maybeSingle();
+      if (source.error) throw source.error;
+      if (!source.data || source.data.user_id !== expectedUserId) return null;
+
+      for (let from = 0; ; from += TRANSCRIPT_SEGMENT_PAGE_SIZE) {
+        const snapshots = await client.from("video_snapshots")
+          .select("id,user_id,video_source_id,transcript_hash,transcript_language")
+          .eq("user_id", expectedUserId)
+          .eq("video_source_id", source.data.id)
+          .eq("transcript_language", "zh-CN")
+          .order("captured_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, from + TRANSCRIPT_SEGMENT_PAGE_SIZE - 1);
+        if (snapshots.error) throw snapshots.error;
+        for (const persistedSnapshot of snapshots.data) {
+          if (
+            persistedSnapshot.user_id !== expectedUserId ||
+            persistedSnapshot.video_source_id !== source.data.id ||
+            persistedSnapshot.transcript_language !== "zh-CN"
+          ) continue;
+          const snapshot = await readPersistedTranscriptSnapshot(
+            client,
+            expectedUserId,
+            persistedSnapshot,
+            true,
+          );
+          if (snapshot) return { snapshotId: persistedSnapshot.id, snapshot };
+        }
+        if (snapshots.data.length < TRANSCRIPT_SEGMENT_PAGE_SIZE) break;
+      }
+      return null;
+    },
+
     async readSnapshot(expectedUserId, videoId, snapshotId) {
       const source = await client.from("video_sources")
         .select("id,user_id,youtube_video_id")
@@ -831,60 +938,7 @@ export function createSupabaseTranscriptStore(
         snapshot.data.video_source_id !== source.data.id ||
         snapshot.data.transcript_language !== "zh-CN"
       ) return null;
-      const persistedSnapshot = snapshot.data;
-
-      const segments: Array<Pick<
-        Database["public"]["Tables"]["transcript_segments"]["Row"],
-        | "stable_id"
-        | "position"
-        | "original_chinese"
-        | "start_seconds"
-        | "end_seconds"
-        | "language"
-        | "user_id"
-        | "snapshot_id"
-      >> = [];
-      for (let from = 0; ; from += TRANSCRIPT_SEGMENT_PAGE_SIZE) {
-        const page = await client.from("transcript_segments")
-          .select("stable_id,position,original_chinese,start_seconds,end_seconds,language,user_id,snapshot_id")
-          .eq("user_id", expectedUserId)
-          .eq("snapshot_id", persistedSnapshot.id)
-          .order("position", { ascending: true })
-          .range(from, from + TRANSCRIPT_SEGMENT_PAGE_SIZE - 1);
-        if (page.error) throw page.error;
-        segments.push(...page.data);
-        if (page.data.length < TRANSCRIPT_SEGMENT_PAGE_SIZE) break;
-      }
-      if (
-        segments.length === 0 ||
-        segments.some((segment) =>
-          segment.user_id !== expectedUserId ||
-          segment.snapshot_id !== persistedSnapshot.id ||
-          segment.language !== "zh-CN",
-        )
-      ) return null;
-      const ordered = [...segments].sort((left, right) => left.position - right.position);
-      const nativeSegments = ordered.map((segment) => ({
-        stableId: segment.stable_id,
-        position: segment.position,
-        originalChinese: segment.original_chinese,
-        startSeconds: segment.start_seconds,
-        endSeconds: segment.end_seconds,
-        language: "zh-CN" as const,
-      }));
-      const timestamp = (seconds: number) => {
-        const minutes = Math.floor(seconds / 60);
-        return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
-      };
-      return {
-        language: "zh-CN",
-        transcriptHash: persistedSnapshot.transcript_hash,
-        segments: nativeSegments,
-        plainText: nativeSegments.map((segment) => segment.originalChinese).join(" "),
-        timestampedText: nativeSegments
-          .map((segment) => `[${timestamp(segment.startSeconds)}] ${segment.originalChinese}`)
-          .join("\n"),
-      };
+      return readPersistedTranscriptSnapshot(client, expectedUserId, snapshot.data);
     },
 
     async savePending(expectedUserId, videoId, providerJobId, resultKey) {

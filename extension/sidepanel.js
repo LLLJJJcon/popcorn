@@ -1154,10 +1154,8 @@ async function startDigest(videoId, videoUrl) {
   });
 
   if (!transcriptResult.success) {
-    showError(
-      "No transcript found",
-      transcriptResult.message || transcriptResult.error,
-    );
+    const presentation = getTranscriptErrorPresentation(transcriptResult);
+    showError(presentation.title, presentation.message);
     return;
   }
   if (transcriptResult.pending) {
@@ -1503,6 +1501,31 @@ function showError(title, message) {
   document.getElementById("errorTitle").textContent = title;
   document.getElementById("errorMessage").textContent = message;
   document.getElementById("errorBtn").textContent = "Try Again";
+}
+
+function getTranscriptErrorPresentation(result) {
+  if (result?.code === "LOCAL_SERVICE_UNAVAILABLE") {
+    return {
+      title: "Popcorn service unavailable",
+      message: "The local Popcorn service is not running or reachable. Start Popcorn and try again.",
+    };
+  }
+  if (result?.code === "NATIVE_CHINESE_TRANSCRIPT_REQUIRED") {
+    return {
+      title: "No transcript found",
+      message: "No native Chinese transcript is available for this video.",
+    };
+  }
+  if (result?.code === "TRANSCRIPT_EMPTY") {
+    return {
+      title: "No transcript found",
+      message: "No transcript is available for this video.",
+    };
+  }
+  return {
+    title: "Transcript unavailable",
+    message: "The transcript could not be fetched. Please try again.",
+  };
 }
 
 // ============================================================
@@ -2852,6 +2875,7 @@ globalThis.__YTD_TRANSCRIPT_TESTING__ = {
   createExplanationMessage,
   renderAnalysisResults,
   formatTimestampSeconds,
+  getTranscriptErrorPresentation,
 };
 
 globalThis.__YTD_SAVE_TESTING__ = {

@@ -670,6 +670,95 @@ test("a succeeded transcript job resumes the returned snapshot without starting 
   ]);
 });
 
+test("a rejected transcript fetch produces a bounded local-service recovery instead of a no-transcript presentation", async () => {
+  const background = loadBackgroundHelpers({ fetchImpl: async () => {
+    throw new TypeError("fetch failed: ECONNREFUSED 127.0.0.1:3000");
+  } });
+
+  const result = await background.handleFetchTranscript("abc123XYZ00");
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: false,
+    code: "LOCAL_SERVICE_UNAVAILABLE",
+    error: "The local Popcorn service is not running or reachable. Start Popcorn and try again.",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(loadSidepanelHelpers().getTranscriptErrorPresentation(result))), {
+    title: "Popcorn service unavailable",
+    message: "The local Popcorn service is not running or reachable. Start Popcorn and try again.",
+  });
+});
+
+test("a native-Chinese transcript server error retains the transcript-specific presentation", async () => {
+  const background = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 422,
+    json: async () => ({
+      ok: false,
+      error: {
+        code: "NATIVE_CHINESE_TRANSCRIPT_REQUIRED",
+        message: "The provider's English-only response must not be shown.",
+        retryable: false,
+      },
+    }),
+  }) });
+
+  const result = await background.handleFetchTranscript("abc123XYZ00");
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: false,
+    code: "NATIVE_CHINESE_TRANSCRIPT_REQUIRED",
+    error: "No native Chinese transcript is available for this video.",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(loadSidepanelHelpers().getTranscriptErrorPresentation(result))), {
+    title: "No transcript found",
+    message: "No native Chinese transcript is available for this video.",
+  });
+});
+
+test("a malformed successful transcript response does not receive local-service guidance", async () => {
+  const background = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 200,
+    json: async () => ({ ok: true, data: { kind: "ready" } }),
+  }) });
+
+  const result = await background.handleFetchTranscript("abc123XYZ00");
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: false,
+    code: "TRANSCRIPT_REQUEST_FAILED",
+    error: "The transcript could not be fetched. Please try again.",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(loadSidepanelHelpers().getTranscriptErrorPresentation(result))), {
+    title: "Transcript unavailable",
+    message: "The transcript could not be fetched. Please try again.",
+  });
+});
+
+test("a server-supplied local-service code does not receive local-service guidance", async () => {
+  const background = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 503,
+    json: async () => ({
+      ok: false,
+      error: {
+        code: "LOCAL_SERVICE_UNAVAILABLE",
+        message: "Server-controlled detail must not change the recovery guidance.",
+        retryable: true,
+      },
+    }),
+  }) });
+
+  const result = await background.handleFetchTranscript("abc123XYZ00");
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: false,
+    code: "TRANSCRIPT_REQUEST_FAILED",
+    error: "The transcript could not be fetched. Please try again.",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(loadSidepanelHelpers().getTranscriptErrorPresentation(result))), {
+    title: "Transcript unavailable",
+    message: "The transcript could not be fetched. Please try again.",
+  });
+});
+
 test("artifact polling never accepts a Provider URL from the message", async () => {
   const paths = [];
   const helpers = loadBackgroundHelpers({ fetchImpl: async (url) => {

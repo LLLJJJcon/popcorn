@@ -82,6 +82,13 @@ type TranscriptRouteContext = {
 };
 
 export interface TranscriptRouteStore {
+  readLatestSnapshot(
+    expectedUserId: string,
+    videoId: string,
+  ): Promise<{
+    readonly snapshotId: string;
+    readonly snapshot: NativeTranscriptSnapshot;
+  } | null>;
   readSnapshot(
     expectedUserId: string,
     videoId: string,
@@ -175,6 +182,24 @@ export function createTranscriptRoute(dependencies: TranscriptRouteDependencies)
             kind: "ready" as const,
             snapshotId: parsedSnapshotId.data,
             snapshot,
+          },
+          requestId,
+        ),
+        200,
+      );
+    }
+
+    const cached = await dependencies.store.readLatestSnapshot(
+      authenticated.userId,
+      parsedVideoId.data,
+    );
+    if (cached) {
+      return noStoreJson(
+        success(
+          {
+            kind: "ready" as const,
+            snapshotId: cached.snapshotId,
+            snapshot: cached.snapshot,
           },
           requestId,
         ),

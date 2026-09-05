@@ -1221,25 +1221,42 @@ describe("Popcorn local launcher", () => {
     expect((await readFile(commandLog, "utf8")).trim()).toBe("exec supabase stop");
   });
 
-  test("uses wrappers from their own cloned directory, including spaces", async () => {
+  test("uses wrappers from their own cloned directory, including spaces, and falls back to corepack pnpm", async () => {
     const directory = await temporaryDirectory("Popcorn cloned directory ");
-    const binDirectory = path.join(directory, "bin");
-    const logFile = path.join(directory, "pnpm.log");
-    await mkdir(binDirectory);
+    const corepackDirectory = path.join(directory, "usr", "local", "bin");
+    const emptyBinDirectory = path.join(directory, "bin");
+    const corepackLogFile = path.join(directory, "corepack.log");
+    await mkdir(corepackDirectory, { recursive: true });
+    await mkdir(emptyBinDirectory);
     await writeFile(path.join(directory, "Start Popcorn.command"), await readFile(path.join(root, "Start Popcorn.command"), "utf8"));
     await writeFile(path.join(directory, "Stop Popcorn.command"), await readFile(path.join(root, "Stop Popcorn.command"), "utf8"));
     await writeFile(path.join(directory, "bin-placeholder"), "");
-    await writeFile(path.join(binDirectory, "pnpm"), `#!/bin/sh\nprintf '%s|%s\\n' \"$PWD\" \"$*\" >> \"${logFile}\"\n`);
+    await writeFile(path.join(corepackDirectory, "corepack"), [
+      "#!/usr/bin/env node",
+      "require(\"node:fs\").appendFileSync(process.env.POPCORN_TEST_COREPACK_LOG, `${process.env.PWD}|${process.argv.slice(2).join(\" \")}\\n`);",
+      "",
+    ].join("\n"));
+    await writeFile(path.join(corepackDirectory, "node"), [
+      "#!/bin/sh",
+      `exec \"${process.execPath}\" \"$@\"`,
+      "",
+    ].join("\n"));
     await chmod(path.join(directory, "Start Popcorn.command"), 0o755);
     await chmod(path.join(directory, "Stop Popcorn.command"), 0o755);
-    await chmod(path.join(binDirectory, "pnpm"), 0o755);
+    await chmod(path.join(corepackDirectory, "corepack"), 0o755);
+    await chmod(path.join(corepackDirectory, "node"), 0o755);
 
-    const environment = { ...process.env, PATH: `${binDirectory}${path.delimiter}${process.env.PATH}` };
+    const environment = {
+      ...process.env,
+      PATH: emptyBinDirectory,
+      POPCORN_LAUNCHER_PREFIXES: corepackDirectory,
+      POPCORN_TEST_COREPACK_LOG: corepackLogFile,
+    };
     expect(await run(path.join(directory, "Start Popcorn.command"), [], environment)).toBe(0);
     expect(await run(path.join(directory, "Stop Popcorn.command"), [], environment)).toBe(0);
-    expect((await readFile(logFile, "utf8")).trim().split("\n")).toEqual([
-      `${directory}|popcorn:start`,
-      `${directory}|popcorn:stop`,
+    expect((await readFile(corepackLogFile, "utf8")).trim().split("\n")).toEqual([
+      `${directory}|pnpm popcorn:start`,
+      `${directory}|pnpm popcorn:stop`,
     ]);
   });
 });

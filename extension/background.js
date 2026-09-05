@@ -10,6 +10,7 @@ importScripts("sync-queue.js");
 const debugLog = () => {};
 const popcornRuntimeConfig = globalThis.POPCORN_RUNTIME_CONFIG;
 const POPCORN_API_ORIGIN = popcornRuntimeConfig?.appUrl;
+const LOCAL_SERVICE_FETCH_FAILURE = Symbol("local-service-fetch-failure");
 
 const popcornAuthClient = POPCORN_AUTH.createAuthClient({
   chrome,
@@ -75,14 +76,22 @@ function isTrustedYoutubeContentSender(sender) {
 
 async function apiFetch(path, options = {}) {
   const token = await getPopcornAccessToken();
-  const response = await fetch(`${POPCORN_API_ORIGIN}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  let response;
+  try {
+    response = await fetch(`${POPCORN_API_ORIGIN}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch {
+    const error = new Error("The local Popcorn service is unavailable.");
+    error[LOCAL_SERVICE_FETCH_FAILURE] = true;
+    error.code = "LOCAL_SERVICE_UNAVAILABLE";
+    throw error;
+  }
   const body = await response.json().catch(() => null);
   if (!body || body.ok !== true) {
     const error = new Error(body?.error?.message || "Popcorn request failed.");
@@ -135,27 +144,60 @@ function normalizeTranscriptResult(data) {
   };
 }
 
+function publicTranscriptFailure(error) {
+  if (error?.code === "NATIVE_CHINESE_TRANSCRIPT_REQUIRED") {
+    return {
+      success: false,
+      code: error.code,
+      error: "No native Chinese transcript is available for this video.",
+    };
+  }
+  if (error?.code === "TRANSCRIPT_EMPTY") {
+    return {
+      success: false,
+      code: error.code,
+      error: "No transcript is available for this video.",
+    };
+  }
+  if (error?.[LOCAL_SERVICE_FETCH_FAILURE]) {
+    return {
+      success: false,
+      code: "LOCAL_SERVICE_UNAVAILABLE",
+      error: "The local Popcorn service is not running or reachable. Start Popcorn and try again.",
+    };
+  }
+  return {
+    success: false,
+    code: "TRANSCRIPT_REQUEST_FAILED",
+    error: "The transcript could not be fetched. Please try again.",
+  };
+}
+
 /** Adapted from pinned handleFetchTranscript: canonical ID in, normalized rows out. */
 async function handleFetchTranscript(videoId, jobId) {
-  if (jobId) {
-    const status = await pollTranscriptJob(jobId);
-    if (["pending", "leased", "retryable_failed"].includes(status.status)) {
-      return { success: true, pending: true, jobId, status: status.status };
+  try {
+    if (jobId) {
+      const status = await pollTranscriptJob(jobId);
+      if (["pending", "leased", "retryable_failed"].includes(status.status)) {
+        return { success: true, pending: true, jobId, status: status.status };
+      }
+      if (status.status !== "succeeded" || !status.result?.snapshotId) {
+        return publicTranscriptFailure({ code: status.lastErrorCode || "TRANSCRIPT_UNAVAILABLE" });
+      }
+      const result = await apiFetch(
+        `/api/v1/youtube/${encodeURIComponent(videoId)}/transcript?snapshotId=${encodeURIComponent(status.result.snapshotId)}`,
+        { method: "GET" },
+      );
+      return normalizeTranscriptResult(result.data);
     }
-    if (status.status !== "succeeded" || !status.result?.snapshotId) {
-      return { success: false, error: status.lastErrorCode || "TRANSCRIPT_UNAVAILABLE" };
+    const result = await apiFetch(`/api/v1/youtube/${encodeURIComponent(videoId)}/transcript`, { method: "GET" });
+    if (result.status === 202) {
+      return { success: true, pending: true, jobId: result.data.jobId, status: "pending" };
     }
-    const result = await apiFetch(
-      `/api/v1/youtube/${encodeURIComponent(videoId)}/transcript?snapshotId=${encodeURIComponent(status.result.snapshotId)}`,
-      { method: "GET" },
-    );
     return normalizeTranscriptResult(result.data);
+  } catch (error) {
+    return publicTranscriptFailure(error);
   }
-  const result = await apiFetch(`/api/v1/youtube/${encodeURIComponent(videoId)}/transcript`, { method: "GET" });
-  if (result.status === 202) {
-    return { success: true, pending: true, jobId: result.data.jobId, status: "pending" };
-  }
-  return normalizeTranscriptResult(result.data);
 }
 
 async function submitArtifact(path, payload, jobId) {
