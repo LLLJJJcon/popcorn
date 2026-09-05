@@ -192,7 +192,9 @@ describe("bounded openai-compatible adapter", () => {
     const transcriptLines = userPrompt?.split("Native transcript lines:\n")[1]?.split("\n");
     expect(transcriptLines).toHaveLength(815);
     representativeEvidence.segments.forEach((segment, sourceLineIndex) => {
-      expect(transcriptLines?.[sourceLineIndex]).toBe(`${sourceLineIndex} ${segment.originalChinese}`);
+      expect(transcriptLines?.[sourceLineIndex]).toBe(
+        `${sourceLineIndex} ${JSON.stringify(segment.originalChinese)}`,
+      );
       expect(userPrompt?.split(segment.originalChinese)).toHaveLength(2);
       expect(requestBody).not.toContain(segment.stableId);
       expect(requestBody).not.toContain(String(segment.startSeconds));
@@ -242,14 +244,91 @@ describe("bounded openai-compatible adapter", () => {
     expect(grounded.keyQuotes.map((quote) => quote.timestampSeconds)).toEqual([0, 12.5, 48]);
     expect(grounded).toEqual(content);
     const requestBody = String(fetchImpl.mock.calls[0][1]?.body);
-    expect(requestBody).toContain("0 第一句在开头。");
-    expect(requestBody).toContain("1 第二句在空档之后。");
-    expect(requestBody).toContain("2 第三句在更晚的时候。");
+    const parsedBody = JSON.parse(requestBody) as {
+      messages: { role: string; content: string }[];
+    };
+    const userPrompt = parsedBody.messages.find(({ role }) => role === "user")?.content;
+    expect(userPrompt).toContain('0 "第一句在开头。"');
+    expect(userPrompt).toContain('1 "第二句在空档之后。"');
+    expect(userPrompt).toContain('2 "第三句在更晚的时候。"');
     expect(requestBody).not.toContain("12.5");
     expect(requestBody).not.toContain("13.25");
     expect(requestBody).not.toContain("48-49");
     expect(requestBody).not.toContain(SEGMENT_A);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test("encodes embedded newlines and escapes as one lossless physical record per segment", async () => {
+    const multilineChinese = `第一行
+第二行\\路径说"你好"`;
+    const multilineEvidence: LearningArtifactEvidence = {
+      ...evidence,
+      segments: [
+        {
+          stableId: SEGMENT_A,
+          originalChinese: multilineChinese,
+          startSeconds: 7.25,
+          endSeconds: 9,
+        },
+        {
+          stableId: SEGMENT_B,
+          originalChinese: "第三行保持完整。",
+          startSeconds: 12,
+          endSeconds: 14,
+        },
+      ],
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async () => completionResponse({
+      overview: "A concise overview of the multiline transcript.",
+      chapters: [{
+        title: "Multiline opening",
+        summary: "The opening segment spans preserved source lines.",
+        sourceLineIndex: 0,
+      }],
+      keyQuotes: [
+        { quote: "第二行", englishMeaning: "The second source line.", sourceLineIndex: 0 },
+        { quote: "路径说\"你好\"", englishMeaning: "The path says hello.", sourceLineIndex: 0 },
+        { quote: "第三行保持完整", englishMeaning: "The third line remains complete.", sourceLineIndex: 1 },
+      ],
+    }));
+    const provider = createOpenAiCompatibleLearningArtifactProvider({
+      config: RUNTIME_CONFIG,
+      fetchImpl,
+    });
+
+    const content = await provider.generateOverview(multilineEvidence);
+
+    expect(content).toMatchObject({
+      chapters: [{ timestampSeconds: 7.25, sourceSegmentIds: [SEGMENT_A] }],
+      keyQuotes: [
+        { timestampSeconds: 7.25, sourceSegmentIds: [SEGMENT_A] },
+        { timestampSeconds: 7.25, sourceSegmentIds: [SEGMENT_A] },
+        { timestampSeconds: 12, sourceSegmentIds: [SEGMENT_B] },
+      ],
+    });
+    expect(validateOverviewContent(content, multilineEvidence)).toEqual(content);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const requestBody = String(fetchImpl.mock.calls[0][1]?.body);
+    expect(new TextEncoder().encode(requestBody).byteLength).toBeLessThan(65_536);
+    const parsedBody = JSON.parse(requestBody) as {
+      max_tokens?: number;
+      messages: { role: string; content: string }[];
+    };
+    expect(parsedBody.max_tokens).toBe(1_800);
+    const userPrompt = parsedBody.messages.find(({ role }) => role === "user")?.content;
+    const protocolRecords = userPrompt?.split("Native transcript lines:\n")[1]?.split("\n");
+    expect(protocolRecords).toHaveLength(multilineEvidence.segments.length);
+    protocolRecords?.forEach((record, sourceLineIndex) => {
+      const match = /^(\d+) (.+)$/u.exec(record);
+      if (!match) throw new Error("expected indexed transcript protocol record");
+      expect(Number(match[1])).toBe(sourceLineIndex);
+      expect(JSON.parse(match[2])).toBe(
+        multilineEvidence.segments[sourceLineIndex].originalChinese,
+      );
+    });
+    expect(requestBody).not.toContain(SEGMENT_A);
+    expect(requestBody).not.toContain(SEGMENT_B);
+    expect(requestBody).not.toContain("7.25");
   });
 
   test.each([

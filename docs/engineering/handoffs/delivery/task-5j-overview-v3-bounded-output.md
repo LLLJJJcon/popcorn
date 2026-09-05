@@ -99,3 +99,64 @@ PASS: exit 0 after the implementation commit
 - The line protocol assumes each persisted transcript segment is represented by
   its complete stored text on one prompt line, matching the accepted 815-row
   evidence shape.
+
+## Fix round 1 — lossless single-line transcript records
+
+### Root cause and RED
+
+`originalChinese` was interpolated directly into a newline-delimited protocol.
+Persisted Chinese text permits and preserves internal newlines, so a segment
+such as `第一行\n第二行` became two physical prompt lines while only the first
+had a `sourceLineIndex`. That made the global record boundary ambiguous.
+
+Before changing production code, the new fixture used one segment containing
+an internal newline, a backslash, and quotes. The focused command failed
+exactly at the physical-record boundary assertion:
+
+```text
+pnpm vitest run tests/integration/youtube/learning-artifacts.test.ts
+FAIL: 1 failed | 71 passed (72)
+expected protocol records length 2, received 3
+```
+
+After the existing 815-row assertion was also tightened to require the reviewed
+JSON-literal protocol, the unchanged implementation remained RED:
+
+```text
+FAIL: 2 failed | 70 passed (72)
+expected `0 "第1条中文内容。"`, received `0 第1条中文内容。`
+expected protocol records length 2, received 3
+```
+
+### Minimal fix and GREEN
+
+Each record is now exactly `${sourceLineIndex} ${JSON.stringify(originalChinese)}`.
+JSON string-literal escaping keeps internal newlines, backslashes, and quotes on
+one physical protocol line while allowing the Provider to decode the complete
+original text byte-for-byte. The prompt explicitly names `originalChineseJson`
+as a JSON string literal and requires decoding before exact-substring quote
+selection. No text is deleted, normalized, or substituted, and no request,
+metadata, ID, or timestamp was added.
+
+The fixture decodes every record with `JSON.parse` and compares it directly to
+the persisted original. It also proves stable-ID/start-time mapping and quote
+grounding still succeed, while the request remains below 65,536 bytes, makes
+one fetch, and retains `max_tokens: 1800`.
+
+```text
+pnpm vitest run tests/integration/youtube/learning-artifacts.test.ts
+PASS: 1 file, 72/72 tests
+
+pnpm eslint src/server/ai/openai-compatible-provider.ts src/server/ai/prompts/youtube-overview.v1.ts tests/integration/youtube/learning-artifacts.test.ts
+PASS: exit 0
+
+pnpm typecheck
+PASS: `tsc --noEmit`, exit 0
+
+git diff --check ca73c4b89974cce5e3e9f56ed3333da3311e183a..HEAD
+PASS: exit 0 after the Fix round 1 commit
+```
+
+Residual risk remains limited to live model compliance and latency: no real
+Provider egress was run. Malformed or ungrounded output still fails closed
+through the unchanged strict response and public grounding gates.

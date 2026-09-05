@@ -32,9 +32,11 @@ export function buildOverviewPrompt(
   segments: readonly OverviewPromptSegment[],
 ): string {
   const evidence = segments
-    .map((segment, sourceLineIndex) => `${sourceLineIndex} ${segment.originalChinese}`)
+    .map((segment, sourceLineIndex) =>
+      `${sourceLineIndex} ${JSON.stringify(segment.originalChinese)}`,
+    )
     .join("\n");
-  return `Create a concise, content-focused English overview for an English-speaking Mandarin learner. Cover the whole video with 1-8 chapters appropriate to the material and exactly 3-5 key quotes. Preserve the original Simplified Chinese in each key quote, and make every quote an exact substring of its anchored transcript line. Each chapter and key quote must return exactly one sourceLineIndex referring to the supporting global transcript line. Return strict JSON only; do not return timestamps, block indexes, IDs, or metadata.\nTitle: ${title}\nNative transcript lines:\n${evidence}`;
+  return `Create a concise, content-focused English overview for an English-speaking Mandarin learner. Cover the whole video with 1-8 chapters appropriate to the material and exactly 3-5 key quotes. Each transcript record is one physical line containing a sourceLineIndex followed by originalChineseJson, which is a JSON string literal. Decode originalChineseJson to recover the complete original text. Preserve the original Simplified Chinese in each key quote, and make every quote an exact substring of the decoded text in its anchored transcript record. Each chapter and key quote must return exactly one sourceLineIndex referring to the supporting global transcript record. Return strict JSON only; do not return timestamps, block indexes, IDs, or metadata.\nTitle: ${title}\nNative transcript lines:\n${evidence}`;
 }
 
 export type OverviewContent = z.infer<typeof OverviewContentSchema>;
