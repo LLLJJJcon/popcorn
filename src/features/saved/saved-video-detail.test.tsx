@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import type { SavedVideoDetail } from "@/features/saved/api";
 import { SavedVideoDetailView } from "@/features/saved/saved-video-detail";
 import { SavedTimeline } from "@/features/saved/saved-timeline";
+import { YOUTUBE_OVERVIEW_PROMPT_VERSION } from "@/server/ai/prompts/youtube-overview.v1";
 import type { DeletionImpact } from "@/server/domain/plan-source-deletion";
 
 vi.mock("next/navigation", () => ({
@@ -84,7 +85,7 @@ describe("Saved video learning bridge", () => {
           artifactId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           savedItemId: null,
           type: "overview",
-          promptVersion: "youtube-overview-v2",
+          promptVersion: YOUTUBE_OVERVIEW_PROMPT_VERSION,
           content: {
             overview: "A conversation about measured reactions.",
             chapters: [{
