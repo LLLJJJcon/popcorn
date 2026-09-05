@@ -90,13 +90,13 @@ function loadSidepanel({ sendMessage } = {}) {
   };
   sandbox.globalThis = sandbox;
   vm.runInNewContext(
-    `${sidepanelSource}\n;globalThis.__POPCORN_SAVED_TESTING__ = { setupEventListeners, setCurrentVideoId(value) { currentVideoId = value; } };`,
+    `${sidepanelSource}\n;globalThis.__POPCORN_SAVED_TESTING__ = { setupEventListeners, saveStatusPresenter, saveWithFeedback, setCurrentVideoId(value) { currentVideoId = value; } };`,
     sandbox,
     { filename: "sidepanel.js" },
   );
   sandbox.__POPCORN_SAVED_TESTING__.setCurrentVideoId(CURRENT_VIDEO_ID);
   sandbox.__POPCORN_SAVED_TESTING__.setupEventListeners();
-  return { dom, document: dom.window.document, messages };
+  return { dom, document: dom.window.document, helpers: sandbox.__POPCORN_SAVED_TESTING__, messages };
 }
 
 function loadBackground({
@@ -222,6 +222,31 @@ test("the Side Panel header opens the Popcorn Web root", async () => {
   assert.deepEqual(messages.at(-1), { action: "openPopcorn" });
 });
 
+test("an admitted save that needs sign-in stays queued and opens extension connection", async () => {
+  const { document, helpers, messages } = loadSidepanel();
+
+  await helpers.saveWithFeedback({
+    input: { kind: "subtitle_row", originalChinese: "这个表达很自然。" },
+    button: document.getElementById("saveVideoBtn"),
+    idleLabel: "Save Video",
+    save: async () => ({
+      success: true,
+      synced: false,
+      pending: true,
+      code: "AUTH_REQUIRED",
+    }),
+    presenter: helpers.saveStatusPresenter,
+    scheduleReset() {},
+  });
+
+  assert.match(document.getElementById("saveStatusMessage").textContent, /stays queued.*sign in to retry/i);
+  const recovery = document.getElementById("saveRecoveryLink");
+  assert.equal(recovery.hidden, false);
+  recovery.click();
+  await flush();
+  assert.deepEqual(messages.at(-1), { action: "openOptions" });
+});
+
 test("Saved exposes a loading state while its fixed request is pending", async () => {
   let resolveLibrary;
   const { document } = loadSidepanel({
@@ -266,21 +291,25 @@ test("Saved shows empty, authentication, and temporary failure states with recov
       name: "empty",
       result: { success: true, summaries: [] },
       expected: /queued locally.*after sync/i,
+      recoveryAction: "openSavedLibrary",
     },
     {
       name: "signed out",
       result: { success: false, code: "AUTH_REQUIRED", retryable: false },
       expected: /sign in.*Saved/i,
+      recoveryAction: "openOptions",
     },
     {
       name: "expired",
       result: { success: false, code: "SESSION_EXPIRED", retryable: false },
       expected: /session expired.*sign in again/i,
+      recoveryAction: "openOptions",
     },
     {
       name: "temporary failure",
       result: { success: false, code: "INTERNAL_ERROR", retryable: true },
       expected: /temporarily unavailable/i,
+      recoveryAction: "openSavedLibrary",
     },
   ];
 
@@ -303,14 +332,14 @@ test("Saved shows empty, authentication, and temporary failure states with recov
       assert.equal(document.getElementById("savedRetryBtn").hidden, false);
       assert.equal(document.getElementById("openSavedLibraryBtn").hidden, false);
 
+      document.getElementById("openSavedLibraryBtn").click();
+      await flush();
+      assert.deepEqual(messages.at(-1), { action: scenario.recoveryAction });
+
       document.getElementById("savedRetryBtn").click();
       await flush();
       assert.equal(messages.filter(({ action }) => action === "getSavedLibrary").length, 2);
       assert.match(document.getElementById("savedList").textContent, /中文访谈/);
-
-      document.getElementById("openSavedLibraryBtn").click();
-      await flush();
-      assert.deepEqual(messages.at(-1), { action: "openSavedLibrary" });
     });
   }
 });

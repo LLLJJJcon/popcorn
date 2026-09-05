@@ -197,12 +197,12 @@
 
 .pending_consent {
   background: color-mix(in srgb, var(--attention) 18%, var(--paper));
-  color: var(--attention);
+  color: var(--cocoa);
 }
 
 .active {
   background: color-mix(in srgb, var(--success) 16%, var(--paper));
-  color: var(--success);
+  color: var(--cocoa);
 }
 
 .revoked {

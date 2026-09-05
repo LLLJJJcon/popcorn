@@ -739,6 +739,12 @@ function createSaveStatusPresenter(doc, appUrl = "") {
   const recoveryLink = doc?.getElementById("saveRecoveryLink");
   let retryAction = null;
 
+  recoveryLink?.addEventListener("click", (event) => {
+    if (recoveryLink.dataset.action !== "openOptions") return;
+    event.preventDefault();
+    void chrome.runtime.sendMessage({ action: "openOptions" });
+  });
+
   retryButton?.addEventListener("click", async () => {
     if (!retryAction) return;
     const action = retryAction;
@@ -770,6 +776,8 @@ function createSaveStatusPresenter(doc, appUrl = "") {
     if (recoveryLink) {
       recoveryLink.hidden = true;
       recoveryLink.removeAttribute("href");
+      recoveryLink.removeAttribute("data-action");
+      recoveryLink.textContent = "Open Saved in Popcorn";
       if (state === "retrying" && appUrl) {
         try {
           recoveryLink.href = new URL("/saved", appUrl).href;
@@ -777,6 +785,11 @@ function createSaveStatusPresenter(doc, appUrl = "") {
         } catch (_error) {
           // Invalid build-time public configuration leaves the link absent.
         }
+      } else if (state === "sign-in-required") {
+        recoveryLink.href = "#extension-connection";
+        recoveryLink.dataset.action = "openOptions";
+        recoveryLink.textContent = "Sign in to sync";
+        recoveryLink.hidden = false;
       }
     }
   }
@@ -969,7 +982,9 @@ function setupEventListeners() {
     void loadSavedLibrary();
   });
   document.getElementById("openSavedLibraryBtn")?.addEventListener("click", () => {
-    void chrome.runtime.sendMessage({ action: "openSavedLibrary" });
+    const recovery = document.getElementById("openSavedLibraryBtn");
+    const action = recovery?.dataset.action === "openOptions" ? "openOptions" : "openSavedLibrary";
+    void chrome.runtime.sendMessage({ action });
   });
 }
 
@@ -2242,26 +2257,29 @@ function normalizeSavedSummary(value) {
   };
 }
 
-function showSavedLibraryState(message, { loading = false } = {}) {
+function showSavedLibraryState(message, { loading = false, recoveryAction = "openSavedLibrary" } = {}) {
   const state = document.getElementById("savedLibraryState");
   const messageElement = document.getElementById("savedLibraryMessage");
   const list = document.getElementById("savedList");
   const retry = document.getElementById("savedRetryBtn");
-  if (!state || !messageElement || !list || !retry) return;
+  const recovery = document.getElementById("openSavedLibraryBtn");
+  if (!state || !messageElement || !list || !retry || !recovery) return;
   messageElement.textContent = message;
   state.hidden = false;
   list.hidden = true;
   retry.hidden = loading;
   retry.disabled = loading;
+  recovery.dataset.action = recoveryAction;
+  recovery.textContent = recoveryAction === "openOptions" ? "Sign in to Popcorn" : "Open Saved in Popcorn";
 }
 
 function showSavedLibraryFailure(result) {
   if (result?.code === "AUTH_REQUIRED") {
-    showSavedLibraryState("Sign in to Popcorn to view your Saved library.");
+    showSavedLibraryState("Sign in to Popcorn to view your Saved library.", { recoveryAction: "openOptions" });
     return;
   }
   if (result?.code === "SESSION_EXPIRED") {
-    showSavedLibraryState("Your Popcorn session expired. Sign in again to view Saved.");
+    showSavedLibraryState("Your Popcorn session expired. Sign in again to view Saved.", { recoveryAction: "openOptions" });
     return;
   }
   showSavedLibraryState("Saved is temporarily unavailable. Try again.");

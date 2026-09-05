@@ -108,3 +108,109 @@ After commit, `git diff --check 96cabbe..HEAD` is the final baseline-to-Task-4 w
 ## Commit
 
 Commit message: `feat: connect the extension to the Popcorn workspace`
+
+## Fix round 1 — Extension recovery and badge contrast
+
+Review identified two Important regressions: the general header correctly opened the Web root, but no remaining Side Panel control emitted the worker's trusted `openOptions` recovery action; and the two normal-size semantic badge pairings did not meet 4.5:1 contrast. The Minor sender-hardening request was included in the extension test cycle without changing the trusted predicate.
+
+Fix-round baseline: `ca73c4b`.
+
+### Important 1 RED — reachable extension-session recovery
+
+Focused command:
+
+```bash
+node --test extension/tests/saved-panel.test.js extension/tests/release.test.js
+```
+
+Result before the production fix:
+
+```text
+tests 23
+pass 19
+fail 4
+queued-save recovery link: actual hidden true, expected false
+signed-out Saved recovery: actual { action: "openSavedLibrary" }, expected { action: "openOptions" }
+expired Saved recovery: actual { action: "openSavedLibrary" }, expected { action: "openOptions" }
+```
+
+The parent Saved-state test is counted alongside its two failing signed-out/expired subtests. Empty and temporary-failure subtests continued to pass with `openSavedLibrary`.
+
+### Important 1 fix and GREEN
+
+- An admitted save returning `AUTH_REQUIRED` still renders the existing queued-save copy, now reveals `Sign in to sync`, and emits `{ action: "openOptions" }` from the Side Panel without changing or discarding the queued item.
+- Signed-out and expired Saved library states select `openOptions` and label the action `Sign in to Popcorn`.
+- Empty and temporary Saved states keep `openSavedLibrary` and `Open Saved in Popcorn`.
+- The header remains `Open Popcorn` and continues to emit only `openPopcorn`.
+- The background worker and its exact trusted-sender predicate were not changed.
+
+Focused GREEN:
+
+```text
+tests 23
+pass 23
+fail 0
+```
+
+The existing hostile Side Panel fixtures were extracted into one test helper and reused for `openPopcorn`. Other-extension, query, hash, other-page, fractional-tab, query/hash tab mismatch, and other-page tab mismatch senders all remain rejected with no tab creation.
+
+### Important 2 RED — authored badge contrast
+
+Focused command:
+
+```bash
+pnpm vitest run src/app/settings/model-gateway/model-gateway-settings.test.tsx
+```
+
+The regression reads the authored global tokens and settings CSS, resolves the current direct-token and sRGB color-mix forms, and computes WCAG relative luminance. Both cases failed before the CSS fix:
+
+```text
+Test Files  1 failed (1)
+Tests       2 failed | 49 passed (51)
+pending_consent: 3.582664364745153:1
+active: 3.9916396312628306:1
+```
+
+### Important 2 fix and GREEN
+
+Kept the distinct attention/success tinted backgrounds and changed only their foreground to the existing `--cocoa` token. The visible `Pending consent` and `Active` text remains the non-color state carrier. No global token was added or modified.
+
+Focused GREEN:
+
+```text
+Test Files  1 passed (1)
+Tests       51 passed (51)
+```
+
+### Full fix-round verification
+
+```bash
+pnpm vitest run src/app/settings/model-gateway/model-gateway-settings.test.tsx tests/integration/model-gateway/settings-web-auth.test.ts
+node --test extension/tests/saved-panel.test.js extension/tests/release.test.js extension/tests/auth.test.js
+node --test extension/tests/recovery-accessibility.test.js
+pnpm typecheck
+pnpm exec eslint src/app/settings/model-gateway/model-gateway-settings.tsx src/app/settings/model-gateway/model-gateway-settings.test.tsx
+pnpm exec eslint --no-ignore --rule '@typescript-eslint/no-require-imports: off' --rule '@typescript-eslint/no-unused-vars: off' extension/sidepanel.js extension/background.js extension/tests/saved-panel.test.js extension/tests/release.test.js
+node --check extension/background.js
+node --check extension/sidepanel.js
+git diff --check ca73c4b
+```
+
+Results:
+
+```text
+Web Task 4/auth: 2 files passed, 53 tests passed
+Extension Task 4/auth: 34 tests passed, 0 failed
+Recovery/accessibility: 9 tests passed, 0 failed
+Typecheck, both scoped lint commands, both syntax checks, and diff check: exit 0
+```
+
+The read-only `extension/tests/auth.test.js`, `tests/integration/model-gateway/settings-web-auth.test.ts`, and `extension/tests/recovery-accessibility.test.js` files were not modified.
+
+### Fix-round risks
+
+- The recovery action deliberately opens the extension Options connection surface rather than the Web sign-in page because the service worker owns its separate session. The existing owner-bound queue remains the source of truth and is not mutated by this UI action.
+- The contrast regression supports the direct token and current two-token sRGB mix forms authored by this module. A future intentional switch to a different CSS color syntax must extend the test resolver while preserving the numeric threshold.
+- Independent re-review remains required before Task 4 can be accepted.
+
+Fix commit message: `fix: restore extension recovery and badge contrast`

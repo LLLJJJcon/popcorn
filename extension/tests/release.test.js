@@ -352,6 +352,19 @@ function loadBackgroundMessageRouter() {
   return { calls, onMessage };
 }
 
+function rejectedExactSidePanelSenders(sidePanelUrl, otherPageUrl, tabId) {
+  return [
+    { id: "other-extension", url: sidePanelUrl, tab: { id: tabId, url: sidePanelUrl } },
+    { id: "extension-id", url: `${sidePanelUrl}?debug=1`, tab: { id: tabId, url: `${sidePanelUrl}?debug=1` } },
+    { id: "extension-id", url: `${sidePanelUrl}#debug`, tab: { id: tabId, url: `${sidePanelUrl}#debug` } },
+    { id: "extension-id", url: otherPageUrl, tab: { id: tabId, url: otherPageUrl } },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: tabId + 0.5, url: sidePanelUrl } },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: tabId, url: `${sidePanelUrl}?debug=1` } },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: tabId, url: `${sidePanelUrl}#debug` } },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: tabId, url: otherPageUrl } },
+  ];
+}
+
 test("only the exact YouTube watch content sender can open the side panel and start digest", async () => {
   const plain = (value) => JSON.parse(JSON.stringify(value));
   const watchUrl = "https://www.youtube.com/watch?v=abc123XYZ00";
@@ -439,16 +452,7 @@ test("exact Options and Side Panel pages stay trusted when Chrome supplies a tab
     assert.deepEqual(plain(responses), [{ ok: false, error: "forbidden" }]);
   }
 
-  const rejectedSidePanelSenders = [
-    { id: "other-extension", url: sidePanelUrl, tab: { id: 84, url: sidePanelUrl } },
-    { id: "extension-id", url: `${sidePanelUrl}?debug=1`, tab: { id: 84, url: `${sidePanelUrl}?debug=1` } },
-    { id: "extension-id", url: `${sidePanelUrl}#debug`, tab: { id: 84, url: `${sidePanelUrl}#debug` } },
-    { id: "extension-id", url: optionsUrl, tab: { id: 84, url: optionsUrl } },
-    { id: "extension-id", url: sidePanelUrl, tab: { id: 84.5, url: sidePanelUrl } },
-    { id: "extension-id", url: sidePanelUrl, tab: { id: 84, url: `${sidePanelUrl}?debug=1` } },
-    { id: "extension-id", url: sidePanelUrl, tab: { id: 84, url: `${sidePanelUrl}#debug` } },
-    { id: "extension-id", url: sidePanelUrl, tab: { id: 84, url: optionsUrl } },
-  ];
+  const rejectedSidePanelSenders = rejectedExactSidePanelSenders(sidePanelUrl, optionsUrl, 84);
   for (const sender of rejectedSidePanelSenders) {
     const rejected = loadBackgroundMessageRouter();
     const responses = [];
@@ -477,13 +481,19 @@ test("only the exact trusted Side Panel can open the Popcorn Web root", async ()
   assert.deepEqual(plain(trusted.calls.createdTabs), [{ url: "http://127.0.0.1:3000/" }]);
   assert.deepEqual(plain(trustedResponses), [{ success: true }]);
 
-  const rejected = loadBackgroundMessageRouter();
-  const rejectedResponses = [];
-  assert.equal(rejected.onMessage(
-    { action: "openPopcorn" },
-    { id: "extension-id", url: "chrome-extension://extension-id/options.html" },
-    (response) => rejectedResponses.push(response),
-  ), false);
-  assert.deepEqual(rejected.calls.createdTabs, []);
-  assert.deepEqual(plain(rejectedResponses), [{ success: false, error: "forbidden" }]);
+  for (const sender of rejectedExactSidePanelSenders(
+    sidePanelUrl,
+    "chrome-extension://extension-id/options.html",
+    92,
+  )) {
+    const rejected = loadBackgroundMessageRouter();
+    const rejectedResponses = [];
+    assert.equal(rejected.onMessage(
+      { action: "openPopcorn" },
+      sender,
+      (response) => rejectedResponses.push(response),
+    ), false);
+    assert.deepEqual(rejected.calls.createdTabs, []);
+    assert.deepEqual(plain(rejectedResponses), [{ success: false, error: "forbidden" }]);
+  }
 });

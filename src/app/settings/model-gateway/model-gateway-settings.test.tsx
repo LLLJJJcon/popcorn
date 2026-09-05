@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -7,6 +9,39 @@ import { ModelGatewaySettings } from "./model-gateway-settings";
 
 const CONFIG_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const NOW = "2026-08-20T00:00:00.000Z";
+const globalCss = readFileSync("src/app/globals.css", "utf8");
+const settingsCss = readFileSync("src/app/settings/model-gateway/model-gateway-settings.module.css", "utf8");
+
+type Rgb = readonly [number, number, number];
+
+function paletteColor(name: string): Rgb {
+  const hex = new RegExp(`${name}:\\s*(#[a-f\\d]{6})`, "i").exec(globalCss)?.[1] ?? "";
+  const channels = hex.match(/[a-f\d]{2}/gi)?.map((part) => Number.parseInt(part, 16));
+  if (!channels || channels.length !== 3) throw new TypeError(`Missing palette color ${name}`);
+  return channels as unknown as Rgb;
+}
+
+function authoredColor(className: string, property: "background" | "color"): Rgb {
+  const block = new RegExp(`\\.${className}\\s*\\{([^}]*)}`, "s").exec(settingsCss)?.[1] ?? "";
+  const value = new RegExp(`(?:^|;)\\s*${property}:\\s*([^;]+)`, "s").exec(block)?.[1].trim() ?? "";
+  const direct = /^var\((--[a-z-]+)\)$/.exec(value);
+  if (direct) return paletteColor(direct[1]);
+  const mix = /^color-mix\(in srgb,\s*var\((--[a-z-]+)\)\s+(\d+)%,\s*var\((--[a-z-]+)\)\)$/.exec(value);
+  if (!mix) throw new TypeError(`Unsupported authored color ${value}`);
+  const weight = Number(mix[2]) / 100;
+  const foreground = paletteColor(mix[1]);
+  const background = paletteColor(mix[3]);
+  return foreground.map((channel, index) => channel * weight + background[index] * (1 - weight)) as unknown as Rgb;
+}
+
+function contrastRatio(foreground: Rgb, background: Rgb): number {
+  const luminance = (rgb: Rgb) => rgb.map((value) => {
+    const channel = value / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  }).reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0);
+  const [lighter, darker] = [luminance(foreground), luminance(background)].sort((left, right) => right - left);
+  return (lighter + 0.05) / (darker + 0.05);
+}
 const pending: ModelGatewayConfigView = {
   id: CONFIG_ID,
   displayName: "My Gateway",
@@ -65,6 +100,13 @@ afterEach(() => {
 });
 
 describe("ModelGatewaySettings", () => {
+  it.each(["pending_consent", "active"] as const)(
+    "uses a 4.5:1-or-better authored palette pairing for the %s gateway state badge",
+    (className) => {
+      expect(contrastRatio(authoredColor(className, "color"), authoredColor(className, "background"))).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
   it("composes one setup form and one configured list without shell-owned account chrome", async () => {
     mockFetch(response(settings([pending])));
     render(<ModelGatewaySettings />);
