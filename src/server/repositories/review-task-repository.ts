@@ -149,11 +149,17 @@ function numberValue(row: Record<string, unknown>, key: string): number {
   return value;
 }
 
+function booleanValue(row: Record<string, unknown>, key: string): boolean {
+  const value = row[key];
+  if (typeof value !== "boolean") throw new Error(`invalid ${key}`);
+  return value;
+}
+
 function attemptView(row: Record<string, unknown>): ExpressionAttemptView {
   return {
     id: text(row, "id"),
     responseChinese: text(row, "response_chinese"),
-    passed: row.passed === true,
+    passed: booleanValue(row, "passed"),
     accuracyScore: numberValue(row, "accuracy_score"),
     accuracyFeedbackEnglish: text(row, "accuracy_feedback_english"),
     naturalnessScore: numberValue(row, "naturalness_score"),

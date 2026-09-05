@@ -135,6 +135,42 @@ function occurrenceRow(id: string, senseId: string) {
   };
 }
 
+function attemptRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: card.attempts[0]!.id,
+    user_id: USER,
+    response_chinese: card.attempts[0]!.responseChinese,
+    passed: true,
+    accuracy_score: 5,
+    accuracy_feedback_english: "Accurate.",
+    naturalness_score: 4,
+    naturalness_feedback_english: "Natural.",
+    contextual_fit_score: 5,
+    contextual_fit_feedback_english: "Fits.",
+    submitted_at: NOW,
+    ...overrides,
+  };
+}
+
+function activeVaultPlans(
+  draftAttempts: readonly Record<string, unknown>[],
+  canonicalAttempts: readonly Record<string, unknown>[],
+) {
+  return [
+    { table: "user_expressions", data: [expressionRow(EXPRESSION, OTHER)] },
+    { table: "expression_senses", data: [senseRow(OTHER, card.expression, card.englishMeaning)] },
+    { table: "expression_occurrences", data: [occurrenceRow(OTHER, OTHER)] },
+    { table: "video_sources", data: [{
+      id: USER,
+      user_id: USER,
+      canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    }] },
+    { table: "video_snapshots", data: [] },
+    { table: "practice_draft_attempts", data: [...draftAttempts] },
+    { table: "attempts", data: [...canonicalAttempts] },
+  ];
+}
+
 describe("Vault and due Practice boundaries", () => {
   test("production Vault reads promoted expressions and complete staged revision history with owner filters", async () => {
     const harness = queryClient([
@@ -258,6 +294,29 @@ describe("Vault and due Practice boundaries", () => {
       ["eq", "attempts", "user_id", USER],
       ["in", "attempts", "user_expression_id", [EXPRESSION]],
     ]));
+  });
+
+  test.each([undefined, "false", 0])(
+    "rejects a persisted attempt whose passed value is not a boolean (%s)",
+    async (passed) => {
+      const harness = queryClient(activeVaultPlans([
+        attemptRow({ future_user_expression_id: EXPRESSION, passed }),
+      ], []));
+
+      await expect(createSupabaseReviewTaskRepository(harness.client as never).listVault(USER))
+        .rejects.toThrow(/invalid passed/);
+    },
+  );
+
+  test("rejects same-ID draft and canonical rows when a malformed passed value hides a conflict", async () => {
+    const harness = queryClient(activeVaultPlans([
+      attemptRow({ future_user_expression_id: EXPRESSION, passed: "false" }),
+    ], [
+      attemptRow({ user_expression_id: EXPRESSION, passed: false }),
+    ]));
+
+    await expect(createSupabaseReviewTaskRepository(harness.client as never).listVault(USER))
+      .rejects.toThrow(/invalid passed/);
   });
 
   test("keeps active draft revisions separate from tombstoned canonical evidence in one Vault read", async () => {
