@@ -149,6 +149,38 @@ function numberValue(row: Record<string, unknown>, key: string): number {
   return value;
 }
 
+function attemptView(row: Record<string, unknown>): ExpressionAttemptView {
+  return {
+    id: text(row, "id"),
+    responseChinese: text(row, "response_chinese"),
+    passed: row.passed === true,
+    accuracyScore: numberValue(row, "accuracy_score"),
+    accuracyFeedbackEnglish: text(row, "accuracy_feedback_english"),
+    naturalnessScore: numberValue(row, "naturalness_score"),
+    naturalnessFeedbackEnglish: text(row, "naturalness_feedback_english"),
+    contextualFitScore: numberValue(row, "contextual_fit_score"),
+    contextualFitFeedbackEnglish: text(row, "contextual_fit_feedback_english"),
+    submittedAt: text(row, "submitted_at"),
+  };
+}
+
+function mergeAttemptHistory(
+  ...groups: readonly (readonly Record<string, unknown>[])[]
+): ExpressionAttemptView[] {
+  const byId = new Map<string, ExpressionAttemptView>();
+  for (const row of groups.flat()) {
+    const attempt = attemptView(row);
+    const existing = byId.get(attempt.id);
+    if (existing && JSON.stringify(existing) !== JSON.stringify(attempt)) {
+      throw new Error("attempt history mismatch");
+    }
+    byId.set(attempt.id, attempt);
+  }
+  return [...byId.values()].toSorted((left, right) =>
+    left.submittedAt.localeCompare(right.submittedAt) || left.id.localeCompare(right.id),
+  );
+}
+
 export function createSupabaseReviewTaskRepository(
   client: SupabaseClient<Database>,
 ): LearningMemoryRepository {
@@ -172,6 +204,7 @@ export function createSupabaseReviewTaskRepository(
       .order("id", { ascending: true }).limit(100));
     owned(expressions, userId);
     if (expressions.length === 0) return [];
+    const expressionIds = expressions.map((row) => text(row, "id"));
     const senseIds = expressions.map((row) => text(row, "expression_sense_id"));
 
     const senses = rows(await db.from("expression_senses")
@@ -181,11 +214,7 @@ export function createSupabaseReviewTaskRepository(
     const activeSenseIds = senses.filter((row) => row.source_deleted_at === null)
       .map((row) => text(row, "id"));
     const activeSenseIdSet = new Set(activeSenseIds);
-    const tombstonedSenseIdSet = new Set(senses.filter((row) => typeof row.source_deleted_at === "string")
-      .map((row) => text(row, "id")));
     const activeExpressionIds = expressions.filter((row) => activeSenseIdSet.has(text(row, "expression_sense_id")))
-      .map((row) => text(row, "id"));
-    const tombstonedExpressionIds = expressions.filter((row) => tombstonedSenseIdSet.has(text(row, "expression_sense_id")))
       .map((row) => text(row, "id"));
     const occurrences = activeSenseIds.length === 0 ? [] : rows(await db.from("expression_occurrences")
       .select("id,user_id,video_source_id,expression_sense_id,evidence_text,segment_ids,start_seconds,end_seconds,created_at")
@@ -214,15 +243,21 @@ export function createSupabaseReviewTaskRepository(
       text(snapshot, "title");
       if (!latestSnapshotBySource.has(sourceId)) latestSnapshotBySource.set(sourceId, snapshot);
     }
-    const canonicalAttempts = tombstonedExpressionIds.length === 0 ? [] : rows(await db.from("attempts")
-      .select("id,user_id,user_expression_id,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,submitted_at")
-      .eq("user_id", userId).in("user_expression_id", tombstonedExpressionIds)
-      .order("submitted_at", { ascending: true }).order("id", { ascending: true }).limit(500));
     const draftAttempts = activeExpressionIds.length === 0 ? [] : rows(await db.from("practice_draft_attempts")
       .select("id,user_id,future_user_expression_id,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,submitted_at")
       .eq("user_id", userId).in("future_user_expression_id", activeExpressionIds)
       .order("submitted_at", { ascending: true }).order("id", { ascending: true }).limit(500));
+    const canonicalAttempts = rows(await db.from("attempts")
+      .select("id,user_id,user_expression_id,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,submitted_at")
+      .eq("user_id", userId).in("user_expression_id", expressionIds)
+      .order("submitted_at", { ascending: true }).order("id", { ascending: true }).limit(500));
     [occurrences, sources, canonicalAttempts, draftAttempts].forEach((value) => owned(value, userId));
+    const expressionIdSet = new Set(expressionIds);
+    const activeExpressionIdSet = new Set(activeExpressionIds);
+    if (
+      canonicalAttempts.some((row) => !expressionIdSet.has(text(row, "user_expression_id"))) ||
+      draftAttempts.some((row) => !activeExpressionIdSet.has(text(row, "future_user_expression_id")))
+    ) throw new Error("incomplete attempt history graph");
 
     return expressions.map((expression) => {
       const sense = senses.find((row) => row.id === expression.expression_sense_id);
@@ -236,9 +271,14 @@ export function createSupabaseReviewTaskRepository(
         (sourceDeleted && (sense.video_source_id !== null || occurrence || source)) ||
         (!sourceDeleted && (!occurrence || !source || occurrence.video_source_id !== sense.video_source_id))
       ) throw new Error("incomplete expression evidence graph");
+      const canonicalExpressionAttempts = canonicalAttempts
+        .filter((row) => row.user_expression_id === expression.id);
       const expressionAttempts = sourceDeleted
-        ? canonicalAttempts.filter((row) => row.user_expression_id === expression.id)
-        : draftAttempts.filter((row) => row.future_user_expression_id === expression.id);
+        ? mergeAttemptHistory(canonicalExpressionAttempts)
+        : mergeAttemptHistory(
+          draftAttempts.filter((row) => row.future_user_expression_id === expression.id),
+          canonicalExpressionAttempts,
+        );
       const snapshot = sourceDeleted ? undefined : latestSnapshotBySource.get(text(sense, "video_source_id"));
       const sourceOccurrence = sourceDeleted ? null : (() => {
         const startSeconds = numberValue(occurrence!, "start_seconds");
@@ -263,18 +303,7 @@ export function createSupabaseReviewTaskRepository(
         sourceDeleted,
         sourceTitle: snapshot ? text(snapshot, "title") : null,
         occurrence: sourceOccurrence,
-        attempts: expressionAttempts.map((row) => ({
-          id: text(row, "id"),
-          responseChinese: text(row, "response_chinese"),
-          passed: row.passed === true,
-          accuracyScore: numberValue(row, "accuracy_score"),
-          accuracyFeedbackEnglish: text(row, "accuracy_feedback_english"),
-          naturalnessScore: numberValue(row, "naturalness_score"),
-          naturalnessFeedbackEnglish: text(row, "naturalness_feedback_english"),
-          contextualFitScore: numberValue(row, "contextual_fit_score"),
-          contextualFitFeedbackEnglish: text(row, "contextual_fit_feedback_english"),
-          submittedAt: text(row, "submitted_at"),
-        })),
+        attempts: expressionAttempts,
       };
     });
   }

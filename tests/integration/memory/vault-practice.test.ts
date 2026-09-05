@@ -174,6 +174,7 @@ describe("Vault and due Practice boundaries", () => {
           contextual_fit_feedback_english: "Fits.", submitted_at: "2026-08-21T02:04:04.000Z",
         },
       ] },
+      { table: "attempts", data: [] },
     ]);
 
     const cards = await createSupabaseReviewTaskRepository(harness.client as never).listVault(USER);
@@ -193,6 +194,69 @@ describe("Vault and due Practice boundaries", () => {
       ["limit", "video_snapshots", 300],
       ["eq", "practice_draft_attempts", "user_id", USER],
       ["in", "practice_draft_attempts", "future_user_expression_id", [EXPRESSION]],
+    ]));
+  });
+
+  test("returns one chronological active history across staged revisions and canonical due practice", async () => {
+    const promotedAttempt = {
+      id: card.attempts[0]!.id,
+      user_id: USER,
+      response_chinese: card.attempts[0]!.responseChinese,
+      passed: true,
+      accuracy_score: 5,
+      accuracy_feedback_english: "Accurate.",
+      naturalness_score: 4,
+      naturalness_feedback_english: "Natural.",
+      contextual_fit_score: 5,
+      contextual_fit_feedback_english: "Fits.",
+      submitted_at: NOW,
+    };
+    const harness = queryClient([
+      { table: "user_expressions", data: [expressionRow(EXPRESSION, OTHER)] },
+      { table: "expression_senses", data: [senseRow(OTHER, card.expression, card.englishMeaning)] },
+      { table: "expression_occurrences", data: [occurrenceRow(OTHER, OTHER)] },
+      { table: "video_sources", data: [{
+        id: USER,
+        user_id: USER,
+        canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      }] },
+      { table: "video_snapshots", data: [] },
+      { table: "practice_draft_attempts", data: [
+        { ...promotedAttempt, future_user_expression_id: EXPRESSION },
+        {
+          ...promotedAttempt,
+          id: OTHER,
+          future_user_expression_id: EXPRESSION,
+          response_chinese: "真的太离谱了。",
+          submitted_at: "2026-08-21T02:05:04.000Z",
+        },
+      ] },
+      { table: "attempts", data: [
+        { ...promotedAttempt, user_expression_id: EXPRESSION },
+        {
+          ...promotedAttempt,
+          id: ZERO_EXPRESSION,
+          user_expression_id: EXPRESSION,
+          response_chinese: "他居然临时涨价，真的太离谱了。",
+          submitted_at: "2026-08-21T02:04:04.000Z",
+        },
+      ] },
+    ]);
+
+    const result = await createSupabaseReviewTaskRepository(harness.client as never).listVault(USER);
+    expect(result[0]?.attempts.map((attempt) => ({
+      id: attempt.id,
+      responseChinese: attempt.responseChinese,
+    }))).toEqual([
+      { id: card.attempts[0]!.id, responseChinese: card.attempts[0]!.responseChinese },
+      { id: ZERO_EXPRESSION, responseChinese: "他居然临时涨价，真的太离谱了。" },
+      { id: OTHER, responseChinese: "真的太离谱了。" },
+    ]);
+    expect(harness.calls).toEqual(expect.arrayContaining([
+      ["eq", "practice_draft_attempts", "user_id", USER],
+      ["in", "practice_draft_attempts", "future_user_expression_id", [EXPRESSION]],
+      ["eq", "attempts", "user_id", USER],
+      ["in", "attempts", "user_expression_id", [EXPRESSION]],
     ]));
   });
 
@@ -218,20 +282,6 @@ describe("Vault and due Practice boundaries", () => {
         canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       }] },
       { table: "video_snapshots", data: [] },
-      { table: "attempts", data: [{
-        id: ZERO_EXPRESSION,
-        user_id: USER,
-        user_expression_id: EXACT_EXPRESSION,
-        response_chinese: "这件事说来话长。",
-        passed: true,
-        accuracy_score: 5,
-        accuracy_feedback_english: "Accurate.",
-        naturalness_score: 5,
-        naturalness_feedback_english: "Natural.",
-        contextual_fit_score: 5,
-        contextual_fit_feedback_english: "Fits.",
-        submitted_at: NOW,
-      }] },
       { table: "practice_draft_attempts", data: [
         {
           id: card.attempts[0]!.id,
@@ -262,6 +312,20 @@ describe("Vault and due Practice boundaries", () => {
           submitted_at: "2026-08-21T02:04:04.000Z",
         },
       ] },
+      { table: "attempts", data: [{
+        id: ZERO_EXPRESSION,
+        user_id: USER,
+        user_expression_id: EXACT_EXPRESSION,
+        response_chinese: "这件事说来话长。",
+        passed: true,
+        accuracy_score: 5,
+        accuracy_feedback_english: "Accurate.",
+        naturalness_score: 5,
+        naturalness_feedback_english: "Natural.",
+        contextual_fit_score: 5,
+        contextual_fit_feedback_english: "Fits.",
+        submitted_at: NOW,
+      }] },
     ]);
 
     const result = await createSupabaseReviewTaskRepository(harness.client as never).listVault(USER);
@@ -285,7 +349,7 @@ describe("Vault and due Practice boundaries", () => {
       ["eq", "practice_draft_attempts", "user_id", USER],
       ["in", "practice_draft_attempts", "future_user_expression_id", [EXPRESSION]],
       ["eq", "attempts", "user_id", USER],
-      ["in", "attempts", "user_expression_id", [EXACT_EXPRESSION]],
+      ["in", "attempts", "user_expression_id", [EXPRESSION, EXACT_EXPRESSION]],
     ]));
   });
 
@@ -359,6 +423,7 @@ describe("Vault and due Practice boundaries", () => {
       { table: "video_sources", data: [source] },
       { table: "video_snapshots", data: [] },
       { table: "practice_draft_attempts", data: [] },
+      { table: "attempts", data: [] },
       { table: "user_expressions", data: [
         expressionRow(EXPRESSION, OTHER),
         expressionRow(EXACT_EXPRESSION, exactSense),
@@ -375,6 +440,7 @@ describe("Vault and due Practice boundaries", () => {
       { table: "video_sources", data: [source] },
       { table: "video_snapshots", data: [] },
       { table: "practice_draft_attempts", data: [] },
+      { table: "attempts", data: [] },
     ]);
 
     const detail = await createSupabaseReviewTaskRepository(harness.client as never)
@@ -492,6 +558,7 @@ describe("Vault and due Practice boundaries", () => {
       { table: "video_sources", data: [{ id: USER, user_id: USER, canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }] },
       { table: "video_snapshots", data: [] },
       { table: "practice_draft_attempts", data: [] },
+      { table: "attempts", data: [] },
     ]);
 
     await expect(createSupabaseReviewTaskRepository(harness.client as never).listVault(USER))
