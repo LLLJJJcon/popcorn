@@ -308,15 +308,18 @@ describe("Vault and due Practice boundaries", () => {
     },
   );
 
-  test("rejects same-ID draft and canonical rows when a malformed passed value hides a conflict", async () => {
+  test("rejects same-ID draft and canonical rows with conflicting validated content", async () => {
     const harness = queryClient(activeVaultPlans([
-      attemptRow({ future_user_expression_id: EXPRESSION, passed: "false" }),
+      attemptRow({ future_user_expression_id: EXPRESSION }),
     ], [
-      attemptRow({ user_expression_id: EXPRESSION, passed: false }),
+      attemptRow({
+        user_expression_id: EXPRESSION,
+        response_chinese: "他居然临时涨价，真的太离谱了。",
+      }),
     ]));
 
     await expect(createSupabaseReviewTaskRepository(harness.client as never).listVault(USER))
-      .rejects.toThrow(/invalid passed/);
+      .rejects.toThrow(/attempt history mismatch/);
   });
 
   test("keeps active draft revisions separate from tombstoned canonical evidence in one Vault read", async () => {
