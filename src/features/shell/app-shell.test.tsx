@@ -22,7 +22,25 @@ describe("AppShell", () => {
   it("provides accessible workspace navigation and account controls around page content", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({
       ok: true,
-      data: { configs: [{ state: "active" }] },
+      data: {
+        configs: [{
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          displayName: "Study Gateway",
+          baseUrl: "https://gateway.example.com/v1",
+          model: "mandarin-model",
+          revision: 1,
+          configFingerprint: "a".repeat(64),
+          state: "active",
+          consent: {
+            exactBaseUrl: "https://gateway.example.com/v1",
+            policyVersion: "model-egress-v1",
+            consentedAt: "2026-09-05T00:00:00.000Z",
+          },
+          hasApiKey: true,
+          createdAt: "2026-09-05T00:00:00.000Z",
+          updatedAt: "2026-09-05T00:00:00.000Z",
+        }],
+      },
       requestId: "request-safe",
     })));
 
@@ -93,5 +111,25 @@ describe("GatewayNotice", () => {
       credentials: "same-origin",
       cache: "no-store",
     });
+  });
+
+  it("stays hidden for malformed successful envelopes and settings payloads", async () => {
+    const malformedResponses = [
+      { data: { configs: [] }, requestId: "missing-ok" },
+      {
+        ok: true,
+        data: { configs: [{ state: "pending_consent" }] },
+        requestId: "incomplete-config",
+      },
+    ];
+
+    for (const payload of malformedResponses) {
+      vi.stubGlobal("fetch", vi.fn(async () => Response.json(payload)));
+      const view = render(<GatewayNotice />);
+
+      await expect(screen.findByRole("status", {}, { timeout: 250 })).rejects.toThrow();
+
+      view.unmount();
+    }
   });
 });

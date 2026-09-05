@@ -3,19 +3,16 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { apiSuccessSchema } from "@/contracts/api";
+import { ModelGatewaySettingsViewSchema } from "@/contracts/model-gateway";
+
 import styles from "./app-shell.module.css";
 
 type NoticeState = "loading" | "hidden" | "required";
 
-function hasActiveConfig(payload: unknown): boolean {
-  if (!payload || typeof payload !== "object" || !("data" in payload)) return false;
-  const data = payload.data;
-  if (!data || typeof data !== "object" || !("configs" in data) || !Array.isArray(data.configs)) {
-    return false;
-  }
-  return data.configs.some((config) =>
-    config !== null && typeof config === "object" && "state" in config && config.state === "active"
-  );
+function requiresGatewaySetup(payload: unknown): boolean {
+  const parsed = apiSuccessSchema(ModelGatewaySettingsViewSchema).safeParse(payload);
+  return parsed.success && !parsed.data.data.configs.some(({ state }) => state === "active");
 }
 
 export function GatewayNotice(): React.JSX.Element | null {
@@ -30,7 +27,7 @@ export function GatewayNotice(): React.JSX.Element | null {
       .then(async (response) => {
         if (!response.ok) throw new TypeError("settings unavailable");
         const payload: unknown = await response.json();
-        if (mounted) setState(hasActiveConfig(payload) ? "hidden" : "required");
+        if (mounted) setState(requiresGatewaySetup(payload) ? "required" : "hidden");
       })
       .catch(() => {
         if (mounted) setState("hidden");
