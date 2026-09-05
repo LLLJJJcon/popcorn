@@ -180,4 +180,123 @@ describe("learning artifact prompt and wire contract", () => {
       value: { translations: [{ sourceLineIndex: 1, english: "Second line." }] },
     });
   });
+
+  test("collapses exact semantic Overview duplicates within each member family", () => {
+    const normalize = overviewPrompt.normalizeOverviewWire;
+
+    expect(extractUniqueSemanticObject(JSON.stringify({
+      overview: "A concise summary.",
+      chapters: [
+        { title: "Opening", summary: "The speaker opens the topic.", sourceLineIndex: 0 },
+        { title: "Opening", summary: "The speaker opens the topic.", sourceLineIndex: 0, ignored: true },
+      ],
+      keyQuotes: [
+        { quote: "高得要命", englishMeaning: "extremely high", sourceLineIndex: 1 },
+        { quote: "高得要命", englishMeaning: "extremely high", sourceLineIndex: 1 },
+      ],
+    }), normalize)).toEqual({
+      ok: true,
+      value: {
+        overview: "A concise summary.",
+        chapters: [
+          { title: "Opening", summary: "The speaker opens the topic.", sourceLineIndex: 0 },
+        ],
+        keyQuotes: [
+          { quote: "高得要命", englishMeaning: "extremely high", sourceLineIndex: 1 },
+        ],
+      },
+    });
+  });
+
+  test("drops all conflicting Overview members while keeping families independent at the same index", () => {
+    const normalize = overviewPrompt.normalizeOverviewWire;
+
+    expect(extractUniqueSemanticObject(JSON.stringify({
+      overview: "A concise summary.",
+      chapters: [
+        { title: "First chapter", summary: "The first interpretation.", sourceLineIndex: 4 },
+        { title: "Other chapter", summary: "A conflicting interpretation.", sourceLineIndex: 4 },
+      ],
+      keyQuotes: [
+        { quote: "同一句", englishMeaning: "the same line", sourceLineIndex: 4 },
+        { quote: "高得要命", englishMeaning: "extremely high", sourceLineIndex: 7 },
+        { quote: "高得要命", englishMeaning: "very expensive", sourceLineIndex: 7 },
+      ],
+    }), normalize)).toEqual({
+      ok: true,
+      value: {
+        overview: "A concise summary.",
+        chapters: [],
+        keyQuotes: [
+          { quote: "同一句", englishMeaning: "the same line", sourceLineIndex: 4 },
+        ],
+      },
+    });
+  });
+
+  test("isolates invalid Overview members before resolving source-index conflicts", () => {
+    const normalize = overviewPrompt.normalizeOverviewWire;
+
+    expect(extractUniqueSemanticObject(JSON.stringify({
+      overview: "A concise summary.",
+      chapters: [
+        { title: "错误", summary: "Invalid title must not poison this index.", sourceLineIndex: 2 },
+        { title: "Valid chapter", summary: "This valid member remains.", sourceLineIndex: 2 },
+        { title: "Conflict A", summary: "First conflicting value.", sourceLineIndex: 3 },
+        { title: "Conflict B", summary: "Second conflicting value.", sourceLineIndex: 3 },
+      ],
+      keyQuotes: [
+        { quote: "not Chinese", englishMeaning: "invalid quote", sourceLineIndex: 5 },
+        { quote: "有效引用", englishMeaning: "valid quote", sourceLineIndex: 5 },
+      ],
+    }), normalize)).toEqual({
+      ok: true,
+      value: {
+        overview: "A concise summary.",
+        chapters: [
+          { title: "Valid chapter", summary: "This valid member remains.", sourceLineIndex: 2 },
+        ],
+        keyQuotes: [
+          { quote: "有效引用", englishMeaning: "valid quote", sourceLineIndex: 5 },
+        ],
+      },
+    });
+  });
+
+  test("applies Overview member bounds after duplicate conflict resolution", () => {
+    const normalize = overviewPrompt.normalizeOverviewWire;
+    const chapters = [
+      { title: "Conflict A", summary: "First conflicting value.", sourceLineIndex: 0 },
+      { title: "Conflict B", summary: "Second conflicting value.", sourceLineIndex: 0 },
+      ...Array.from({ length: 9 }, (_, offset) => ({
+        title: `Chapter ${offset + 1}`,
+        summary: `Summary ${offset + 1}.`,
+        sourceLineIndex: offset + 1,
+      })),
+    ];
+    const keyQuotes = [
+      { quote: "冲突甲", englishMeaning: "first conflict", sourceLineIndex: 20 },
+      { quote: "冲突乙", englishMeaning: "second conflict", sourceLineIndex: 20 },
+      ...Array.from({ length: 6 }, (_, offset) => ({
+        quote: `有效${offset + 1}`,
+        englishMeaning: `valid quote ${offset + 1}`,
+        sourceLineIndex: offset + 21,
+      })),
+    ];
+
+    const result = extractUniqueSemanticObject(JSON.stringify({
+      overview: "A concise summary.",
+      chapters,
+      keyQuotes,
+    }), normalize);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.chapters.map((chapter) => chapter.sourceLineIndex)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
+    expect(result.value.keyQuotes.map((quote) => quote.sourceLineIndex)).toEqual([
+      21, 22, 23, 24, 25,
+    ]);
+  });
 });

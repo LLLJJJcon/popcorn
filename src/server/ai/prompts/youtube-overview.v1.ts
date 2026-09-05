@@ -99,28 +99,46 @@ export function normalizeOverviewWire(
     return { success: false, fieldPath: "keyQuotes" };
   }
 
-  const chapters: OverviewWire["chapters"][number][] = [];
+  const chaptersByIndex = new Map<number, OverviewWire["chapters"][number]>();
+  const chapterConflicts = new Set<number>();
   for (const candidate of value.chapters ?? []) {
-    if (chapters.length === 8 || typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) continue;
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) continue;
     const record = candidate as Record<string, unknown>;
     const parsed = WireChapterSchema.safeParse({
       ...record,
       title: normalizeEnglish(record.title),
       summary: normalizeEnglish(record.summary),
     });
-    if (parsed.success) chapters.push(parsed.data);
+    if (!parsed.success || chapterConflicts.has(parsed.data.sourceLineIndex)) continue;
+    const previous = chaptersByIndex.get(parsed.data.sourceLineIndex);
+    if (!previous) {
+      chaptersByIndex.set(parsed.data.sourceLineIndex, parsed.data);
+    } else if (previous.title !== parsed.data.title || previous.summary !== parsed.data.summary) {
+      chaptersByIndex.delete(parsed.data.sourceLineIndex);
+      chapterConflicts.add(parsed.data.sourceLineIndex);
+    }
   }
+  const chapters = [...chaptersByIndex.values()].slice(0, 8);
 
-  const keyQuotes: OverviewWire["keyQuotes"][number][] = [];
+  const quotesByIndex = new Map<number, OverviewWire["keyQuotes"][number]>();
+  const quoteConflicts = new Set<number>();
   for (const candidate of value.keyQuotes ?? []) {
-    if (keyQuotes.length === 5 || typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) continue;
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) continue;
     const record = candidate as Record<string, unknown>;
     const parsed = WireQuoteSchema.safeParse({
       ...record,
       englishMeaning: normalizeEnglish(record.englishMeaning),
     });
-    if (parsed.success) keyQuotes.push(parsed.data);
+    if (!parsed.success || quoteConflicts.has(parsed.data.sourceLineIndex)) continue;
+    const previous = quotesByIndex.get(parsed.data.sourceLineIndex);
+    if (!previous) {
+      quotesByIndex.set(parsed.data.sourceLineIndex, parsed.data);
+    } else if (previous.quote !== parsed.data.quote || previous.englishMeaning !== parsed.data.englishMeaning) {
+      quotesByIndex.delete(parsed.data.sourceLineIndex);
+      quoteConflicts.add(parsed.data.sourceLineIndex);
+    }
   }
+  const keyQuotes = [...quotesByIndex.values()].slice(0, 5);
 
   return {
     success: true,
