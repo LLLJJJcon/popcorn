@@ -7,6 +7,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const background = fs.readFileSync(path.join(root, "background.js"), "utf8");
 const optionsSource = fs.readFileSync(path.join(root, "options.js"), "utf8");
+const legacyMessageSourceAccess = /\bmessage\s*(?:\??\.\s*source\b|\??\.\s*\[\s*["']source["']\s*\]|\[\s*["']source["']\s*\])/;
 
 function optionHarness({ authFailure = false } = {}) {
   const handlers = {};
@@ -71,7 +72,17 @@ test("the classic MV3 worker remains the sole trusted auth owner", () => {
   assert.match(background, /sender\.id/);
   assert.match(background, /sender\.url/);
   assert.match(background, /sender\.tab/);
-  assert.doesNotMatch(background, /message\.source/);
+  assert.doesNotMatch(background, legacyMessageSourceAccess);
+  for (const prohibited of [
+    "message.source",
+    "message?.source",
+    "message['source']",
+    'message["source"]',
+    "message?.['source']",
+  ]) {
+    assert.match(prohibited, legacyMessageSourceAccess);
+  }
+  assert.doesNotMatch("message.sourceId", legacyMessageSourceAccess);
   assert.match(background, /getPopcornAccessToken/);
   assert.doesNotMatch(
     background,
