@@ -622,8 +622,10 @@ type CandidateRecoveryState =
   | { readonly state: "gateway_required" };
 ```
 
-  The repository validates the job owner, `analyze_saved_item` type, and the
-  private input's exact `savedItemId` before returning status.
+  The repository validates the job owner, `analyze_saved_item` type, and public
+  job row's exact `saved_item_id` before returning status. When recoverable
+  private input is still present it must agree; a terminal job's intentionally
+  cleared `{}` input is valid and must not hide its safe failed state.
 
 - [ ] **Step 1: Write Saved wire and grounding RED tests**
 

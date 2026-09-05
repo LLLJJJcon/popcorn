@@ -1,7 +1,8 @@
 # Structured Output Reliability — Task 2 Brief
 
 - Plan/task: `docs/superpowers/plans/2026-09-06-popcorn-structured-output-reliability.md`, Task 2.
-- Baseline: `7c935753280786cbf9697feea0ea9eb4369a5a25`.
+- Product-code baseline: `7c935753280786cbf9697feea0ea9eb4369a5a25`.
+- Execution/review baseline (includes all three controller briefs): `4fde3a2da081fe2eaf0ef82e5ce18bb189664485`.
 - Branch/worktree: `codex/structured-output-task-2` at `/private/tmp/popcorn-structured-output-task-2`.
 
 Implement only Overview, Translation, and Explanation server prompt/wire/
