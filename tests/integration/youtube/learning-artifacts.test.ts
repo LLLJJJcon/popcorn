@@ -17,6 +17,7 @@ import {
   ModelGatewayError,
 } from "@/server/ai/model-gateway";
 import { createOpenAiCompatibleLearningArtifactProvider } from "@/server/ai/openai-compatible-provider";
+import { YOUTUBE_OVERVIEW_PROMPT_VERSION } from "@/server/ai/prompts/youtube-overview.v1";
 import { createGenerateOverviewHandler } from "@/server/jobs/handlers/generate-overview";
 import { createTranslateSegmentsHandler } from "@/server/jobs/handlers/translate-segments";
 import { createExplainSelectionHandler } from "@/server/jobs/handlers/explain-selection";
@@ -82,7 +83,7 @@ const validOverview = {
   }],
   keyQuotes: [
     { quote: "这个表达", englishMeaning: "This expression.", timestampSeconds: 0, sourceSegmentIds: [SEGMENT_A] },
-    { quote: "很自然", englishMeaning: "Very natural.", timestampSeconds: 1, sourceSegmentIds: [SEGMENT_A] },
+    { quote: "很自然", englishMeaning: "Very natural.", timestampSeconds: 0, sourceSegmentIds: [SEGMENT_A] },
     { quote: "你可以直接这样说", englishMeaning: "You can say it this way.", timestampSeconds: 2, sourceSegmentIds: [SEGMENT_B] },
   ],
 };
@@ -92,15 +93,11 @@ const gatewayOverview = {
   chapters: validOverview.chapters.map((chapter) => ({
     title: chapter.title,
     summary: chapter.summary,
-    timestampSeconds: chapter.timestampSeconds,
-    sourceBlockIndex: 0,
     sourceLineIndex: 0,
   })),
   keyQuotes: validOverview.keyQuotes.map((quote, index) => ({
     quote: quote.quote,
     englishMeaning: quote.englishMeaning,
-    timestampSeconds: quote.timestampSeconds,
-    sourceBlockIndex: 0,
     sourceLineIndex: index < 2 ? 0 : 1,
   })),
 };
@@ -130,14 +127,14 @@ async function expectGatewayCode(
 }
 
 describe("bounded openai-compatible adapter", () => {
-  test("compacts 815 native captions into one bounded Overview request and grounds block anchors to stable IDs", async () => {
+  test("sends all 815 complete captions once in global order through one bounded Overview request", async () => {
     const representativeEvidence: LearningArtifactEvidence = {
       ...evidence,
       segments: Array.from({ length: 815 }, (_, index) => ({
         stableId: index.toString(16).padStart(64, "0"),
         originalChinese: `第${index + 1}条中文内容。`,
-        startSeconds: index * 2,
-        endSeconds: index * 2 + 2,
+        startSeconds: 10_000.125 + index * 2,
+        endSeconds: 10_000.875 + index * 2,
       })),
     };
     const fetchImpl = vi.fn<typeof fetch>(async () => completionResponse({
@@ -145,14 +142,12 @@ describe("bounded openai-compatible adapter", () => {
       chapters: [{
         title: "Opening",
         summary: "The video begins with the first caption.",
-        timestampSeconds: 0,
-        sourceBlockIndex: 0,
         sourceLineIndex: 0,
       }],
       keyQuotes: [
-        { quote: "第1条中文内容。", englishMeaning: "The first Chinese caption.", timestampSeconds: 0, sourceBlockIndex: 0, sourceLineIndex: 0 },
-        { quote: "第2条中文内容。", englishMeaning: "The second Chinese caption.", timestampSeconds: 2, sourceBlockIndex: 0, sourceLineIndex: 1 },
-        { quote: "第815条中文内容。", englishMeaning: "The final Chinese caption.", timestampSeconds: 1628, sourceBlockIndex: 33, sourceLineIndex: 22 },
+        { quote: "第1条中文内容。", englishMeaning: "The first Chinese caption.", sourceLineIndex: 0 },
+        { quote: "第2条中文内容。", englishMeaning: "The second Chinese caption.", sourceLineIndex: 1 },
+        { quote: "第815条中文内容。", englishMeaning: "The final Chinese caption.", sourceLineIndex: 814 },
       ],
     }));
     const provider = createOpenAiCompatibleLearningArtifactProvider({
@@ -163,16 +158,54 @@ describe("bounded openai-compatible adapter", () => {
     const content = await provider.generateOverview(representativeEvidence);
 
     expect(validateOverviewContent(content, representativeEvidence)).toEqual(content);
+    expect(content).toMatchObject({
+      chapters: [{
+        timestampSeconds: representativeEvidence.segments[0].startSeconds,
+        sourceSegmentIds: [representativeEvidence.segments[0].stableId],
+      }],
+      keyQuotes: [
+        {
+          timestampSeconds: representativeEvidence.segments[0].startSeconds,
+          sourceSegmentIds: [representativeEvidence.segments[0].stableId],
+        },
+        {
+          timestampSeconds: representativeEvidence.segments[1].startSeconds,
+          sourceSegmentIds: [representativeEvidence.segments[1].stableId],
+        },
+        {
+          timestampSeconds: representativeEvidence.segments[814].startSeconds,
+          sourceSegmentIds: [representativeEvidence.segments[814].stableId],
+        },
+      ],
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const requestBody = String(fetchImpl.mock.calls[0][1]?.body);
     expect(new TextEncoder().encode(requestBody).byteLength).toBeLessThan(65_536);
-    expect(requestBody).toContain("第1条中文内容。");
-    expect(requestBody).toContain("第815条中文内容。");
-    expect(requestBody).not.toContain(representativeEvidence.segments[0].stableId);
+    expect(requestBody.match(/"max_tokens":/gu)).toHaveLength(1);
+    const parsedBody = JSON.parse(requestBody) as {
+      max_tokens?: number;
+      messages: { role: string; content: string }[];
+    };
+    expect(parsedBody.max_tokens).toBe(1_800);
+    const userPrompt = parsedBody.messages.find(({ role }) => role === "user")?.content;
+    expect(userPrompt).toBeDefined();
+    const transcriptLines = userPrompt?.split("Native transcript lines:\n")[1]?.split("\n");
+    expect(transcriptLines).toHaveLength(815);
+    representativeEvidence.segments.forEach((segment, sourceLineIndex) => {
+      expect(transcriptLines?.[sourceLineIndex]).toBe(`${sourceLineIndex} ${segment.originalChinese}`);
+      expect(userPrompt?.split(segment.originalChinese)).toHaveLength(2);
+      expect(requestBody).not.toContain(segment.stableId);
+      expect(requestBody).not.toContain(String(segment.startSeconds));
+      expect(requestBody).not.toContain(String(segment.endSeconds));
+    });
     expect(requestBody).not.toContain(USER_A);
+    expect(requestBody).not.toContain(SOURCE_ID);
+    expect(requestBody).not.toContain(SNAPSHOT_ID);
+    expect(requestBody).not.toContain("startSeconds");
+    expect(requestBody).not.toContain("endSeconds");
   });
 
-  test("grounds each Overview anchor to one prompt-visible caption line across timestamp gaps", async () => {
+  test("maps each global Overview line to its one persisted stable ID and real start time", async () => {
     const gappedEvidence: LearningArtifactEvidence = {
       ...evidence,
       segments: [
@@ -186,14 +219,12 @@ describe("bounded openai-compatible adapter", () => {
       chapters: [{
         title: "The middle caption",
         summary: "The chapter starts after a real timestamp gap.",
-        timestampSeconds: 12.5,
-        sourceBlockIndex: 0,
         sourceLineIndex: 1,
       }],
       keyQuotes: [
-        { quote: "第一句在开头。", englishMeaning: "The first sentence is at the beginning.", timestampSeconds: 0, sourceBlockIndex: 0, sourceLineIndex: 0 },
-        { quote: "第二句在空档之后。", englishMeaning: "The second sentence follows the gap.", timestampSeconds: 12.5, sourceBlockIndex: 0, sourceLineIndex: 1 },
-        { quote: "第三句在更晚的时候。", englishMeaning: "The third sentence comes later.", timestampSeconds: 48, sourceBlockIndex: 0, sourceLineIndex: 2 },
+        { quote: "第一句在开头。", englishMeaning: "The first sentence is at the beginning.", sourceLineIndex: 0 },
+        { quote: "第二句在空档之后。", englishMeaning: "The second sentence follows the gap.", sourceLineIndex: 1 },
+        { quote: "第三句在更晚的时候。", englishMeaning: "The third sentence comes later.", sourceLineIndex: 2 },
       ],
     }));
     const provider = createOpenAiCompatibleLearningArtifactProvider({ config: RUNTIME_CONFIG, fetchImpl });
@@ -207,13 +238,37 @@ describe("bounded openai-compatible adapter", () => {
       [SEGMENT_B],
       ["c".repeat(64)],
     ]);
+    expect(grounded.chapters[0].timestampSeconds).toBe(12.5);
+    expect(grounded.keyQuotes.map((quote) => quote.timestampSeconds)).toEqual([0, 12.5, 48]);
     expect(grounded).toEqual(content);
     const requestBody = String(fetchImpl.mock.calls[0][1]?.body);
-    expect(requestBody).toContain("0 0-1 第一句在开头。");
-    expect(requestBody).toContain("1 12.5-13.25 第二句在空档之后。");
-    expect(requestBody).toContain("2 48-49 第三句在更晚的时候。");
+    expect(requestBody).toContain("0 第一句在开头。");
+    expect(requestBody).toContain("1 第二句在空档之后。");
+    expect(requestBody).toContain("2 第三句在更晚的时候。");
+    expect(requestBody).not.toContain("12.5");
+    expect(requestBody).not.toContain("13.25");
+    expect(requestBody).not.toContain("48-49");
     expect(requestBody).not.toContain(SEGMENT_A);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["out-of-range line", { ...gatewayOverview, chapters: [{ ...gatewayOverview.chapters[0], sourceLineIndex: 2 }] }],
+    ["mismatched quote", { ...gatewayOverview, keyQuotes: [
+      { ...gatewayOverview.keyQuotes[0], quote: "完全无关的中文" },
+      ...gatewayOverview.keyQuotes.slice(1),
+    ] }],
+    ["fabricated evidence", { ...gatewayOverview, keyQuotes: [
+      { ...gatewayOverview.keyQuotes[0], sourceLineIndex: 1 },
+      ...gatewayOverview.keyQuotes.slice(1),
+    ] }],
+  ])("fails closed for %s in global Overview anchors", async (_label, output) => {
+    const provider = createOpenAiCompatibleLearningArtifactProvider({
+      config: RUNTIME_CONFIG,
+      fetchImpl: vi.fn(async () => completionResponse(output)),
+    });
+
+    await expectGatewayCode(provider.generateOverview(evidence), "PROVIDER_OUTPUT_INVALID");
   });
 
   test("accepts one structured translation group larger than four through Provider and artifact schemas", async () => {
@@ -263,6 +318,7 @@ describe("bounded openai-compatible adapter", () => {
       },
     });
     const requestBody = JSON.parse(String(options?.body));
+    expect(requestBody).not.toHaveProperty("max_tokens");
     expect(requestBody.model).toBe("mandarin-model");
     expect(requestBody.messages).toHaveLength(2);
     expect(requestBody.messages.map((message: { role: string }) => message.role)).toEqual([
@@ -316,7 +372,7 @@ describe("bounded openai-compatible adapter", () => {
     );
 
     expect(bodies[0]).toContain("中文视频");
-    expect(bodies[0]).toContain("youtube-overview-v2");
+    expect(bodies[0]).toContain("youtube-overview-v3");
     expect(bodies[0]).toContain("这个表达很自然。");
     expect(bodies[0]).toContain("你可以直接这样说。");
     expect(bodies[1]).toContain("这个表达");
@@ -551,7 +607,7 @@ describe("fast durable learning-artifact request routes", () => {
       jobType: "generate_overview",
       authenticate: async () => ({ userId: USER_A }),
       store,
-      promptVersion: "youtube-overview-v2",
+      promptVersion: YOUTUBE_OVERVIEW_PROMPT_VERSION,
       requestId: () => "request-overview-retry",
     });
     const submit = (retryId?: string) => route(new Request(
@@ -575,7 +631,7 @@ describe("fast durable learning-artifact request routes", () => {
       registrations[0].input,
     ]);
     expect(JSON.stringify(registrations[0].input)).not.toContain("retryId");
-    expect(registrations[0].input.promptVersion).toBe("youtube-overview-v2");
+    expect(registrations[0].input.promptVersion).toBe("youtube-overview-v3");
   });
 
   test("a retry UUID changes only translation dedupe identity and is absent from private Provider input", async () => {

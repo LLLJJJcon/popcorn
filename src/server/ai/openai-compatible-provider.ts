@@ -18,7 +18,6 @@ import {
 } from "@/server/ai/prompts/translate-segments.v1";
 import {
   buildOverviewPrompt,
-  groupOverviewPromptBlocks,
   OverviewContentSchema,
   YOUTUBE_OVERVIEW_PROMPT_VERSION,
 } from "@/server/ai/prompts/youtube-overview.v1";
@@ -28,6 +27,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_OVERVIEW_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_REQUEST_BYTES = 65_536;
 const DEFAULT_MAX_RESPONSE_BYTES = 524_288;
+const OVERVIEW_MAX_TOKENS = 1_800;
 
 const GatewayEnvelopeSchema = z.object({
   choices: z.array(z.object({
@@ -44,15 +44,11 @@ const GatewayOverviewSchema = z.strictObject({
   chapters: z.array(z.strictObject({
     title: z.string(),
     summary: z.string(),
-    timestampSeconds: z.number(),
-    sourceBlockIndex: SegmentIndexSchema,
     sourceLineIndex: SegmentIndexSchema,
   })),
   keyQuotes: z.array(z.strictObject({
     quote: z.string(),
     englishMeaning: z.string(),
-    timestampSeconds: z.number(),
-    sourceBlockIndex: SegmentIndexSchema,
     sourceLineIndex: SegmentIndexSchema,
   })),
 });
@@ -73,7 +69,12 @@ export type OpenAiCompatibleAdapterOptions = {
 };
 
 export interface StructuredJsonCompletionClient {
-  complete(promptVersion: string, prompt: string, timeoutMs?: number): Promise<unknown>;
+  complete(
+    promptVersion: string,
+    prompt: string,
+    timeoutMs?: number,
+    maxTokens?: number,
+  ): Promise<unknown>;
 }
 
 function outputInvalid(): ModelGatewayError {
@@ -172,9 +173,11 @@ export function createOpenAiCompatibleStructuredJsonClient(
     promptVersion: string,
     prompt: string,
     requestTimeoutMs = timeoutMs,
+    maxTokens?: number,
   ): Promise<unknown> {
     const body = JSON.stringify({
       model: options.config.model,
+      ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
       messages: [
         {
           role: "system",
@@ -229,32 +232,31 @@ export function createOpenAiCompatibleLearningArtifactProvider(
 
   return {
     async generateOverview(evidence) {
-      const blocks = groupOverviewPromptBlocks(requestSegments(evidence.segments));
       const raw = await complete(
         YOUTUBE_OVERVIEW_PROMPT_VERSION,
-        buildOverviewPrompt(evidence.title, blocks),
+        buildOverviewPrompt(evidence.title, evidence.segments),
         overviewTimeoutMs,
+        OVERVIEW_MAX_TOKENS,
       );
       try {
         const gateway = GatewayOverviewSchema.parse(raw);
-        const mapSourceLine = (blockIndex: number, lineIndex: number): string[] => {
-          const block = blocks[blockIndex];
-          if (!block) throw outputInvalid();
-          const line = block.lines[lineIndex];
-          if (!line) throw outputInvalid();
-          const segment = evidence.segments[line.segmentIndex];
+        const mapSourceLine = (sourceLineIndex: number) => {
+          const segment = evidence.segments[sourceLineIndex];
           if (!segment) throw outputInvalid();
-          return [segment.stableId];
+          return {
+            timestampSeconds: segment.startSeconds,
+            sourceSegmentIds: [segment.stableId],
+          };
         };
         return validateOverviewContent(OverviewContentSchema.parse({
           overview: gateway.overview,
-          chapters: gateway.chapters.map(({ sourceBlockIndex, sourceLineIndex, ...chapter }) => ({
+          chapters: gateway.chapters.map(({ sourceLineIndex, ...chapter }) => ({
             ...chapter,
-            sourceSegmentIds: mapSourceLine(sourceBlockIndex, sourceLineIndex),
+            ...mapSourceLine(sourceLineIndex),
           })),
-          keyQuotes: gateway.keyQuotes.map(({ sourceBlockIndex, sourceLineIndex, ...quote }) => ({
+          keyQuotes: gateway.keyQuotes.map(({ sourceLineIndex, ...quote }) => ({
             ...quote,
-            sourceSegmentIds: mapSourceLine(sourceBlockIndex, sourceLineIndex),
+            ...mapSourceLine(sourceLineIndex),
           })),
         }), evidence);
       } catch (error) {
