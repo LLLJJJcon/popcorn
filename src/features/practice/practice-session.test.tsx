@@ -155,4 +155,16 @@ describe("PracticeSession", () => {
     expect(await screen.findByText(/not added to your Vault/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Open in Vault" })).not.toBeInTheDocument();
   });
+
+  test("links a passing independent first attempt to its internal Vault destination", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => apiResponse(attemptResponse())));
+    const user = userEvent.setup();
+    render(<PracticeSession material={material} />);
+
+    await user.type(screen.getByLabelText("Your Chinese response"), "这个价格也太离谱了。");
+    await user.click(screen.getByRole("button", { name: "Check my response" }));
+
+    expect(await screen.findByText(/added to your Vault as learning evidence/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open in Vault" })).toHaveAttribute("href", "/vault");
+  });
 });

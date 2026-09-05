@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import type { AssistanceLevel, PracticeAttemptResponse } from "@/contracts/practice";
@@ -123,7 +124,7 @@ export function PracticeSession({ material }: { readonly material: PracticeMater
             onStop={goToPractice}
           />
         ) : null}
-        {hasVaultEntry ? <p><a className={styles.textLink} href="/vault">Open in Vault</a></p> : null}
+        {hasVaultEntry ? <p><Link className={styles.textLink} href="/vault">Open in Vault</Link></p> : null}
       </PracticeMaterial>
     </main>
   );
