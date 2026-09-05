@@ -87,11 +87,19 @@ describe("Saved video grouping and timeline", () => {
     );
   });
 
-  it("labels a ready saved moment as Saved without implying analysis readiness", () => {
-    render(<SavedTimeline items={[item()]} />);
+  it("keeps shared ready semantics while scoping the Saved badge to timeline moments", () => {
+    const { rerender } = render(<ProcessingState state="ready" />);
+
+    const sharedStatus = screen.getByRole("status");
+    expect(sharedStatus).toHaveTextContent(/^Ready to learn\.$/);
+    expect(sharedStatus).not.toHaveAttribute("class");
+
+    rerender(<SavedTimeline items={[item()]} />);
 
     const savedMoment = screen.getByRole("listitem");
-    expect(within(savedMoment).getByRole("status")).toHaveTextContent(/^Saved$/);
+    const timelineStatus = within(savedMoment).getByRole("status");
+    expect(timelineStatus).toHaveTextContent(/^Saved$/);
+    expect(timelineStatus).toHaveAttribute("class");
     expect(within(savedMoment).queryByText("Ready to learn.")).not.toBeInTheDocument();
   });
 });

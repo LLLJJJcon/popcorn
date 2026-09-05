@@ -51,3 +51,16 @@
 
 - The panel is covered by DOM behavior and accessibility tests but was not visually inspected in a signed-in browser session.
 - Repository-wide typecheck remains red for the unrelated pre-existing practice-session fixture drift noted above.
+
+## Review repair: timeline-only Saved status
+
+- Blocking finding: changing the shared `ProcessingState` ready presentation leaked the compact `Saved` badge and copy into Saved video cards, the Saved detail header, and Home.
+- Root cause: `ProcessingState` is shared by those surfaces and `SavedTimeline`, so its ready message and badge class could not express timeline-only presentation.
+- Repair: restored the shared ready state to the existing unbadged `Ready to learn.` semantics and rendered the compact `Saved` status only in the ready branch of `SavedTimeline`. No API, persisted state, or processing-state contract changed.
+- RED: `pnpm vitest run src/features/saved/saved-timeline.test.tsx`
+  - Result: 1 failed, 5 passed.
+  - Expected failure: the new scope regression expected `Ready to learn.` from shared `ProcessingState`, but received `Saved`.
+- GREEN: `pnpm vitest run src/features/saved/saved-timeline.test.tsx`
+  - Result: 6 passed, 0 failed.
+- Affected-surface regression check: `pnpm vitest run src/features/saved/candidate-list.test.tsx src/features/saved/saved-timeline.test.tsx src/features/saved/saved-video-detail.test.tsx src/features/saved/saved-library.test.tsx src/features/home/home-dashboard.test.tsx tests/accessibility/web-states.test.tsx`
+  - Result: 6 files passed, 33 tests passed.

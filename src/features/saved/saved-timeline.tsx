@@ -17,7 +17,11 @@ export function SavedTimeline({
           <a href={item.youtubeUrl}>{item.startSeconds === null ? "Watch video" : `${Math.floor(item.startSeconds)}s`}</a>
           <p className={styles.rawText} data-testid="raw-text" lang="zh-CN">{item.rawText}</p>
           {item.englishTranslation ? <p className={styles.translation}>{item.englishTranslation}</p> : null}
-          <ProcessingState state={item.status} />
+          {item.status === "ready" ? (
+            <p className={styles.savedStatus} role="status">Saved</p>
+          ) : (
+            <ProcessingState state={item.status} />
+          )}
           {renderAfter?.(item)}
         </li>
       ))}
