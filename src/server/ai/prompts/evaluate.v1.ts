@@ -8,7 +8,7 @@ import {
 } from "@/contracts/practice";
 import type { StructuredJsonGateway } from "@/server/ai/structured-json-gateway";
 
-export const EVALUATE_PRACTICE_PROMPT_VERSION = "evaluate-practice-v1";
+export const EVALUATE_PRACTICE_PROMPT_VERSION = "evaluate-practice-v2";
 
 export function buildEvaluatePracticePrompt(
   task: PracticeTask,
@@ -67,7 +67,7 @@ export function parsePracticeEvaluationOutput(
 
 export function createEvaluationFixtureGateway(): StructuredJsonGateway {
   return {
-    model: "fixture/evaluation-v1",
+    model: "fixture/evaluation-v2",
     async complete(_promptVersion, prompt) {
       const promptInput = JSON.parse(prompt.slice(prompt.lastIndexOf("\n") + 1)) as {
         readonly targetExpression?: unknown;

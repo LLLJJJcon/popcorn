@@ -296,7 +296,7 @@ function attemptService(store: ReturnType<typeof memoryRepository>, options: {
   ids?: string[];
   promote?: (userId: string, draft: PracticeDraftRecord, attempt: PracticeDraftAttemptRecord) => Promise<PracticePromotionResult>;
 } = {}) {
-  const fixture = options.fixture ?? gateway(providerPassingEvaluation, "fixture/evaluation-v1");
+  const fixture = options.fixture ?? gateway(providerPassingEvaluation, "fixture/evaluation-v2");
   const live = options.live ?? gateway(providerPassingEvaluation);
   const ids = options.ids ?? [ATTEMPT];
   const liveResolver = resolver(live);
@@ -525,7 +525,7 @@ describe("evaluation and append-only revisions", () => {
     expect(store.attempts[0]).toMatchObject({ independentUse: false, assistanceLevel: "hint" });
     expect(harness.promote).not.toHaveBeenCalled();
     expect(harness.fixture.complete).toHaveBeenCalledWith(
-      "evaluate-practice-v1",
+      "evaluate-practice-v2",
       expect.stringContaining('"assistanceLevel":"hint"'),
     );
   });
@@ -724,7 +724,7 @@ describe("evaluation and append-only revisions", () => {
       accuracyScore: 5,
       naturalnessScore: 4,
       contextualFitScore: 5,
-      evaluationPromptVersion: "evaluate-practice-v1",
+      evaluationPromptVersion: "evaluate-practice-v2",
       evaluationModel: "mandarin-model",
       evaluationGatewayConfigId: CONFIG,
       evaluationGatewayRevision: 3,

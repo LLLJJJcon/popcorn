@@ -103,6 +103,53 @@ function candidateArtifact(overrides: Record<string, unknown> = {}) {
   };
 }
 
+type DueGraphOverrides = Partial<Record<
+  "review" | "task" | "expression" | "sense" | "occurrence" | "snapshot" | "source",
+  Record<string, unknown>
+>>;
+
+function dueGraph(overrides: DueGraphOverrides = {}): readonly Result[] {
+  return [
+    { data: {
+      id: REVIEW, user_id: USER, user_expression_id: EXPRESSION,
+      mastery_state: "reused", status: "pending", due_at: "2026-09-05T07:00:00.000Z",
+      ...overrides.review,
+    }, error: null },
+    { data: {
+      id: TASK, user_id: USER, user_expression_id: EXPRESSION, review_task_id: REVIEW,
+      kind: "due_practice", native_language: "en", target_language: "zh-CN",
+      target_expression: "太离谱了", prompt_chinese: "同事说打印费要一百元，你会怎么回应？",
+      instructions_english: "Reply naturally in Mandarin.", goal_english: "React to an unreasonable fee.",
+      due_at: "2026-09-05T07:00:00.000Z", created_at: CREATED,
+      ...overrides.task,
+    }, error: null },
+    { data: {
+      id: EXPRESSION, user_id: USER, expression_sense_id: SENSE, mastery_state: "reused",
+      ...overrides.expression,
+    }, error: null },
+    { data: {
+      id: SENSE, user_id: USER, video_source_id: SOURCE, expression_text: "太离谱了",
+      english_meaning: "That is outrageous.", english_explanation: "A strong spoken reaction.",
+      tone: "surprised", communicative_function: "reaction", register: "informal",
+      ...overrides.sense,
+    }, error: null },
+    { data: {
+      id: OCCURRENCE, user_id: USER, video_source_id: SOURCE, expression_sense_id: SENSE,
+      snapshot_id: SNAPSHOT, evidence_text: "这也太离谱了。", start_seconds: 42.9,
+      created_at: "2026-08-16T00:00:00.000Z",
+      ...overrides.occurrence,
+    }, error: null },
+    { data: {
+      id: SNAPSHOT, user_id: USER, video_source_id: SOURCE, title: "Fixture video",
+      ...overrides.snapshot,
+    }, error: null },
+    { data: {
+      id: SOURCE, user_id: USER, canonical_url: "https://www.youtube.com/watch?v=abcdefghijk",
+      ...overrides.source,
+    }, error: null },
+  ];
+}
+
 describe("Practice material repository", () => {
   test("builds an owner-scoped immediate material view from the frozen candidate provenance", async () => {
     const scripted = scriptedClient([
@@ -242,4 +289,40 @@ describe("Practice material repository", () => {
     await expect(createPracticeMaterialRepository(mismatched.client as never)
       .findDueMaterial(USER, REVIEW)).resolves.toBeNull();
   });
+
+  test("fails closed when an owner-filtered due query returns a cross-owner sense", async () => {
+    const crossOwner = scriptedClient(dueGraph({ sense: { user_id: OTHER } }));
+
+    await expect(createPracticeMaterialRepository(crossOwner.client as never)
+      .findDueMaterial(USER, REVIEW)).resolves.toBeNull();
+  });
+
+  test.each([
+    { name: "task expression", graph: { task: { user_expression_id: OTHER } } },
+    { name: "task review", graph: { task: { review_task_id: OTHER } } },
+    { name: "occurrence sense", graph: { occurrence: { expression_sense_id: OTHER } } },
+  ] satisfies ReadonlyArray<{ name: string; graph: DueGraphOverrides }>) (
+    "fails closed when the $name crosses the due expression graph",
+    async ({ graph }) => {
+      const crossExpression = scriptedClient(dueGraph(graph));
+
+      await expect(createPracticeMaterialRepository(crossExpression.client as never)
+        .findDueMaterial(USER, REVIEW)).resolves.toBeNull();
+    },
+  );
+
+  test.each([
+    { name: "occurrence source", graph: { occurrence: { video_source_id: SAVED } } },
+    { name: "snapshot id", graph: { snapshot: { id: SAVED } } },
+    { name: "snapshot source", graph: { snapshot: { video_source_id: SAVED } } },
+    { name: "source id", graph: { source: { id: SAVED } } },
+  ] satisfies ReadonlyArray<{ name: string; graph: DueGraphOverrides }>) (
+    "fails closed when the $name crosses the due source graph",
+    async ({ graph }) => {
+      const crossSource = scriptedClient(dueGraph(graph));
+
+      await expect(createPracticeMaterialRepository(crossSource.client as never)
+        .findDueMaterial(USER, REVIEW)).resolves.toBeNull();
+    },
+  );
 });

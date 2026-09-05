@@ -257,19 +257,30 @@ export function createPracticeMaterialRepository(
         .eq("user_id", userId.data).eq("id", review.data.user_expression_id)));
       if (
         !task.success || !expression.success || !belongs(task.data, userId.data) || !belongs(expression.data, userId.data) ||
+        task.data.review_task_id !== review.data.id ||
+        task.data.user_expression_id !== review.data.user_expression_id ||
+        expression.data.id !== review.data.user_expression_id ||
         expression.data.mastery_state !== review.data.mastery_state ||
         Date.parse(task.data.due_at) !== Date.parse(review.data.due_at)
       ) return null;
       const sense = SenseRowSchema.safeParse(await one(from("expression_senses")
         .select("id,user_id,video_source_id,expression_text,english_meaning,english_explanation,tone,communicative_function,register")
         .eq("user_id", userId.data).eq("id", expression.data.expression_sense_id)));
-      if (!sense.success || !belongs(sense.data, userId.data) || task.data.target_expression !== sense.data.expression_text) return null;
+      if (
+        !sense.success || !belongs(sense.data, userId.data) ||
+        sense.data.id !== expression.data.expression_sense_id ||
+        task.data.target_expression !== sense.data.expression_text
+      ) return null;
       const occurrence = OccurrenceRowSchema.safeParse(await one(from("expression_occurrences")
         .select("id,user_id,video_source_id,expression_sense_id,snapshot_id,evidence_text,start_seconds,created_at")
         .eq("user_id", userId.data).eq("expression_sense_id", sense.data.id)
         .eq("video_source_id", sense.data.video_source_id)
         .order("created_at", { ascending: true }).order("id", { ascending: true })));
-      if (!occurrence.success || !belongs(occurrence.data, userId.data)) return null;
+      if (
+        !occurrence.success || !belongs(occurrence.data, userId.data) ||
+        occurrence.data.expression_sense_id !== sense.data.id ||
+        occurrence.data.video_source_id !== sense.data.video_source_id
+      ) return null;
       const snapshot = SnapshotRowSchema.safeParse(await one(from("video_snapshots")
         .select("id,user_id,video_source_id,title")
         .eq("user_id", userId.data).eq("id", occurrence.data.snapshot_id)
@@ -277,7 +288,12 @@ export function createPracticeMaterialRepository(
       const source = SourceRowSchema.safeParse(await one(from("video_sources")
         .select("id,user_id,canonical_url")
         .eq("user_id", userId.data).eq("id", sense.data.video_source_id)));
-      if (!snapshot.success || !source.success || !belongs(snapshot.data, userId.data) || !belongs(source.data, userId.data)) {
+      if (
+        !snapshot.success || !source.success || !belongs(snapshot.data, userId.data) || !belongs(source.data, userId.data) ||
+        snapshot.data.id !== occurrence.data.snapshot_id ||
+        snapshot.data.video_source_id !== sense.data.video_source_id ||
+        source.data.id !== sense.data.video_source_id
+      ) {
         return null;
       }
       return PracticeMaterialViewSchema.parse({

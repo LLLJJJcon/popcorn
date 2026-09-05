@@ -6,6 +6,7 @@ import {
   type DueTransferTask,
 } from "@/server/domain/complete-due-practice";
 import { createEvaluationFixtureGateway } from "@/server/ai/prompts/evaluate.v1";
+import type { StructuredJsonGateway } from "@/server/ai/structured-json-gateway";
 
 const USER = "11111111-1111-4111-8111-111111111111";
 const REVIEW = "22222222-2222-4222-8222-222222222222";
@@ -72,7 +73,7 @@ function repository(): DuePracticeCompletionRepository {
 
 function service(store = repository(), options: {
   ci?: boolean;
-  gateway?: { model: string; complete: () => Promise<unknown> };
+  gateway?: StructuredJsonGateway;
   now?: () => string;
 } = {}) {
   return {
@@ -88,6 +89,30 @@ function service(store = repository(), options: {
 }
 
 describe("complete due Practice", () => {
+  test("pins enriched coaching evaluations to the immutable v2 prompt and fixture model", async () => {
+    const store = repository();
+    const fixture = createEvaluationFixtureGateway();
+    const gateway = {
+      model: fixture.model,
+      complete: vi.fn(fixture.complete.bind(fixture)),
+    };
+    const { service: complete } = service(store, { ci: false, gateway });
+
+    await complete.complete(USER, REVIEW, {
+      responseChinese: "这也太离谱了吧。",
+      assistanceLevel: "none",
+    });
+
+    expect(gateway.complete).toHaveBeenCalledWith(
+      "evaluate-practice-v2",
+      expect.stringContaining("naturalRevisionChinese"),
+    );
+    expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({
+      evaluationPromptVersion: "evaluate-practice-v2",
+      evaluationModel: "fixture/evaluation-v2",
+    }));
+  });
+
   test("submits independent evidence before the sole completion RPC and returns its immutable transition", async () => {
     const { service: complete, store } = service();
 
@@ -198,7 +223,7 @@ describe("complete due Practice", () => {
       passed: true, assistanceLevel: "hint",
     }));
     expect(gateway.complete).toHaveBeenCalledWith(
-      "evaluate-practice-v1",
+      "evaluate-practice-v2",
       expect.stringContaining('"assistanceLevel":"hint"'),
     );
   });
