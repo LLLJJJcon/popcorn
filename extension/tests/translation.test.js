@@ -283,7 +283,7 @@ test("a pending Overview keeps a two-minute progress message while it starts and
   });
 });
 
-test("a failed Overview reveals one explicit UUID retry and suppresses duplicates while it is in flight", async () => {
+test("an uncategorized failed Overview hides runtime detail and keeps one explicit retry", async () => {
   const dom = new JSDOM(`
     <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
     <button id="followPlaybackBtn"></button>
@@ -299,7 +299,12 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
     cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000001" },
     sendMessage(message) {
       sent.push({ ...message });
-      if (sent.length === 1) return Promise.resolve({ success: false, error: "Overview failed." });
+      if (sent.length === 1) {
+        return Promise.resolve({
+          success: false,
+          error: "OVERVIEW_MISSING_CATEGORY_SENTINEL",
+        });
+      }
       return new Promise((resolve) => { finishRetry = resolve; });
     },
   });
@@ -319,7 +324,12 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
   const keyQuotesSection = dom.window.document.getElementById("keyQuotesSection");
   assert.equal(retry.hidden, false);
   assert.equal(retry.disabled, false);
-  assert.match(overviewText.textContent, /Analysis failed: Overview failed\./);
+  assert.equal(
+    overviewText.textContent,
+    "Analysis failed: Overview could not be completed. Retry.",
+  );
+  assert.doesNotMatch(overviewText.textContent, /OVERVIEW_MISSING_CATEGORY_SENTINEL/);
+  assert.ok(overviewText.textContent.length <= 80);
   assert.equal(chaptersSection.hidden, true);
   assert.equal(keyQuotesSection.hidden, true);
   assert.doesNotMatch(overviewText.textContent, /generating overview.*about two minutes/i);
@@ -337,10 +347,42 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
     retryId: "70000000-0000-4000-8000-000000000001",
   });
 
-  finishRetry({ success: false, error: "Overview failed again." });
+  finishRetry({ success: false, error: "OVERVIEW_RETRY_SENTINEL" });
   await firstRetry;
   assert.equal(retry.hidden, false);
   assert.equal(retry.disabled, false);
+  assert.doesNotMatch(overviewText.textContent, /OVERVIEW_RETRY_SENTINEL/);
+});
+
+test("an Overview with an unknown failure category uses bounded generic copy", async () => {
+  const dom = new JSDOM(`
+    <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
+    <div id="overviewText"></div>
+    <section id="chaptersSection"><ul id="chapterList"></ul></section>
+    <section id="keyQuotesSection"><div id="quotesList"></div></section>
+  `);
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage: () => Promise.resolve({
+      success: false,
+      failureCategory: "future_private_category",
+      error: "OVERVIEW_UNKNOWN_CATEGORY_SENTINEL",
+    }),
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "第一条中文内容。" }];
+    currentAnalysis = null;
+  `);
+
+  await helpers.triggerAnalysis();
+
+  const output = dom.window.document.getElementById("overviewText").textContent;
+  assert.equal(output, "Analysis failed: Overview could not be completed. Retry.");
+  assert.doesNotMatch(output, /OVERVIEW_UNKNOWN_CATEGORY_SENTINEL/);
+  assert.ok(output.length <= 80);
 });
 
 test("a terminal Overview uses its safe failure category instead of raw Provider text", async () => {
@@ -375,7 +417,7 @@ test("a terminal Overview uses its safe failure category instead of raw Provider
   assert.equal(dom.window.document.getElementById("retryOverviewBtn").hidden, false);
 });
 
-test("a thrown Overview request clears progress before exposing its retryable error", async () => {
+test("a thrown Overview request clears progress without exposing runtime detail", async () => {
   const dom = new JSDOM(`
     <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
     <div id="overviewText"></div>
@@ -386,7 +428,7 @@ test("a thrown Overview request clears progress before exposing its retryable er
     documentImpl: dom.window.document,
     windowImpl: dom.window,
     sendMessage() {
-      return Promise.reject(new Error("Overview transport failed."));
+      return Promise.reject(new Error("OVERVIEW_THROWN_SENTINEL"));
     },
   });
   helpers.evaluateInSidepanel(`
@@ -399,7 +441,9 @@ test("a thrown Overview request clears progress before exposing its retryable er
   await helpers.triggerAnalysis();
   const overviewText = dom.window.document.getElementById("overviewText");
   const retry = dom.window.document.getElementById("retryOverviewBtn");
-  assert.match(overviewText.textContent, /Error: Overview transport failed\./);
+  assert.equal(overviewText.textContent, "Overview could not be completed. Retry.");
+  assert.doesNotMatch(overviewText.textContent, /OVERVIEW_THROWN_SENTINEL/);
+  assert.ok(overviewText.textContent.length <= 80);
   assert.equal(dom.window.document.getElementById("chaptersSection").hidden, true);
   assert.equal(dom.window.document.getElementById("keyQuotesSection").hidden, true);
   assert.equal(retry.hidden, false);
@@ -1090,6 +1134,125 @@ test("model-output failures render bounded honest copy and keep one Retry action
   assert.match(row.textContent, /Retry/i);
   assert.doesNotMatch(row.textContent, /PRIVATE_PROVIDER_RESPONSE/);
   assert.equal(dom.window.document.querySelectorAll(".translation-retry-btn").length, 1);
+});
+
+test("uncategorized and unknown Translation failures hide runtime detail", async () => {
+  const fixtures = [
+    {
+      name: "missing",
+      idChar: "a",
+      result: {
+        success: false,
+        error: "TRANSLATION_MISSING_CATEGORY_SENTINEL",
+      },
+      sentinel: /TRANSLATION_MISSING_CATEGORY_SENTINEL/,
+    },
+    {
+      name: "unknown",
+      idChar: "b",
+      result: {
+        success: false,
+        failureCategory: "future_private_category",
+        error: "TRANSLATION_UNKNOWN_CATEGORY_SENTINEL",
+      },
+      sentinel: /TRANSLATION_UNKNOWN_CATEGORY_SENTINEL/,
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    const id = fixture.idChar.repeat(64);
+    const dom = new JSDOM(`
+      <button id="retryFailedTranslationsBtn">Retry failed (1)</button>
+      <span id="langSpinner"></span>
+      <div id="transcriptList">
+        <div class="transcript-entry translation-failed" data-segment-id="${id}" data-segment-index="0">
+          <span class="transcript-copy"><span class="transcript-translation translation-error">Old failure</span></span>
+        </div>
+      </div>
+    `);
+    const helpers = loadSidepanelHelpers({
+      documentImpl: dom.window.document,
+      windowImpl: dom.window,
+      cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000012" },
+      sendMessage: () => Promise.resolve(fixture.result),
+    });
+    helpers.evaluateInSidepanel(`
+      currentVideoId = "abc123XYZ00";
+      currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+      currentTranscriptMode = "en";
+      translationGeneration = 6;
+      currentTranscript = [{ stableId: "${id}", text: "中文", start: 0, duration: 1 }];
+    `);
+
+    await helpers.retryFailedTranslations();
+
+    const output = dom.window.document.querySelector(".transcript-translation");
+    assert.equal(output.childNodes[0].textContent, "Translation could not be completed. Retry.");
+    assert.doesNotMatch(output.textContent, fixture.sentinel);
+    assert.ok(output.textContent.length <= 80);
+  }
+});
+
+test("a thrown Translation request hides runtime detail", async () => {
+  const id = "d".repeat(64);
+  const dom = new JSDOM(`
+    <button id="retryFailedTranslationsBtn">Retry failed (1)</button>
+    <span id="langSpinner"></span>
+    <div id="transcriptList">
+      <div class="transcript-entry translation-failed" data-segment-id="${id}" data-segment-index="0">
+        <span class="transcript-copy"><span class="transcript-translation translation-error">Old failure</span></span>
+      </div>
+    </div>
+  `);
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000013" },
+    sendMessage: () => Promise.reject(new Error("TRANSLATION_THROWN_SENTINEL")),
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptMode = "en";
+    translationGeneration = 6;
+    currentTranscript = [{ stableId: "${id}", text: "中文", start: 0, duration: 1 }];
+  `);
+
+  await helpers.retryFailedTranslations();
+
+  const output = dom.window.document.querySelector(".transcript-translation");
+  assert.equal(output.childNodes[0].textContent, "Translation could not be completed. Retry.");
+  assert.doesNotMatch(output.textContent, /TRANSLATION_THROWN_SENTINEL/);
+  assert.ok(output.textContent.length <= 80);
+});
+
+test("an initial Translation batch hides thrown runtime detail", async () => {
+  const id = "e".repeat(64);
+  const dom = new JSDOM(`
+    <div id="contentArea"><div><div id="transcriptList"></div></div></div>
+    <button id="retryFailedTranslationsBtn" hidden>Retry failed</button>
+    <button id="followPlaybackBtn"></button>
+    <span id="langSpinner"></span>
+  `);
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage: () => Promise.reject(new Error("INITIAL_TRANSLATION_THROWN_SENTINEL")),
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptMode = "en";
+    currentTranscript = [{ stableId: "${id}", text: "中文", start: 0, duration: 1 }];
+  `);
+
+  await helpers.evaluateInSidepanel("translateTranscript()");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const output = dom.window.document.querySelector(".transcript-translation");
+  assert.equal(output.childNodes[0].textContent, "Translation could not be completed. Retry.");
+  assert.doesNotMatch(output.textContent, /INITIAL_TRANSLATION_THROWN_SENTINEL/);
+  assert.ok(output.textContent.length <= 80);
 });
 
 test("structured translation batches reject blank-first duplicate IDs as ambiguous", () => {

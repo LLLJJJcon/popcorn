@@ -1137,6 +1137,72 @@ test("AI Explanation uses safe model status copy without exposing raw Provider t
   assert.doesNotMatch(output.textContent, /PRIVATE_PROVIDER_RESPONSE/);
 });
 
+test("AI Explanation hides uncategorized and unknown runtime failure detail", async () => {
+  const evidence = {
+    selectedChinese: "太离谱了",
+    segmentIds: [SEGMENT_A],
+    startSeconds: 42,
+    endSeconds: 48,
+    complete: true,
+  };
+  const fixtures = [
+    {
+      result: {
+        success: false,
+        error: "EXPLANATION_MISSING_CATEGORY_SENTINEL",
+      },
+      sentinel: /EXPLANATION_MISSING_CATEGORY_SENTINEL/,
+    },
+    {
+      result: {
+        success: false,
+        failureCategory: "future_private_category",
+        error: "EXPLANATION_UNKNOWN_CATEGORY_SENTINEL",
+      },
+      sentinel: /EXPLANATION_UNKNOWN_CATEGORY_SENTINEL/,
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    const harness = createSidePanelHandlerHarness();
+    vm.runInContext(
+      `sendCloudAction = async () => (${JSON.stringify(fixture.result)})`,
+      harness.context,
+    );
+
+    await harness.context.showExplanation(evidence);
+
+    const output = harness.document.querySelector(".explain-error").textContent;
+    assert.equal(output, "Explanation could not be completed. Retry.");
+    assert.doesNotMatch(output, fixture.sentinel);
+    assert.ok(output.length <= 80);
+  }
+});
+
+test("AI Explanation hides thrown runtime detail", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const evidence = {
+    selectedChinese: "太离谱了",
+    segmentIds: [SEGMENT_A],
+    startSeconds: 42,
+    endSeconds: 48,
+    complete: true,
+  };
+  vm.runInContext(
+    `sendCloudAction = async () => {
+      throw new Error("EXPLANATION_THROWN_SENTINEL");
+    }`,
+    harness.context,
+  );
+
+  await harness.context.showExplanation(evidence);
+
+  const output = harness.document.querySelector(".explain-error").textContent;
+  assert.equal(output, "Explanation could not be completed. Retry.");
+  assert.doesNotMatch(output, /EXPLANATION_THROWN_SENTINEL/);
+  assert.ok(output.length <= 80);
+});
+
 test("AI Explanation keeps processing distinct from a model failure", async () => {
   const harness = createSidePanelHandlerHarness();
   const evidence = {

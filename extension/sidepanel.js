@@ -464,9 +464,7 @@ function learningArtifactStatusCopy(result, artifactName) {
   if (Object.hasOwn(LEARNING_ARTIFACT_FAILURE_COPY, result?.failureCategory)) {
     return LEARNING_ARTIFACT_FAILURE_COPY[result.failureCategory];
   }
-  return typeof result?.error === "string" && result.error.trim()
-    ? result.error.trim()
-    : `${artifactName} could not be completed. Retry.`;
+  return `${artifactName} could not be completed. Retry.`;
 }
 
 // --- Auto-scroll state (follow video playback in transcript) ---
@@ -1941,7 +1939,9 @@ async function triggerAnalysis(retryId) {
   } catch (error) {
     if (!isCurrentOverviewRequest(request)) return;
     console.error("[YouTube Digest Panel] Analysis error:", error);
-    if (overviewText) overviewText.textContent = `Error: ${error.message}`;
+    if (overviewText) {
+      overviewText.textContent = learningArtifactStatusCopy(null, "Overview");
+    }
     hideOverviewOptionalSections();
     overviewRetryAvailable = true;
     clearRequest = true;
@@ -2365,7 +2365,7 @@ async function showExplanation(selectionEvidence) {
     }
   } catch (error) {
     const contentDiv = document.getElementById("explanationContent");
-    contentDiv.innerHTML = `<div class="explain-error">Error: ${escapeHtml(error.message)}</div>`;
+    contentDiv.innerHTML = `<div class="explain-error">${escapeHtml(learningArtifactStatusCopy(null, "Explanation"))}</div>`;
   }
 }
 
@@ -3064,7 +3064,11 @@ async function requestTranscriptTranslationBatch(
       updateTranslatedRow(
         segment,
         indices[batchIndex],
-        { id: segment.id, text: "", error: error.message || "Translation failed." },
+        {
+          id: segment.id,
+          text: "",
+          error: learningArtifactStatusCopy(null, "Translation"),
+        },
         generation,
       );
     });
@@ -3179,7 +3183,11 @@ async function retryFailedTranslations() {
       updateTranslatedRow(
         segment,
         index,
-        { id: segment.id, text: "", error: error.message || "Translation failed." },
+        {
+          id: segment.id,
+          text: "",
+          error: learningArtifactStatusCopy(null, "Translation"),
+        },
         generation,
       );
     });
