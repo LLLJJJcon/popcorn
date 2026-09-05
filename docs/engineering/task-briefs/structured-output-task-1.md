@@ -30,6 +30,9 @@ Allowed files are exactly:
 - `tests/integration/model-gateway/structured-json-gateway.test.ts`
 - `tests/integration/jobs/process-jobs.test.ts`
 - `tests/integration/jobs/public-job-route.test.ts`
+- `src/server/domain/complete-due-practice.test.ts`
+- `tests/integration/practice/attempts.test.ts`
+- `tests/contract/ai/saved-analysis.test.ts`
 - `docs/engineering/handoffs/structured-output-task-1.md`
 
 Do not modify any other file, dependency, migration, root configuration,
@@ -68,9 +71,14 @@ The RED set must prove missing symbols/behavior for:
 Then implement the minimum code and record GREEN evidence from:
 
 ```bash
-pnpm exec vitest run src/server/ai/model-output.test.ts tests/integration/model-gateway/structured-json-gateway.test.ts tests/integration/jobs/process-jobs.test.ts tests/integration/jobs/public-job-route.test.ts
+pnpm exec vitest run src/server/ai/model-output.test.ts tests/integration/model-gateway/structured-json-gateway.test.ts tests/integration/jobs/process-jobs.test.ts tests/integration/jobs/public-job-route.test.ts src/server/domain/complete-due-practice.test.ts tests/integration/practice/attempts.test.ts tests/contract/ai/saved-analysis.test.ts
 pnpm typecheck
 ```
+
+`pnpm typecheck` has seven baseline errors in
+`src/features/practice/practice-session.test.tsx` because existing fixtures omit
+`savedReturnTarget`. Acceptance requires the same seven exact baseline errors
+and no new error; do not edit that unrelated file in Task 1.
 
 Do not run the complete test suite, build, database reset, pgTAP, extension
 suite, or Playwright.

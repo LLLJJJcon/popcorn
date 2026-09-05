@@ -217,6 +217,9 @@ before its commit is integrated.
 - Modify: `tests/integration/model-gateway/structured-json-gateway.test.ts`
 - Modify: `tests/integration/jobs/process-jobs.test.ts`
 - Create: `tests/integration/jobs/public-job-route.test.ts`
+- Modify: `src/server/domain/complete-due-practice.test.ts`
+- Modify: `tests/integration/practice/attempts.test.ts`
+- Modify: `tests/contract/ai/saved-analysis.test.ts`
 
 **Interfaces:**
 - Produces:
@@ -418,16 +421,18 @@ code, private input, transcript, prompt, model response, user ID, or key.
 Run:
 
 ```bash
-pnpm exec vitest run src/server/ai/model-output.test.ts tests/integration/model-gateway/structured-json-gateway.test.ts tests/integration/jobs/process-jobs.test.ts tests/integration/jobs/public-job-route.test.ts
+pnpm exec vitest run src/server/ai/model-output.test.ts tests/integration/model-gateway/structured-json-gateway.test.ts tests/integration/jobs/process-jobs.test.ts tests/integration/jobs/public-job-route.test.ts src/server/domain/complete-due-practice.test.ts tests/integration/practice/attempts.test.ts tests/contract/ai/saved-analysis.test.ts
 pnpm typecheck
 ```
 
-Expected: all named tests and TypeScript pass.
+Expected: all named tests pass. `pnpm typecheck` must introduce no error beyond
+the seven baseline `practice-session.test.tsx` fixture errors for missing
+`savedReturnTarget`; Task 1 must not modify that unrelated UI test.
 
 - [ ] **Step 9: Commit Task 1**
 
 ```bash
-git add src/server/ai/model-output.ts src/server/ai/model-output.test.ts src/server/ai/openai-compatible-provider.ts src/server/ai/structured-json-gateway.ts src/server/ai/provider.ts src/server/ai/prompts/analyze-saved-item.v1.ts src/server/ai/prompts/activate.v1.ts src/server/ai/prompts/evaluate.v1.ts src/server/jobs/handlers/analyze-saved-item.ts src/server/domain/create-practice-task.ts src/server/repositories/attempt-repository.ts src/server/domain/complete-due-practice.ts src/server/jobs/process-jobs.ts 'src/app/api/v1/jobs/[jobId]/route.ts' tests/integration/model-gateway/structured-json-gateway.test.ts tests/integration/jobs/process-jobs.test.ts tests/integration/jobs/public-job-route.test.ts
+git add src/server/ai/model-output.ts src/server/ai/model-output.test.ts src/server/ai/openai-compatible-provider.ts src/server/ai/structured-json-gateway.ts src/server/ai/provider.ts src/server/ai/prompts/analyze-saved-item.v1.ts src/server/ai/prompts/activate.v1.ts src/server/ai/prompts/evaluate.v1.ts src/server/jobs/handlers/analyze-saved-item.ts src/server/domain/create-practice-task.ts src/server/repositories/attempt-repository.ts src/server/domain/complete-due-practice.ts src/server/domain/complete-due-practice.test.ts src/server/jobs/process-jobs.ts 'src/app/api/v1/jobs/[jobId]/route.ts' tests/integration/model-gateway/structured-json-gateway.test.ts tests/integration/jobs/process-jobs.test.ts tests/integration/jobs/public-job-route.test.ts tests/integration/practice/attempts.test.ts tests/contract/ai/saved-analysis.test.ts
 git commit -m "feat(ai): add reliable structured output boundary"
 ```
 
