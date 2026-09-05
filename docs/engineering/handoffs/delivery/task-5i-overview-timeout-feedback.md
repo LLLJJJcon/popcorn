@@ -89,3 +89,50 @@ PASS: exit 0
 - No GPLv3/LLM Wiki code, prompt, component, test, or asset was introduced.
   The existing derived YouTube Digest path was modified in place and no
   upstream notices changed.
+
+## Fix round 1 — clear progress after terminal Overview errors
+
+### RED
+
+Command: `node --test extension/tests/translation.test.js`
+
+The new failure-path coverage failed as intended: 49 tests ran, 47 passed, and
+two failed. Both the existing `success: false` Overview response and a thrown
+Overview request left `overviewText` as `Generating overview — this can take
+about two minutes.` after their retryable chapter error was visible. This
+reproduced the review finding in both current-owner terminal paths.
+
+### Minimal change
+
+- In the existing current-owner `success: false` branch, clear `overviewText`
+  before preserving the existing chapter failure text and Retry state.
+- In the existing current-owner `catch` branch, do the same before preserving
+  the existing error text and Retry state.
+- Stale requests still return before either UI mutation, so the stale-owner
+  fence remains intact. No retry, job, timeout, prompt, or Provider behavior
+  changed.
+
+### GREEN and regression verification
+
+```text
+node --test extension/tests/translation.test.js
+PASS: 49/49 tests; node --check extension/sidepanel.js PASS
+
+pnpm vitest run tests/integration/youtube/learning-artifacts.test.ts
+PASS: 1 file, 68/68 tests
+
+pnpm eslint src/server/ai/openai-compatible-provider.ts tests/integration/youtube/learning-artifacts.test.ts
+PASS: exit 0
+
+pnpm typecheck
+PASS: `tsc --noEmit`, exit 0
+
+git diff --check
+PASS: exit 0
+```
+
+### Residual risk
+
+The tests exercise the two terminal current-owner paths and retain the stale
+owner fence. As before, they do not perform live Provider/proxy latency
+testing; external generation can still exceed the two-minute presentation.

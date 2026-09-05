@@ -239,8 +239,12 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
 
   await helpers.triggerAnalysis();
   const retry = dom.window.document.getElementById("retryOverviewBtn");
+  const overviewText = dom.window.document.getElementById("overviewText");
+  const chapterList = dom.window.document.getElementById("chapterList");
   assert.equal(retry.hidden, false);
   assert.equal(retry.disabled, false);
+  assert.match(chapterList.textContent, /Analysis failed: Overview failed\./);
+  assert.doesNotMatch(overviewText.textContent, /generating overview.*about two minutes/i);
 
   const firstRetry = helpers.retryOverview();
   helpers.retryOverview();
@@ -258,6 +262,35 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
   await firstRetry;
   assert.equal(retry.hidden, false);
   assert.equal(retry.disabled, false);
+});
+
+test("a thrown Overview request clears progress before exposing its retryable error", async () => {
+  const dom = new JSDOM(`
+    <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
+    <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
+  `);
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage() {
+      return Promise.reject(new Error("Overview transport failed."));
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "第一条中文内容。" }];
+    currentAnalysis = null;
+  `);
+
+  await helpers.triggerAnalysis();
+  const overviewText = dom.window.document.getElementById("overviewText");
+  const chapterList = dom.window.document.getElementById("chapterList");
+  const retry = dom.window.document.getElementById("retryOverviewBtn");
+  assert.match(chapterList.textContent, /Error: Overview transport failed\./);
+  assert.equal(retry.hidden, false);
+  assert.equal(retry.disabled, false);
+  assert.doesNotMatch(overviewText.textContent, /generating overview.*about two minutes/i);
 });
 
 test("a late Overview response for video A cannot overwrite video B or release B loading", async () => {

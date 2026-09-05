@@ -1672,6 +1672,7 @@ async function triggerAnalysis(retryId) {
     if (!isCurrentOverviewRequest(request)) return;
 
     if (!analysisResult.success) {
+      if (overviewText) overviewText.textContent = "";
       if (chapterList)
         chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Analysis failed: ${escapeHtml(analysisResult.error || "Unknown error")}</li>`;
       overviewRetryAvailable = true;
@@ -1695,6 +1696,7 @@ async function triggerAnalysis(retryId) {
   } catch (error) {
     if (!isCurrentOverviewRequest(request)) return;
     console.error("[YouTube Digest Panel] Analysis error:", error);
+    if (overviewText) overviewText.textContent = "";
     if (chapterList)
       chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Error: ${escapeHtml(error.message)}</li>`;
     overviewRetryAvailable = true;
