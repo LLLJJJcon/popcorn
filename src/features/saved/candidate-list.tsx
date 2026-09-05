@@ -47,7 +47,7 @@ const PollSchema = apiSuccessSchema(z.discriminatedUnion("state", [
 ]));
 
 const POLL_INTERVAL_MS = 1_000;
-const MAX_POLL_ATTEMPTS = 6;
+const MAX_POLL_ATTEMPTS = 60;
 
 export function CandidateList({
   savedItemId,

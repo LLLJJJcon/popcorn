@@ -420,29 +420,30 @@ describe("Saved candidate expressions", () => {
 
   it("polls the existing candidate endpoint after one processing recovery and renders recovered candidates", async () => {
     vi.useFakeTimers();
+    let pollCount = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ok: true,
         data: { state: "processing", jobId: TASK_ID, status: "queued", created: true },
         requestId: "safe-request",
       }), { status: 202, headers: { "Content-Type": "application/json" } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        ok: true,
-        data: { state: "processing" },
-        requestId: "safe-request",
-      }), { status: 200, headers: { "Content-Type": "application/json" } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        ok: true,
-        data: {
-          state: "ready",
-          artifactId: ARTIFACT_ID,
-          savedItemId: SAVED_ITEM_ID,
-          youtubeVideoId: "dQw4w9WgXcQ",
-          canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-          candidates: [candidate({ expression: "恢复的表达" })],
-        },
-        requestId: "safe-request",
-      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      .mockImplementation(async () => {
+        pollCount += 1;
+        return new Response(JSON.stringify({
+          ok: true,
+          data: pollCount === 30
+            ? {
+              state: "ready",
+              artifactId: ARTIFACT_ID,
+              savedItemId: SAVED_ITEM_ID,
+              youtubeVideoId: "dQw4w9WgXcQ",
+              canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+              candidates: [candidate({ expression: "恢复的表达" })],
+            }
+            : { state: "processing" },
+          requestId: "safe-request",
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      });
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -452,10 +453,10 @@ describe("Saved candidate expressions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
     await act(async () => {});
     expect(screen.getByRole("button", { name: "Starting analysis…" })).toBeDisabled();
-    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(fetchMock.mock.calls.map(([, init]) => init?.method ?? "GET")).toEqual(["POST", "GET", "GET"]);
+    expect(fetchMock).toHaveBeenCalledTimes(31);
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method ?? "GET")).toEqual(["POST", ...Array(30).fill("GET")]);
     expect(fetchMock.mock.calls.slice(1)).toEqual(expect.arrayContaining([
       [expect.any(String), expect.objectContaining({ credentials: "same-origin", cache: "no-store" })],
     ]));
@@ -463,7 +464,7 @@ describe("Saved candidate expressions", () => {
     expect(screen.getByRole("button", { name: "Practice this expression" })).toBeInTheDocument();
   });
 
-  it("restores an enabled retry action after bounded polling does not complete", async () => {
+  it("keeps recovery pending through 59 seconds and restores retry only after the bounded poll window", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -484,10 +485,15 @@ describe("Saved candidate expressions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
     await act(async () => {});
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(59_000); });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Starting analysis…" })).toBeDisabled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
 
     expect(screen.getByRole("alert")).toHaveTextContent("Analysis is taking longer than expected. Try again.");
     expect(screen.getByRole("button", { name: "Retry analysis" })).toBeEnabled();
+    expect(fetchMock).toHaveBeenCalledTimes(61);
     expect(fetchMock.mock.calls.filter(([, init]) => (init?.method ?? "GET") === "POST")).toHaveLength(1);
   });
 
