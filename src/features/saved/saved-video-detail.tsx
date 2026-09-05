@@ -21,21 +21,24 @@ function latestCandidateAnalysis(
   artifacts: readonly SavedArtifactView[],
   savedItemId: string,
 ): CandidateAnalysis {
-  const artifact = artifacts.findLast((entry) =>
-    entry.type === "saved_item_analysis" && entry.savedItemId === savedItemId,
-  );
-  if (!artifact) return { state: "missing" };
-  if (!isReadableSavedAnalysisPromptVersion(artifact.promptVersion)) return { state: "unavailable" };
-  const parsed = CandidateArtifactContentSchema.safeParse(artifact.content);
-  if (!parsed.success) return { state: "unavailable" };
-  return {
-    state: "ready",
-    artifact: {
-      artifactId: artifact.artifactId,
-      savedItemId,
-      candidates: parsed.data.candidates,
-    },
-  };
+  let foundCandidateArtifact = false;
+  for (let index = artifacts.length - 1; index >= 0; index -= 1) {
+    const artifact = artifacts[index]!;
+    if (artifact.type !== "saved_item_analysis" || artifact.savedItemId !== savedItemId) continue;
+    foundCandidateArtifact = true;
+    if (!isReadableSavedAnalysisPromptVersion(artifact.promptVersion)) continue;
+    const parsed = CandidateArtifactContentSchema.safeParse(artifact.content);
+    if (!parsed.success) continue;
+    return {
+      state: "ready",
+      artifact: {
+        artifactId: artifact.artifactId,
+        savedItemId,
+        candidates: parsed.data.candidates,
+      },
+    };
+  }
+  return foundCandidateArtifact ? { state: "unavailable" } : { state: "missing" };
 }
 
 function timestampUrl(canonicalUrl: string, seconds: number) {
@@ -45,19 +48,24 @@ function timestampUrl(canonicalUrl: string, seconds: number) {
 }
 
 function PersistedOverview({ video }: { readonly video: SavedVideoDetail }) {
-  const artifact = video.artifacts.findLast(({ type }) => type === "overview");
-  const overview = artifact && isReadableOverviewPromptVersion(artifact.promptVersion)
-    ? OverviewContentSchema.safeParse(artifact.content)
-    : null;
-  if (!overview?.success) return null;
+  let overview: z.infer<typeof OverviewContentSchema> | null = null;
+  for (let index = video.artifacts.length - 1; index >= 0; index -= 1) {
+    const artifact = video.artifacts[index]!;
+    if (artifact.type !== "overview" || !isReadableOverviewPromptVersion(artifact.promptVersion)) continue;
+    const parsed = OverviewContentSchema.safeParse(artifact.content);
+    if (!parsed.success) continue;
+    overview = parsed.data;
+    break;
+  }
+  if (!overview) return null;
 
   return (
     <section className={styles.paperSection} aria-labelledby="saved-overview-heading">
       <p className={styles.eyebrow}>Generated from this saved video</p>
       <h2 id="saved-overview-heading">Video overview</h2>
-      <p>{overview.data.overview}</p>
+      <p>{overview.overview}</p>
       <div className={styles.chapterGrid}>
-        {overview.data.chapters.map((chapter) => (
+        {overview.chapters.map((chapter) => (
           <article className={styles.chapter} key={`${chapter.timestampSeconds}-${chapter.title}`}>
             <h3>{chapter.title}</h3>
             <p>{chapter.summary}</p>

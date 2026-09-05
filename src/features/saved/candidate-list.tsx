@@ -32,6 +32,7 @@ const ReadyRecoverySchema = z.strictObject({
 });
 
 const PublicFailureCategorySchema = z.enum(["model_unavailable", "model_output", "internal"]);
+const ProcessingStatusSchema = z.enum(["pending", "leased"]);
 
 const FailedRecoverySchema = z.strictObject({
   state: z.literal("failed"),
@@ -45,7 +46,7 @@ const RecoverySchema = apiSuccessSchema(z.discriminatedUnion("state", [
   z.strictObject({
     state: z.literal("processing"),
     jobId: z.string().uuid(),
-    status: z.string().trim().min(1).max(100),
+    status: ProcessingStatusSchema,
     created: z.boolean(),
   }),
   FailedRecoverySchema,
@@ -57,7 +58,7 @@ const PollSchema = apiSuccessSchema(z.discriminatedUnion("state", [
   z.strictObject({
     state: z.literal("processing"),
     jobId: z.string().uuid(),
-    status: z.string().trim().min(1).max(100),
+    status: ProcessingStatusSchema,
   }),
   FailedRecoverySchema,
 ]));
@@ -95,6 +96,9 @@ export function CandidateList({
   const [recoveredArtifact, setRecoveredArtifact] = useState<CandidateArtifact | null>(null);
   const retryController = useRef<AbortController | null>(null);
   const retryTimer = useRef<number | null>(null);
+  const backgroundDeadlineTimer = useRef<number | null>(null);
+  const stopDeadlineTimer = useRef<number | null>(null);
+  const processingStartedAt = useRef<number | null>(null);
   const jobId = useRef<string | null>(null);
   const requestInFlight = useRef(false);
   const mounted = useRef(false);
@@ -109,7 +113,7 @@ export function CandidateList({
     mounted.current = true;
     return () => {
       mounted.current = false;
-      if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+      clearRecoveryTimers();
       retryController.current?.abort();
       requestInFlight.current = false;
     };
@@ -145,15 +149,41 @@ export function CandidateList({
     return !controller.signal.aborted && mounted.current && retryController.current === controller;
   }
 
-  function stopTimer() {
+  function clearRecoveryTimers() {
     if (retryTimer.current !== null) {
       window.clearTimeout(retryTimer.current);
       retryTimer.current = null;
     }
+    if (backgroundDeadlineTimer.current !== null) {
+      window.clearTimeout(backgroundDeadlineTimer.current);
+      backgroundDeadlineTimer.current = null;
+    }
+    if (stopDeadlineTimer.current !== null) {
+      window.clearTimeout(stopDeadlineTimer.current);
+      stopDeadlineTimer.current = null;
+    }
+    processingStartedAt.current = null;
+  }
+
+  function startProcessingDeadlines(controller: AbortController) {
+    clearRecoveryTimers();
+    processingStartedAt.current = Date.now();
+    backgroundDeadlineTimer.current = window.setTimeout(() => {
+      backgroundDeadlineTimer.current = null;
+      if (isCurrent(controller)) setRecoveryState("background");
+    }, BACKGROUND_AFTER_MS);
+    stopDeadlineTimer.current = window.setTimeout(() => {
+      stopDeadlineTimer.current = null;
+      if (!isCurrent(controller)) return;
+      clearRecoveryTimers();
+      setRecoveryState("queued");
+      controller.abort();
+    }, STOP_POLLING_AFTER_MS);
   }
 
   function showReady(data: z.infer<typeof ReadyRecoverySchema>, controller: AbortController) {
     if (!isCurrent(controller)) return;
+    clearRecoveryTimers();
     setRecoveredArtifact({
       artifactId: data.artifactId,
       savedItemId: data.savedItemId,
@@ -164,26 +194,27 @@ export function CandidateList({
 
   function showTerminal(category: FailureCategory, controller: AbortController) {
     if (!isCurrent(controller)) return;
-    stopTimer();
+    clearRecoveryTimers();
     setFailureCategory(category);
     setRecoveryState("terminal");
   }
 
   function failRecovery(controller: AbortController) {
     if (!isCurrent(controller)) return;
-    stopTimer();
+    clearRecoveryTimers();
     setRecoveryState("error");
   }
 
-  function schedulePoll(controller: AbortController, ownerBoundJobId: string, elapsedMs: number) {
+  function schedulePoll(controller: AbortController, ownerBoundJobId: string) {
+    const elapsedMs = Math.max(0, Date.now() - (processingStartedAt.current ?? Date.now()));
     const delay = elapsedMs < BACKGROUND_AFTER_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS;
     retryTimer.current = window.setTimeout(() => {
       retryTimer.current = null;
-      void poll(controller, ownerBoundJobId, elapsedMs + delay);
+      void poll(controller, ownerBoundJobId);
     }, delay);
   }
 
-  async function poll(controller: AbortController, ownerBoundJobId: string, elapsedMs: number): Promise<void> {
+  async function poll(controller: AbortController, ownerBoundJobId: string): Promise<void> {
     if (!isCurrent(controller)) return;
     try {
       const response = await fetch(
@@ -204,6 +235,7 @@ export function CandidateList({
         return;
       }
       if (data.state === "gateway_required") {
+        clearRecoveryTimers();
         setRecoveryState("gateway");
         return;
       }
@@ -213,12 +245,7 @@ export function CandidateList({
         return;
       }
       if (data.jobId !== ownerBoundJobId) throw new Error("candidate job mismatch");
-      if (elapsedMs >= STOP_POLLING_AFTER_MS) {
-        setRecoveryState("queued");
-        return;
-      }
-      if (elapsedMs >= BACKGROUND_AFTER_MS) setRecoveryState("background");
-      schedulePoll(controller, ownerBoundJobId, elapsedMs);
+      schedulePoll(controller, ownerBoundJobId);
     } catch {
       failRecovery(controller);
     }
@@ -227,7 +254,7 @@ export function CandidateList({
   async function requestAnalysis(terminalRetry: boolean) {
     if (requestInFlight.current) return;
     requestInFlight.current = true;
-    stopTimer();
+    clearRecoveryTimers();
     retryController.current?.abort();
     const controller = new AbortController();
     retryController.current = controller;
@@ -250,6 +277,7 @@ export function CandidateList({
         return;
       }
       if (data.state === "gateway_required") {
+        clearRecoveryTimers();
         setRecoveryState("gateway");
         return;
       }
@@ -259,7 +287,8 @@ export function CandidateList({
         return;
       }
       jobId.current = data.jobId;
-      schedulePoll(controller, data.jobId, 0);
+      startProcessingDeadlines(controller);
+      schedulePoll(controller, data.jobId);
     } catch {
       failRecovery(controller);
     } finally {

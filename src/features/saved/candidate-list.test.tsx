@@ -261,6 +261,85 @@ describe("Saved candidate expressions", () => {
     });
   });
 
+  it("falls back to the newest readable schema-valid candidate artifact when newer artifacts are unusable", async () => {
+    const readableArtifactId = "12121212-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    pageRuntime.authenticate.mockResolvedValue({ ok: true, userId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" });
+    pageRuntime.detail.mockResolvedValue({
+      sourceId: VIDEO_SOURCE_ID,
+      youtubeVideoId: "dQw4w9WgXcQ",
+      canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: "中文访谈",
+      channel: "中文频道",
+      thumbnailUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+      savedCount: 1,
+      latestSavedAt: "2026-08-21T00:00:00.000Z",
+      processingState: "ready",
+      processingErrors: [],
+      items: [{
+        id: SAVED_ITEM_ID,
+        kind: "subtitle_row",
+        status: "ready",
+        capturedAt: "2026-08-21T00:00:00.000Z",
+        startSeconds: 62,
+        rawText: "这个想法挺有意思的",
+        englishTranslation: "This idea is pretty interesting.",
+        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=62s",
+      }],
+      artifacts: [
+        {
+          artifactId: readableArtifactId,
+          savedItemId: SAVED_ITEM_ID,
+          type: "saved_item_analysis",
+          promptVersion: "analyze-saved-item-v2",
+          content: { candidates: [candidate({ expression: "仍然可用的表达" })] },
+        },
+        {
+          artifactId: "13131313-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          savedItemId: SAVED_ITEM_ID,
+          type: "saved_item_analysis",
+          promptVersion: "analyze-saved-item-v999",
+          content: { candidates: [candidate({ expression: "未知版本表达" })] },
+        },
+        {
+          artifactId: "14141414-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          savedItemId: SAVED_ITEM_ID,
+          type: "saved_item_analysis",
+          promptVersion: "analyze-saved-item-v2",
+          content: { candidates: [{ expression: "损坏的新表达" }] },
+        },
+      ],
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      data: {
+        id: TASK_ID,
+        userId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        userExpressionId: EXPRESSION_ID,
+        kind: "use_it_now",
+        nativeLanguage: "en",
+        targetLanguage: "zh-CN",
+        targetExpression: "仍然可用的表达",
+        promptChinese: "请使用这个表达。",
+        instructionsEnglish: "Reply in Mandarin.",
+        goalEnglish: "Use the expression naturally.",
+        dueAt: null,
+        createdAt: "2026-08-21T00:00:00.000Z",
+      },
+      requestId: "safe-request",
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+
+    const { default: SavedVideoPage } = await import("@/app/(app)/saved/[videoSourceId]/page");
+    render(await SavedVideoPage({ params: Promise.resolve({ videoSourceId: VIDEO_SOURCE_ID }) }));
+
+    expect(screen.getByText("仍然可用的表达")).toBeInTheDocument();
+    expect(screen.queryByText("未知版本表达")).not.toBeInTheDocument();
+    expect(screen.queryByText("损坏的新表达")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Practice this expression" }));
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      candidateArtifactId: readableArtifactId,
+    });
+  });
+
   it("keeps the production raw timeline visible and refuses an unknown candidate artifact version", async () => {
     pageRuntime.authenticate.mockResolvedValue({ ok: true, userId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" });
     pageRuntime.detail.mockResolvedValue({
@@ -391,7 +470,7 @@ describe("Saved candidate expressions", () => {
   it("announces pending analysis and keeps its action disabled with visible activity", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       ok: true,
-      data: { state: "processing", jobId: TASK_ID, status: "queued", created: true },
+      data: { state: "processing", jobId: TASK_ID, status: "pending", created: true },
       requestId: "safe-request",
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
     render(<CandidateList
@@ -466,7 +545,7 @@ describe("Saved candidate expressions", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ok: true,
-        data: { state: "processing", jobId: TASK_ID, status: "queued", created: true },
+        data: { state: "processing", jobId: TASK_ID, status: "pending", created: true },
         requestId: "safe-request",
       }), { status: 202, headers: { "Content-Type": "application/json" } }))
       .mockImplementation(async () => {
@@ -512,7 +591,7 @@ describe("Saved candidate expressions", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ok: true,
-        data: { state: "processing", jobId: TASK_ID, status: "queued", created: true },
+        data: { state: "processing", jobId: TASK_ID, status: "pending", created: true },
         requestId: "safe-request",
       }), { status: 202, headers: { "Content-Type": "application/json" } }))
       .mockImplementation(async () => new Response(JSON.stringify({
@@ -548,15 +627,136 @@ describe("Saved candidate expressions", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Still queued");
     const checkStatus = screen.getByRole("button", { name: "Check status" });
     expect(checkStatus).toBeEnabled();
-    expect(fetchMock).toHaveBeenCalledTimes(109);
+    expect(fetchMock).toHaveBeenCalledTimes(108);
     expect(fetchMock.mock.calls.slice(1).every(([url]) => (
       url === `/api/v1/saved-items/${SAVED_ITEM_ID}/candidates?jobId=${TASK_ID}`
     ))).toBe(true);
     await act(async () => { fireEvent.click(checkStatus); });
-    expect(fetchMock).toHaveBeenCalledTimes(110);
+    expect(fetchMock).toHaveBeenCalledTimes(109);
     expect(screen.getByRole("button", { name: "Check status" })).toBeEnabled();
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-    expect(fetchMock).toHaveBeenCalledTimes(110);
+    expect(fetchMock).toHaveBeenCalledTimes(109);
+  });
+
+  it("uses wall-clock deadlines while a candidate status GET is permanently pending", async () => {
+    vi.useFakeTimers();
+    let pollSignal: AbortSignal | undefined;
+    const processingResponse = () => new Response(JSON.stringify({
+      ok: true,
+      data: { state: "processing", jobId: TASK_ID, status: "leased" },
+      requestId: "safe-request",
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        data: { state: "processing", jobId: TASK_ID, status: "pending", created: true },
+        requestId: "safe-request",
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockImplementationOnce((_url, init) => {
+        pollSignal = (init as RequestInit).signal ?? undefined;
+        return new Promise<Response>(() => undefined);
+      })
+      .mockImplementation(async () => processingResponse());
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      analysis={{ state: "missing" }}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Analyze" }));
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(59_000); });
+
+    expect(screen.getByRole("status")).toHaveTextContent("Still analyzing in the background");
+    await act(async () => { await vi.advanceTimersByTimeAsync(240_000); });
+
+    expect(pollSignal?.aborted).toBe(true);
+    const checkStatus = screen.getByRole("button", { name: "Check status" });
+    expect(checkStatus).toBeEnabled();
+    fireEvent.click(checkStatus);
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("button", { name: "Check status" })).toBeEnabled();
+  });
+
+  it("keeps the 60s background state and resumes slow cadence after a delayed status GET", async () => {
+    vi.useFakeTimers();
+    let resolvePoll: ((value: Response) => void) | undefined;
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        data: { state: "processing", jobId: TASK_ID, status: "pending", created: true },
+        requestId: "safe-request",
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolvePoll = resolve; }))
+      .mockResolvedValue(new Response(JSON.stringify({
+        ok: true,
+        data: { state: "processing", jobId: TASK_ID, status: "leased" },
+        requestId: "safe-request",
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      analysis={{ state: "missing" }}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Analyze" }));
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(screen.getByRole("status")).toHaveTextContent("Still analyzing in the background");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolvePoll?.(new Response(JSON.stringify({
+        ok: true,
+        data: { state: "processing", jobId: TASK_ID, status: "leased" },
+        requestId: "safe-request",
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      await Promise.resolve();
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("status")).toHaveTextContent("Still analyzing in the background");
+  });
+
+  it.each(["POST", "GET"])("rejects an unknown processing status from %s", async (method) => {
+    vi.useFakeTimers();
+    const unknown = new Response(JSON.stringify({
+      ok: true,
+      data: { state: "processing", jobId: TASK_ID, status: "mystery", ...(method === "POST" ? { created: true } : {}) },
+      requestId: "safe-request",
+    }), { status: method === "POST" ? 202 : 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    if (method === "POST") {
+      fetchMock.mockResolvedValueOnce(unknown);
+    } else {
+      fetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          ok: true,
+          data: { state: "processing", jobId: TASK_ID, status: "pending", created: true },
+          requestId: "safe-request",
+        }), { status: 202, headers: { "Content-Type": "application/json" } }))
+        .mockResolvedValueOnce(unknown);
+    }
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      analysis={{ state: "missing" }}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Analyze" }));
+    await act(async () => {});
+    if (method === "GET") await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Analysis is taking longer than expected. Try again.");
+    expect(screen.getByRole("button", { name: "Retry analysis" })).toBeEnabled();
   });
 
   it("shows a safe terminal model-output failure and submits one UUID for one in-flight Retry", async () => {
@@ -616,7 +816,7 @@ describe("Saved candidate expressions", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ok: true,
-        data: { state: "processing", jobId: TASK_ID, status: "queued", created: true },
+        data: { state: "processing", jobId: TASK_ID, status: "pending", created: true },
         requestId: "safe-request",
       }), { status: 202, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response("{}", { status: 500, headers: { "Content-Type": "application/json" } }));
@@ -642,7 +842,7 @@ describe("Saved candidate expressions", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ok: true,
-        data: { state: "processing", jobId: TASK_ID, status: "queued", created: true },
+        data: { state: "processing", jobId: TASK_ID, status: "pending", created: true },
         requestId: "safe-request",
       }), { status: 202, headers: { "Content-Type": "application/json" } }))
       .mockImplementationOnce((_url, init) => {

@@ -141,6 +141,51 @@ describe("Saved video learning bridge", () => {
     expect(screen.queryByText("This must remain unavailable.")).not.toBeInTheDocument();
   });
 
+  it("falls back to the newest readable schema-valid overview when newer artifacts are unusable", () => {
+    render(<SavedVideoDetailView
+      video={detail({
+        processingState: "ready",
+        processingErrors: [],
+        artifacts: [
+          {
+            artifactId: "11111111-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            savedItemId: null,
+            type: "overview",
+            promptVersion: "youtube-overview-v5-structured",
+            content: {
+              overview: "The readable overview remains available.",
+              chapters: [],
+              keyQuotes: [],
+            },
+          },
+          {
+            artifactId: "22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            savedItemId: null,
+            type: "overview",
+            promptVersion: "youtube-overview-v999",
+            content: {
+              overview: "The unknown overview must not render.",
+              chapters: [],
+              keyQuotes: [],
+            },
+          },
+          {
+            artifactId: "33333333-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            savedItemId: null,
+            type: "overview",
+            promptVersion: "youtube-overview-v5-structured",
+            content: { overview: "损坏的 overview", chapters: [], keyQuotes: [] },
+          },
+        ],
+      })}
+      deletionImpact={deletionImpact}
+    />);
+
+    expect(screen.getByText("The readable overview remains available.")).toBeInTheDocument();
+    expect(screen.queryByText("The unknown overview must not render.")).not.toBeInTheDocument();
+    expect(screen.queryByText("损坏的 overview")).not.toBeInTheDocument();
+  });
+
   it("does not pass malformed immutable artifact content across the client boundary", () => {
     const video = detail({
       artifacts: [{
