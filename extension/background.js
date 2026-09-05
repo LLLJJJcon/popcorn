@@ -224,9 +224,11 @@ async function submitArtifact(path, payload, jobId) {
 }
 
 async function requestOverview(message) {
+  const payload = { snapshotId: message.snapshotId };
+  if (typeof message.retryId === "string") payload.retryId = message.retryId;
   return submitArtifact(
     `/api/v1/youtube/${encodeURIComponent(message.videoId)}/overview`,
-    { snapshotId: message.snapshotId },
+    payload,
     message.jobId,
   );
 }

@@ -17,6 +17,7 @@ import {
 } from "@/server/ai/prompts/translate-segments.v1";
 import {
   buildOverviewPrompt,
+  groupOverviewPromptBlocks,
   OverviewContentSchema,
   YOUTUBE_OVERVIEW_PROMPT_VERSION,
 } from "@/server/ai/prompts/youtube-overview.v1";
@@ -42,13 +43,13 @@ const GatewayOverviewSchema = z.strictObject({
     title: z.string(),
     summary: z.string(),
     timestampSeconds: z.number(),
-    sourceSegmentIndexes: z.array(SegmentIndexSchema).min(1).max(32),
+    sourceBlockIndex: SegmentIndexSchema,
   })),
   keyQuotes: z.array(z.strictObject({
     quote: z.string(),
     englishMeaning: z.string(),
     timestampSeconds: z.number(),
-    sourceSegmentIndexes: z.array(SegmentIndexSchema).min(1).max(32),
+    sourceBlockIndex: SegmentIndexSchema,
   })),
 });
 const GatewayTranslationSchema = z.strictObject({
@@ -212,26 +213,31 @@ export function createOpenAiCompatibleLearningArtifactProvider(
 
   return {
     async generateOverview(evidence) {
+      const blocks = groupOverviewPromptBlocks(requestSegments(evidence.segments));
       const raw = await complete(
         YOUTUBE_OVERVIEW_PROMPT_VERSION,
-        buildOverviewPrompt(evidence.title, requestSegments(evidence.segments)),
+        buildOverviewPrompt(evidence.title, blocks),
       );
       try {
         const gateway = GatewayOverviewSchema.parse(raw);
-        const mapIndexes = (indexes: readonly number[]): string[] => indexes.map((index) => {
-          const segment = evidence.segments[index];
-          if (!segment) throw outputInvalid();
-          return segment.stableId;
-        });
+        const mapBlockIndex = (blockIndex: number): string[] => {
+          const block = blocks[blockIndex];
+          if (!block) throw outputInvalid();
+          return block.segmentIndexes.map((segmentIndex) => {
+            const segment = evidence.segments[segmentIndex];
+            if (!segment) throw outputInvalid();
+            return segment.stableId;
+          });
+        };
         return OverviewContentSchema.parse({
           overview: gateway.overview,
-          chapters: gateway.chapters.map(({ sourceSegmentIndexes, ...chapter }) => ({
+          chapters: gateway.chapters.map(({ sourceBlockIndex, ...chapter }) => ({
             ...chapter,
-            sourceSegmentIds: mapIndexes(sourceSegmentIndexes),
+            sourceSegmentIds: mapBlockIndex(sourceBlockIndex),
           })),
-          keyQuotes: gateway.keyQuotes.map(({ sourceSegmentIndexes, ...quote }) => ({
+          keyQuotes: gateway.keyQuotes.map(({ sourceBlockIndex, ...quote }) => ({
             ...quote,
-            sourceSegmentIds: mapIndexes(sourceSegmentIndexes),
+            sourceSegmentIds: mapBlockIndex(sourceBlockIndex),
           })),
         });
       } catch (error) {

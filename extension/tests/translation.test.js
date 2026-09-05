@@ -164,6 +164,68 @@ test("transcript header places a hidden Retry failed action immediately beside C
   assert.match(retry.textContent, /Retry failed/);
 });
 
+test("Overview has a hidden accessible retry action beside its title", () => {
+  const document = new JSDOM(read("sidepanel.html")).window.document;
+  const title = [...document.querySelectorAll(".section-title")]
+    .find((element) => element.textContent.trim() === "Overview");
+  const retry = document.getElementById("retryOverviewBtn");
+
+  assert.ok(retry);
+  assert.equal(retry.hidden, true);
+  assert.equal(retry.type, "button");
+  assert.match(retry.textContent, /Retry overview/i);
+  assert.equal(retry.previousElementSibling, title);
+});
+
+test("a failed Overview reveals one explicit UUID retry and suppresses duplicates while it is in flight", async () => {
+  const dom = new JSDOM(`
+    <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
+    <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
+  `);
+  const sent = [];
+  let finishRetry;
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000001" },
+    sendMessage(message) {
+      sent.push({ ...message });
+      if (sent.length === 1) return Promise.resolve({ success: false, error: "Overview failed." });
+      return new Promise((resolve) => { finishRetry = resolve; });
+    },
+  });
+  assert.equal(typeof helpers.triggerAnalysis, "function");
+  assert.equal(typeof helpers.retryOverview, "function");
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "第一条中文内容。" }];
+    currentAnalysis = null;
+  `);
+
+  await helpers.triggerAnalysis();
+  const retry = dom.window.document.getElementById("retryOverviewBtn");
+  assert.equal(retry.hidden, false);
+  assert.equal(retry.disabled, false);
+
+  const firstRetry = helpers.retryOverview();
+  helpers.retryOverview();
+  assert.equal(retry.hidden, true);
+  assert.equal(retry.disabled, true);
+  assert.equal(sent.length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[1])), {
+    action: "requestOverview",
+    videoId: "abc123XYZ00",
+    snapshotId: "40000000-0000-4000-8000-000000000001",
+    retryId: "70000000-0000-4000-8000-000000000001",
+  });
+
+  finishRetry({ success: false, error: "Overview failed again." });
+  await firstRetry;
+  assert.equal(retry.hidden, false);
+  assert.equal(retry.disabled, false);
+});
+
 test("semantic segmentation rebuilds sentences across caption boundaries", () => {
   const { groupTranscriptEntries } = loadSidepanelHelpers();
   const segments = groupTranscriptEntries(
@@ -1269,6 +1331,27 @@ test("explicit translation retry forwards one UUID identity and no Provider cont
   assert.deepEqual(bodies, [{
     snapshotId: "snapshot-1",
     segmentIds: ["segment-a", "segment-b"],
+    retryId: "70000000-0000-4000-8000-000000000001",
+  }]);
+});
+
+test("explicit Overview retry forwards one UUID identity and no Provider controls", async () => {
+  const bodies = [];
+  const helpers = loadBackgroundHelpers({ fetchImpl: async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return { status: 202, json: async () => ({ ok: true, data: { jobId: "job-1", status: "pending" } }) };
+  } });
+  await helpers.requestOverview({
+    videoId: "abc123XYZ00",
+    snapshotId: "snapshot-1",
+    retryId: "70000000-0000-4000-8000-000000000001",
+    providerUrl: "https://attacker.example",
+    apiKey: "secret",
+    model: "attacker-model",
+  });
+
+  assert.deepEqual(bodies, [{
+    snapshotId: "snapshot-1",
     retryId: "70000000-0000-4000-8000-000000000001",
   }]);
 });

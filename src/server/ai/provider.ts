@@ -18,7 +18,10 @@ const SnapshotIdSchema = z.string().uuid();
 const PromptModelSchema = z.string().trim().min(1).max(100);
 const MAX_REQUEST_BYTES = 65_536;
 
-const OverviewRequestSchema = z.strictObject({ snapshotId: SnapshotIdSchema });
+const OverviewRequestSchema = z.strictObject({
+  snapshotId: SnapshotIdSchema,
+  retryId: z.string().uuid().optional(),
+});
 const TranslationRequestSchema = z.strictObject({
   snapshotId: SnapshotIdSchema,
   segmentIds: z.array(StableIdSchema).min(1).refine(
@@ -272,9 +275,11 @@ export function createLearningArtifactRoute(dependencies: RouteDependencies) {
       : dependencies.jobType === "explain_selection"
         ? [...(parsed.data as z.infer<typeof ExplanationRequestSchema>).segmentIds]
         : [];
-    const retryId = dependencies.jobType === "translate_segments"
-      ? (parsed.data as z.infer<typeof TranslationRequestSchema>).retryId
-      : undefined;
+    const retryId = dependencies.jobType === "generate_overview"
+      ? (parsed.data as z.infer<typeof OverviewRequestSchema>).retryId
+      : dependencies.jobType === "translate_segments"
+        ? (parsed.data as z.infer<typeof TranslationRequestSchema>).retryId
+        : undefined;
     const knownIds = new Set(owned.segments.map((segment) => segment.stableId));
     if (segmentIds.some((id) => !knownIds.has(id))) {
       return noStoreJson(failure({ code: "VALIDATION_FAILED", message: "Unknown transcript segment", retryable: false }, requestId), 400);
@@ -325,7 +330,7 @@ export function createLearningArtifactRoute(dependencies: RouteDependencies) {
       });
     }
     const dedupePayload = dependencies.jobType === "generate_overview"
-      ? { snapshotId: owned.snapshotId }
+      ? { snapshotId: owned.snapshotId, ...(retryId ? { retryId } : {}) }
       : dependencies.jobType === "translate_segments"
         ? { snapshotId: owned.snapshotId, segmentIds, ...(retryId ? { retryId } : {}) }
         : parsed.data;

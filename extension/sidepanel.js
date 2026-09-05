@@ -365,6 +365,7 @@ let currentChannelName = "";
 let currentVideoDescription = "";
 let currentVideoDuration = 0;
 let isAnalysisLoading = false; // Track if analysis is in progress
+let overviewRetryAvailable = false;
 let youtubeTabId = null; // Store the YouTube tab ID for reliable messaging
 let errorAction = null;
 let savedLibrarySummaries = [];
@@ -929,6 +930,9 @@ function setupEventListeners() {
   document
     .getElementById("retryFailedTranslationsBtn")
     ?.addEventListener("click", retryFailedTranslations);
+  document
+    .getElementById("retryOverviewBtn")
+    ?.addEventListener("click", retryOverview);
   document.querySelectorAll(".transcript-mode-btn").forEach((button) => {
     button.addEventListener("click", () => {
       handleTranscriptModeChange(button.dataset.transcriptMode);
@@ -1104,6 +1108,8 @@ async function startDigest(videoId, videoUrl) {
     digestGeneration !== translationGeneration || videoId !== currentVideoId;
   retryFailedTranslationsInFlight = false;
   retryFailedTranslationsCount = 0;
+  overviewRetryAvailable = false;
+  updateOverviewRetryButton();
   if (transcriptScrollObserver) transcriptScrollObserver.disconnect();
   transcriptScrollObserver = null;
 
@@ -1582,7 +1588,7 @@ function switchTab(tabName) {
   }
 
   // Lazy-load LLM analysis when user switches to Overview tab
-  if (tabName === "overview" && !currentAnalysis && !isAnalysisLoading) {
+  if (tabName === "overview" && !currentAnalysis && !isAnalysisLoading && !overviewRetryAvailable) {
     triggerAnalysis();
   }
   if (tabName === "saved") {
@@ -1594,11 +1600,25 @@ function switchTab(tabName) {
  * Triggers the LLM analysis (lazy-loaded when user clicks Overview or Quotes tab).
  * This saves tokens by not running analysis until needed.
  */
-async function triggerAnalysis() {
+function updateOverviewRetryButton() {
+  const button = document.getElementById("retryOverviewBtn");
+  if (!button) return;
+  button.hidden = !overviewRetryAvailable || isAnalysisLoading;
+  button.disabled = isAnalysisLoading;
+}
+
+function retryOverview() {
+  if (!overviewRetryAvailable || isAnalysisLoading) return;
+  return triggerAnalysis(crypto.randomUUID());
+}
+
+async function triggerAnalysis(retryId) {
   if (!currentTranscriptTimestamped || isAnalysisLoading || currentAnalysis)
     return;
 
   isAnalysisLoading = true;
+  overviewRetryAvailable = false;
+  updateOverviewRetryButton();
 
   // Show loading indicators in the Overview tab
   const chapterList = document.getElementById("chapterList");
@@ -1616,17 +1636,17 @@ async function triggerAnalysis() {
       action: "requestOverview",
       videoId: currentVideoId,
       snapshotId: currentSnapshotId,
+      ...(retryId ? { retryId } : {}),
     });
 
     if (!analysisResult.success) {
       if (chapterList)
         chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Analysis failed: ${escapeHtml(analysisResult.error || "Unknown error")}</li>`;
-      isAnalysisLoading = false;
+      overviewRetryAvailable = true;
       return;
     }
     if (analysisResult.pending) {
       if (chapterList) chapterList.innerHTML = '<li class="chapter-item" style="color: var(--text-muted); border: none;">Overview is still processing. Reopen this tab shortly.</li>';
-      isAnalysisLoading = false;
       return;
     }
 
@@ -1640,9 +1660,11 @@ async function triggerAnalysis() {
     console.error("[YouTube Digest Panel] Analysis error:", error);
     if (chapterList)
       chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Error: ${escapeHtml(error.message)}</li>`;
+    overviewRetryAvailable = true;
+  } finally {
+    isAnalysisLoading = false;
+    updateOverviewRetryButton();
   }
-
-  isAnalysisLoading = false;
 }
 
 // ============================================================
@@ -2928,6 +2950,8 @@ globalThis.__YTD_TRANSCRIPT_TESTING__ = {
   renderAnalysisResults,
   formatTimestampSeconds,
   getTranscriptErrorPresentation,
+  triggerAnalysis,
+  retryOverview,
 };
 
 globalThis.__YTD_SAVE_TESTING__ = {

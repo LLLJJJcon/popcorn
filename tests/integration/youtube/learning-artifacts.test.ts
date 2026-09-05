@@ -93,13 +93,13 @@ const gatewayOverview = {
     title: chapter.title,
     summary: chapter.summary,
     timestampSeconds: chapter.timestampSeconds,
-    sourceSegmentIndexes: [0],
+    sourceBlockIndex: 0,
   })),
-  keyQuotes: validOverview.keyQuotes.map((quote, index) => ({
+  keyQuotes: validOverview.keyQuotes.map((quote) => ({
     quote: quote.quote,
     englishMeaning: quote.englishMeaning,
     timestampSeconds: quote.timestampSeconds,
-    sourceSegmentIndexes: [index < 2 ? 0 : 1],
+    sourceBlockIndex: 0,
   })),
 };
 
@@ -128,6 +128,47 @@ async function expectGatewayCode(
 }
 
 describe("bounded openai-compatible adapter", () => {
+  test("compacts 815 native captions into one bounded Overview request and grounds block anchors to stable IDs", async () => {
+    const representativeEvidence: LearningArtifactEvidence = {
+      ...evidence,
+      segments: Array.from({ length: 815 }, (_, index) => ({
+        stableId: index.toString(16).padStart(64, "0"),
+        originalChinese: `第${index + 1}条中文内容。`,
+        startSeconds: index * 2,
+        endSeconds: index * 2 + 2,
+      })),
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async () => completionResponse({
+      overview: "A complete overview of the native Chinese transcript.",
+      chapters: [{
+        title: "Opening",
+        summary: "The video begins with the first caption.",
+        timestampSeconds: 0,
+        sourceBlockIndex: 0,
+      }],
+      keyQuotes: [
+        { quote: "第1条中文内容。", englishMeaning: "The first Chinese caption.", timestampSeconds: 0, sourceBlockIndex: 0 },
+        { quote: "第2条中文内容。", englishMeaning: "The second Chinese caption.", timestampSeconds: 2, sourceBlockIndex: 0 },
+        { quote: "第815条中文内容。", englishMeaning: "The final Chinese caption.", timestampSeconds: 1628, sourceBlockIndex: 33 },
+      ],
+    }));
+    const provider = createOpenAiCompatibleLearningArtifactProvider({
+      config: RUNTIME_CONFIG,
+      fetchImpl,
+    });
+
+    const content = await provider.generateOverview(representativeEvidence);
+
+    expect(validateOverviewContent(content, representativeEvidence)).toEqual(content);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const requestBody = String(fetchImpl.mock.calls[0][1]?.body);
+    expect(new TextEncoder().encode(requestBody).byteLength).toBeLessThan(65_536);
+    expect(requestBody).toContain("第1条中文内容。");
+    expect(requestBody).toContain("第815条中文内容。");
+    expect(requestBody).not.toContain(representativeEvidence.segments[0].stableId);
+    expect(requestBody).not.toContain(USER_A);
+  });
+
   test("accepts one structured translation group larger than four through Provider and artifact schemas", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => completionResponse({
       translations: BULK_SEGMENT_IDS.map((_id, segmentIndex) => ({
@@ -228,7 +269,7 @@ describe("bounded openai-compatible adapter", () => {
     );
 
     expect(bodies[0]).toContain("中文视频");
-    expect(bodies[0]).toContain("youtube-overview-v1");
+    expect(bodies[0]).toContain("youtube-overview-v2");
     expect(bodies[0]).toContain("这个表达很自然。");
     expect(bodies[0]).toContain("你可以直接这样说。");
     expect(bodies[1]).toContain("这个表达");
@@ -415,6 +456,39 @@ function routeStore(overrides: Partial<LearningArtifactRouteStore> = {}): Learni
 }
 
 describe("fast durable learning-artifact request routes", () => {
+  test("an Overview retry UUID changes only its semantic dedupe identity", async () => {
+    const store = routeStore();
+    const route = createLearningArtifactRoute({
+      jobType: "generate_overview",
+      authenticate: async () => ({ userId: USER_A }),
+      store,
+      promptVersion: "youtube-overview-v2",
+      requestId: () => "request-overview-retry",
+    });
+    const submit = (retryId?: string) => route(new Request(
+      "https://app.popcorn.local/api/v1/youtube/abc123XYZ00/overview",
+      {
+        method: "POST",
+        body: JSON.stringify({ snapshotId: SNAPSHOT_ID, ...(retryId ? { retryId } : {}) }),
+      },
+    ), { params: Promise.resolve({ videoId: "abc123XYZ00" }) });
+
+    const original = await submit();
+    const firstRetry = await submit("70000000-0000-4000-8000-000000000001");
+    const secondRetry = await submit("70000000-0000-4000-8000-000000000002");
+
+    expect([original.status, firstRetry.status, secondRetry.status]).toEqual([202, 202, 202]);
+    const registrations = vi.mocked(store.register).mock.calls.map(([registration]) => registration);
+    expect(new Set(registrations.map(({ dedupeKey }) => dedupeKey)).size).toBe(3);
+    expect(registrations.map(({ input }) => input)).toEqual([
+      registrations[0].input,
+      registrations[0].input,
+      registrations[0].input,
+    ]);
+    expect(JSON.stringify(registrations[0].input)).not.toContain("retryId");
+    expect(registrations[0].input.promptVersion).toBe("youtube-overview-v2");
+  });
+
   test("a retry UUID changes only translation dedupe identity and is absent from private Provider input", async () => {
     const store = routeStore({
       resolveEvidence: vi.fn(async () => bulkEvidence),
