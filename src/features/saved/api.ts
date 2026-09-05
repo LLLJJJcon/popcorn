@@ -169,7 +169,7 @@ export function groupSavedVideos({
   readonly items: readonly (SavedItemView & { readonly sourceId: string })[];
   readonly jobs: readonly JobRow[];
 }): SavedVideoSummary[] {
-  return sources.flatMap((source) => {
+  const summaries = sources.flatMap((source) => {
     const sourceItems = items.filter((item) => item.sourceId === source.id);
     if (sourceItems.length === 0) return [];
     const snapshot = newestSnapshot(
@@ -178,6 +178,13 @@ export function groupSavedVideos({
     );
     const videoSave = sourceItems.find((item) => item.kind === "video");
     const title = snapshot?.title ?? videoSave?.rawText ?? "Saved YouTube video";
+    const latestSavedAt = sourceItems.reduce(
+      (latest, item) => item.capturedAt > latest ? item.capturedAt : latest,
+      sourceItems[0]!.capturedAt,
+    );
+    const latestItemId = sourceItems
+      .filter((item) => item.capturedAt === latestSavedAt)
+      .toSorted((left, right) => left.id.localeCompare(right.id))[0]!.id;
     return [{
       sourceId: source.id,
       youtubeVideoId: source.youtubeVideoId,
@@ -186,15 +193,26 @@ export function groupSavedVideos({
       channel: snapshot?.channel ?? "YouTube",
       thumbnailUrl: snapshot?.thumbnailUrl ?? `https://i.ytimg.com/vi/${source.youtubeVideoId}/hqdefault.jpg`,
       savedCount: sourceItems.length,
-      latestSavedAt: sourceItems.reduce(
-        (latest, item) => item.capturedAt > latest ? item.capturedAt : latest,
-        sourceItems[0]!.capturedAt,
-      ),
+      latestSavedAt,
+      latestItemId,
       processingState: processingState(sourceItems, jobs.filter((job) => job.sourceId === source.id)),
     }];
   }).toSorted((left, right) =>
-    right.latestSavedAt.localeCompare(left.latestSavedAt) || left.sourceId.localeCompare(right.sourceId),
+    right.latestSavedAt.localeCompare(left.latestSavedAt)
+    || left.latestItemId.localeCompare(right.latestItemId)
+    || left.sourceId.localeCompare(right.sourceId),
   );
+  return summaries.map((summary): SavedVideoSummary => ({
+    sourceId: summary.sourceId,
+    youtubeVideoId: summary.youtubeVideoId,
+    canonicalUrl: summary.canonicalUrl,
+    title: summary.title,
+    channel: summary.channel,
+    thumbnailUrl: summary.thumbnailUrl,
+    savedCount: summary.savedCount,
+    latestSavedAt: summary.latestSavedAt,
+    processingState: summary.processingState,
+  }));
 }
 
 function objectPayload(payload: Json): Record<string, Json | undefined> {

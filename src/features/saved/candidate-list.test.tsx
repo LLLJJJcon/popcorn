@@ -104,7 +104,7 @@ describe("Saved candidate expressions", () => {
     }), { status: 201, headers: { "Content-Type": "application/json" } }));
     render(<CandidateList {...props} />);
 
-    const action = screen.getByRole("button", { name: "Use It Now" });
+    const action = screen.getByRole("button", { name: "Practice this expression" });
     await waitFor(() => expect(action).toBeEnabled());
     await userEvent.click(action);
 
@@ -234,7 +234,8 @@ describe("Saved candidate expressions", () => {
     expect(screen.queryByText("旧表达")).not.toBeInTheDocument();
     expect(screen.getByText("最新表达")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Delete 中文访谈?" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Use It Now" }));
+    expect(screen.queryByText(/already.*Vault|added.*Vault/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Practice this expression" }));
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
     expect(JSON.parse(String(vi.mocked(globalThis.fetch).mock.calls[0]![1]?.body))).toEqual({
       savedItemId: SAVED_ITEM_ID,
@@ -289,7 +290,7 @@ describe("Saved candidate expressions", () => {
     render(await SavedVideoPage({ params: Promise.resolve({ videoSourceId: "ffffffff-ffff-4fff-8fff-ffffffffffff" }) }));
 
     expect(screen.getByTestId("raw-text")).toHaveTextContent("保留的原始字幕");
-    expect(screen.queryByRole("button", { name: "Use It Now" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Practice this expression" })).not.toBeInTheDocument();
     expect(screen.queryByText("旧但有效")).not.toBeInTheDocument();
     expect(screen.queryByText("错误版本")).not.toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -325,7 +326,7 @@ describe("Saved candidate expressions", () => {
     />);
 
     expect(screen.getAllByText("可以说")).toHaveLength(2);
-    const actions = screen.getAllByRole("button", { name: "Use It Now" });
+    const actions = screen.getAllByRole("button", { name: "Practice this expression" });
     expect(actions).toHaveLength(2);
     await userEvent.click(actions[1]!);
 
@@ -364,7 +365,8 @@ describe("Saved candidate expressions", () => {
       }}
     />);
 
-    expect(screen.queryByRole("button", { name: "Use It Now" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Practice this expression" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry analysis" })).not.toBeInTheDocument();
     expect(screen.getByText("Candidate analysis is unavailable.")).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -382,7 +384,27 @@ describe("Saved candidate expressions", () => {
     />);
 
     expect(screen.getByText("Expressions are still being organized. Your saved material remains available.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Retry organizing" }));
-    expect(await screen.findByText("Configure a model gateway to organize this save.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
+    expect(await screen.findByRole("link", { name: "Set up model gateway" })).toHaveAttribute(
+      "href",
+      "/settings/model-gateway",
+    );
+  });
+
+  it("shows a safe retry error and never hides the recovery action behind internal details", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    }));
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      artifact={null}
+    />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Analysis could not be started. Try again.");
+    expect(screen.getByRole("button", { name: "Retry analysis" })).toBeEnabled();
+    expect(screen.queryByText(/500|recovery failed|stack/i)).not.toBeInTheDocument();
   });
 });

@@ -1,0 +1,106 @@
+import Link from "next/link";
+
+import { OverviewContentSchema, YOUTUBE_OVERVIEW_PROMPT_VERSION } from "@/server/ai/prompts/youtube-overview.v1";
+import type { DeletionImpact as SourceDeletionImpact } from "@/server/domain/plan-source-deletion";
+import type { SavedArtifactView, SavedVideoDetail } from "./api";
+import { CandidateList, type CandidateArtifact } from "./candidate-list";
+import { DeleteSourceDialog } from "./delete-source-dialog";
+import { ProcessingState } from "./processing-state";
+import { SavedTimeline } from "./saved-timeline";
+import styles from "./saved-workspace.module.css";
+
+function latestCandidateArtifact(
+  artifacts: readonly SavedArtifactView[],
+  savedItemId: string,
+): CandidateArtifact | null {
+  const artifact = artifacts.findLast((entry) =>
+    entry.type === "saved_item_analysis" && entry.savedItemId === savedItemId,
+  );
+  return artifact ? {
+    artifactId: artifact.artifactId,
+    savedItemId,
+    promptVersion: artifact.promptVersion,
+    content: artifact.content,
+  } : null;
+}
+
+function timestampUrl(canonicalUrl: string, seconds: number) {
+  const url = new URL(canonicalUrl);
+  url.searchParams.set("t", `${Math.max(0, Math.floor(seconds))}s`);
+  return url.toString();
+}
+
+function PersistedOverview({ video }: { readonly video: SavedVideoDetail }) {
+  const artifact = video.artifacts.findLast(({ type }) => type === "overview");
+  const overview = artifact?.promptVersion === YOUTUBE_OVERVIEW_PROMPT_VERSION
+    ? OverviewContentSchema.safeParse(artifact.content)
+    : null;
+  if (!overview?.success) return null;
+
+  return (
+    <section className={styles.paperSection} aria-labelledby="saved-overview-heading">
+      <p className={styles.eyebrow}>Generated from this saved video</p>
+      <h2 id="saved-overview-heading">Video overview</h2>
+      <p>{overview.data.overview}</p>
+      <div className={styles.chapterGrid}>
+        {overview.data.chapters.map((chapter) => (
+          <article className={styles.chapter} key={`${chapter.timestampSeconds}-${chapter.title}`}>
+            <h3>{chapter.title}</h3>
+            <p>{chapter.summary}</p>
+            <a href={timestampUrl(video.canonicalUrl, chapter.timestampSeconds)}>Watch this chapter</a>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function SavedVideoDetailView({
+  video,
+  deletionImpact,
+}: {
+  readonly video: SavedVideoDetail;
+  readonly deletionImpact: SourceDeletionImpact;
+}): React.JSX.Element {
+  return (
+    <main className={styles.workspace}>
+      <p><Link className={styles.backLink} href="/saved">Back to Saved</Link></p>
+      <header className={styles.detailHeader}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- this is the persisted, source-owned YouTube thumbnail URL. */}
+        <img className={styles.detailThumbnail} src={video.thumbnailUrl} alt="" width={320} height={180} />
+        <div>
+          <p className={styles.eyebrow}>Saved YouTube video</p>
+          <h1>{video.title}</h1>
+          <p>{video.channel} · {video.savedCount} saved {video.savedCount === 1 ? "moment" : "moments"}</p>
+          <p><a href={video.canonicalUrl}>Watch on YouTube</a></p>
+          <ProcessingState state={video.processingState} />
+        </div>
+      </header>
+
+      {video.processingErrors.map((message, index) => (
+        <p className={styles.alert} role="alert" key={`${message}-${index}`}>{message}</p>
+      ))}
+
+      <section className={styles.paperSection} aria-labelledby="saved-moments-heading">
+        <p className={styles.eyebrow}>Your source material</p>
+        <h2 id="saved-moments-heading">Saved moments</h2>
+        <SavedTimeline
+          items={video.items}
+          renderAfter={(item) => (
+            <CandidateList
+              savedItemId={item.id}
+              youtubeUrl={video.canonicalUrl}
+              artifact={latestCandidateArtifact(video.artifacts, item.id)}
+            />
+          )}
+        />
+      </section>
+
+      <PersistedOverview video={video} />
+
+      <div className={styles.deleteSection}>
+        <DeleteSourceDialog impact={deletionImpact} />
+      </div>
+    </main>
+  );
+}

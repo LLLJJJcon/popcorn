@@ -44,7 +44,7 @@ export function CandidateExpressionCard({
         </a>
       </p>
       {candidate.confidence < 0.7 ? <p>Needs your confirmation</p> : null}
-      <button type="button" disabled={disabled} onClick={onUse}>Use It Now</button>
+      <button type="button" disabled={disabled} onClick={onUse}>Practice this expression</button>
     </article>
   );
 }

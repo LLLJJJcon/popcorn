@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 
@@ -12,7 +13,7 @@ import { CandidateExpressionCard } from "./candidate-expression";
 
 const ArtifactContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema });
 
-type CandidateArtifact = {
+export type CandidateArtifact = {
   readonly artifactId: string;
   readonly savedItemId: string;
   readonly promptVersion: string;
@@ -95,15 +96,21 @@ export function CandidateList({
   }
 
   if (!artifact) {
+    if (recoveryState === "gateway") {
+      return (
+        <section aria-label="Candidate expressions">
+          <p>Analysis needs an active model gateway. Your saved material remains available.</p>
+          <Link href="/settings/model-gateway">Set up model gateway</Link>
+        </section>
+      );
+    }
     return (
       <section aria-label="Candidate expressions">
-        <p>{recoveryState === "gateway"
-          ? "Configure a model gateway to organize this save."
-          : recoveryState === "error"
-            ? "Candidate processing could not be started. Your saved material remains available."
-            : "Expressions are still being organized. Your saved material remains available."}</p>
+        {recoveryState === "error"
+          ? <p role="alert">Analysis could not be started. Try again.</p>
+          : <p>Expressions are still being organized. Your saved material remains available.</p>}
         <button type="button" disabled={recoveryState === "pending"} onClick={retry}>
-          Retry organizing
+          {recoveryState === "pending" ? "Starting analysis…" : "Retry analysis"}
         </button>
       </section>
     );

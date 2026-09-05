@@ -1,16 +1,24 @@
 import type { SavedItemView } from "./api";
 import { sortSavedTimeline } from "./api";
 import { ProcessingState } from "./processing-state";
+import styles from "./saved-workspace.module.css";
 
-export function SavedTimeline({ items }: { readonly items: readonly SavedItemView[] }) {
+export function SavedTimeline({
+  items,
+  renderAfter,
+}: {
+  readonly items: readonly SavedItemView[];
+  readonly renderAfter?: (item: SavedItemView) => React.ReactNode;
+}) {
   return (
-    <ol>
+    <ol className={styles.timeline}>
       {sortSavedTimeline(items).map((item) => (
-        <li key={item.id}>
+        <li className={styles.moment} key={item.id}>
           <a href={item.youtubeUrl}>{item.startSeconds === null ? "Watch video" : `${Math.floor(item.startSeconds)}s`}</a>
-          <p data-testid="raw-text" lang="zh-CN">{item.rawText}</p>
-          {item.englishTranslation ? <p>{item.englishTranslation}</p> : null}
+          <p className={styles.rawText} data-testid="raw-text" lang="zh-CN">{item.rawText}</p>
+          {item.englishTranslation ? <p className={styles.translation}>{item.englishTranslation}</p> : null}
           <ProcessingState state={item.status} />
+          {renderAfter?.(item)}
         </li>
       ))}
     </ol>

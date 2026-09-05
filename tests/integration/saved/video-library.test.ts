@@ -1,6 +1,7 @@
 import {
   createSavedLibraryHttpHandlers,
   createSavedLibraryService,
+  groupSavedVideos,
   type SavedLibraryRepository,
   type SavedLibraryRows,
 } from "@/features/saved/api";
@@ -95,6 +96,84 @@ function repository(data = rows()): SavedLibraryRepository & { calls: string[] }
 }
 
 describe("owner-scoped Saved video library", () => {
+  it("uses ascending latest saved-item ID before source ID when latest activity times tie", () => {
+    const summaries = groupSavedVideos({
+      sources: [
+        { id: "source-with-later-source-id", youtubeVideoId: "laterSrc01", canonicalUrl: "https://www.youtube.com/watch?v=laterSrc01" },
+        { id: "source-with-ascending-latest-item-id", youtubeVideoId: "earlyItem1", canonicalUrl: "https://www.youtube.com/watch?v=earlyItem1" },
+      ],
+      snapshots: [],
+      items: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          sourceId: "source-with-later-source-id",
+          kind: "subtitle_row",
+          status: "ready",
+          capturedAt: "2026-08-21T00:00:00.000Z",
+          startSeconds: 1,
+          rawText: "后",
+          englishTranslation: null,
+          youtubeUrl: "https://www.youtube.com/watch?v=laterSrc01&t=1s",
+        },
+        {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          sourceId: "source-with-ascending-latest-item-id",
+          kind: "subtitle_row",
+          status: "ready",
+          capturedAt: "2026-08-21T00:00:00.000Z",
+          startSeconds: 1,
+          rawText: "先",
+          englishTranslation: null,
+          youtubeUrl: "https://www.youtube.com/watch?v=earlyItem1&t=1s",
+        },
+      ],
+      jobs: [],
+    });
+
+    expect(summaries.map(({ sourceId }) => sourceId)).toEqual([
+      "source-with-ascending-latest-item-id",
+      "source-with-later-source-id",
+    ]);
+    expect(JSON.stringify(summaries)).not.toMatch(/latestItemId|aaaaaaaa|bbbbbbbb/);
+  });
+
+  it("does not let source ID override the saved-item tie-break", () => {
+    const summaries = groupSavedVideos({
+      sources: [
+        { id: "source-a", youtubeVideoId: "sourceA0001", canonicalUrl: "https://www.youtube.com/watch?v=sourceA0001" },
+        { id: "source-z", youtubeVideoId: "sourceZ0001", canonicalUrl: "https://www.youtube.com/watch?v=sourceZ0001" },
+      ],
+      snapshots: [],
+      items: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          sourceId: "source-a",
+          kind: "subtitle_row",
+          status: "ready",
+          capturedAt: "2026-08-21T00:00:00.000Z",
+          startSeconds: 1,
+          rawText: "后",
+          englishTranslation: null,
+          youtubeUrl: "https://www.youtube.com/watch?v=sourceA0001&t=1s",
+        },
+        {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          sourceId: "source-z",
+          kind: "subtitle_row",
+          status: "ready",
+          capturedAt: "2026-08-21T00:00:00.000Z",
+          startSeconds: 1,
+          rawText: "先",
+          englishTranslation: null,
+          youtubeUrl: "https://www.youtube.com/watch?v=sourceZ0001&t=1s",
+        },
+      ],
+      jobs: [],
+    });
+
+    expect(summaries.map(({ sourceId }) => sourceId)).toEqual(["source-z", "source-a"]);
+  });
+
   it("groups seven saves into one list DTO without any transcript or raw payload", async () => {
     const repo = repository();
     const result = await createSavedLibraryService(repo).list(USER_A);
