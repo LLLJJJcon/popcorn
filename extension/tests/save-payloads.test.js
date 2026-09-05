@@ -114,6 +114,7 @@ function createSidePanelHandlerHarness() {
   const saveCalls = [];
   const runtimeMessages = [];
   const forbiddenCalls = [];
+  const scheduledResets = [];
   const recordForbiddenCall = (name, args = []) => {
     forbiddenCalls.push({ name, args: jsonValue(args) });
   };
@@ -171,7 +172,10 @@ function createSidePanelHandlerHarness() {
     },
     CSS: { escape: (value) => value },
     YTD_SETTINGS: {},
-    setTimeout: () => 0,
+    setTimeout(callback, delay) {
+      scheduledResets.push({ callback, delay });
+      return scheduledResets.length;
+    },
     clearTimeout() {},
     setInterval: () => 1,
     clearInterval() {},
@@ -236,6 +240,7 @@ function createSidePanelHandlerHarness() {
     saveCalls,
     runtimeMessages,
     forbiddenCalls,
+    scheduledResets,
     get submitted() {
       return submitted;
     },
@@ -505,6 +510,55 @@ test("the actual subtitle-row Save click enqueues its displayed bilingual row on
       contextAfter: ["我完全没想到。"],
     },
   ]);
+  assert.deepEqual(harness.runtimeMessages, []);
+  assertNoSaveSideEffects(harness);
+});
+
+test("the actual subtitle-row Save click keeps the row saved after the reset callback runs", async () => {
+  const harness = createSidePanelHandlerHarness();
+  vm.runInContext(
+    `
+      currentTranscriptMode = "bilingual";
+      const renderedSegments = getActiveTranscriptSegments();
+      transcriptParagraphCache.set(
+        transcriptTranslationCacheKey(renderedSegments[1]),
+        "That is way too absurd."
+      );
+      renderTranscriptModeRows(renderedSegments, "bilingual");
+    `,
+    harness.context,
+  );
+  const row = harness.document.querySelectorAll(".transcript-entry")[1];
+  const saveButton = row.querySelector(".transcript-save-btn");
+
+  await clickAndFlush(harness, saveButton);
+
+  assert.deepEqual(jsonValue(harness.saveCalls), [
+    {
+      clientEventId: EVENT_ID,
+      youtubeVideoId: VIDEO_ID,
+      capturedAt: CAPTURED_AT,
+      kind: "subtitle_row",
+      segmentId: SEGMENT_A,
+      originalChinese: "这也太离谱了吧。",
+      englishTranslation: "That is way too absurd.",
+      startSeconds: 42,
+      endSeconds: 48,
+      contextBefore: ["你刚才看到了吗？"],
+      contextAfter: ["我完全没想到。"],
+    },
+  ]);
+  assert.equal(harness.scheduledResets.length, 1);
+
+  harness.scheduledResets[0].callback();
+
+  assert.equal(saveButton.textContent, "Saved");
+  assert.equal(saveButton.disabled, true);
+
+  saveButton.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(harness.saveCalls.length, 1);
   assert.deepEqual(harness.runtimeMessages, []);
   assertNoSaveSideEffects(harness);
 });

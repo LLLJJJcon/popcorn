@@ -801,6 +801,7 @@ async function saveWithFeedback({
   save,
   presenter,
   scheduleReset = setTimeout,
+  persistentSuccess = false,
 }) {
   if (!button) return save(input);
   button.disabled = true;
@@ -813,11 +814,14 @@ async function saveWithFeedback({
     save,
     presenter,
     scheduleReset,
+    persistentSuccess,
   });
+  let succeeded = false;
   try {
     const result = await save(input);
+    succeeded = true;
     const state = saveStateForResult(result);
-    button.textContent = saveSuccessLabel(result);
+    button.textContent = persistentSuccess ? "Saved" : saveSuccessLabel(result);
     presenter.show({
       state,
       rawText: savedRawText(input),
@@ -830,19 +834,26 @@ async function saveWithFeedback({
     throw error;
   } finally {
     scheduleReset(() => {
+      if (persistentSuccess && succeeded) return;
       button.textContent = idleLabel;
       button.disabled = false;
     }, 1800);
   }
 }
 
-async function saveWithButton(input, button, idleLabel = "Save") {
+async function saveWithButton(
+  input,
+  button,
+  idleLabel = "Save",
+  { persistentSuccess = false } = {},
+) {
   return saveWithFeedback({
     input,
     button,
     idleLabel,
     save: (savedInput) => saveController.save(savedInput),
     presenter: saveStatusPresenter,
+    persistentSuccess,
   });
 }
 
@@ -1414,7 +1425,7 @@ async function saveTranscriptRow(segment, button) {
     englishTranslation: shownEnglishForSegment(segment),
     ...saveContextForSegmentIds([segment.id]),
   });
-  return saveWithButton(input, button, "Save");
+  return saveWithButton(input, button, "Save", { persistentSuccess: true });
 }
 
 function renderTranscript() {
