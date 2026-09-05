@@ -19,10 +19,15 @@ function Dimension({
 }
 
 function mostUsefulRevision(evaluation: EvaluationResult): string {
-  const dimensions = [evaluation.accuracy, evaluation.naturalness, evaluation.contextualFit];
-  return dimensions.reduce((lowest, dimension) => (
+  const dimensions = [
+    { name: "accuracy", ...evaluation.accuracy },
+    { name: "naturalness", ...evaluation.naturalness },
+    { name: "context fit", ...evaluation.contextualFit },
+  ];
+  const focus = dimensions.reduce((lowest, dimension) => (
     dimension.score < lowest.score ? dimension : lowest
-  )).englishFeedback;
+  ));
+  return `${focus.englishFeedback} Rewrite your sentence once, keeping what works and applying this ${focus.name} feedback.`;
 }
 
 function formatDueDate(value: string): string {
@@ -51,7 +56,7 @@ export function EvaluationPanel({
   readonly transition?: Transition | null;
   readonly nextDueAt?: string | null;
   readonly remainingCount?: number;
-  readonly onRevise: () => void;
+  readonly onRevise?: () => void;
   readonly onContinue?: () => void;
   readonly onStop: () => void;
 }) {
@@ -92,7 +97,7 @@ export function EvaluationPanel({
       </section>
 
       <div className={styles.buttonRow}>
-        <button className={styles.secondaryButton} type="button" onClick={onRevise}>Revise once</button>
+        {onRevise ? <button className={styles.secondaryButton} type="button" onClick={onRevise}>Revise once</button> : null}
         {onContinue ? <button className={styles.primaryButton} type="button" onClick={onContinue}>Continue</button> : null}
         <button className={styles.secondaryButton} type="button" onClick={onStop}>Stop for now</button>
       </div>

@@ -50,6 +50,24 @@ function apiResponse(data: unknown, status = 200) {
   return Response.json({ ok: true, data, requestId: "safe-request" }, { status });
 }
 
+function transfer(reviewTaskId: string, expression: string) {
+  const view = material(reviewTaskId, expression);
+  return {
+    id: view.task.id,
+    userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    reviewTaskId,
+    userExpressionId: view.task.userExpressionId,
+    targetExpression: view.task.targetExpression,
+    promptChinese: view.task.promptChinese,
+    instructionsEnglish: view.task.instructionsEnglish,
+    goalEnglish: view.task.goalEnglish,
+    dueAt: view.task.dueAt,
+    masteryState: view.masteryState,
+    contextFingerprint: "a".repeat(64),
+    material: view,
+  };
+}
+
 function completion(reviewTaskId: string) {
   return {
     reviewTaskId, practiceTaskId: reviewTaskId, attemptId: ids.fourth, masteryEventId: ids.third,
@@ -75,9 +93,9 @@ afterEach(() => {
 describe("DuePractice", () => {
   test("sorts due work, caps the session at three, and advances through the local queue", async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(apiResponse({ ...material(ids.first, "第一").task, reviewTaskId: ids.first, material: material(ids.first, "第一") }))
+      .mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一")))
       .mockResolvedValueOnce(apiResponse(completion(ids.first), 201))
-      .mockResolvedValueOnce(apiResponse({ ...material(ids.second, "第二").task, reviewTaskId: ids.second, material: material(ids.second, "第二") }));
+      .mockResolvedValueOnce(apiResponse(transfer(ids.second, "第二")));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<DuePractice tasks={tasks} />);
@@ -104,9 +122,7 @@ describe("DuePractice", () => {
   });
 
   test("Stop returns to landing without completing an item", async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(apiResponse({
-      ...material(ids.fourth, "第四").task, reviewTaskId: ids.fourth, material: material(ids.fourth, "第四"),
-    }));
+    const fetchMock = vi.fn().mockResolvedValueOnce(apiResponse(transfer(ids.fourth, "第四")));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<DuePractice tasks={tasks.slice(0, 1)} />);
@@ -129,7 +145,7 @@ describe("DuePractice", () => {
 
   test("retains the response and permits retry after a checking failure", async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(apiResponse({ ...material(ids.fourth, "第四").task, reviewTaskId: ids.fourth, material: material(ids.fourth, "第四") }))
+      .mockResolvedValueOnce(apiResponse(transfer(ids.fourth, "第四")))
       .mockResolvedValueOnce(new Response("{}", { status: 503 }))
       .mockResolvedValueOnce(apiResponse(completion(ids.fourth), 201));
     vi.stubGlobal("fetch", fetchMock);
@@ -146,5 +162,95 @@ describe("DuePractice", () => {
 
     await user.click(screen.getByRole("button", { name: "Check my response" }));
     expect(await screen.findByText("Practice recorded")).toBeInTheDocument();
+  });
+
+  test("resets the hint disclosure and assistance before the next queued item", async () => {
+    const hinted = {
+      ...completion(ids.first),
+      evaluation: {
+        ...completion(ids.first).evaluation,
+        independentUse: false,
+        assistanceLevel: "hint",
+      },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一")))
+      .mockResolvedValueOnce(apiResponse(hinted, 201))
+      .mockResolvedValueOnce(apiResponse(transfer(ids.second, "第二")))
+      .mockResolvedValueOnce(apiResponse(completion(ids.second), 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<DuePractice tasks={tasks.filter((task) => [ids.first, ids.second].includes(task.reviewTaskId))} />);
+
+    await user.click(screen.getByRole("button", { name: "Start practice" }));
+    await screen.findByRole("heading", { name: "第一" });
+    await user.click(screen.getByRole("button", { name: "Need a hint?" }));
+    expect(screen.getByText("Use it as a conversational reaction.")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Your Chinese response"), "第一种回应。");
+    await user.click(screen.getByRole("button", { name: "Check my response" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+
+    await screen.findByRole("heading", { name: "第二" });
+    expect(screen.getByRole("button", { name: "Need a hint?" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Use it as a conversational reaction.")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Your Chinese response"), "第二种回应。");
+    await user.click(screen.getByRole("button", { name: "Check my response" }));
+    await screen.findByText("Practice recorded");
+
+    expect(JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))).toMatchObject({ assistanceLevel: "hint" });
+    expect(JSON.parse(String((fetchMock.mock.calls[3]?.[1] as RequestInit).body))).toMatchObject({ assistanceLevel: "none" });
+  });
+
+  test("compares one local rewrite with the recorded feedback without another due POST", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(apiResponse(transfer(ids.fourth, "第四")))
+      .mockResolvedValueOnce(apiResponse(completion(ids.fourth), 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<DuePractice tasks={tasks.slice(0, 1)} />);
+
+    await user.click(screen.getByRole("button", { name: "Start practice" }));
+    await user.type(await screen.findByLabelText("Your Chinese response"), "第一版回应。");
+    await user.click(screen.getByRole("button", { name: "Check my response" }));
+    await user.click(await screen.findByRole("button", { name: "Revise once" }));
+    const response = screen.getByLabelText("Your Chinese response");
+    await user.clear(response);
+    await user.type(response, "我根据反馈改写了。");
+    await user.click(screen.getByRole("button", { name: "Compare my rewrite" }));
+
+    expect(await screen.findByText(/compared locally.*no new model check/i)).toBeInTheDocument();
+    expect(screen.getByText("这件事也太夸张了吧。")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
+  });
+
+  test("rejects a malformed successful transfer envelope without losing the queued item", async () => {
+    const malformed = { ...transfer(ids.fourth, "第四"), contextFingerprint: undefined };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(apiResponse(malformed)));
+    const user = userEvent.setup();
+    render(<DuePractice tasks={tasks.slice(0, 1)} />);
+
+    await user.click(screen.getByRole("button", { name: "Start practice" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not open/i);
+    expect(screen.getByText("1 due · about 2 minutes")).toBeInTheDocument();
+  });
+
+  test("rejects malformed completion data while preserving text and the due queue", async () => {
+    const malformed = { ...completion(ids.fourth), masteryEventId: undefined };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(apiResponse(transfer(ids.fourth, "第四")))
+      .mockResolvedValueOnce(apiResponse(malformed, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<DuePractice tasks={tasks.slice(0, 1)} />);
+
+    await user.click(screen.getByRole("button", { name: "Start practice" }));
+    const response = await screen.findByLabelText("Your Chinese response");
+    await user.type(response, "这份回答要保留。");
+    await user.click(screen.getByRole("button", { name: "Check my response" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/response is still here/i);
+    expect(response).toHaveValue("这份回答要保留。");
+    await user.click(screen.getByRole("button", { name: "Stop for now" }));
+    expect(screen.getByText("1 due · about 2 minutes")).toBeInTheDocument();
   });
 });

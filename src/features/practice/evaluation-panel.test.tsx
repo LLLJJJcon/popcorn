@@ -57,4 +57,19 @@ describe("EvaluationPanel", () => {
     expect(screen.queryByText("Natural revision")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
   });
+
+  test("turns positive lowest-dimension feedback into a concrete rewrite instruction", () => {
+    render(<EvaluationPanel
+      evaluation={{
+        ...evaluation,
+        accuracy: { score: 5, englishFeedback: "The meaning is already accurate." },
+        naturalness: { score: 5, englishFeedback: "The sentence already sounds natural." },
+        contextualFit: { score: 5, englishFeedback: "The response already fits the situation." },
+      }}
+      coaching={null} evidenceMessage="Practice evidence was recorded."
+      onRevise={() => undefined} onStop={() => undefined}
+    />);
+    expect(screen.getByText(/Rewrite your sentence once, keeping what works and applying this accuracy feedback/i))
+      .toBeInTheDocument();
+  });
 });

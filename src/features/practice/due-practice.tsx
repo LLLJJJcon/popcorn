@@ -2,26 +2,74 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { z } from "zod";
 
-import type { AssistanceLevel, EvaluationResult, PracticeCoaching } from "@/contracts/practice";
+import { apiSuccessSchema, type ApiSuccess } from "@/contracts/api";
+import { MasteryStateSchema } from "@/contracts/memory";
+import {
+  EvaluationResultSchema,
+  PracticeCoachingSchema,
+  type AssistanceLevel,
+} from "@/contracts/practice";
+import { EnglishTextSchema, Sha256HashSchema, TargetChineseTextSchema } from "@/contracts/source";
 import { EvaluationPanel } from "@/features/practice/evaluation-panel";
 import { PracticeMaterialViewSchema, type PracticeMaterialView } from "@/features/practice/material-schema";
 import { PracticeMaterial } from "@/features/practice/practice-material";
 import styles from "@/features/practice/practice-workspace.module.css";
 import type { DuePracticeView } from "@/server/repositories/review-task-repository";
 
-type Completion = {
-  readonly evaluation: EvaluationResult;
-  readonly coaching: PracticeCoaching | null;
-  readonly transition: { readonly from: string; readonly to: string } | null;
-  readonly nextDueAt: string;
-};
+const UuidSchema = z.string().uuid();
+const IsoDateTimeSchema = z.string().datetime({ offset: true });
 
-async function responseData<T>(response: Response): Promise<T> {
+const DueTransferSchema = z.strictObject({
+  id: UuidSchema,
+  userId: UuidSchema,
+  reviewTaskId: UuidSchema,
+  userExpressionId: UuidSchema,
+  targetExpression: TargetChineseTextSchema.max(200),
+  promptChinese: TargetChineseTextSchema.max(2_000),
+  instructionsEnglish: EnglishTextSchema.max(1_000),
+  goalEnglish: EnglishTextSchema.max(1_000),
+  dueAt: IsoDateTimeSchema,
+  masteryState: MasteryStateSchema,
+  contextFingerprint: Sha256HashSchema,
+  material: PracticeMaterialViewSchema,
+});
+
+const TransitionSchema = z.strictObject({ from: MasteryStateSchema, to: MasteryStateSchema });
+const DueCompletionSchema = z.strictObject({
+  reviewTaskId: UuidSchema,
+  practiceTaskId: UuidSchema,
+  attemptId: UuidSchema,
+  masteryEventId: UuidSchema,
+  nextReviewTaskId: UuidSchema,
+  priorState: MasteryStateSchema,
+  newState: MasteryStateSchema,
+  nextDueAt: IsoDateTimeSchema,
+  intervalDays: z.number().int().min(1).max(365),
+  created: z.boolean(),
+  transition: TransitionSchema.nullable(),
+  evaluation: EvaluationResultSchema,
+  coaching: PracticeCoachingSchema.nullable(),
+}).superRefine((result, context) => {
+  const changed = result.priorState !== result.newState;
+  if (changed !== (result.transition !== null)) {
+    context.addIssue({ code: "custom", path: ["transition"], message: "Transition must describe a mastery change" });
+  }
+  if (result.transition && (
+    result.transition.from !== result.priorState || result.transition.to !== result.newState
+  )) {
+    context.addIssue({ code: "custom", path: ["transition"], message: "Transition must match mastery states" });
+  }
+});
+
+const DueTransferSuccessSchema = apiSuccessSchema(DueTransferSchema);
+const DueCompletionSuccessSchema = apiSuccessSchema(DueCompletionSchema);
+type Completion = z.infer<typeof DueCompletionSchema>;
+
+async function responseData<T>(response: Response, schema: z.ZodType<ApiSuccess<T>>): Promise<T> {
   if (!response.ok) throw new Error("due practice request failed");
-  const body = await response.json() as { data?: T };
-  if (!body.data) throw new Error("due practice response failed");
-  return body.data;
+  return schema.parse(await response.json()).data;
 }
 
 function selectedQueue(tasks: readonly DuePracticeView[]): DuePracticeView[] {
@@ -42,6 +90,9 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
   const [failed, setFailed] = useState(false);
   const [completion, setCompletion] = useState<Completion | null>(null);
   const [feedbackVisible, setFeedbackVisible] = useState(false);
+  const [localRevision, setLocalRevision] = useState(false);
+  const [localComparisonUsed, setLocalComparisonUsed] = useState(false);
+  const [comparedLocally, setComparedLocally] = useState(false);
   const inFlight = useRef(false);
   const slowTimer = useRef<number | null>(null);
   const responseRef = useRef<HTMLTextAreaElement>(null);
@@ -63,14 +114,23 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
     setFailed(false);
     setCompletion(null);
     setFeedbackVisible(false);
+    setLocalRevision(false);
+    setLocalComparisonUsed(false);
+    setComparedLocally(false);
     setResponseChinese("");
     setAssistanceLevel("none");
     try {
-      const transfer = await responseData<{ readonly material: unknown }>(await fetch(
+      const transfer = await responseData(await fetch(
         `/api/v1/practice/due/${encodeURIComponent(reviewTaskId)}`,
         { credentials: "same-origin", cache: "no-store" },
-      ));
-      setMaterial(PracticeMaterialViewSchema.parse(transfer.material));
+      ), DueTransferSuccessSchema);
+      if (
+        transfer.reviewTaskId !== reviewTaskId ||
+        transfer.id !== transfer.material.task.id ||
+        transfer.userExpressionId !== transfer.material.task.userExpressionId ||
+        transfer.targetExpression !== transfer.material.task.targetExpression
+      ) throw new Error("due practice transfer identity mismatch");
+      setMaterial(transfer.material);
       setActiveReviewId(reviewTaskId);
     } catch {
       setFailed(true);
@@ -83,6 +143,13 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (completion && localRevision) {
+      setLocalRevision(false);
+      setLocalComparisonUsed(true);
+      setComparedLocally(true);
+      setFeedbackVisible(true);
+      return;
+    }
     if (!activeReviewId || inFlight.current || completion) return;
     inFlight.current = true;
     setSubmitting(true);
@@ -91,7 +158,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
     clearSlowTimer();
     slowTimer.current = window.setTimeout(() => setSlow(true), 8_000);
     try {
-      const result = await responseData<Completion>(await fetch(
+      const result = await responseData(await fetch(
         `/api/v1/practice/due/${encodeURIComponent(activeReviewId)}`,
         {
           method: "POST",
@@ -100,7 +167,10 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ responseChinese, assistanceLevel }),
         },
-      ));
+      ), DueCompletionSuccessSchema);
+      if (result.reviewTaskId !== activeReviewId || result.practiceTaskId !== material?.task.id) {
+        throw new Error("due practice completion identity mismatch");
+      }
       setCompletion(result);
       setFeedbackVisible(true);
       setQueue((current) => current.filter((task) => task.reviewTaskId !== activeReviewId));
@@ -120,6 +190,9 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
     setMaterial(null);
     setCompletion(null);
     setFeedbackVisible(false);
+    setLocalRevision(false);
+    setLocalComparisonUsed(false);
+    setComparedLocally(false);
     setFailed(false);
   }
 
@@ -134,6 +207,8 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
 
   function reviseLocally() {
     setFeedbackVisible(false);
+    setLocalRevision(true);
+    setComparedLocally(false);
     responseRef.current?.focus();
   }
 
@@ -190,6 +265,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
 
   return (
     <PracticeMaterial
+      key={material.task.id}
       material={material}
       onHintUsed={() => setAssistanceLevel("hint")}
       sessionStatus={`${Math.max(0, queue.length - (completion ? 0 : 1))} left in this session`}
@@ -199,7 +275,9 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
         <textarea ref={responseRef} id="due-practice-response" lang="zh-CN" maxLength={5_000} required
           value={responseChinese} onChange={(event) => setResponseChinese(event.target.value)} />
         <div className={styles.buttonRow}>
-          {completion && !feedbackVisible ? (
+          {completion && localRevision ? (
+            <button className={styles.primaryButton} type="submit">Compare my rewrite</button>
+          ) : completion && !feedbackVisible ? (
             <button className={styles.primaryButton} type="button" onClick={() => void continueSession()}>Continue</button>
           ) : completion ? null : (
             <button className={styles.primaryButton} type="submit" disabled={submitting}>
@@ -213,6 +291,12 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
         {failed ? <p className={styles.alert} role="alert">We could not check that response. Your response is still here — try again.</p> : null}
       </form>
 
+      {comparedLocally ? (
+        <p className={styles.checking} role="status">
+          Compared locally with the recorded feedback — no new model check was made.
+        </p>
+      ) : null}
+
       {completion && feedbackVisible ? (
         <EvaluationPanel
           evaluation={completion.evaluation}
@@ -221,7 +305,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
           transition={completion.transition}
           nextDueAt={completion.nextDueAt}
           remainingCount={queue.length}
-          onRevise={reviseLocally}
+          onRevise={localComparisonUsed ? undefined : reviseLocally}
           onContinue={queue.length > 0 ? () => void continueSession() : undefined}
           onStop={stop}
         />
