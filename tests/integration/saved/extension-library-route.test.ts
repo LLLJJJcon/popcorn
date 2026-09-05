@@ -1,11 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { createExtensionSavedLibraryHandler } from "@/app/api/v1/extension/saved/route";
 import {
   createSavedLibraryService,
   type SavedLibraryRepository,
   type SavedLibraryRows,
 } from "@/features/saved/api";
+import { createExtensionSavedLibraryHandler } from "@/features/saved/extension-library-handler";
 import type { CaptureAuthentication } from "@/server/repositories/video-source-repository";
 
 const USER_A = "11111111-1111-4111-8111-111111111111";

@@ -1,24 +1,8 @@
 import {
-  createSavedLibraryHttpHandlers,
   createSavedLibraryRuntime,
-  createSavedLibraryService,
 } from "@/features/saved/api";
-import {
-  authenticateCaptureRequest,
-  type CaptureAuthentication,
-} from "@/server/repositories/video-source-repository";
-
-export function createExtensionSavedLibraryHandler({
-  authenticate,
-  service,
-  requestId,
-}: {
-  readonly authenticate: (request: Request) => Promise<CaptureAuthentication>;
-  readonly service: ReturnType<typeof createSavedLibraryService>;
-  readonly requestId: () => string;
-}) {
-  return createSavedLibraryHttpHandlers({ authenticate, service, requestId }).list;
-}
+import { createExtensionSavedLibraryHandler } from "@/features/saved/extension-library-handler";
+import { authenticateCaptureRequest } from "@/server/repositories/video-source-repository";
 
 export async function GET(request: Request) {
   const runtime = createSavedLibraryRuntime();
