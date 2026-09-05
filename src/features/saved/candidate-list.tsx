@@ -9,6 +9,7 @@ import { CandidateExpressionListSchema, type CandidateExpression } from "@/contr
 import { PracticeTaskSchema } from "@/contracts/practice";
 import { apiSuccessSchema } from "@/contracts/api";
 import { CandidateExpressionCard } from "./candidate-expression";
+import styles from "./saved-workspace.module.css";
 
 export type CandidateArtifact = {
   readonly artifactId: string;
@@ -192,19 +193,33 @@ export function CandidateList({
   if (analysis.state === "missing" && !recoveredArtifact) {
     if (recoveryState === "gateway") {
       return (
-        <section aria-label="Candidate expressions">
-          <p>Analysis needs an active model gateway. Your saved material remains available.</p>
-          <Link href="/settings/model-gateway">Set up model gateway</Link>
+        <section className={styles.analysisPanel} aria-label="Analysis status">
+          <p className={styles.analysisMessage} role="status">
+            Analysis needs an active model gateway. Your saved material remains available.
+          </p>
+          <Link className={styles.analysisAction} href="/settings/model-gateway">Set up model gateway</Link>
         </section>
       );
     }
+    const pending = recoveryState === "pending";
     return (
-      <section aria-label="Candidate expressions">
+      <section className={styles.analysisPanel} aria-label="Analysis status">
         {recoveryState === "error"
-          ? <p role="alert">Analysis is taking longer than expected. Try again.</p>
-          : <p>Expressions are still being organized. Your saved material remains available.</p>}
-        <button type="button" disabled={recoveryState === "pending"} onClick={retry}>
-          {recoveryState === "pending" ? "Starting analysis…" : "Retry analysis"}
+          ? <p className={styles.analysisMessage} role="alert">Analysis is taking longer than expected. Try again.</p>
+          : (
+              <div className={styles.analysisMessage}>
+                {pending
+                  ? <span className={styles.activityIndicator} role="progressbar" aria-label="Analysis in progress" />
+                  : null}
+                <p role="status">
+                  {pending
+                    ? "Analyzing this expression and preparing it for practice…"
+                    : "Choose a saved expression you want to learn, then click Analyze."}
+                </p>
+              </div>
+            )}
+        <button className={styles.analysisAction} type="button" disabled={pending} onClick={retry}>
+          {pending ? "Analyzing…" : recoveryState === "error" ? "Retry analysis" : "Analyze"}
         </button>
       </section>
     );

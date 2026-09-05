@@ -72,8 +72,8 @@ describe("Saved video learning bridge", () => {
     expect(screen.getByTestId("raw-text")).toHaveTextContent("这个想法挺有意思的");
     expect(screen.getByText("This idea is pretty interesting.")).toBeInTheDocument();
     expect(screen.getAllByRole("alert")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Retry analysis" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Retry analysis" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Analyze" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Analyze" })).toHaveLength(1);
   });
 
   it("renders a persisted overview after raw moments without reconstructing source data", () => {

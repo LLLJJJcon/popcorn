@@ -86,6 +86,14 @@ describe("Saved video grouping and timeline", () => {
       "Popcorn needs native Simplified Chinese subtitles for this video",
     );
   });
+
+  it("labels a ready saved moment as Saved without implying analysis readiness", () => {
+    render(<SavedTimeline items={[item()]} />);
+
+    const savedMoment = screen.getByRole("listitem");
+    expect(within(savedMoment).getByRole("status")).toHaveTextContent(/^Saved$/);
+    expect(within(savedMoment).queryByText("Ready to learn.")).not.toBeInTheDocument();
+  });
 });
 
 describe("Home next action", () => {

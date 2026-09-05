@@ -6,6 +6,7 @@ import type { CandidateExpression } from "@/contracts/knowledge";
 import { CandidateList } from "@/features/saved/candidate-list";
 
 const SAVED_ITEM_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const VIDEO_SOURCE_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const ARTIFACT_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TASK_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const EXPRESSION_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -86,6 +87,7 @@ describe("Saved candidate expressions", () => {
   it("keeps the native action disabled in SSR, then enables one activation after hydration", async () => {
     const props = {
       savedItemId: SAVED_ITEM_ID,
+      videoSourceId: VIDEO_SOURCE_ID,
       youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       analysis: artifact([candidate()]),
     };
@@ -118,12 +120,15 @@ describe("Saved candidate expressions", () => {
     await userEvent.click(action);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(push).toHaveBeenCalledExactlyOnceWith(`/practice/${TASK_ID}`);
+    expect(push).toHaveBeenCalledExactlyOnceWith(
+      `/practice/${TASK_ID}?returnTo=${encodeURIComponent(`/saved/${VIDEO_SOURCE_ID}#saved-item-${SAVED_ITEM_ID}`)}`,
+    );
   });
 
   it("renders three exact source-grounded candidates without numeric confidence", () => {
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
       analysis={artifact([
         candidate(),
@@ -165,11 +170,11 @@ describe("Saved candidate expressions", () => {
     expect(within(cards[0]!).getByText("expressing interest")).toBeInTheDocument();
     expect(within(cards[0]!).getByText("conversational")).toBeInTheDocument();
     expect(within(cards[0]!).getByText("这个想法挺有意思的")).toBeInTheDocument();
-    expect(within(cards[0]!).getByRole("link", { name: "Watch at 1:02" })).toHaveAttribute(
+    expect(within(cards[0]!).getByRole("link", { name: "Watch at 1:02 on YouTube" })).toHaveAttribute(
       "href",
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=62s",
     );
-    expect(within(cards[2]!).getByRole("link", { name: "Watch at 1:01:01" })).toHaveAttribute(
+    expect(within(cards[2]!).getByRole("link", { name: "Watch at 1:01:01 on YouTube" })).toHaveAttribute(
       "href",
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=3661s",
     );
@@ -330,6 +335,7 @@ describe("Saved candidate expressions", () => {
     ];
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
       analysis={artifact(ambiguous)}
     />);
@@ -354,13 +360,16 @@ describe("Saved candidate expressions", () => {
       candidateArtifactId: ARTIFACT_ID,
       candidateIndex: 1,
     });
-    expect(push).toHaveBeenCalledExactlyOnceWith(`/practice/${TASK_ID}`);
+    expect(push).toHaveBeenCalledExactlyOnceWith(
+      `/practice/${TASK_ID}?returnTo=${encodeURIComponent(`/saved/${VIDEO_SOURCE_ID}#saved-item-${SAVED_ITEM_ID}`)}`,
+    );
   });
 
   it("keeps an unavailable immutable analysis closed without offering recovery", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
       analysis={{ state: "unavailable" }}
     />);
@@ -371,6 +380,44 @@ describe("Saved candidate expressions", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("presents missing analysis as an accessible idle status with an Analyze action", () => {
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      analysis={{ state: "missing" }}
+    />);
+
+    const panel = screen.getByRole("region", { name: "Analysis status" });
+    expect(within(panel).getByRole("status")).toHaveTextContent(
+      "Choose a saved expression you want to learn, then click Analyze.",
+    );
+    expect(within(panel).getByRole("button", { name: "Analyze" })).toBeEnabled();
+  });
+
+  it("announces pending analysis and keeps its action disabled with visible activity", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      data: { state: "processing", jobId: TASK_ID, status: "queued", created: true },
+      requestId: "safe-request",
+    }), { status: 202, headers: { "Content-Type": "application/json" } }));
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      analysis={{ state: "missing" }}
+    />);
+
+    fireEvent.click(screen.getByRole("button"));
+    await act(async () => {});
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Analyzing this expression and preparing it for practice…",
+    );
+    expect(screen.getByRole("button", { name: "Analyzing…" })).toBeDisabled();
+    expect(screen.getByRole("progressbar", { name: "Analysis in progress" })).toBeVisible();
+  });
+
   it("keeps the raw-save experience progressive while recovery needs gateway configuration", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       ok: true,
@@ -379,12 +426,13 @@ describe("Saved candidate expressions", () => {
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
       analysis={{ state: "missing" }}
     />);
 
-    expect(screen.getByText("Expressions are still being organized. Your saved material remains available.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
+    expect(screen.getByText("Choose a saved expression you want to learn, then click Analyze.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Analyze" }));
     expect(await screen.findByRole("link", { name: "Set up model gateway" })).toHaveAttribute(
       "href",
       "/settings/model-gateway",
@@ -406,11 +454,12 @@ describe("Saved candidate expressions", () => {
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
       analysis={{ state: "missing" }}
     />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
+    await userEvent.click(screen.getByRole("button", { name: "Analyze" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(screen.getByText("挺有意思的")).toBeInTheDocument();
@@ -446,13 +495,14 @@ describe("Saved candidate expressions", () => {
       });
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
       analysis={{ state: "missing" }}
     />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
+    fireEvent.click(screen.getByRole("button", { name: "Analyze" }));
     await act(async () => {});
-    expect(screen.getByRole("button", { name: "Starting analysis…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Analyzing…" })).toBeDisabled();
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
 
     expect(fetchMock).toHaveBeenCalledTimes(31);
@@ -479,16 +529,17 @@ describe("Saved candidate expressions", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
       analysis={{ state: "missing" }}
     />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
+    fireEvent.click(screen.getByRole("button", { name: "Analyze" }));
     await act(async () => {});
     await act(async () => { await vi.advanceTimersByTimeAsync(59_000); });
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Starting analysis…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Analyzing…" })).toBeDisabled();
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
 
     expect(screen.getByRole("alert")).toHaveTextContent("Analysis is taking longer than expected. Try again.");
@@ -508,11 +559,12 @@ describe("Saved candidate expressions", () => {
       .mockResolvedValueOnce(new Response("{}", { status: 500, headers: { "Content-Type": "application/json" } }));
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
       analysis={{ state: "missing" }}
     />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
+    fireEvent.click(screen.getByRole("button", { name: "Analyze" }));
     await act(async () => {});
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
 
@@ -536,11 +588,12 @@ describe("Saved candidate expressions", () => {
       });
     const view = render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
       analysis={{ state: "missing" }}
     />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
+    fireEvent.click(screen.getByRole("button", { name: "Analyze" }));
     await act(async () => {});
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     view.unmount();
@@ -556,11 +609,12 @@ describe("Saved candidate expressions", () => {
     }));
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
       analysis={{ state: "missing" }}
     />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
+    await userEvent.click(screen.getByRole("button", { name: "Analyze" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Analysis is taking longer than expected. Try again.");
     expect(screen.getByRole("button", { name: "Retry analysis" })).toBeEnabled();
     expect(screen.queryByText(/500|recovery failed|stack/i)).not.toBeInTheDocument();

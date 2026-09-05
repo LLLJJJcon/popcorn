@@ -173,6 +173,87 @@
   color: color-mix(in srgb, var(--cocoa) 74%, transparent);
 }
 
+.savedStatus {
+  display: inline-flex;
+  margin-bottom: 0;
+  border-radius: 999px;
+  padding: 0.22rem 0.55rem;
+  background: color-mix(in srgb, var(--cocoa) 8%, var(--paper));
+  color: color-mix(in srgb, var(--cocoa) 72%, transparent);
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.analysisPanel {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--coral) 20%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  background: color-mix(in srgb, var(--cream) 62%, var(--paper));
+}
+
+.analysisMessage {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  margin: 0;
+  color: color-mix(in srgb, var(--cocoa) 78%, transparent);
+  font-size: 0.92rem;
+}
+
+.analysisMessage p {
+  margin: 0;
+}
+
+.analysisAction {
+  display: inline-flex;
+  min-height: 2.35rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--coral) 68%, var(--cocoa));
+  border-radius: 999px;
+  padding: 0.5rem 0.9rem;
+  background: color-mix(in srgb, var(--coral) 68%, var(--cocoa));
+  color: var(--paper);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 780;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.analysisAction:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.analysisAction:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--coral) 70%, var(--cocoa));
+  outline-offset: 3px;
+}
+
+.activityIndicator {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in srgb, var(--coral) 35%, transparent);
+  border-right-color: var(--coral);
+  border-radius: 50%;
+  animation: analysis-spin 0.8s linear infinite;
+}
+
+@keyframes analysis-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .chapterGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
@@ -307,5 +388,16 @@
 
   .candidateDetails {
     grid-template-columns: 1fr;
+  }
+
+  .analysisPanel {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activityIndicator {
+    animation: none;
   }
 }

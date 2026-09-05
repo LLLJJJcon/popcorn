@@ -1,0 +1,27 @@
+# Saved analysis status UI
+
+- Plan/task: bounded post-plan UX repair — Saved pending-analysis card.
+- Baseline commit: `c8495c9ac634e98061f04ea2db8bd97cd71bbb7c`.
+- Worktree: `/private/tmp/popcorn-saved-analysis-status-ui`.
+- Allowed implementation files:
+  - `src/features/saved/candidate-list.tsx`
+  - `src/features/saved/processing-state.tsx`
+  - `src/features/saved/saved-timeline.tsx`
+  - `src/features/saved/saved-workspace.module.css`
+  - directly related tests under `src/features/saved/`
+  - this brief and `docs/engineering/handoffs/saved-analysis-status-ui.md`
+- Forbidden files: APIs, server jobs, database/migrations, root configuration, lockfile, extension files, unrelated UI.
+- Consumed interfaces: existing `CandidateAnalysis`, recovery state machine, and `SavedItemStatus`.
+- Produced interface: presentation-only status card; no API or persisted-contract change.
+- Required behavior:
+  - Present a visually coherent, compact analysis-status panel below a saved moment.
+  - Idle copy: `Choose a saved expression you want to learn, then click Analyze.` with an `Analyze` action.
+  - Pending copy: `Analyzing this expression and preparing it for practice…` with a disabled `Analyzing…` action and a visible activity indicator.
+  - Error and gateway-required recovery remain actionable and visually consistent.
+  - Replace the misleading loose `Ready to learn.` line in the saved-moment presentation with a compact `Saved` status, without changing processing semantics elsewhere unless required by the smallest clean implementation.
+  - Preserve all existing fetch, polling, recovery, and candidate activation behavior.
+  - Keep accessible status/alert semantics and keyboard behavior.
+- Expected RED evidence: focused component tests fail for the new copy, status semantics, and pending action before implementation.
+- Verification: `pnpm vitest run src/features/saved/candidate-list.test.tsx src/features/saved/saved-timeline.test.tsx`.
+- Upstream reuse: none; this is repository-native presentation work and must not copy upstream code or assets.
+- License: retain project licensing; no third-party code, prompt, component, or asset may be copied.
