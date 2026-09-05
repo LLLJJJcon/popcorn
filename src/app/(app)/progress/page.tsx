@@ -9,5 +9,5 @@ export default async function ProgressPage() {
   if (!session.ok) redirect("/sign-in");
   const summary = await runtime.repository.read(session.userId, new Date().toISOString());
 
-  return <main><h1>Progress</h1><ProgressDashboard summary={summary} /></main>;
+  return <main aria-labelledby="progress-heading"><ProgressDashboard summary={summary} /></main>;
 }

@@ -1,0 +1,153 @@
+.dashboard {
+  width: min(72rem, 100%);
+  margin: 0 auto;
+  padding: clamp(1.25rem, 3vw, 3rem);
+}
+
+.dashboard h1,
+.dashboard h2,
+.dashboard p {
+  margin-top: 0;
+}
+
+.pageHeader {
+  max-width: 46rem;
+  margin-bottom: 2rem;
+}
+
+.eyebrow {
+  margin-bottom: 0.5rem;
+  color: var(--coral);
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.pageHeader h1 {
+  margin-bottom: 0.5rem;
+  font-size: clamp(2.15rem, 5vw, 4rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.primaryAction,
+.secondaryAction a {
+  font-weight: 700;
+}
+
+.primaryAction {
+  display: inline-flex;
+  margin-top: 0.75rem;
+  border-radius: 999px;
+  padding: 0.75rem 1.1rem;
+  background: var(--coral);
+  color: var(--paper);
+  text-decoration: none;
+}
+
+.secondaryAction {
+  margin-top: 0.75rem;
+}
+
+.secondaryAction a {
+  color: inherit;
+  text-underline-offset: 0.18em;
+}
+
+.metricSection,
+.masterySection {
+  border: 1px solid color-mix(in srgb, var(--cocoa) 10%, transparent);
+  border-radius: var(--radius-lg);
+  padding: clamp(1rem, 3vw, 1.5rem);
+  background: var(--paper);
+  box-shadow: var(--shadow-paper);
+}
+
+.metricSection {
+  margin-bottom: 1rem;
+}
+
+.metricSection h2,
+.masterySection h2 {
+  margin-bottom: 1rem;
+  font-size: 1.15rem;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.metricCard {
+  display: grid;
+  gap: 0.35rem;
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+  background: var(--cream);
+}
+
+.metricCard span {
+  color: color-mix(in srgb, var(--cocoa) 70%, transparent);
+  font-size: 0.86rem;
+}
+
+.metricCard strong {
+  font-size: clamp(1.5rem, 3vw, 2.15rem);
+  line-height: 1;
+}
+
+.masterySection {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.9fr) minmax(16rem, 1.1fr);
+  gap: clamp(1rem, 4vw, 3rem);
+  align-items: start;
+}
+
+.masteryList {
+  display: grid;
+  gap: 0.9rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.masteryRow {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.masteryLabel {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.masteryBar {
+  height: 0.65rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 18%, var(--cream));
+}
+
+.masteryBar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--success);
+}
+
+@media (max-width: 42rem) {
+  .metricGrid,
+  .masterySection {
+    grid-template-columns: 1fr;
+  }
+
+  .metricGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
