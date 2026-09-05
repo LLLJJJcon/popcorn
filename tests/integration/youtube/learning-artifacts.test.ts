@@ -911,12 +911,19 @@ describe("fast durable learning-artifact request routes", () => {
   });
 
   test("translation completion recovery rejects an artifact whose stored prompt_version is unknown", async () => {
+    const currentResultKey = createLearningArtifactJobKey(
+      "translate_segments",
+      evidence.transcriptHash,
+      { snapshotId: SNAPSHOT_ID, segmentIds: [SEGMENT_A] },
+      "translate-segments-v2",
+      GATEWAY_FINGERPRINT,
+    );
     const store = routeStore({
       register: vi.fn(async () => ({ jobId: JOB_ID, status: "succeeded", created: false })),
       readArtifact: vi.fn(async () => ({
         artifactId: ARTIFACT_ID, userId: USER_A, sourceId: SOURCE_ID, savedItemId: null,
         artifactType: "segment_translation", promptVersion: "translate-segments-v999",
-        model: "mandarin-model", resultKey: "8".repeat(64),
+        model: "mandarin-model", resultKey: currentResultKey,
         content: { segments: [{ id: SEGMENT_A, english: "This expression sounds natural." }] },
       })),
     });
@@ -928,7 +935,21 @@ describe("fast durable learning-artifact request routes", () => {
     await expect(route(new Request(
       "https://app.popcorn.local/api/v1/youtube/abc123XYZ00/translations",
       { method: "POST", body: JSON.stringify({ snapshotId: SNAPSHOT_ID, segmentIds: [SEGMENT_A] }) },
-    ), { params: Promise.resolve({ videoId: "abc123XYZ00" }) })).rejects.toThrow();
+    ), { params: Promise.resolve({ videoId: "abc123XYZ00" }) })).rejects.toMatchObject({
+      name: "ModelGatewayError",
+      message: "PROVIDER_OUTPUT_INVALID",
+      code: "PROVIDER_OUTPUT_INVALID",
+      stage: "grounding",
+    });
+    expect(store.register).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      dedupeKey: currentResultKey,
+    }));
+    expect(store.readArtifact).toHaveBeenCalledExactlyOnceWith(
+      USER_A,
+      JOB_ID,
+      SOURCE_ID,
+      "translate_segments",
+    );
   });
 
   test("an Overview retry UUID changes only its semantic dedupe identity", async () => {
