@@ -781,6 +781,50 @@ test("an admitted player marker stays authoritative over a concurrent row-save f
   assertNoSaveSideEffects(harness);
 });
 
+test("an admitted player marker stays authoritative when the real row-save retry rejects and resets", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const dispatch = (message) => harness.messageListeners.forEach((listener) => listener(message, {}, () => {}));
+  vm.runInContext(`
+    globalThis.__attempts = 0;
+    globalThis.__rejectRowRetry = null;
+    enqueueSavedItem = (input) => {
+      globalThis.__saveCalls.push(JSON.parse(JSON.stringify(input)));
+      globalThis.__attempts += 1;
+      if (globalThis.__attempts === 1) return Promise.reject(new Error("initial rejection"));
+      return new Promise((_resolve, reject) => {
+        globalThis.__rejectRowRetry = () => reject(new Error("retry rejection"));
+      });
+    };
+    currentTranscriptMode = "zh";
+    renderTranscript();
+  `, harness.context);
+  const row = harness.document.querySelectorAll(".transcript-entry")[1];
+  const saveButton = row.querySelector(".transcript-save-btn");
+  const retryButton = harness.document.getElementById("saveRetryBtn");
+
+  await clickAndFlush(harness, saveButton);
+  assert.equal(saveButton.textContent, "Retry save");
+  assert.equal(retryButton.hidden, false);
+
+  await clickAndFlush(harness, retryButton);
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: 42 });
+  assert.equal(saveButton.textContent, "Saved");
+  assert.equal(saveButton.disabled, true);
+
+  vm.runInContext("__rejectRowRetry()", harness.context);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(saveButton.textContent, "Saved");
+  assert.equal(saveButton.disabled, true);
+
+  assert.equal(harness.scheduledResets.length, 2);
+  for (const reset of harness.scheduledResets) reset.callback();
+  assert.equal(saveButton.textContent, "Saved");
+  assert.equal(saveButton.disabled, true);
+  assert.equal(vm.runInContext("__attempts", harness.context), 2);
+  assert.equal(harness.saveCalls.length, 2);
+  assertNoSaveSideEffects(harness);
+});
+
 test("a row save resolving after navigation marks only the video admitted in its payload", async () => {
   const harness = createSidePanelHandlerHarness();
   vm.runInContext(`

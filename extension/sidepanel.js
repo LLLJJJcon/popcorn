@@ -864,6 +864,7 @@ async function saveWithFeedback({
     scheduleReset,
     persistentSuccess,
     resetGuard,
+    reconcilePersistentState,
   });
   let succeeded = false;
   try {
