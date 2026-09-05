@@ -4,9 +4,8 @@ import { notFound, redirect } from "next/navigation";
 
 import { PracticeSession } from "@/features/practice/practice-session";
 import { createNextCookieAdapter, createWebSessionAuthenticator } from "@/server/auth/web-session";
-import { practiceTaskView } from "@/server/domain/create-practice-task";
 import { getModelGatewaySettingsEnv } from "@/server/env";
-import { createSupabasePracticeRepository } from "@/server/repositories/attempt-repository";
+import { createPracticeMaterialRepository } from "@/server/repositories/practice-material-repository";
 import type { Database } from "@/types/database.generated";
 
 export default async function PracticeTaskPage({
@@ -28,10 +27,10 @@ export default async function PracticeTaskPage({
     environment.SUPABASE_SERVICE_ROLE_KEY,
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
-  const draft = await createSupabasePracticeRepository(client).findDraft(
+  const material = await createPracticeMaterialRepository(client).findImmediateMaterial(
     session.userId,
     (await params).taskId,
   );
-  if (!draft) notFound();
-  return <PracticeSession task={practiceTaskView(draft)} />;
+  if (!material) notFound();
+  return <PracticeSession material={material} />;
 }

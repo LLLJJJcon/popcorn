@@ -1,0 +1,343 @@
+.workspace {
+  width: min(66rem, 100%);
+  margin: 0 auto;
+  padding: clamp(1rem, 3vw, 3rem);
+}
+
+.workspace h1,
+.workspace h2,
+.workspace h3,
+.workspace p {
+  margin-top: 0;
+}
+
+.landingHeader,
+.practiceHeader {
+  max-width: 47rem;
+  margin-bottom: 1.5rem;
+}
+
+.landingHeader h1,
+.practiceHeader h1 {
+  margin-bottom: 0.45rem;
+  font-size: clamp(2.35rem, 7vw, 5rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.eyebrow,
+.cardEyebrow {
+  margin-bottom: 0.45rem;
+  color: color-mix(in srgb, var(--coral) 62%, var(--cocoa));
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.meaning {
+  margin-bottom: 0.85rem;
+  font-size: clamp(1.1rem, 2vw, 1.35rem);
+}
+
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  color: color-mix(in srgb, var(--cocoa) 76%, transparent);
+  font-size: 0.92rem;
+}
+
+.mastery {
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  background: color-mix(in srgb, var(--coral) 12%, var(--paper));
+  color: var(--cocoa);
+  font-weight: 750;
+}
+
+.sessionCard,
+.paperCard,
+.sourceCard,
+.responseCard,
+.feedbackCard,
+.emptyCard {
+  border: 1px solid color-mix(in srgb, var(--cocoa) 11%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: var(--shadow-paper);
+}
+
+.sessionCard,
+.emptyCard {
+  padding: clamp(1.1rem, 3vw, 1.8rem);
+}
+
+.sessionSummary {
+  margin-bottom: 1rem;
+  font-size: clamp(1.25rem, 3vw, 1.65rem);
+  font-weight: 760;
+}
+
+.queue {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  list-style: none;
+}
+
+.queue li {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid color-mix(in srgb, var(--cocoa) 10%, transparent);
+  padding-top: 0.7rem;
+}
+
+.queue li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.queueExpression {
+  font-size: 1.15rem;
+  font-weight: 780;
+}
+
+.queueMeaning,
+.goal,
+.muted {
+  color: color-mix(in srgb, var(--cocoa) 74%, transparent);
+}
+
+.materialGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(15rem, 0.65fr);
+  gap: 1rem;
+}
+
+.paperCard,
+.sourceCard,
+.responseCard,
+.feedbackCard {
+  min-width: 0;
+  padding: clamp(1rem, 3vw, 1.6rem);
+}
+
+.prompt {
+  margin-bottom: 0.65rem;
+  font-size: clamp(1.2rem, 2.5vw, 1.55rem);
+  line-height: 1.55;
+}
+
+.sourceLink,
+.textLink {
+  color: var(--cocoa);
+  font-weight: 720;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.disclosureButton,
+.hintButton {
+  display: block;
+  min-height: 2.75rem;
+  border: 0;
+  padding: 0.55rem 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--coral) 62%, var(--cocoa));
+  font: inherit;
+  font-weight: 760;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.sourceCard blockquote {
+  margin: 0.5rem 0 0;
+  border-left: 0.25rem solid var(--coral);
+  padding-left: 0.85rem;
+  line-height: 1.55;
+}
+
+.responseCard,
+.feedbackCard {
+  margin-top: 1rem;
+}
+
+.hintPanel {
+  margin-bottom: 1rem;
+  border-radius: var(--radius-sm);
+  padding: 0.9rem;
+  background: var(--cream);
+}
+
+.hintPanel dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.hintPanel dt {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hintPanel dd {
+  margin: 0.2rem 0 0;
+}
+
+.responseForm {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.responseForm label {
+  font-weight: 760;
+}
+
+.responseForm textarea {
+  width: 100%;
+  min-height: 8.5rem;
+  resize: vertical;
+  border: 1px solid color-mix(in srgb, var(--cocoa) 28%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem;
+  background: var(--paper);
+  color: var(--cocoa);
+  font: inherit;
+  font-size: 1.05rem;
+  line-height: 1.55;
+}
+
+.primaryButton,
+.secondaryButton {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.7rem 1.05rem;
+  font: inherit;
+  font-weight: 780;
+  cursor: pointer;
+}
+
+.primaryButton {
+  border: 1px solid color-mix(in srgb, var(--coral) 68%, var(--cocoa));
+  background: color-mix(in srgb, var(--coral) 68%, var(--cocoa));
+  color: var(--paper);
+}
+
+.secondaryButton {
+  border: 1px solid color-mix(in srgb, var(--cocoa) 28%, transparent);
+  background: transparent;
+  color: var(--cocoa);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.buttonRow,
+.emptyLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.checking {
+  margin-bottom: 0;
+  color: color-mix(in srgb, var(--cocoa) 76%, transparent);
+}
+
+.alert {
+  margin-bottom: 0;
+  border-left: 0.3rem solid var(--danger);
+  padding: 0.8rem 1rem;
+  background: color-mix(in srgb, var(--danger) 8%, var(--paper));
+}
+
+.takeaway {
+  font-size: 1.12rem;
+  font-weight: 760;
+}
+
+.dimensions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.dimension {
+  border-radius: var(--radius-sm);
+  padding: 0.85rem;
+  background: var(--cream);
+}
+
+.dimension h3 {
+  margin-bottom: 0.35rem;
+  font-size: 1rem;
+}
+
+.revision,
+.recorded {
+  border-left: 0.25rem solid var(--coral);
+  padding-left: 0.85rem;
+}
+
+.recorded {
+  border-color: var(--success);
+}
+
+.naturalRevision {
+  font-size: 1.18rem;
+}
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.disclosureButton:focus-visible,
+.hintButton:focus-visible,
+.sourceLink:focus-visible,
+.textLink:focus-visible,
+.responseForm textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--coral) 70%, var(--cocoa));
+  outline-offset: 3px;
+}
+
+@media (max-width: 44rem) {
+  .materialGrid,
+  .dimensions,
+  .hintPanel dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 22rem) {
+  .queue li,
+  .buttonRow,
+  .emptyLinks {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace *,
+  .workspace *::before,
+  .workspace *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
