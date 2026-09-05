@@ -369,6 +369,8 @@ let overviewRetryAvailable = false;
 let overviewGeneration = 0;
 let overviewRequest = null;
 const OVERVIEW_PROGRESS_COPY = "Generating overview — this can take about two minutes.";
+const OVERVIEW_RESUME_STORAGE_KEY = "popcorn:overview-resume:v1";
+const OVERVIEW_RESUME_FIELDS = new Set(["videoId", "snapshotId", "retryId", "jobId"]);
 let youtubeTabId = null; // Store the YouTube tab ID for reliable messaging
 let errorAction = null;
 let savedLibrarySummaries = [];
@@ -1628,6 +1630,86 @@ function updateOverviewRetryButton() {
   button.disabled = isAnalysisLoading;
 }
 
+function validatedOverviewResumeRecord(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const fields = Object.keys(value);
+  if (
+    fields.length < 3 ||
+    fields.length > OVERVIEW_RESUME_FIELDS.size ||
+    fields.some((field) => !OVERVIEW_RESUME_FIELDS.has(field)) ||
+    !SAVE_VIDEO_ID_PATTERN.test(value.videoId || "") ||
+    !SAVE_UUID_PATTERN.test(value.snapshotId || "")
+  ) {
+    return null;
+  }
+  const record = {
+    videoId: value.videoId,
+    snapshotId: value.snapshotId,
+  };
+  for (const field of ["retryId", "jobId"]) {
+    if (value[field] === undefined) continue;
+    if (!SAVE_UUID_PATTERN.test(value[field])) return null;
+    record[field] = value[field];
+  }
+  return record.retryId || record.jobId ? record : null;
+}
+
+function overviewResumeRecordFor(request) {
+  return validatedOverviewResumeRecord({
+    videoId: request.videoId,
+    snapshotId: request.snapshotId,
+    ...(request.retryId ? { retryId: request.retryId } : {}),
+    ...(request.jobId ? { jobId: request.jobId } : {}),
+  });
+}
+
+function matchingOverviewResumeRecord(left, right) {
+  const leftRecord = validatedOverviewResumeRecord(left);
+  const rightRecord = overviewResumeRecordFor(right);
+  return Boolean(leftRecord && rightRecord) &&
+    Object.keys(leftRecord).length === Object.keys(rightRecord).length &&
+    Object.entries(leftRecord).every(([field, value]) => rightRecord[field] === value);
+}
+
+async function loadOverviewResumeRecord(videoId, snapshotId) {
+  try {
+    const stored = await chrome.storage.local.get(OVERVIEW_RESUME_STORAGE_KEY);
+    const rawRecord = stored?.[OVERVIEW_RESUME_STORAGE_KEY];
+    if (rawRecord === undefined) return null;
+    const record = validatedOverviewResumeRecord(rawRecord);
+    if (!record) {
+      await chrome.storage.local.remove(OVERVIEW_RESUME_STORAGE_KEY);
+      return null;
+    }
+    return record.videoId === videoId && record.snapshotId === snapshotId
+      ? record
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function persistOverviewResumeRecord(request) {
+  const record = overviewResumeRecordFor(request);
+  if (!record) return;
+  try {
+    await chrome.storage.local.set({ [OVERVIEW_RESUME_STORAGE_KEY]: record });
+  } catch {
+    // A browser storage failure must not turn an existing Overview request into a retry.
+  }
+}
+
+async function clearMatchingOverviewResumeRecord(request) {
+  try {
+    const stored = await chrome.storage.local.get(OVERVIEW_RESUME_STORAGE_KEY);
+    if (matchingOverviewResumeRecord(stored?.[OVERVIEW_RESUME_STORAGE_KEY], request)) {
+      await chrome.storage.local.remove(OVERVIEW_RESUME_STORAGE_KEY);
+    }
+  } catch {
+    // Resume state is best-effort only; server ownership remains authoritative.
+  }
+}
+
 function retryOverview() {
   if (!overviewRetryAvailable || isAnalysisLoading) return;
   return triggerAnalysis(crypto.randomUUID());
@@ -1644,24 +1726,38 @@ async function triggerAnalysis(retryId) {
   if (!currentTranscriptTimestamped || isAnalysisLoading || currentAnalysis)
     return;
 
-  const request = !retryId && overviewRequest?.jobId &&
+  isAnalysisLoading = true;
+  overviewRetryAvailable = false;
+  updateOverviewRetryButton();
+
+  const memoryRequest = !retryId && overviewRequest?.jobId &&
     overviewRequest.generation === overviewGeneration &&
     overviewRequest.videoId === currentVideoId &&
     overviewRequest.snapshotId === currentSnapshotId
     ? overviewRequest
+    : null;
+  const storedRecord = !retryId && !memoryRequest
+    ? await loadOverviewResumeRecord(currentVideoId, currentSnapshotId)
+    : null;
+  const request = memoryRequest
+    || (storedRecord
+      ? {
+        videoId: storedRecord.videoId,
+        snapshotId: storedRecord.snapshotId,
+        generation: overviewGeneration,
+        retryId: storedRecord.retryId,
+        jobId: storedRecord.jobId,
+      }
     : {
       videoId: currentVideoId,
       snapshotId: currentSnapshotId,
       generation: overviewGeneration,
       retryId,
       jobId: undefined,
-    };
+    });
   overviewRequest = request;
+  if (retryId) await persistOverviewResumeRecord(request);
   let clearRequest = false;
-
-  isAnalysisLoading = true;
-  overviewRetryAvailable = false;
-  updateOverviewRetryButton();
 
   // Show loading indicators in the Overview tab
   const overviewText = document.getElementById("overviewText");
@@ -1691,12 +1787,14 @@ async function triggerAnalysis(retryId) {
       if (chapterList)
         chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Analysis failed: ${escapeHtml(analysisResult.error || "Unknown error")}</li>`;
       overviewRetryAvailable = true;
+      await clearMatchingOverviewResumeRecord(request);
       clearRequest = true;
       return;
     }
     if (analysisResult.pending) {
       if (chapterList) chapterList.innerHTML = '<li class="chapter-item" style="color: var(--text-muted); border: none;">Overview is still processing. Reopen this tab shortly.</li>';
       request.jobId = analysisResult.jobId || request.jobId;
+      await persistOverviewResumeRecord(request);
       return;
     }
 
@@ -1707,6 +1805,7 @@ async function triggerAnalysis(retryId) {
     // Save to cache now that we have analysis
     await saveToCache(request.videoId);
     if (!isCurrentOverviewRequest(request)) return;
+    await clearMatchingOverviewResumeRecord(request);
     clearRequest = true;
   } catch (error) {
     if (!isCurrentOverviewRequest(request)) return;
@@ -1715,6 +1814,7 @@ async function triggerAnalysis(retryId) {
     if (chapterList)
       chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Error: ${escapeHtml(error.message)}</li>`;
     overviewRetryAvailable = true;
+    await clearMatchingOverviewResumeRecord(request);
     clearRequest = true;
   } finally {
     if (!isCurrentOverviewRequest(request)) return;

@@ -17,6 +17,7 @@ function loadSidepanelHelpers({
   documentImpl,
   windowImpl,
   cryptoImpl = { randomUUID },
+  storageLocal = createStorageLocal(),
 } = {}) {
   const listeners = { addListener() {} };
   const injectedDocument = documentImpl
@@ -66,6 +67,7 @@ function loadSidepanelHelpers({
       },
     },
     chrome: {
+      storage: { local: storageLocal },
       runtime: { onMessage: listeners, sendMessage },
       windows: { getCurrent: () => Promise.resolve({ id: 1 }) },
       tabs: { query: queryTabs, onUpdated: listeners, onActivated: listeners },
@@ -79,6 +81,29 @@ function loadSidepanelHelpers({
     value: (source) => vm.runInContext(source, context),
   });
   return sandbox.__YTD_TRANSCRIPT_TESTING__;
+}
+
+function createStorageLocal(initial = {}) {
+  const values = { ...initial };
+  const keysFor = (keys) => Array.isArray(keys) ? keys : [keys];
+  return {
+    get(keys) {
+      return Promise.resolve(Object.fromEntries(
+        keysFor(keys).filter((key) => Object.hasOwn(values, key)).map((key) => [key, values[key]]),
+      ));
+    },
+    set(entries) {
+      Object.assign(values, entries);
+      return Promise.resolve();
+    },
+    remove(keys) {
+      keysFor(keys).forEach((key) => delete values[key]);
+      return Promise.resolve();
+    },
+    snapshot() {
+      return JSON.parse(JSON.stringify(values));
+    },
+  };
 }
 
 function loadBackgroundHelpers({
@@ -248,6 +273,7 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
 
   const firstRetry = helpers.retryOverview();
   helpers.retryOverview();
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(retry.hidden, true);
   assert.equal(retry.disabled, true);
   assert.equal(sent.length, 2);
@@ -314,6 +340,7 @@ test("a late Overview response for video A cannot overwrite video B or release B
   `);
 
   const requestA = helpers.triggerAnalysis();
+  await new Promise((resolve) => setImmediate(resolve));
   helpers.evaluateInSidepanel(`
     currentVideoId = "videoBBBBBB";
     currentSnapshotId = "40000000-0000-4000-8000-000000000002";
@@ -322,6 +349,7 @@ test("a late Overview response for video A cannot overwrite video B or release B
     isAnalysisLoading = false;
   `);
   const requestB = helpers.triggerAnalysis();
+  await new Promise((resolve) => setImmediate(resolve));
   const content = (name) => ({
     overview: `${name} overview`, chapters: [], keyQuotes: [], keyMoments: [],
   });
@@ -385,6 +413,207 @@ test("a pending Overview retry resumes its owner-bound job when the Overview tab
     jobId: "overview-retry-job",
   });
   assert.equal(helpers.evaluateInSidepanel("currentAnalysis.overview"), "Recovered Overview");
+});
+
+test("a pending explicit Overview retry survives a recreated Side Panel and clears after success", async () => {
+  const resumeKey = "popcorn:overview-resume:v1";
+  const videoId = "abc123XYZ00";
+  const snapshotId = "40000000-0000-4000-8000-000000000001";
+  const retryId = "70000000-0000-4000-8000-000000000001";
+  const storageLocal = createStorageLocal();
+  const first = loadSidepanelHelpers({
+    storageLocal,
+    cryptoImpl: { randomUUID: () => retryId },
+  });
+  first.evaluateInSidepanel(`
+    globalThis.overviewMessages = [];
+    globalThis.overviewResponses = [
+      { success: false, error: "Initial Overview failure." },
+      { success: true, pending: true, jobId: "60000000-0000-4000-8000-000000000001" },
+    ];
+    sendCloudAction = async (message) => {
+      globalThis.overviewMessages.push(message);
+      return globalThis.overviewResponses.shift();
+    };
+    currentVideoId = ${JSON.stringify(videoId)};
+    currentSnapshotId = ${JSON.stringify(snapshotId)};
+    currentTranscriptTimestamped = [{ text: "重试字幕" }];
+    currentAnalysis = null;
+  `);
+
+  await first.triggerAnalysis();
+  await first.retryOverview();
+  assert.deepEqual(storageLocal.snapshot()[resumeKey], {
+    videoId, snapshotId, retryId, jobId: "60000000-0000-4000-8000-000000000001",
+  });
+
+  const second = loadSidepanelHelpers({ storageLocal });
+  second.evaluateInSidepanel(`
+    globalThis.overviewMessages = [];
+    sendCloudAction = async (message) => {
+      globalThis.overviewMessages.push(message);
+      return { success: true, content: { overview: "Recovered", chapters: [], keyQuotes: [], keyMoments: [] } };
+    };
+    currentVideoId = ${JSON.stringify(videoId)};
+    currentSnapshotId = ${JSON.stringify(snapshotId)};
+    currentTranscriptTimestamped = [{ text: "重试字幕" }];
+    currentAnalysis = null;
+  `);
+
+  await second.triggerAnalysis();
+  assert.deepEqual(JSON.parse(second.evaluateInSidepanel("JSON.stringify(globalThis.overviewMessages)")), [{
+    action: "requestOverview", videoId, snapshotId, retryId, jobId: "60000000-0000-4000-8000-000000000001",
+  }]);
+  assert.equal(storageLocal.snapshot()[resumeKey], undefined);
+});
+
+test("a pending original Overview stores and resumes its job without a retry UUID", async () => {
+  const resumeKey = "popcorn:overview-resume:v1";
+  const videoId = "abc123XYZ00";
+  const snapshotId = "40000000-0000-4000-8000-000000000001";
+  const storageLocal = createStorageLocal();
+  const first = loadSidepanelHelpers({ storageLocal });
+  first.evaluateInSidepanel(`
+    sendCloudAction = async () => ({ success: true, pending: true, jobId: "60000000-0000-4000-8000-000000000002" });
+    currentVideoId = ${JSON.stringify(videoId)};
+    currentSnapshotId = ${JSON.stringify(snapshotId)};
+    currentTranscriptTimestamped = [{ text: "原始字幕" }];
+    currentAnalysis = null;
+  `);
+  await first.triggerAnalysis();
+  assert.deepEqual(storageLocal.snapshot()[resumeKey], {
+    videoId, snapshotId, jobId: "60000000-0000-4000-8000-000000000002",
+  });
+
+  const second = loadSidepanelHelpers({ storageLocal });
+  second.evaluateInSidepanel(`
+    globalThis.overviewMessages = [];
+    sendCloudAction = async (message) => {
+      globalThis.overviewMessages.push(message);
+      return { success: true, content: { overview: "Original recovered", chapters: [], keyQuotes: [], keyMoments: [] } };
+    };
+    currentVideoId = ${JSON.stringify(videoId)};
+    currentSnapshotId = ${JSON.stringify(snapshotId)};
+    currentTranscriptTimestamped = [{ text: "原始字幕" }];
+    currentAnalysis = null;
+  `);
+  await second.triggerAnalysis();
+  assert.deepEqual(JSON.parse(second.evaluateInSidepanel("JSON.stringify(globalThis.overviewMessages[0])")), {
+    action: "requestOverview", videoId, snapshotId, jobId: "60000000-0000-4000-8000-000000000002",
+  });
+  assert.equal(storageLocal.snapshot()[resumeKey], undefined);
+});
+
+test("pending and destroyed Overview sessions keep the resume record", async () => {
+  const resumeKey = "popcorn:overview-resume:v1";
+  const storageLocal = createStorageLocal();
+  const helpers = loadSidepanelHelpers({ storageLocal });
+  helpers.evaluateInSidepanel(`
+    sendCloudAction = async () => ({ success: true, pending: true, jobId: "60000000-0000-4000-8000-000000000003" });
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "等待字幕" }];
+    currentAnalysis = null;
+  `);
+  await helpers.triggerAnalysis();
+  assert.deepEqual(storageLocal.snapshot()[resumeKey], {
+    videoId: "abc123XYZ00",
+    snapshotId: "40000000-0000-4000-8000-000000000001",
+    jobId: "60000000-0000-4000-8000-000000000003",
+  });
+  loadSidepanelHelpers({ storageLocal });
+  assert.deepEqual(storageLocal.snapshot()[resumeKey], {
+    videoId: "abc123XYZ00",
+    snapshotId: "40000000-0000-4000-8000-000000000001",
+    jobId: "60000000-0000-4000-8000-000000000003",
+  });
+});
+
+test("Overview ignores other snapshots, removes malformed records, and never invents a retry UUID", async () => {
+  const resumeKey = "popcorn:overview-resume:v1";
+  const otherRecord = {
+    videoId: "videoBBBBBB",
+    snapshotId: "40000000-0000-4000-8000-000000000002",
+    retryId: "70000000-0000-4000-8000-000000000001",
+    jobId: "60000000-0000-4000-8000-000000000004",
+  };
+  const storageLocal = createStorageLocal({ [resumeKey]: otherRecord });
+  const helpers = loadSidepanelHelpers({
+    storageLocal,
+    cryptoImpl: { randomUUID: () => { throw new Error("must not create retry UUID"); } },
+  });
+  helpers.evaluateInSidepanel(`
+    globalThis.overviewMessages = [];
+    sendCloudAction = async (message) => {
+      globalThis.overviewMessages.push(message);
+      return { success: true, content: { overview: "Current", chapters: [], keyQuotes: [], keyMoments: [] } };
+    };
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "当前字幕" }];
+    currentAnalysis = null;
+  `);
+  await helpers.triggerAnalysis();
+  assert.deepEqual(JSON.parse(helpers.evaluateInSidepanel("JSON.stringify(globalThis.overviewMessages[0])")), {
+    action: "requestOverview", videoId: "abc123XYZ00", snapshotId: "40000000-0000-4000-8000-000000000001",
+  });
+  assert.deepEqual(storageLocal.snapshot()[resumeKey], otherRecord);
+
+  const malformedStorage = createStorageLocal({ [resumeKey]: { videoId: "x".repeat(12_000) } });
+  const malformed = loadSidepanelHelpers({ storageLocal: malformedStorage });
+  malformed.evaluateInSidepanel(`
+    sendCloudAction = async () => ({ success: true, content: { overview: "Current", chapters: [], keyQuotes: [], keyMoments: [] } });
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "当前字幕" }];
+    currentAnalysis = null;
+  `);
+  await malformed.triggerAnalysis();
+  assert.equal(malformedStorage.snapshot()[resumeKey], undefined);
+});
+
+test("a stale terminal Overview result cannot remove a newer resume record but a current terminal failure does", async () => {
+  const resumeKey = "popcorn:overview-resume:v1";
+  const videoId = "abc123XYZ00";
+  const snapshotId = "40000000-0000-4000-8000-000000000001";
+  const firstRetryId = "70000000-0000-4000-8000-000000000001";
+  const newerRecord = {
+    videoId, snapshotId,
+    retryId: "70000000-0000-4000-8000-000000000002",
+    jobId: "60000000-0000-4000-8000-000000000005",
+  };
+  const storageLocal = createStorageLocal();
+  let finish;
+  const stale = loadSidepanelHelpers({
+    storageLocal,
+    cryptoImpl: { randomUUID: () => firstRetryId },
+  });
+  stale.evaluateInSidepanel(`
+    overviewRetryAvailable = true;
+    currentVideoId = ${JSON.stringify(videoId)};
+    currentSnapshotId = ${JSON.stringify(snapshotId)};
+    currentTranscriptTimestamped = [{ text: "旧任务字幕" }];
+    currentAnalysis = null;
+    sendCloudAction = async () => new Promise((resolve) => { globalThis.finishOverview = resolve; });
+  `);
+  const staleRequest = stale.retryOverview();
+  await new Promise((resolve) => setImmediate(resolve));
+  finish = stale.evaluateInSidepanel("globalThis.finishOverview");
+  await storageLocal.set({ [resumeKey]: newerRecord });
+  finish({ success: false, error: "Old failure" });
+  await staleRequest;
+  assert.deepEqual(storageLocal.snapshot()[resumeKey], newerRecord);
+
+  const current = loadSidepanelHelpers({ storageLocal });
+  current.evaluateInSidepanel(`
+    sendCloudAction = async () => ({ success: false, error: "Current failure" });
+    currentVideoId = ${JSON.stringify(videoId)};
+    currentSnapshotId = ${JSON.stringify(snapshotId)};
+    currentTranscriptTimestamped = [{ text: "新任务字幕" }];
+    currentAnalysis = null;
+  `);
+  await current.triggerAnalysis();
+  assert.equal(storageLocal.snapshot()[resumeKey], undefined);
 });
 
 test("semantic segmentation rebuilds sentences across caption boundaries", () => {
