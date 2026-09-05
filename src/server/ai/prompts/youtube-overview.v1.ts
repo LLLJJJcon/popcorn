@@ -6,7 +6,7 @@ const English = z.string().trim().min(1).max(4_000).refine(
   "Expected English output",
 );
 
-export const YOUTUBE_OVERVIEW_PROMPT_VERSION = "youtube-overview-v3";
+export const YOUTUBE_OVERVIEW_PROMPT_VERSION = "youtube-overview-v4-simple";
 export const OverviewContentSchema = z.strictObject({
   overview: English,
   chapters: z.array(z.strictObject({
@@ -14,13 +14,13 @@ export const OverviewContentSchema = z.strictObject({
     summary: English.max(1_000),
     timestampSeconds: z.number().finite().min(0).max(604_800),
     sourceSegmentIds: z.array(StableId).min(1).max(32),
-  })).min(1).max(100),
+  })).max(100),
   keyQuotes: z.array(z.strictObject({
     quote: z.string().trim().min(1).max(2_000).refine((value) => /[\u3400-\u9fff]/.test(value), "Expected native Chinese quote"),
     englishMeaning: English.max(1_000),
     timestampSeconds: z.number().finite().min(0).max(604_800),
     sourceSegmentIds: z.array(StableId).min(1).max(32),
-  })).min(3).max(5),
+  })).max(5),
 });
 
 type OverviewPromptSegment = {
@@ -36,7 +36,7 @@ export function buildOverviewPrompt(
       `${sourceLineIndex} ${JSON.stringify(segment.originalChinese)}`,
     )
     .join("\n");
-  return `Create a concise, content-focused English overview for an English-speaking Mandarin learner. Cover the whole video with 1-8 chapters appropriate to the material and exactly 3-5 key quotes. Each transcript record is one physical line containing a sourceLineIndex followed by originalChineseJson, which is a JSON string literal. Decode originalChineseJson to recover the complete original text. Preserve the original Simplified Chinese in each key quote, and make every quote an exact substring of the decoded text in its anchored transcript record. Each chapter and key quote must return exactly one sourceLineIndex referring to the supporting global transcript record. Return strict JSON only; do not return timestamps, block indexes, IDs, or metadata.\nTitle: ${title}\nNative transcript lines:\n${evidence}`;
+  return `Create a concise, content-focused English overview for an English-speaking Mandarin learner. The overview is required. You may also return 1-8 chapters and 0-5 key quotes when they add value. JSON with overview, chapters, and keyQuotes is preferred, but plain English prose is valid. Each transcript record is one physical line containing a sourceLineIndex followed by originalChineseJson, which is a JSON string literal. Decode originalChineseJson to recover the complete original text. Preserve the original Simplified Chinese in each key quote, and make every quote an exact substring of the decoded transcript. Each chapter should return one sourceLineIndex referring to its supporting global transcript record. A key quote may return its sourceLineIndex when known. Do not return timestamps, block indexes, IDs, or metadata.\nTitle: ${title}\nNative transcript lines:\n${evidence}`;
 }
 
 export type OverviewContent = z.infer<typeof OverviewContentSchema>;

@@ -115,6 +115,10 @@ function completionResponse(value: unknown): Response {
   });
 }
 
+function textCompletionResponse(content: string): Response {
+  return jsonResponse({ choices: [{ message: { role: "assistant", content } }] });
+}
+
 async function expectGatewayCode(
   operation: Promise<unknown>,
   code: "PROVIDER_UNAVAILABLE" | "PROVIDER_OUTPUT_INVALID",
@@ -186,7 +190,7 @@ describe("bounded openai-compatible adapter", () => {
       max_tokens?: number;
       messages: { role: string; content: string }[];
     };
-    expect(parsedBody.max_tokens).toBe(1_800);
+    expect(parsedBody.max_tokens).toBe(900);
     const userPrompt = parsedBody.messages.find(({ role }) => role === "user")?.content;
     expect(userPrompt).toBeDefined();
     const transcriptLines = userPrompt?.split("Native transcript lines:\n")[1]?.split("\n");
@@ -314,7 +318,7 @@ describe("bounded openai-compatible adapter", () => {
       max_tokens?: number;
       messages: { role: string; content: string }[];
     };
-    expect(parsedBody.max_tokens).toBe(1_800);
+    expect(parsedBody.max_tokens).toBe(900);
     const userPrompt = parsedBody.messages.find(({ role }) => role === "user")?.content;
     const protocolRecords = userPrompt?.split("Native transcript lines:\n")[1]?.split("\n");
     expect(protocolRecords).toHaveLength(multilineEvidence.segments.length);
@@ -331,23 +335,87 @@ describe("bounded openai-compatible adapter", () => {
     expect(requestBody).not.toContain("7.25");
   });
 
-  test.each([
-    ["out-of-range line", { ...gatewayOverview, chapters: [{ ...gatewayOverview.chapters[0], sourceLineIndex: 2 }] }],
-    ["mismatched quote", { ...gatewayOverview, keyQuotes: [
-      { ...gatewayOverview.keyQuotes[0], quote: "完全无关的中文" },
-      ...gatewayOverview.keyQuotes.slice(1),
-    ] }],
-    ["fabricated evidence", { ...gatewayOverview, keyQuotes: [
-      { ...gatewayOverview.keyQuotes[0], sourceLineIndex: 1 },
-      ...gatewayOverview.keyQuotes.slice(1),
-    ] }],
-  ])("fails closed for %s in global Overview anchors", async (_label, output) => {
+  test("accepts plain prose and a single enclosing Markdown fence as summary-only Overview content", async () => {
+    const prose = "The speaker explains how to use a natural Mandarin expression in conversation.";
+    for (const content of [prose, `\`\`\`markdown\n${prose}\n\`\`\``]) {
+      const fetchImpl = vi.fn<typeof fetch>(async () => textCompletionResponse(content));
+      const provider = createOpenAiCompatibleLearningArtifactProvider({ config: RUNTIME_CONFIG, fetchImpl });
+
+      await expect(provider.generateOverview(evidence)).resolves.toEqual({
+        overview: prose,
+        chapters: [],
+        keyQuotes: [],
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test("retains a JSON summary and only independently valid grounded optional items", async () => {
     const provider = createOpenAiCompatibleLearningArtifactProvider({
       config: RUNTIME_CONFIG,
-      fetchImpl: vi.fn(async () => completionResponse(output)),
+      fetchImpl: vi.fn(async () => completionResponse({
+        overview: "The speaker demonstrates a natural phrase and a direct way to say it.",
+        ignored: "unknown fields do not invalidate the summary",
+        chapters: [
+          { title: "Natural phrasing", summary: "The first line evaluates an expression.", sourceLineIndex: 0 },
+          { title: "Missing summary", sourceLineIndex: 1 },
+          { title: "Out of range", summary: "This anchor does not exist.", sourceLineIndex: 20 },
+          "not an object",
+        ],
+        keyQuotes: [
+          { quote: "这个表达", englishMeaning: "This expression.", sourceLineIndex: 0 },
+          { quote: "完全无关", englishMeaning: "Ungrounded text.", sourceLineIndex: 0 },
+          { quote: "很自然", sourceLineIndex: 0 },
+        ],
+      })),
     });
 
-    await expectGatewayCode(provider.generateOverview(evidence), "PROVIDER_OUTPUT_INVALID");
+    await expect(provider.generateOverview(evidence)).resolves.toEqual({
+      overview: "The speaker demonstrates a natural phrase and a direct way to say it.",
+      chapters: [{
+        title: "Natural phrasing",
+        summary: "The first line evaluates an expression.",
+        timestampSeconds: 0,
+        sourceSegmentIds: [SEGMENT_A],
+      }],
+      keyQuotes: [{
+        quote: "这个表达",
+        englishMeaning: "This expression.",
+        timestampSeconds: 0,
+        sourceSegmentIds: [SEGMENT_A],
+      }],
+    });
+  });
+
+  test.each([
+    ["wrong", 1],
+    ["missing", undefined],
+  ])("recovers a quote with a %s line index by its first exact transcript match", async (_label, sourceLineIndex) => {
+    const provider = createOpenAiCompatibleLearningArtifactProvider({
+      config: RUNTIME_CONFIG,
+      fetchImpl: vi.fn(async () => completionResponse({
+        overview: "The speaker describes a natural expression.",
+        chapters: [],
+        keyQuotes: [{ quote: "这个表达", englishMeaning: "This expression.", sourceLineIndex }],
+      })),
+    });
+
+    await expect(provider.generateOverview(evidence)).resolves.toMatchObject({
+      keyQuotes: [{ timestampSeconds: 0, sourceSegmentIds: [SEGMENT_A] }],
+    });
+  });
+
+  test("fails when parseable JSON has no usable overview without exposing Provider text", async () => {
+    const secretText = "private provider response";
+    const provider = createOpenAiCompatibleLearningArtifactProvider({
+      config: RUNTIME_CONFIG,
+      fetchImpl: vi.fn(async () => completionResponse({ overview: "  ", detail: secretText })),
+    });
+
+    await provider.generateOverview(evidence).catch((error: unknown) => {
+      expect(error).toMatchObject({ code: "PROVIDER_OUTPUT_INVALID" });
+      expect(String(error)).not.toContain(secretText);
+    });
   });
 
   test("accepts one structured translation group larger than four through Provider and artifact schemas", async () => {
@@ -451,7 +519,7 @@ describe("bounded openai-compatible adapter", () => {
     );
 
     expect(bodies[0]).toContain("中文视频");
-    expect(bodies[0]).toContain("youtube-overview-v3");
+    expect(bodies[0]).toContain("youtube-overview-v4-simple");
     expect(bodies[0]).toContain("这个表达很自然。");
     expect(bodies[0]).toContain("你可以直接这样说。");
     expect(bodies[1]).toContain("这个表达");
@@ -621,7 +689,6 @@ describe("bounded openai-compatible adapter", () => {
     ["tool call", { choices: [{ message: { role: "assistant", content: JSON.stringify(validOverview), tool_calls: [{}] } }] }],
     ["empty", { choices: [{ message: { role: "assistant", content: "" } }] }],
     ["fenced", { choices: [{ message: { role: "assistant", content: "```json\n{}\n```" } }] }],
-    ["invalid json", { choices: [{ message: { role: "assistant", content: "not-json" } }] }],
   ])("maps %s successful responses to output invalid", async (_label, envelope) => {
     const adapter = createOpenAiCompatibleLearningArtifactProvider({
       config: RUNTIME_CONFIG,
@@ -710,7 +777,7 @@ describe("fast durable learning-artifact request routes", () => {
       registrations[0].input,
     ]);
     expect(JSON.stringify(registrations[0].input)).not.toContain("retryId");
-    expect(registrations[0].input.promptVersion).toBe("youtube-overview-v3");
+    expect(registrations[0].input.promptVersion).toBe("youtube-overview-v4-simple");
   });
 
   test("a retry UUID changes only translation dedupe identity and is absent from private Provider input", async () => {
@@ -864,7 +931,7 @@ describe("fast durable learning-artifact request routes", () => {
     expect(store.register).not.toHaveBeenCalled();
   });
 
-  test("deterministic replay returns the same succeeded owner-scoped artifact as 200", async () => {
+  test("successful same-video same-snapshot replay reuses the deduplicated artifact without a new Provider job", async () => {
     const content = validOverview;
     const store = routeStore({
       register: vi.fn(async () => ({ jobId: JOB_ID, status: "succeeded", created: false })),
@@ -884,6 +951,8 @@ describe("fast durable learning-artifact request routes", () => {
     const second = await request();
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
+    expect(store.register).toHaveBeenCalledTimes(2);
+    expect(store.readArtifact).toHaveBeenCalledTimes(2);
     expect(vi.mocked(store.register).mock.calls[0][0].dedupeKey).toBe(
       vi.mocked(store.register).mock.calls[1][0].dedupeKey,
     );
@@ -1024,16 +1093,43 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
     expect(store.completeGatewayLearningArtifact).not.toHaveBeenCalled();
   });
 
-  test("attempt five terminalizes and atomically clears input", async () => {
-    const job = leasedJob("generate_overview", 4);
+  test.each([
+    ["PROVIDER_OUTPUT_INVALID", new ModelGatewayError("PROVIDER_OUTPUT_INVALID")],
+    ["PROVIDER_UNAVAILABLE", new ModelGatewayError("PROVIDER_UNAVAILABLE")],
+  ] as const)("the first Overview %s failure is terminal and atomically clears input", async (code, failure) => {
+    const job = leasedJob("generate_overview");
     const store = handlerStore(privateInput("generate_overview", "overview-v1"));
-    const badProvider = { ...provider, generateOverview: vi.fn(async () => ({ bad: true })) };
+    const badProvider = { ...provider, generateOverview: vi.fn(async () => { throw failure; }) };
     const handler = createGenerateOverviewHandler({ store, providerResolver: {
       resolve: vi.fn(async () => ({ provider: badProvider, model: "mandarin-model" })),
     } });
     await expect(handler(job, USER_A, NOW)).resolves.toBe("failed");
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledWith(
-      USER_A, job, nextJobFailure(job, "PROVIDER_OUTPUT_INVALID", NOW), true,
+      USER_A,
+      job,
+      expect.objectContaining({ status: "terminal_failed", lastErrorCode: code }),
+      true,
+    );
+    expect(badProvider.generateOverview).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["translation", "translate_segments", createTranslateSegmentsHandler, "translateSegments"],
+    ["explanation", "explain_selection", createExplainSelectionHandler, "explainSelection"],
+  ] as const)("%s keeps automatic retry behavior after its first Provider failure", async (_label, type, factory, method) => {
+    const job = leasedJob(type);
+    const store = handlerStore(privateInput(type, `${type}-v1`));
+    const badProvider = {
+      ...provider,
+      [method]: vi.fn(async () => { throw new ModelGatewayError("PROVIDER_UNAVAILABLE"); }),
+    } as LearningArtifactProvider;
+    const handler = factory({ store, providerResolver: {
+      resolve: vi.fn(async () => ({ provider: badProvider, model: "mandarin-model" })),
+    } });
+
+    await expect(handler(job, USER_A, NOW)).resolves.toBe("deferred");
+    expect(store.transitionLearningArtifactFailure).toHaveBeenCalledWith(
+      USER_A, job, nextJobFailure(job, "PROVIDER_UNAVAILABLE", NOW), false,
     );
   });
 
@@ -1056,7 +1152,7 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
     } })(failureJob, USER_A, NOW)).resolves.toBe("deferred");
   });
 
-  test("revocation before fetch performs zero network and fails through the frozen transition", async () => {
+  test("Overview revocation before fetch performs zero network and terminalizes through the frozen transition", async () => {
     const job = leasedJob("generate_overview");
     const store = handlerStore(privateInput("generate_overview", "overview-v1"));
     const fetchProbe = vi.fn();
@@ -1066,11 +1162,14 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
       }),
     };
 
-    await expect(createGenerateOverviewHandler({ store, providerResolver: revokedResolver })(job, USER_A, NOW)).resolves.toBe("deferred");
+    await expect(createGenerateOverviewHandler({ store, providerResolver: revokedResolver })(job, USER_A, NOW)).resolves.toBe("failed");
     expect(fetchProbe).not.toHaveBeenCalled();
     expect(store.completeGatewayLearningArtifact).not.toHaveBeenCalled();
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledWith(
-      USER_A, job, nextJobFailure(job, "PROVIDER_UNAVAILABLE", NOW), false,
+      USER_A,
+      job,
+      expect.objectContaining({ status: "terminal_failed", lastErrorCode: "PROVIDER_UNAVAILABLE" }),
+      true,
     );
   });
 
@@ -1108,8 +1207,6 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
 
 describe("complete source-grounded Overview validation", () => {
   test.each([
-    ["zero chapters", { ...validOverview, chapters: [] }],
-    ["fewer than three quotes", { ...validOverview, keyQuotes: validOverview.keyQuotes.slice(0, 2) }],
     ["more than five quotes", { ...validOverview, keyQuotes: Array.from({ length: 6 }, () => validOverview.keyQuotes[0]) }],
     ["quote text from a different source", {
       ...validOverview,
@@ -1138,6 +1235,24 @@ describe("complete source-grounded Overview validation", () => {
     }],
   ] as const)("rejects %s", (_label, content) => {
     expect(() => validateOverviewContent(content, evidence)).toThrow();
+  });
+
+  test("accepts empty optional arrays while malformed present items still fail", () => {
+    const summaryOnly = { overview: validOverview.overview, chapters: [], keyQuotes: [] };
+    expect(validateOverviewContent(summaryOnly, evidence)).toEqual(summaryOnly);
+    expect(() => validateOverviewContent({
+      ...summaryOnly,
+      chapters: [{ title: "Broken", summary: "Missing evidence anchor." }],
+    }, evidence)).toThrow();
+    expect(() => validateOverviewContent({
+      ...summaryOnly,
+      keyQuotes: [{
+        quote: "这个表达",
+        englishMeaning: "This expression.",
+        timestampSeconds: 0,
+        sourceSegmentIds: ["d".repeat(64)],
+      }],
+    }, evidence)).toThrow();
   });
 
   test("accepts chapters and 3-5 quotes grounded to their exact referenced ranges", () => {

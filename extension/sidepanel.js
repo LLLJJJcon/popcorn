@@ -1280,9 +1280,12 @@ function renderAnalysisResults(analysis) {
   if (overviewText) overviewText.textContent = analysis.overview || "";
 
   // Chapters
+  const chapters = analysis.chapters || [];
+  const chaptersSection = document.getElementById("chaptersSection");
+  if (chaptersSection) chaptersSection.hidden = chapters.length === 0;
   const chapterList = document.getElementById("chapterList");
   chapterList.innerHTML = "";
-  (analysis.chapters || []).forEach((chapter) => {
+  chapters.forEach((chapter) => {
     const li = document.createElement("li");
     li.className = "chapter-item";
     li.dataset.seconds = chapter.timestampSeconds;
@@ -1305,9 +1308,12 @@ function renderAnalysisResults(analysis) {
   });
 
   // Quotes - sort by timestamp (chronological order)
+  const keyQuotes = analysis.keyQuotes || [];
+  const keyQuotesSection = document.getElementById("keyQuotesSection");
+  if (keyQuotesSection) keyQuotesSection.hidden = keyQuotes.length === 0;
   const quotesList = document.getElementById("quotesList");
   quotesList.innerHTML = "";
-  const sortedQuotes = [...(analysis.keyQuotes || [])].sort(
+  const sortedQuotes = [...keyQuotes].sort(
     (a, b) => (a.timestampSeconds || 0) - (b.timestampSeconds || 0),
   );
   sortedQuotes.forEach((quote) => {
@@ -1739,11 +1745,22 @@ function isCurrentOverviewOwner(owner) {
 
 function showOverviewRetryPersistenceFailure() {
   const overviewText = document.getElementById("overviewText");
-  const chapterList = document.getElementById("chapterList");
-  if (overviewText) overviewText.textContent = "";
-  if (chapterList) {
-    chapterList.innerHTML = '<li class="chapter-item" style="color: var(--accent); border: none;">Could not save retry state. Please retry overview again.</li>';
-  }
+  if (overviewText) overviewText.textContent = "Could not save retry state. Please retry overview again.";
+  hideOverviewOptionalSections();
+}
+
+function showOverviewOptionalSections() {
+  const chaptersSection = document.getElementById("chaptersSection");
+  const keyQuotesSection = document.getElementById("keyQuotesSection");
+  if (chaptersSection) chaptersSection.hidden = false;
+  if (keyQuotesSection) keyQuotesSection.hidden = false;
+}
+
+function hideOverviewOptionalSections() {
+  const chaptersSection = document.getElementById("chaptersSection");
+  const keyQuotesSection = document.getElementById("keyQuotesSection");
+  if (chaptersSection) chaptersSection.hidden = true;
+  if (keyQuotesSection) keyQuotesSection.hidden = true;
 }
 
 async function triggerAnalysis(retryId) {
@@ -1803,6 +1820,7 @@ async function triggerAnalysis(retryId) {
   const chapterList = document.getElementById("chapterList");
   const quotesList = document.getElementById("quotesList");
 
+  showOverviewOptionalSections();
   if (overviewText) overviewText.textContent = OVERVIEW_PROGRESS_COPY;
   if (chapterList)
     chapterList.innerHTML =
@@ -1826,9 +1844,9 @@ async function triggerAnalysis(retryId) {
     if (!isCurrentOverviewRequest(request)) return;
 
     if (!analysisResult.success) {
-      if (overviewText) overviewText.textContent = "";
-      if (chapterList)
-        chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Analysis failed: ${escapeHtml(analysisResult.error || "Unknown error")}</li>`;
+      if (overviewText)
+        overviewText.textContent = `Analysis failed: ${analysisResult.error || "Unknown error"}`;
+      hideOverviewOptionalSections();
       overviewRetryAvailable = true;
       if (analysisResult.terminal === true) {
         await clearMatchingOverviewResumeRecord(request);
@@ -1855,9 +1873,8 @@ async function triggerAnalysis(retryId) {
   } catch (error) {
     if (!isCurrentOverviewRequest(request)) return;
     console.error("[YouTube Digest Panel] Analysis error:", error);
-    if (overviewText) overviewText.textContent = "";
-    if (chapterList)
-      chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Error: ${escapeHtml(error.message)}</li>`;
+    if (overviewText) overviewText.textContent = `Error: ${error.message}`;
+    hideOverviewOptionalSections();
     overviewRetryAvailable = true;
     clearRequest = true;
   } finally {

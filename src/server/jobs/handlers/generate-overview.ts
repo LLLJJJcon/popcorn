@@ -37,6 +37,7 @@ export function createLearningArtifactHandler<TInput extends {
   validateEvidence,
   invoke,
   validate,
+  terminalOnFirstFailure = false,
 }: {
   readonly store: DurableJobStore;
   readonly providerResolver: LearningArtifactProviderResolver;
@@ -47,6 +48,7 @@ export function createLearningArtifactHandler<TInput extends {
   readonly validateEvidence?: (evidence: LearningArtifactEvidence, input: TInput) => void;
   readonly invoke: (provider: LearningArtifactProvider, evidence: LearningArtifactEvidence, input: TInput) => Promise<unknown>;
   readonly validate: (value: unknown, evidence: LearningArtifactEvidence, input: TInput) => Json;
+  readonly terminalOnFirstFailure?: boolean;
 }): JobHandler {
   return async (job, expectedUserId, now): Promise<JobHandlerResult> => {
     if (job.userId !== expectedUserId) throw new Error("expected owner does not match claimed job");
@@ -87,7 +89,15 @@ export function createLearningArtifactHandler<TInput extends {
       return artifactId ? "completed" : "deferred";
     } catch (error) {
       const failureCode = error instanceof ModelGatewayError ? error.code : code;
-      const state = nextJobFailure(job, failureCode, now);
+      const retryState = nextJobFailure(job, failureCode, now);
+      const state = terminalOnFirstFailure && retryState.status !== "terminal_failed"
+        ? {
+          ...retryState,
+          status: "terminal_failed" as const,
+          nextAttemptAt: null,
+          leaseExpiresAt: null,
+        }
+        : retryState;
       const terminal = state.status === "terminal_failed";
       const persisted = await store.transitionLearningArtifactFailure(
         expectedUserId,
@@ -117,5 +127,6 @@ export function createGenerateOverviewHandler({
     segmentIds: () => [],
     invoke: (activeProvider, evidence) => activeProvider.generateOverview(evidence),
     validate: (value, evidence) => validateOverviewContent(value, evidence) as Json,
+    terminalOnFirstFailure: true,
   });
 }

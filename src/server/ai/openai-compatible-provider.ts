@@ -19,6 +19,7 @@ import {
 import {
   buildOverviewPrompt,
   OverviewContentSchema,
+  type OverviewContent,
   YOUTUBE_OVERVIEW_PROMPT_VERSION,
 } from "@/server/ai/prompts/youtube-overview.v1";
 import type { ModelGatewayRuntimeConfig } from "@/server/model-gateway/runtime-resolver";
@@ -27,7 +28,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_OVERVIEW_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_REQUEST_BYTES = 65_536;
 const DEFAULT_MAX_RESPONSE_BYTES = 524_288;
-const OVERVIEW_MAX_TOKENS = 1_800;
+const OVERVIEW_MAX_TOKENS = 900;
 
 const GatewayEnvelopeSchema = z.object({
   choices: z.array(z.object({
@@ -39,19 +40,19 @@ const GatewayEnvelopeSchema = z.object({
 }).passthrough();
 
 const SegmentIndexSchema = z.number().int().nonnegative();
-const GatewayOverviewSchema = z.strictObject({
-  overview: z.string(),
-  chapters: z.array(z.strictObject({
-    title: z.string(),
-    summary: z.string(),
-    sourceLineIndex: SegmentIndexSchema,
-  })),
-  keyQuotes: z.array(z.strictObject({
-    quote: z.string(),
-    englishMeaning: z.string(),
-    sourceLineIndex: SegmentIndexSchema,
-  })),
-});
+const GatewayOverviewSchema = z.object({
+  overview: z.string().trim().min(1),
+}).passthrough();
+const GatewayChapterSchema = z.object({
+  title: z.string().trim().min(1),
+  summary: z.string().trim().min(1),
+  sourceLineIndex: SegmentIndexSchema,
+}).passthrough();
+const GatewayQuoteSchema = z.object({
+  quote: z.string().trim().min(1),
+  englishMeaning: z.string().trim().min(1),
+  sourceLineIndex: SegmentIndexSchema.optional(),
+}).passthrough();
 const GatewayTranslationSchema = z.strictObject({
   translations: z.array(z.strictObject({
     segmentIndex: SegmentIndexSchema,
@@ -75,6 +76,12 @@ export interface StructuredJsonCompletionClient {
     timeoutMs?: number,
     maxTokens?: number,
   ): Promise<unknown>;
+  completeText(
+    promptVersion: string,
+    prompt: string,
+    timeoutMs?: number,
+    maxTokens?: number,
+  ): Promise<string>;
 }
 
 function outputInvalid(): ModelGatewayError {
@@ -135,23 +142,36 @@ async function readBoundedResponse(response: Response, maxBytes: number): Promis
   }
 }
 
-function parseAssistantJson(text: string): unknown {
+function parseAssistantText(text: string): string {
   try {
     const envelope = GatewayEnvelopeSchema.parse(JSON.parse(text));
     const message = envelope.choices[0].message;
     if (
       "tool_calls" in message ||
       "function_call" in message ||
-      message.content.trim() === "" ||
-      message.content.trim().startsWith("```")
+      message.content.trim() === ""
     ) {
       throw outputInvalid();
     }
-    return JSON.parse(message.content);
+    return message.content.trim();
   } catch (error) {
     if (error instanceof ModelGatewayError) throw error;
     throw outputInvalid();
   }
+}
+
+function parseAssistantJson(text: string): unknown {
+  if (text.startsWith("```")) throw outputInvalid();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw outputInvalid();
+  }
+}
+
+function unwrapMarkdownFence(text: string): string {
+  const match = /^```(?:[\w-]+)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/u.exec(text);
+  return (match?.[1] ?? text).trim();
 }
 
 export function createOpenAiCompatibleStructuredJsonClient(
@@ -169,19 +189,22 @@ export function createOpenAiCompatibleStructuredJsonClient(
   );
   const endpoint = `${options.config.canonicalOrigin}${options.config.basePath}/chat/completions`;
 
-  async function complete(
+  async function requestAssistantText(
     promptVersion: string,
     prompt: string,
     requestTimeoutMs = timeoutMs,
     maxTokens?: number,
-  ): Promise<unknown> {
+    jsonOnly = true,
+  ): Promise<string> {
     const body = JSON.stringify({
       model: options.config.model,
       ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
       messages: [
         {
           role: "system",
-          content: `Popcorn learning artifact task ${promptVersion}. Return only the requested JSON object.`,
+          content: jsonOnly
+            ? `Popcorn learning artifact task ${promptVersion}. Return only the requested JSON object.`
+            : `Popcorn learning artifact task ${promptVersion}. Follow the requested response format.`,
         },
         { role: "user", content: prompt },
       ],
@@ -207,7 +230,7 @@ export function createOpenAiCompatibleStructuredJsonClient(
         signal: controller.signal,
       });
       if (!response.ok) throw unavailable();
-      return parseAssistantJson(
+      return parseAssistantText(
         await readBoundedResponse(response, maxResponseBytes),
       );
     } catch (error) {
@@ -218,13 +241,36 @@ export function createOpenAiCompatibleStructuredJsonClient(
     }
   }
 
-  return { complete };
+  async function complete(
+    promptVersion: string,
+    prompt: string,
+    requestTimeoutMs = timeoutMs,
+    maxTokens?: number,
+  ): Promise<unknown> {
+    return parseAssistantJson(await requestAssistantText(
+      promptVersion,
+      prompt,
+      requestTimeoutMs,
+      maxTokens,
+    ));
+  }
+
+  function completeText(
+    promptVersion: string,
+    prompt: string,
+    requestTimeoutMs = timeoutMs,
+    maxTokens?: number,
+  ): Promise<string> {
+    return requestAssistantText(promptVersion, prompt, requestTimeoutMs, maxTokens, false);
+  }
+
+  return { complete, completeText };
 }
 
 export function createOpenAiCompatibleLearningArtifactProvider(
   options: OpenAiCompatibleAdapterOptions,
 ): LearningArtifactProvider {
-  const { complete } = createOpenAiCompatibleStructuredJsonClient(options);
+  const { complete, completeText } = createOpenAiCompatibleStructuredJsonClient(options);
   const overviewTimeoutMs = boundedPositiveInteger(
     options.overviewTimeoutMs,
     DEFAULT_OVERVIEW_TIMEOUT_MS,
@@ -232,13 +278,23 @@ export function createOpenAiCompatibleLearningArtifactProvider(
 
   return {
     async generateOverview(evidence) {
-      const raw = await complete(
+      const text = unwrapMarkdownFence(await completeText(
         YOUTUBE_OVERVIEW_PROMPT_VERSION,
         buildOverviewPrompt(evidence.title, evidence.segments),
         overviewTimeoutMs,
         OVERVIEW_MAX_TOKENS,
-      );
+      ));
       try {
+        let raw: unknown;
+        let parsedJson = true;
+        try {
+          raw = JSON.parse(text);
+        } catch {
+          parsedJson = false;
+        }
+        if (!parsedJson) {
+          return validateOverviewContent({ overview: text, chapters: [], keyQuotes: [] }, evidence);
+        }
         const gateway = GatewayOverviewSchema.parse(raw);
         const mapSourceLine = (sourceLineIndex: number) => {
           const segment = evidence.segments[sourceLineIndex];
@@ -248,16 +304,44 @@ export function createOpenAiCompatibleLearningArtifactProvider(
             sourceSegmentIds: [segment.stableId],
           };
         };
-        return validateOverviewContent(OverviewContentSchema.parse({
-          overview: gateway.overview,
-          chapters: gateway.chapters.map(({ sourceLineIndex, ...chapter }) => ({
+        const chapters: OverviewContent["chapters"] = [];
+        const chapterCandidates = Array.isArray(gateway.chapters) ? gateway.chapters : [];
+        for (const candidate of chapterCandidates) {
+          if (chapters.length === 8) break;
+          const parsed = GatewayChapterSchema.safeParse(candidate);
+          if (!parsed.success || !evidence.segments[parsed.data.sourceLineIndex]) continue;
+          const { sourceLineIndex, ...chapter } = parsed.data;
+          const grounded = OverviewContentSchema.shape.chapters.element.safeParse({
             ...chapter,
             ...mapSourceLine(sourceLineIndex),
-          })),
-          keyQuotes: gateway.keyQuotes.map(({ sourceLineIndex, ...quote }) => ({
-            ...quote,
-            ...mapSourceLine(sourceLineIndex),
-          })),
+          });
+          if (grounded.success) chapters.push(grounded.data);
+        }
+        const keyQuotes: OverviewContent["keyQuotes"] = [];
+        const quoteCandidates = Array.isArray(gateway.keyQuotes) ? gateway.keyQuotes : [];
+        for (const candidate of quoteCandidates) {
+          if (keyQuotes.length === 5) break;
+          const parsed = GatewayQuoteSchema.safeParse(candidate);
+          if (!parsed.success) continue;
+          const requestedSegment = parsed.data.sourceLineIndex === undefined
+            ? undefined
+            : evidence.segments[parsed.data.sourceLineIndex];
+          const segment = requestedSegment?.originalChinese.includes(parsed.data.quote)
+            ? requestedSegment
+            : evidence.segments.find((item) => item.originalChinese.includes(parsed.data.quote));
+          if (!segment) continue;
+          const grounded = OverviewContentSchema.shape.keyQuotes.element.safeParse({
+            quote: parsed.data.quote,
+            englishMeaning: parsed.data.englishMeaning,
+            timestampSeconds: segment.startSeconds,
+            sourceSegmentIds: [segment.stableId],
+          });
+          if (grounded.success) keyQuotes.push(grounded.data);
+        }
+        return validateOverviewContent(OverviewContentSchema.parse({
+          overview: gateway.overview,
+          chapters,
+          keyQuotes,
         }), evidence);
       } catch (error) {
         if (error instanceof ModelGatewayError) throw error;

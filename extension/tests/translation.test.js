@@ -202,10 +202,43 @@ test("Overview has a hidden accessible retry action beside its title", () => {
   assert.equal(retry.previousElementSibling, title);
 });
 
+test("summary-only Overview rendering hides both optional sections and populated content shows each one", () => {
+  const dom = new JSDOM(read("sidepanel.html"));
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+  });
+  const chaptersSection = dom.window.document.getElementById("chaptersSection");
+  const keyQuotesSection = dom.window.document.getElementById("keyQuotesSection");
+
+  assert.ok(chaptersSection);
+  assert.ok(keyQuotesSection);
+  helpers.renderAnalysisResults({
+    overview: "A useful summary remains available.",
+    chapters: [],
+    keyQuotes: [],
+  });
+  assert.equal(dom.window.document.getElementById("overviewText").textContent, "A useful summary remains available.");
+  assert.equal(chaptersSection.hidden, true);
+  assert.equal(keyQuotesSection.hidden, true);
+
+  helpers.renderAnalysisResults({
+    overview: "A structured summary.",
+    chapters: [{ title: "Opening", summary: "The introduction.", timestampSeconds: 0 }],
+    keyQuotes: [{ quote: "这个表达", englishMeaning: "This expression.", timestampSeconds: 0 }],
+  });
+  assert.equal(chaptersSection.hidden, false);
+  assert.equal(keyQuotesSection.hidden, false);
+  assert.match(dom.window.document.getElementById("chapterList").textContent, /Opening/);
+  assert.match(dom.window.document.getElementById("quotesList").textContent, /这个表达/);
+});
+
 test("a pending Overview keeps a two-minute progress message while it starts and resumes", async () => {
   const dom = new JSDOM(`
     <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
-    <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
+    <div id="overviewText"></div>
+    <section id="chaptersSection"><ul id="chapterList"></ul></section>
+    <section id="keyQuotesSection"><div id="quotesList"></div></section>
   `);
   const helpers = loadSidepanelHelpers({ documentImpl: dom.window.document, windowImpl: dom.window });
   helpers.evaluateInSidepanel(`
@@ -239,7 +272,9 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
   const dom = new JSDOM(`
     <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
     <button id="followPlaybackBtn"></button>
-    <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
+    <div id="overviewText"></div>
+    <section id="chaptersSection"><ul id="chapterList"></ul></section>
+    <section id="keyQuotesSection"><div id="quotesList"></div></section>
   `);
   const sent = [];
   let finishRetry;
@@ -265,10 +300,13 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
   await helpers.triggerAnalysis();
   const retry = dom.window.document.getElementById("retryOverviewBtn");
   const overviewText = dom.window.document.getElementById("overviewText");
-  const chapterList = dom.window.document.getElementById("chapterList");
+  const chaptersSection = dom.window.document.getElementById("chaptersSection");
+  const keyQuotesSection = dom.window.document.getElementById("keyQuotesSection");
   assert.equal(retry.hidden, false);
   assert.equal(retry.disabled, false);
-  assert.match(chapterList.textContent, /Analysis failed: Overview failed\./);
+  assert.match(overviewText.textContent, /Analysis failed: Overview failed\./);
+  assert.equal(chaptersSection.hidden, true);
+  assert.equal(keyQuotesSection.hidden, true);
   assert.doesNotMatch(overviewText.textContent, /generating overview.*about two minutes/i);
 
   const firstRetry = helpers.retryOverview();
@@ -293,7 +331,9 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
 test("a thrown Overview request clears progress before exposing its retryable error", async () => {
   const dom = new JSDOM(`
     <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
-    <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
+    <div id="overviewText"></div>
+    <section id="chaptersSection"><ul id="chapterList"></ul></section>
+    <section id="keyQuotesSection"><div id="quotesList"></div></section>
   `);
   const helpers = loadSidepanelHelpers({
     documentImpl: dom.window.document,
@@ -311,9 +351,10 @@ test("a thrown Overview request clears progress before exposing its retryable er
 
   await helpers.triggerAnalysis();
   const overviewText = dom.window.document.getElementById("overviewText");
-  const chapterList = dom.window.document.getElementById("chapterList");
   const retry = dom.window.document.getElementById("retryOverviewBtn");
-  assert.match(chapterList.textContent, /Error: Overview transport failed\./);
+  assert.match(overviewText.textContent, /Error: Overview transport failed\./);
+  assert.equal(dom.window.document.getElementById("chaptersSection").hidden, true);
+  assert.equal(dom.window.document.getElementById("keyQuotesSection").hidden, true);
   assert.equal(retry.hidden, false);
   assert.equal(retry.disabled, false);
   assert.doesNotMatch(overviewText.textContent, /generating overview.*about two minutes/i);
@@ -730,7 +771,9 @@ test("the first pending Overview poll writes its job before its poll delay or Si
 test("an explicit Overview retry does not register when its resume identity cannot be stored", async () => {
   const dom = new JSDOM(`
     <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
-    <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
+    <div id="overviewText"></div>
+    <section id="chaptersSection"><ul id="chapterList"></ul></section>
+    <section id="keyQuotesSection"><div id="quotesList"></div></section>
   `);
   const messages = [];
   const helpers = loadSidepanelHelpers({
@@ -760,7 +803,9 @@ test("an explicit Overview retry does not register when its resume identity cann
   assert.equal(messages.length, 0);
   assert.equal(retry.hidden, false);
   assert.equal(retry.disabled, false);
-  assert.match(dom.window.document.getElementById("chapterList").textContent, /could not save retry state/i);
+  assert.match(dom.window.document.getElementById("overviewText").textContent, /could not save retry state/i);
+  assert.equal(dom.window.document.getElementById("chaptersSection").hidden, true);
+  assert.equal(dom.window.document.getElementById("keyQuotesSection").hidden, true);
 });
 
 test("a delayed resume read cannot send or release a stale Overview after another video starts", async () => {
