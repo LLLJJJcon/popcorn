@@ -19,6 +19,13 @@ const section = (markdown: string, heading: string) => {
   return match?.[1] ?? "";
 };
 
+const hasAcceptedNodeVersionPin = (workflow: string) => {
+  const scalar = workflow.match(
+    /^\s*node-version:\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s#]+))\s*(?:#.*)?$/m,
+  );
+  return (scalar?.[1] ?? scalar?.[2] ?? scalar?.[3]) === "24.5.0";
+};
+
 describe("frozen upstream provenance", () => {
   test("limits LLM Wiki to documented methods and excludes GPLv3 expression", () => {
     const policy = readRequired("docs/engineering/upstream-reuse-policy.md");
@@ -200,6 +207,21 @@ describe("scheduled recovery migration", () => {
 });
 
 describe("fixture-only CI freeze gate", () => {
+  test.each([
+    "node-version: 24.5.00",
+    "node-version: 24.5.0-beta",
+  ])("rejects a Node-version pin that only shares the accepted prefix: %s", (workflow) => {
+    expect(hasAcceptedNodeVersionPin(workflow)).toBe(false);
+  });
+
+  test.each([
+    "node-version: 24.5.0",
+    "node-version: '24.5.0'",
+    'node-version: "24.5.0"',
+  ])("accepts the exact Node-version scalar with optional YAML quotes: %s", (workflow) => {
+    expect(hasAcceptedNodeVersionPin(workflow)).toBe(true);
+  });
+
   test("runs the revised one-job fixture gate and always tears down local Supabase", () => {
     const workflow = readRequired(".github/workflows/ci.yml");
     const jobs = workflow.slice(workflow.indexOf("\njobs:\n") + 1);
@@ -213,7 +235,7 @@ describe("fixture-only CI freeze gate", () => {
     expect(workflow).toContain("actions/checkout@v4");
     expect(workflow).toMatch(/fetch-depth:\s*0/);
     expect(workflow).toContain("actions/setup-node@v4");
-    expect(workflow).toMatch(/node-version:\s*["']?24\.5\.0["']?/);
+    expect(hasAcceptedNodeVersionPin(workflow)).toBe(true);
     expect(workflow).toContain("pnpm/action-setup@v4");
     expect(workflow).toMatch(/version:\s*["']?11\.19\.0["']?/);
     expect(workflow.indexOf("pnpm/action-setup@v4")).toBeLessThan(
