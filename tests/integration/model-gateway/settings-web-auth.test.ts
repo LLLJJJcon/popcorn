@@ -21,7 +21,10 @@ describe("model gateway Web authentication wiring", () => {
   });
 
   it("authorizes the settings page with verified getUser through the shared SSR client", async () => {
-    const pageSource = await readFile(path.resolve("src/app/settings/model-gateway/page.tsx"), "utf8");
+    const pageSource = await readFile(
+      path.resolve("src/app/(app)/settings/model-gateway/page.tsx"),
+      "utf8",
+    );
     const flowSource = await readFile(path.resolve("src/server/auth/web-auth-flow.ts"), "utf8");
     expect(pageSource).toContain("getPageAuthorization");
     expect(pageSource).toContain('redirect("/sign-in")');
