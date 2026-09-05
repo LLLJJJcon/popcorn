@@ -120,6 +120,29 @@ async function pollTranscriptJob(jobId) {
   return result.data;
 }
 
+const LEARNING_ARTIFACT_FAILURE_COPY = Object.freeze({
+  model_output: "The model response could not be read. Retry this learning artifact.",
+  model_unavailable: "The model is unavailable right now. Check your model gateway and retry.",
+  internal: "Popcorn could not finish this learning artifact. Retry.",
+});
+
+function publicLearningArtifactFailure(status) {
+  const failureCategory = Object.hasOwn(
+    LEARNING_ARTIFACT_FAILURE_COPY,
+    status?.failureCategory,
+  )
+    ? status.failureCategory
+    : null;
+  return {
+    success: false,
+    ...(status?.status === "terminal_failed" ? { terminal: true } : {}),
+    ...(failureCategory ? { failureCategory } : {}),
+    error: failureCategory
+      ? LEARNING_ARTIFACT_FAILURE_COPY[failureCategory]
+      : "The learning artifact could not be completed. Retry.",
+  };
+}
+
 function normalizeTranscriptResult(data) {
   const snapshot = data?.snapshot;
   if (!snapshot || snapshot.language !== "zh-CN" || !Array.isArray(snapshot.segments)) {
@@ -210,11 +233,7 @@ async function submitArtifact(path, payload, jobId) {
       return { success: true, pending: true, jobId, status: status.status };
     }
     if (status.status !== "succeeded" || !status.result?.artifactId) {
-      return {
-        success: false,
-        ...(status.status === "terminal_failed" ? { terminal: true } : {}),
-        error: "The learning artifact could not be completed. Check your model gateway settings and retry.",
-      };
+      return publicLearningArtifactFailure(status);
     }
   }
   const result = await apiFetch(path, { method: "POST", body: JSON.stringify(payload) });

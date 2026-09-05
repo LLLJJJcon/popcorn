@@ -451,6 +451,24 @@ async function sendCloudAction(
   return result;
 }
 
+const LEARNING_ARTIFACT_FAILURE_COPY = Object.freeze({
+  model_output: "The model response could not be read. Retry this learning artifact.",
+  model_unavailable: "The model is unavailable right now. Check your model gateway and retry.",
+  internal: "Popcorn could not finish this learning artifact. Retry.",
+});
+
+function learningArtifactStatusCopy(result, artifactName) {
+  if (result?.pending) {
+    return `${artifactName} is still processing. Please Retry shortly.`;
+  }
+  if (Object.hasOwn(LEARNING_ARTIFACT_FAILURE_COPY, result?.failureCategory)) {
+    return LEARNING_ARTIFACT_FAILURE_COPY[result.failureCategory];
+  }
+  return typeof result?.error === "string" && result.error.trim()
+    ? result.error.trim()
+    : `${artifactName} could not be completed. Retry.`;
+}
+
 // --- Auto-scroll state (follow video playback in transcript) ---
 let autoScrollEnabled = true; // True = scroll transcript to follow video playback
 let autoScrollInterval = null; // setInterval ID for polling video time
@@ -1895,7 +1913,7 @@ async function triggerAnalysis(retryId) {
 
     if (!analysisResult.success) {
       if (overviewText)
-        overviewText.textContent = `Analysis failed: ${analysisResult.error || "Unknown error"}`;
+        overviewText.textContent = `Analysis failed: ${learningArtifactStatusCopy(analysisResult, "Overview")}`;
       hideOverviewOptionalSections();
       overviewRetryAvailable = true;
       if (analysisResult.terminal === true) {
@@ -2341,9 +2359,9 @@ async function showExplanation(selectionEvidence) {
         }
       });
     } else if (result.pending) {
-      contentDiv.innerHTML = '<div class="explain-loading">Explanation is still processing. Try Explain again shortly.</div>';
+      contentDiv.innerHTML = `<div class="explain-loading">${escapeHtml(learningArtifactStatusCopy(result, "Explanation"))}</div>`;
     } else {
-      contentDiv.innerHTML = `<div class="explain-error">Failed to get explanation: ${escapeHtml(result.error)}</div>`;
+      contentDiv.innerHTML = `<div class="explain-error">${escapeHtml(learningArtifactStatusCopy(result, "Explanation"))}</div>`;
     }
   } catch (error) {
     const contentDiv = document.getElementById("explanationContent");
@@ -3030,7 +3048,7 @@ async function requestTranscriptTranslationBatch(
     });
     aligned.forEach((item, batchIndex) => {
       if (!result?.success) {
-        item.error = result?.error || "Translation failed.";
+        item.error = learningArtifactStatusCopy(result, "Translation");
       }
       updateTranslatedRow(
         sourceBatch[batchIndex],
@@ -3148,7 +3166,9 @@ async function retryFailedTranslations() {
       { pending: result?.success && result.pending },
     );
     aligned.forEach((item, selectedIndex) => {
-      if (!result?.success) item.error = result?.error || "Translation failed.";
+      if (!result?.success) {
+        item.error = learningArtifactStatusCopy(result, "Translation");
+      }
       const selectedRow = selectedRows[selectedIndex];
       updateTranslatedRow(selectedRow.segment, selectedRow.index, item, generation);
     });

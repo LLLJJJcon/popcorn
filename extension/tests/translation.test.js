@@ -224,13 +224,28 @@ test("summary-only Overview rendering hides both optional sections and populated
 
   helpers.renderAnalysisResults({
     overview: "A structured summary.",
-    chapters: [{ title: "Opening", summary: "The introduction.", timestampSeconds: 0 }],
-    keyQuotes: [{ quote: "这个表达", englishMeaning: "This expression.", timestampSeconds: 0 }],
+    chapters: [{
+      title: "Opening",
+      summary: "The introduction.",
+      timestampSeconds: 12,
+      sourceLineIndex: 999,
+    }],
+    keyQuotes: [{
+      quote: "这个表达",
+      englishMeaning: "This expression.",
+      timestampSeconds: 18,
+      sourceSegmentIds: ["a".repeat(64)],
+      sourceLineIndex: 998,
+    }],
   });
   assert.equal(chaptersSection.hidden, false);
   assert.equal(keyQuotesSection.hidden, false);
   assert.match(dom.window.document.getElementById("chapterList").textContent, /Opening/);
   assert.match(dom.window.document.getElementById("quotesList").textContent, /这个表达/);
+  assert.equal(dom.window.document.querySelector(".chapter-item").dataset.seconds, "12");
+  assert.equal(dom.window.document.querySelector(".quote-item").dataset.seconds, "18");
+  assert.doesNotMatch(dom.window.document.getElementById("chapterList").textContent, /999/);
+  assert.doesNotMatch(dom.window.document.getElementById("quotesList").textContent, /998/);
 });
 
 test("a pending Overview keeps a two-minute progress message while it starts and resumes", async () => {
@@ -326,6 +341,38 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
   await firstRetry;
   assert.equal(retry.hidden, false);
   assert.equal(retry.disabled, false);
+});
+
+test("a terminal Overview uses its safe failure category instead of raw Provider text", async () => {
+  const dom = new JSDOM(`
+    <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
+    <div id="overviewText"></div>
+    <section id="chaptersSection"><ul id="chapterList"></ul></section>
+    <section id="keyQuotesSection"><div id="quotesList"></div></section>
+  `);
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage: () => Promise.resolve({
+      success: false,
+      terminal: true,
+      failureCategory: "model_output",
+      error: "PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY",
+    }),
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "第一条中文内容。" }];
+    currentAnalysis = null;
+  `);
+
+  await helpers.triggerAnalysis();
+
+  const overviewText = dom.window.document.getElementById("overviewText");
+  assert.match(overviewText.textContent, /model response could not be read/i);
+  assert.doesNotMatch(overviewText.textContent, /PRIVATE_PROVIDER_RESPONSE/);
+  assert.equal(dom.window.document.getElementById("retryOverviewBtn").hidden, false);
 });
 
 test("a thrown Overview request clears progress before exposing its retryable error", async () => {
@@ -937,6 +984,112 @@ test("structured translation batches align by stable ID and expose missing fallb
   assert.equal(aligned[0].text, "");
   assert.match(aligned[0].error, /unavailable/i);
   assert.equal(aligned[1].text, "A complete second sentence.");
+});
+
+test("a partial translation response renders valid English and keeps only the missing row retryable", async () => {
+  const ids = ["a".repeat(64), "b".repeat(64)];
+  const dom = new JSDOM(`
+    <button id="retryFailedTranslationsBtn">Retry failed (2)</button>
+    <span id="langSpinner"></span>
+    <div id="transcriptList">
+      ${ids.map((id, index) => `
+        <div class="transcript-entry translation-failed" data-segment-id="${id}" data-segment-index="${index}">
+          <span class="transcript-copy"><span class="transcript-translation translation-error">Old failure</span></span>
+        </div>
+      `).join("")}
+    </div>
+  `);
+  const sent = [];
+  let requestCount = 0;
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000010" },
+    sendMessage(message) {
+      sent.push({ ...message });
+      requestCount += 1;
+      return Promise.resolve({
+        success: true,
+        content: {
+          segments: requestCount === 1
+            ? [{ id: ids[0], english: "First translation." }]
+            : [{ id: ids[1], english: "Second translation." }],
+        },
+      });
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptMode = "bilingual";
+    translationGeneration = 5;
+    currentTranscript = ${JSON.stringify(ids.map((id, index) => ({
+      stableId: id,
+      text: `Chinese ${index}`,
+      start: index,
+      duration: 1,
+    })))};
+  `);
+
+  await helpers.retryFailedTranslations();
+
+  assert.equal(sent.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0].segmentIds)), ids);
+  const firstRow = dom.window.document.querySelector(`[data-segment-id="${ids[0]}"]`);
+  const secondRow = dom.window.document.querySelector(`[data-segment-id="${ids[1]}"]`);
+  assert.equal(firstRow.textContent.includes("First translation."), true);
+  assert.equal(firstRow.classList.contains("translation-failed"), false);
+  assert.equal(secondRow.querySelector(".transcript-translation").classList.contains("translation-error"), true);
+  assert.equal(secondRow.classList.contains("translation-failed"), true);
+  assert.match(secondRow.textContent, /Retry/i);
+  assert.equal(dom.window.document.getElementById("retryFailedTranslationsBtn").textContent, "Retry failed (1)");
+
+  await helpers.retryFailedTranslations();
+
+  assert.equal(sent.length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[1].segmentIds)), [ids[1]]);
+  assert.equal(secondRow.textContent.includes("Second translation."), true);
+  assert.equal(secondRow.classList.contains("translation-failed"), false);
+  assert.equal(dom.window.document.getElementById("retryFailedTranslationsBtn").hidden, true);
+});
+
+test("model-output failures render bounded honest copy and keep one Retry action", async () => {
+  const id = "c".repeat(64);
+  const dom = new JSDOM(`
+    <button id="retryFailedTranslationsBtn">Retry failed (1)</button>
+    <span id="langSpinner"></span>
+    <div id="transcriptList">
+      <div class="transcript-entry translation-failed" data-segment-id="${id}" data-segment-index="0">
+        <span class="transcript-copy"><span class="transcript-translation translation-error">Old failure</span></span>
+      </div>
+    </div>
+  `);
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000011" },
+    sendMessage: () => Promise.resolve({
+      success: false,
+      terminal: true,
+      failureCategory: "model_output",
+      error: "PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY",
+    }),
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptMode = "en";
+    translationGeneration = 6;
+    currentTranscript = [{ stableId: "${id}", text: "中文", start: 0, duration: 1 }];
+  `);
+
+  await helpers.retryFailedTranslations();
+
+  const row = dom.window.document.querySelector(`[data-segment-id="${id}"]`);
+  assert.match(row.textContent, /model response could not be read/i);
+  assert.match(row.textContent, /Retry/i);
+  assert.doesNotMatch(row.textContent, /PRIVATE_PROVIDER_RESPONSE/);
+  assert.equal(dom.window.document.querySelectorAll(".translation-retry-btn").length, 1);
 });
 
 test("structured translation batches reject blank-first duplicate IDs as ambiguous", () => {
@@ -1903,31 +2056,49 @@ test("artifact polling never accepts a Provider URL from the message", async () 
   assert.deepEqual(paths, ["https://app.popcorn.local/api/v1/youtube/abc123XYZ00/translations"]);
 });
 
-test("a terminal learning-artifact failure gives a safe model-gateway settings recovery message", async () => {
-  const helpers = loadBackgroundHelpers({ fetchImpl: async () => ({
-    status: 200,
-    json: async () => ({
-      ok: true,
-      data: {
-        status: "terminal_failed",
-        lastErrorCode: "PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY",
-      },
-    }),
-  }) });
+test("terminal learning-artifact categories return bounded honest recovery copy", async () => {
+  const cases = [
+    {
+      failureCategory: "model_output",
+      expected: /model response could not be read/i,
+    },
+    {
+      failureCategory: "model_unavailable",
+      expected: /model is unavailable/i,
+    },
+    {
+      failureCategory: "internal",
+      expected: /Popcorn could not finish/i,
+    },
+  ];
 
-  const result = await helpers.translateSegments({
-    videoId: "abc123XYZ00",
-    snapshotId: "snapshot-1",
-    segmentIds: ["segment-1"],
-    jobId: "translation-job-42",
-  });
+  for (const fixture of cases) {
+    const helpers = loadBackgroundHelpers({ fetchImpl: async () => ({
+      status: 200,
+      json: async () => ({
+        ok: true,
+        data: {
+          status: "terminal_failed",
+          failureCategory: fixture.failureCategory,
+          lastErrorCode: "PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY",
+        },
+      }),
+    }) });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
-    success: false,
-    terminal: true,
-    error: "The learning artifact could not be completed. Check your model gateway settings and retry.",
-  });
-  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY/);
+    const result = await helpers.translateSegments({
+      videoId: "abc123XYZ00",
+      snapshotId: "snapshot-1",
+      segmentIds: ["segment-1"],
+      jobId: "translation-job-42",
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.terminal, true);
+    assert.equal(result.failureCategory, fixture.failureCategory);
+    assert.match(result.error, fixture.expected);
+    assert.match(result.error, /retry/i);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY/);
+  }
 });
 
 test("background emits terminal only for an authenticated terminal job status and not transient status errors", async () => {

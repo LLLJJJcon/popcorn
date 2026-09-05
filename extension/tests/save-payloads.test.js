@@ -1014,6 +1014,7 @@ test("the actual Key Quote Save click enqueues the exact displayed quote once wi
     englishMeaning: "That is way too absurd.",
     timestampSeconds: 44,
     sourceSegmentIds: [SEGMENT_A],
+    sourceLineIndex: 999,
   };
   harness.context.renderAnalysisResults({
     overview: "概览",
@@ -1056,7 +1057,9 @@ test("the actual AI Explanation Save click enqueues the exact shown explanation 
         meaning: "Something is absurd.",
         tone: "Informal.",
         communicativeFunction: "Expresses disbelief.",
-        contextualFit: "A reaction to an unexpected claim."
+        contextualFit: "A reaction to an unexpected claim.",
+        selectedChinese: "模型不得覆盖的中文",
+        sourceLineIndex: 999
       }
     })`,
     harness.context,
@@ -1105,6 +1108,60 @@ test("the actual AI Explanation Save click enqueues the exact shown explanation 
     "the AI Explanation Save handler must not call the Provider",
   );
   assertNoSaveSideEffects(harness);
+});
+
+test("AI Explanation uses safe model status copy without exposing raw Provider text", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const evidence = {
+    selectedChinese: "太离谱了",
+    segmentIds: [SEGMENT_A],
+    startSeconds: 42,
+    endSeconds: 48,
+    complete: true,
+  };
+  vm.runInContext(
+    `sendCloudAction = async () => ({
+      success: false,
+      terminal: true,
+      failureCategory: "model_unavailable",
+      error: "PRIVATE_PROVIDER_RESPONSE_DO_NOT_DISPLAY"
+    })`,
+    harness.context,
+  );
+
+  await harness.context.showExplanation(evidence);
+
+  const output = harness.document.querySelector(".explain-error");
+  assert.match(output.textContent, /model is unavailable/i);
+  assert.match(output.textContent, /retry/i);
+  assert.doesNotMatch(output.textContent, /PRIVATE_PROVIDER_RESPONSE/);
+});
+
+test("AI Explanation keeps processing distinct from a model failure", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const evidence = {
+    selectedChinese: "太离谱了",
+    segmentIds: [SEGMENT_A],
+    startSeconds: 42,
+    endSeconds: 48,
+    complete: true,
+  };
+  vm.runInContext(
+    `sendCloudAction = async () => ({
+      success: true,
+      pending: true,
+      jobId: "explanation-job-42",
+      status: "pending"
+    })`,
+    harness.context,
+  );
+
+  await harness.context.showExplanation(evidence);
+
+  const output = harness.document.querySelector(".explain-loading");
+  assert.match(output.textContent, /still processing/i);
+  assert.match(output.textContent, /Retry/i);
+  assert.doesNotMatch(output.textContent, /failed|unavailable/i);
 });
 
 test("builders fail closed on untrusted sources, malformed evidence, and payload bounds", () => {
