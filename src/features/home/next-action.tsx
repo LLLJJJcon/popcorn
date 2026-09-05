@@ -6,23 +6,7 @@ export type HomeNextAction =
   | { readonly kind: "saved"; readonly href: "/saved"; readonly count: number }
   | { readonly kind: "youtube"; readonly href: "https://www.youtube.com/" };
 
-type LegacyHomeCounts = Pick<HomeView, "duePracticeCount" | "unsortedSaveCount">;
-type LegacyHomeNextAction =
-  | Extract<HomeNextAction, { readonly kind: "practice" | "saved" }>
-  | { readonly kind: "complete" };
-
-export function selectNextAction(view: HomeView): HomeNextAction;
-export function selectNextAction(view: LegacyHomeCounts): LegacyHomeNextAction;
-export function selectNextAction(view: HomeView | LegacyHomeCounts): HomeNextAction | LegacyHomeNextAction {
-  if (!("hasActiveGateway" in view)) {
-    if (view.duePracticeCount > 0) {
-      return { kind: "practice", href: "/practice", count: view.duePracticeCount };
-    }
-    if (view.unsortedSaveCount > 0) {
-      return { kind: "saved", href: "/saved", count: view.unsortedSaveCount };
-    }
-    return { kind: "complete" };
-  }
+export function selectNextAction(view: HomeView): HomeNextAction {
   if (!view.hasActiveGateway) return { kind: "gateway", href: "/settings/model-gateway" };
   if (view.duePracticeCount > 0) {
     return { kind: "practice", href: "/practice", count: view.duePracticeCount };
@@ -37,12 +21,9 @@ export function NextAction({
   action,
   className,
 }: {
-  readonly action: HomeNextAction | LegacyHomeNextAction;
+  readonly action: HomeNextAction;
   readonly className?: string;
 }) {
-  if (action.kind === "complete") {
-    return <p>You are all caught up. Save a moment from the YouTube video you are watching.</p>;
-  }
   const label = action.kind === "gateway"
     ? "Set up model gateway"
     : action.kind === "practice"

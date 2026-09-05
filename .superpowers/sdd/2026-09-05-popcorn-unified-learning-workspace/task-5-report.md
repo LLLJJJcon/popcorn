@@ -72,3 +72,45 @@ The post-commit `git diff --check 3be45a1..HEAD` result is reported in the contr
 - The runtime intentionally trusts the accepted Saved service ordering for `recentVideo`; its deterministic timestamp/item/source tie-break behavior remains owned and covered by the accepted Saved integration tests.
 - The Home route and authenticated app layout each retain their existing authentication responsibility. Within Task 5's Home loader, authentication is performed exactly once before any repository read.
 - Existing unrelated worktree dirt (`next-env.d.ts`, `AGENTS.md`, `CLAUDE.md`, and `.DS_Store` files) was not staged or modified by Task 5.
+
+## Fix round 1: exact selector boundary
+
+The initial Task 5 commit retained a public two-count overload for a stale Saved test. Review identified that overload as a divergent production decision table because it bypassed gateway priority and exposed obsolete `complete` behavior.
+
+### Fix-round RED
+
+A type-level regression now calls `selectNextAction` with the stale partial object under `@ts-expect-error`. Before the fix:
+
+```text
+pnpm typecheck
+```
+
+Result: exit 2 with TS2578 (`Unused '@ts-expect-error' directive`), proving production still publicly accepted the forbidden partial input.
+
+### Fix-round implementation
+
+- Removed `LegacyHomeCounts`, `LegacyHomeNextAction`, both overload declarations, partial-input branching, and `complete` rendering.
+- Restored the exact public boundary `selectNextAction(view: HomeView): HomeNextAction` and restricted `NextAction` to `HomeNextAction`.
+- Migrated only the explicitly authorized stale calls in `src/features/saved/saved-timeline.test.tsx` to a complete `HomeView`; retained its Practice and Saved coverage while replacing obsolete `complete` with gateway-first and YouTube expectations.
+
+### Fix-round GREEN
+
+```text
+pnpm vitest run src/features/home src/features/saved/saved-timeline.test.tsx tests/integration/saved/video-library.test.ts tests/integration/progress/progress-summary.test.ts
+```
+
+Result: 5 files passed, 43 tests passed.
+
+```text
+pnpm typecheck
+```
+
+Result: exit 0. The `@ts-expect-error` is now consumed by the rejected partial call.
+
+```text
+pnpm eslint 'src/app/(app)/home/page.tsx' src/features/home/home-view.ts src/features/home/home-runtime.ts src/features/home/home-dashboard.tsx src/features/home/home-dashboard.test.tsx src/features/home/home-runtime.test.ts src/features/home/next-action.tsx src/features/saved/saved-timeline.test.tsx
+```
+
+Result: exit 0 with no findings.
+
+Fix round 1 requires fresh independent re-review; this report does not claim review approval.

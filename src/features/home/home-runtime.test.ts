@@ -37,6 +37,18 @@ const emptyView: HomeView = {
 };
 
 describe("Home next-action decision table", () => {
+  it("requires the complete HomeView at the public selector boundary", () => {
+    // @ts-expect-error -- gateway state and supporting projections are mandatory decision input.
+    selectNextAction({ duePracticeCount: 0, unsortedSaveCount: 0 });
+
+    expect([
+      selectNextAction({ ...emptyView, hasActiveGateway: false }).kind,
+      selectNextAction({ ...emptyView, duePracticeCount: 1 }).kind,
+      selectNextAction({ ...emptyView, unsortedSaveCount: 1 }).kind,
+      selectNextAction(emptyView).kind,
+    ]).toEqual(["gateway", "practice", "saved", "youtube"]);
+  });
+
   it("makes gateway setup the singular priority over due Practice and unsorted saves", () => {
     expect(selectNextAction({
       ...emptyView,

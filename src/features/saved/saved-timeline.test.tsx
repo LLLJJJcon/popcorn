@@ -1,5 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 
+import type { HomeView } from "@/features/home/home-view";
 import { NextAction, selectNextAction } from "@/features/home/next-action";
 import {
   groupSavedVideos,
@@ -9,6 +10,13 @@ import { ProcessingState } from "@/features/saved/processing-state";
 import { SavedTimeline } from "@/features/saved/saved-timeline";
 
 const SOURCE_ID = "11111111-1111-4111-8111-111111111111";
+const homeView: HomeView = {
+  hasActiveGateway: true,
+  duePracticeCount: 0,
+  unsortedSaveCount: 0,
+  recentVideo: null,
+  masteryDistribution: { tried: 0, reused: 0, owned: 0 },
+};
 
 function item(overrides: Partial<SavedItemView> = {}): SavedItemView {
   return {
@@ -82,7 +90,7 @@ describe("Saved video grouping and timeline", () => {
 
 describe("Home next action", () => {
   it("shows exactly one action and gives due Practice precedence over unsorted saves", () => {
-    const action = selectNextAction({ duePracticeCount: 2, unsortedSaveCount: 7 });
+    const action = selectNextAction({ ...homeView, duePracticeCount: 2, unsortedSaveCount: 7 });
     expect(action).toEqual({ kind: "practice", href: "/practice", count: 2 });
 
     render(<NextAction action={action} />);
@@ -94,14 +102,23 @@ describe("Home next action", () => {
     expect(screen.queryByRole("link", { name: /Saved/i })).not.toBeInTheDocument();
   });
 
-  it("falls back to an unsorted save and then a complete state", () => {
-    expect(selectNextAction({ duePracticeCount: 0, unsortedSaveCount: 1 })).toEqual({
+  it("enforces gateway setup before Saved and then falls back to YouTube", () => {
+    expect(selectNextAction({
+      ...homeView,
+      hasActiveGateway: false,
+      unsortedSaveCount: 1,
+    })).toEqual({
+      kind: "gateway",
+      href: "/settings/model-gateway",
+    });
+    expect(selectNextAction({ ...homeView, unsortedSaveCount: 1 })).toEqual({
       kind: "saved",
       href: "/saved",
       count: 1,
     });
-    expect(selectNextAction({ duePracticeCount: 0, unsortedSaveCount: 0 })).toEqual({
-      kind: "complete",
+    expect(selectNextAction(homeView)).toEqual({
+      kind: "youtube",
+      href: "https://www.youtube.com/",
     });
   });
 });
