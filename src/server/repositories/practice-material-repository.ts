@@ -193,14 +193,22 @@ export function createPracticeMaterialRepository(
       const draft = DraftRowSchema.safeParse(await one(from("practice_drafts")
         .select("id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,created_at")
         .eq("user_id", userId.data).eq("id", taskId.data)));
-      if (!draft.success || !belongs(draft.data, userId.data) || draft.data.status === "abandoned") return null;
+      if (
+        !draft.success || !belongs(draft.data, userId.data) ||
+        draft.data.id !== taskId.data || draft.data.status === "abandoned"
+      ) return null;
 
       const artifact = ArtifactRowSchema.safeParse(await one(from("generated_artifacts")
         .select("id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,content")
         .eq("user_id", userId.data).eq("id", draft.data.candidate_artifact_id)
         .eq("video_source_id", draft.data.video_source_id).eq("saved_item_id", draft.data.saved_item_id)
         .eq("artifact_type", "saved_item_analysis")));
-      if (!artifact.success || !belongs(artifact.data, userId.data)) return null;
+      if (
+        !artifact.success || !belongs(artifact.data, userId.data) ||
+        artifact.data.id !== draft.data.candidate_artifact_id ||
+        artifact.data.video_source_id !== draft.data.video_source_id ||
+        artifact.data.saved_item_id !== draft.data.saved_item_id
+      ) return null;
       const content = CandidateContentSchema.safeParse(artifact.data.content);
       const candidate = content.success ? content.data.candidates[draft.data.candidate_index] : undefined;
       if (!candidate || candidate.expression !== draft.data.target_expression) return null;
@@ -209,7 +217,11 @@ export function createPracticeMaterialRepository(
         .select("id,user_id,video_source_id,snapshot_id")
         .eq("user_id", userId.data).eq("id", draft.data.saved_item_id)
         .eq("video_source_id", draft.data.video_source_id)));
-      if (!saved.success || !belongs(saved.data, userId.data)) return null;
+      if (
+        !saved.success || !belongs(saved.data, userId.data) ||
+        saved.data.id !== draft.data.saved_item_id ||
+        saved.data.video_source_id !== draft.data.video_source_id
+      ) return null;
       const snapshot = SnapshotRowSchema.safeParse(await one(from("video_snapshots")
         .select("id,user_id,video_source_id,title")
         .eq("user_id", userId.data).eq("id", saved.data.snapshot_id)
@@ -217,7 +229,12 @@ export function createPracticeMaterialRepository(
       const source = SourceRowSchema.safeParse(await one(from("video_sources")
         .select("id,user_id,canonical_url")
         .eq("user_id", userId.data).eq("id", draft.data.video_source_id)));
-      if (!snapshot.success || !source.success || !belongs(snapshot.data, userId.data) || !belongs(source.data, userId.data)) {
+      if (
+        !snapshot.success || !source.success || !belongs(snapshot.data, userId.data) || !belongs(source.data, userId.data) ||
+        snapshot.data.id !== saved.data.snapshot_id ||
+        snapshot.data.video_source_id !== draft.data.video_source_id ||
+        source.data.id !== draft.data.video_source_id
+      ) {
         return null;
       }
 
@@ -247,7 +264,10 @@ export function createPracticeMaterialRepository(
       const review = ReviewRowSchema.safeParse(await one(from("review_tasks")
         .select("id,user_id,user_expression_id,mastery_state,status,due_at")
         .eq("user_id", userId.data).eq("id", reviewTaskId.data)));
-      if (!review.success || !belongs(review.data, userId.data) || review.data.status === "cancelled") return null;
+      if (
+        !review.success || !belongs(review.data, userId.data) ||
+        review.data.id !== reviewTaskId.data || review.data.status === "cancelled"
+      ) return null;
       const task = TaskRowSchema.safeParse(await one(from("practice_tasks")
         .select("id,user_id,user_expression_id,review_task_id,kind,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,due_at,created_at")
         .eq("user_id", userId.data).eq("review_task_id", review.data.id)

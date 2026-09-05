@@ -103,6 +103,30 @@ function candidateArtifact(overrides: Record<string, unknown> = {}) {
   };
 }
 
+type ImmediateGraphOverrides = Partial<Record<
+  "draft" | "artifact" | "saved" | "snapshot" | "source",
+  Record<string, unknown>
+>>;
+
+function immediateGraph(overrides: ImmediateGraphOverrides = {}): readonly Result[] {
+  return [
+    { data: draft(overrides.draft), error: null },
+    { data: candidateArtifact(overrides.artifact), error: null },
+    { data: {
+      id: SAVED, user_id: USER, video_source_id: SOURCE, snapshot_id: SNAPSHOT,
+      ...overrides.saved,
+    }, error: null },
+    { data: {
+      id: SNAPSHOT, user_id: USER, video_source_id: SOURCE, title: "Fixture video",
+      ...overrides.snapshot,
+    }, error: null },
+    { data: {
+      id: SOURCE, user_id: USER, canonical_url: "https://www.youtube.com/watch?v=abcdefghijk",
+      ...overrides.source,
+    }, error: null },
+  ];
+}
+
 type DueGraphOverrides = Partial<Record<
   "review" | "task" | "expression" | "sense" | "occurrence" | "snapshot" | "source",
   Record<string, unknown>
@@ -211,6 +235,26 @@ describe("Practice material repository", () => {
       .findImmediateMaterial(USER, TASK)).resolves.toBeNull();
   });
 
+  test.each([
+    { name: "draft id", graph: { draft: { id: OTHER } } },
+    { name: "artifact id", graph: { artifact: { id: OTHER } } },
+    { name: "artifact source", graph: { artifact: { video_source_id: SAVED } } },
+    { name: "artifact saved item", graph: { artifact: { saved_item_id: SOURCE } } },
+    { name: "saved item id", graph: { saved: { id: OTHER } } },
+    { name: "saved item source", graph: { saved: { video_source_id: SAVED } } },
+    { name: "snapshot id", graph: { snapshot: { id: OTHER } } },
+    { name: "snapshot source", graph: { snapshot: { video_source_id: SAVED } } },
+    { name: "source id", graph: { source: { id: OTHER } } },
+  ] satisfies ReadonlyArray<{ name: string; graph: ImmediateGraphOverrides }>) (
+    "fails closed when the returned immediate $name contradicts its query predicate",
+    async ({ graph }) => {
+      const contradictory = scriptedClient(immediateGraph(graph));
+
+      await expect(createPracticeMaterialRepository(contradictory.client as never)
+        .findImmediateMaterial(USER, TASK)).resolves.toBeNull();
+    },
+  );
+
   test("builds due material from the exact expression graph and selects occurrence provenance deterministically", async () => {
     const scripted = scriptedClient([
       { data: {
@@ -294,6 +338,16 @@ describe("Practice material repository", () => {
     const crossOwner = scriptedClient(dueGraph({ sense: { user_id: OTHER } }));
 
     await expect(createPracticeMaterialRepository(crossOwner.client as never)
+      .findDueMaterial(USER, REVIEW)).resolves.toBeNull();
+  });
+
+  test("fails closed when the returned due review contradicts the requested review id", async () => {
+    const contradictory = scriptedClient(dueGraph({
+      review: { id: OTHER },
+      task: { review_task_id: OTHER },
+    }));
+
+    await expect(createPracticeMaterialRepository(contradictory.client as never)
       .findDueMaterial(USER, REVIEW)).resolves.toBeNull();
   });
 
