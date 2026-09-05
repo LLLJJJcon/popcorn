@@ -6,7 +6,11 @@ import {
   type PracticeCoaching,
   type PracticeTask,
 } from "@/contracts/practice";
-import type { StructuredJsonGateway } from "@/server/ai/structured-json-gateway";
+import { ModelGatewayError } from "@/server/ai/provider";
+import type {
+  StructuredJsonCompletionOptions,
+  StructuredJsonGateway,
+} from "@/server/ai/structured-json-gateway";
 
 export const EVALUATE_PRACTICE_PROMPT_VERSION = "evaluate-practice-v2";
 
@@ -85,7 +89,11 @@ export function parsePracticeEvaluationOutput(
 export function createEvaluationFixtureGateway(): StructuredJsonGateway {
   return {
     model: "fixture/evaluation-v2",
-    async complete(_promptVersion, prompt) {
+    async complete<T>(
+      _promptVersion: string,
+      prompt: string,
+      options: StructuredJsonCompletionOptions<T>,
+    ): Promise<T> {
       const promptInput = JSON.parse(prompt.slice(prompt.lastIndexOf("\n") + 1)) as {
         readonly targetExpression?: unknown;
         readonly assistanceLevel?: unknown;
@@ -96,7 +104,7 @@ export function createEvaluationFixtureGateway(): StructuredJsonGateway {
       const assistanceLevel = promptInput.assistanceLevel === "hint" || promptInput.assistanceLevel === "model_answer"
         ? promptInput.assistanceLevel
         : "none";
-      return {
+      const output = {
         ...fixtureEvaluation,
         independentUse: assistanceLevel === "none",
         assistanceLevel,
@@ -104,6 +112,11 @@ export function createEvaluationFixtureGateway(): StructuredJsonGateway {
           ? fixtureEvaluation.naturalRevisionChinese
           : `${targetExpression}。`,
       };
+      const decoded = options.normalize(output);
+      if (!decoded.success) {
+        throw new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "wire_schema", decoded.fieldPath);
+      }
+      return decoded.data;
     },
   };
 }

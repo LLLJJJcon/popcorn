@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import { CandidateExpressionSchema, type CandidateExpression } from "@/contracts/knowledge";
 import { EnglishTextSchema, TargetChineseTextSchema } from "@/contracts/source";
-import type { StructuredJsonGateway } from "@/server/ai/structured-json-gateway";
+import { ModelGatewayError } from "@/server/ai/provider";
+import type {
+  StructuredJsonCompletionOptions,
+  StructuredJsonGateway,
+} from "@/server/ai/structured-json-gateway";
 
 export const ACTIVATE_PRACTICE_PROMPT_VERSION = "activate-practice-v1";
 
@@ -33,11 +37,15 @@ export function buildActivatePracticePrompt(candidate: CandidateExpression): str
 export function createActivationFixtureGateway(): StructuredJsonGateway {
   return {
     model: "fixture/activation-v1",
-    async complete(_promptVersion, prompt) {
+    async complete<T>(
+      _promptVersion: string,
+      prompt: string,
+      options: StructuredJsonCompletionOptions<T>,
+    ): Promise<T> {
       const candidate = CandidateExpressionSchema.parse(JSON.parse(
         prompt.slice(prompt.lastIndexOf("\n") + 1),
       ));
-      return {
+      const output = {
         promptChinese: "朋友告诉你一件让人难以置信的事。你会怎么回应？",
         instructionsEnglish: "Reply with one natural Simplified Chinese sentence.",
         goalEnglish: "Use the target expression to react naturally to the situation.",
@@ -45,6 +53,11 @@ export function createActivationFixtureGateway(): StructuredJsonGateway {
         evidenceText: candidate.evidenceText,
         communicativeFunction: candidate.communicativeFunction,
       };
+      const decoded = options.normalize(output);
+      if (!decoded.success) {
+        throw new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "wire_schema", decoded.fieldPath);
+      }
+      return decoded.data;
     },
   };
 }

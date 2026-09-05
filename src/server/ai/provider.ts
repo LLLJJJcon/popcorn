@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import type { KnowledgeJobType } from "@/contracts/knowledge";
 import { YouTubeVideoIdSchema } from "@/contracts/source";
+import type { ModelOutputStage } from "@/server/ai/model-output";
 import { ExplanationContentSchema, type ExplanationContent } from "@/server/ai/prompts/explain-selection.v1";
 import { TranslationContentSchema, type TranslationContent } from "@/server/ai/prompts/translate-segments.v1";
 import { OverviewContentSchema, type OverviewContent } from "@/server/ai/prompts/youtube-overview.v1";
@@ -181,7 +182,13 @@ export type ModelGatewayErrorCode =
 export class ModelGatewayError extends Error {
   override readonly name = "ModelGatewayError";
 
-  constructor(readonly code: ModelGatewayErrorCode) {
+  constructor(
+    readonly code: ModelGatewayErrorCode,
+    readonly stage: ModelOutputStage = code === "PROVIDER_UNAVAILABLE"
+      ? "transport"
+      : "wire_schema",
+    readonly fieldPath?: string,
+  ) {
     super(code);
   }
 }

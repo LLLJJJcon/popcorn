@@ -7,6 +7,12 @@ import {
   type LearningArtifactProvider,
 } from "@/server/ai/provider";
 import {
+  extractUniqueSemanticObject,
+  type ModelOutputStage,
+  type WireNormalizer,
+} from "@/server/ai/model-output";
+import type { StructuredJsonCompletionOptions } from "@/server/ai/structured-json-gateway";
+import {
   buildExplanationPrompt,
   ExplanationContentSchema,
   EXPLAIN_SELECTION_PROMPT_VERSION,
@@ -26,7 +32,6 @@ import type { ModelGatewayRuntimeConfig } from "@/server/model-gateway/runtime-r
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_OVERVIEW_TIMEOUT_MS = 120_000;
-const PRACTICE_EVALUATION_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_REQUEST_BYTES = 65_536;
 const DEFAULT_MAX_RESPONSE_BYTES = 524_288;
 const OVERVIEW_MAX_TOKENS = 900;
@@ -71,26 +76,31 @@ export type OpenAiCompatibleAdapterOptions = {
 };
 
 export interface StructuredJsonCompletionClient {
-  complete(
+  complete<T>(
     promptVersion: string,
-    prompt: string,
-    timeoutMs?: number,
-    maxTokens?: number,
-  ): Promise<unknown>;
+    userPrompt: string,
+    options: StructuredJsonCompletionOptions<T>,
+  ): Promise<T>;
   completeText(
     promptVersion: string,
-    prompt: string,
-    timeoutMs?: number,
-    maxTokens?: number,
+    userPrompt: string,
+    options: StructuredTextCompletionOptions,
   ): Promise<string>;
 }
 
-function outputInvalid(): ModelGatewayError {
-  return new ModelGatewayError("PROVIDER_OUTPUT_INVALID");
+type StructuredTextCompletionOptions = {
+  readonly systemPrompt: string;
+  readonly timeoutMs: number;
+  readonly maxTokens: number;
+  readonly maxTransportRetries?: 0 | 1;
+};
+
+function outputInvalid(stage: ModelOutputStage = "wire_schema", fieldPath?: string): ModelGatewayError {
+  return new ModelGatewayError("PROVIDER_OUTPUT_INVALID", stage, fieldPath);
 }
 
-function unavailable(): ModelGatewayError {
-  return new ModelGatewayError("PROVIDER_UNAVAILABLE");
+function unavailable(stage: ModelOutputStage = "transport"): ModelGatewayError {
+  return new ModelGatewayError("PROVIDER_UNAVAILABLE", stage);
 }
 
 function boundedPositiveInteger(value: number | undefined, fallback: number): number {
@@ -111,7 +121,7 @@ function requestSegments(
 }
 
 async function readBoundedResponse(response: Response, maxBytes: number): Promise<string> {
-  if (!response.body) throw outputInvalid();
+  if (!response.body) throw outputInvalid("response_envelope");
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -122,13 +132,13 @@ async function readBoundedResponse(response: Response, maxBytes: number): Promis
       total += item.value.byteLength;
       if (total > maxBytes) {
         await reader.cancel();
-        throw outputInvalid();
+        throw outputInvalid("response_envelope");
       }
       chunks.push(item.value);
     }
   } catch (error) {
     if (error instanceof ModelGatewayError) throw error;
-    throw unavailable();
+    throw unavailable("transport");
   }
   const bytes = new Uint8Array(total);
   let offset = 0;
@@ -139,7 +149,7 @@ async function readBoundedResponse(response: Response, maxBytes: number): Promis
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    throw outputInvalid();
+    throw outputInvalid("response_envelope");
   }
 }
 
@@ -152,26 +162,49 @@ function parseAssistantText(text: string): string {
       "function_call" in message ||
       message.content.trim() === ""
     ) {
-      throw outputInvalid();
+      throw outputInvalid("response_envelope");
     }
     return message.content.trim();
   } catch (error) {
     if (error instanceof ModelGatewayError) throw error;
-    throw outputInvalid();
-  }
-}
-
-function parseAssistantJson(text: string): unknown {
-  try {
-    return JSON.parse(unwrapMarkdownFence(text));
-  } catch {
-    throw outputInvalid();
+    throw outputInvalid("response_envelope");
   }
 }
 
 function unwrapMarkdownFence(text: string): string {
   const match = /^```(?:[\w-]+)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/u.exec(text);
   return (match?.[1] ?? text).trim();
+}
+
+function retryAfterMilliseconds(response: Response): number | null {
+  const value = response.headers.get("retry-after")?.trim();
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0 && seconds <= 3) {
+    return seconds * 1_000;
+  }
+  const date = Date.parse(value);
+  if (!Number.isFinite(date)) return null;
+  const delay = date - Date.now();
+  return delay >= 0 && delay <= 3_000 ? delay : null;
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === "object" && error !== null &&
+    "name" in error && error.name === "AbortError";
+}
+
+function zodNormalizer<T>(schema: z.ZodType<T>): WireNormalizer<T> {
+  return (value) => {
+    const parsed = schema.safeParse(value);
+    if (parsed.success) return { success: true, data: parsed.data };
+    const path = parsed.error.issues[0]?.path.join(".");
+    return { success: false, ...(path ? { fieldPath: path } : {}) };
+  };
 }
 
 export function createOpenAiCompatibleStructuredJsonClient(
@@ -190,80 +223,96 @@ export function createOpenAiCompatibleStructuredJsonClient(
   const endpoint = `${options.config.canonicalOrigin}${options.config.basePath}/chat/completions`;
 
   async function requestAssistantText(
-    promptVersion: string,
-    prompt: string,
-    requestTimeoutMs = timeoutMs,
-    maxTokens?: number,
-    jsonOnly = true,
+    _promptVersion: string,
+    userPrompt: string,
+    completionOptions: StructuredTextCompletionOptions,
   ): Promise<string> {
     const body = JSON.stringify({
       model: options.config.model,
-      ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
+      max_tokens: boundedPositiveInteger(completionOptions.maxTokens, 1),
       messages: [
         {
           role: "system",
-          content: jsonOnly
-            ? `Popcorn learning artifact task ${promptVersion}. Return only the requested JSON object.`
-            : `Popcorn learning artifact task ${promptVersion}. Follow the requested response format.`,
+          content: completionOptions.systemPrompt,
         },
-        { role: "user", content: prompt },
+        { role: "user", content: userPrompt },
       ],
     });
     if (new TextEncoder().encode(body).byteLength > maxRequestBytes) {
       throw outputInvalid();
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      boundedPositiveInteger(requestTimeoutMs, timeoutMs),
-    );
-    try {
-      const response = await fetchImpl(endpoint, {
-        method: "POST",
-        redirect: "error",
-        headers: {
-          Authorization: `Bearer ${options.config.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body,
-        signal: controller.signal,
-      });
-      if (!response.ok) throw unavailable();
-      return parseAssistantText(
-        await readBoundedResponse(response, maxResponseBytes),
-      );
-    } catch (error) {
-      if (error instanceof ModelGatewayError) throw error;
-      throw unavailable();
-    } finally {
-      clearTimeout(timer);
+    const maxRetries = completionOptions.maxTransportRetries ?? 1;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const controller = new AbortController();
+      let timedOut = false;
+      let responseReceived = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, boundedPositiveInteger(completionOptions.timeoutMs, timeoutMs));
+      try {
+        const response = await fetchImpl(endpoint, {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            Authorization: `Bearer ${options.config.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body,
+          signal: controller.signal,
+        });
+        responseReceived = true;
+        if (!response.ok) {
+          const retryableStatus = [429, 502, 503, 504].includes(response.status);
+          if (retryableStatus && attempt < maxRetries) {
+            clearTimeout(timer);
+            await wait(retryAfterMilliseconds(response) ?? 1_000);
+            continue;
+          }
+          throw unavailable(response.status === 429 ? "rate_limit" : "provider_http");
+        }
+        return parseAssistantText(await readBoundedResponse(response, maxResponseBytes));
+      } catch (error) {
+        if (error instanceof ModelGatewayError) throw error;
+        if (timedOut || isAbortError(error)) throw unavailable("timeout");
+        if (!responseReceived && attempt < maxRetries) {
+          clearTimeout(timer);
+          await wait(1_000);
+          continue;
+        }
+        throw unavailable("transport");
+      } finally {
+        clearTimeout(timer);
+      }
     }
+    throw unavailable("transport");
   }
 
-  async function complete(
+  async function complete<T>(
     promptVersion: string,
-    prompt: string,
-    requestTimeoutMs = timeoutMs,
-    maxTokens?: number,
-  ): Promise<unknown> {
-    return parseAssistantJson(await requestAssistantText(
+    userPrompt: string,
+    completionOptions: StructuredJsonCompletionOptions<T>,
+  ): Promise<T> {
+    const assistantText = await requestAssistantText(
       promptVersion,
-      prompt,
-      promptVersion === "evaluate-practice-v2"
-        ? PRACTICE_EVALUATION_TIMEOUT_MS
-        : requestTimeoutMs,
-      maxTokens,
-    ));
+      userPrompt,
+      completionOptions,
+    );
+    const extracted = extractUniqueSemanticObject(assistantText, completionOptions.normalize);
+    if (extracted.ok) return extracted.value;
+    throw outputInvalid(
+      extracted.reason === "wire_schema" ? "wire_schema" : "json_extract",
+      extracted.fieldPath,
+    );
   }
 
   function completeText(
     promptVersion: string,
-    prompt: string,
-    requestTimeoutMs = timeoutMs,
-    maxTokens?: number,
+    userPrompt: string,
+    completionOptions: StructuredTextCompletionOptions,
   ): Promise<string> {
-    return requestAssistantText(promptVersion, prompt, requestTimeoutMs, maxTokens, false);
+    return requestAssistantText(promptVersion, userPrompt, completionOptions);
   }
 
   return { complete, completeText };
@@ -273,6 +322,7 @@ export function createOpenAiCompatibleLearningArtifactProvider(
   options: OpenAiCompatibleAdapterOptions,
 ): LearningArtifactProvider {
   const { complete, completeText } = createOpenAiCompatibleStructuredJsonClient(options);
+  const artifactTimeoutMs = boundedPositiveInteger(options.timeoutMs, DEFAULT_TIMEOUT_MS);
   const overviewTimeoutMs = boundedPositiveInteger(
     options.overviewTimeoutMs,
     DEFAULT_OVERVIEW_TIMEOUT_MS,
@@ -283,8 +333,12 @@ export function createOpenAiCompatibleLearningArtifactProvider(
       const text = unwrapMarkdownFence(await completeText(
         YOUTUBE_OVERVIEW_PROMPT_VERSION,
         buildOverviewPrompt(evidence.title, evidence.segments),
-        overviewTimeoutMs,
-        OVERVIEW_MAX_TOKENS,
+        {
+          systemPrompt: `Popcorn learning artifact task ${YOUTUBE_OVERVIEW_PROMPT_VERSION}. Follow the requested response format.`,
+          timeoutMs: overviewTimeoutMs,
+          maxTokens: OVERVIEW_MAX_TOKENS,
+          maxTransportRetries: 0,
+        },
       ));
       try {
         let raw: unknown;
@@ -363,6 +417,12 @@ export function createOpenAiCompatibleLearningArtifactProvider(
       const raw = await complete(
         TRANSLATE_SEGMENTS_PROMPT_VERSION,
         buildTranslationPrompt(requestSegments(requested)),
+        {
+          systemPrompt: `Popcorn learning artifact task ${TRANSLATE_SEGMENTS_PROMPT_VERSION}. Return only the requested JSON object.`,
+          timeoutMs: artifactTimeoutMs,
+          maxTokens: 800,
+          normalize: zodNormalizer(GatewayTranslationSchema),
+        },
       );
       try {
         const gateway = GatewayTranslationSchema.parse(raw);
@@ -393,6 +453,12 @@ export function createOpenAiCompatibleLearningArtifactProvider(
           endSeconds: selection.endSeconds,
           context: selection.context,
         }),
+        {
+          systemPrompt: `Popcorn learning artifact task ${EXPLAIN_SELECTION_PROMPT_VERSION}. Return only the requested JSON object.`,
+          timeoutMs: artifactTimeoutMs,
+          maxTokens: 500,
+          normalize: zodNormalizer(ExplanationContentSchema),
+        },
       );
       try {
         const parsed = ExplanationContentSchema.parse(raw);

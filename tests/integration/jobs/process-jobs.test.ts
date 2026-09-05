@@ -3,7 +3,10 @@ import { describe, expect, test, vi } from "vitest";
 import { KnowledgeJobSchema, type KnowledgeJob } from "@/contracts/knowledge";
 import { ModelGatewayError } from "@/server/ai/provider";
 import { createAnalyzeSavedItemFixtureGateway } from "@/server/ai/prompts/analyze-saved-item.v1";
-import { createStructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
+import {
+  createStructuredJsonGatewayResolver,
+  type StructuredJsonGateway,
+} from "@/server/ai/structured-json-gateway";
 import * as processRouteModule from "@/app/api/internal/jobs/process/route";
 import { nextJobFailure } from "@/server/domain/lease-job";
 import { createAnalyzeSavedItemHandler } from "@/server/jobs/handlers/analyze-saved-item";
@@ -12,15 +15,32 @@ import {
   createProcessorHandlers,
   createSupabaseSavedItemAnalysisRegistrar,
   createSupabaseDurableJobStore,
+  publicFailureCategory,
   type DurableJobStore,
 } from "@/server/jobs/process-jobs";
 import {
   createSavedItemAnalysisJobKey,
+  SavedItemAnalysisContentSchema,
   type SavedItemAnalysisEvidence,
   validateSavedItemAnalysisContent,
 } from "@/server/jobs/job-types";
 
 describe("bounded internal knowledge-job endpoint", () => {
+  test.each([
+    ["terminal_failed", "PROVIDER_OUTPUT_INVALID:wire_schema:candidates.0.expression", "model_output"],
+    ["terminal_failed", "PROVIDER_UNAVAILABLE:timeout", "model_unavailable"],
+    ["terminal_failed", "INTERNAL:persistence", "internal"],
+    ["retryable_failed", "PROVIDER_UNAVAILABLE:transport", "model_unavailable"],
+    ["terminal_failed", "PROVIDER_OUTPUT_INVALID", "model_output"],
+    ["retryable_failed", "PROVIDER_UNAVAILABLE", "model_unavailable"],
+    ["pending", null, null],
+  ] as const)(
+    "maps %s/%s to the safe public category %s",
+    (status, code, expected) => {
+      expect(publicFailureCategory(status, code)).toBe(expected);
+    },
+  );
+
   test("exports only App Router HTTP entrypoints", () => {
     expect(Object.keys(processRouteModule).sort()).toEqual(["POST"]);
   });
@@ -97,6 +117,16 @@ const SEGMENT_ID = "a".repeat(64);
 const TRANSCRIPT_HASH = "b".repeat(64);
 const GATEWAY_FINGERPRINT = "c".repeat(64);
 const PIN = { configId: CONFIG_ID, revision: 3, fingerprint: GATEWAY_FINGERPRINT };
+
+function mockGateway(
+  model: string,
+  complete: ReturnType<typeof vi.fn>,
+): StructuredJsonGateway {
+  return {
+    model,
+    complete: complete as unknown as StructuredJsonGateway["complete"],
+  };
+}
 
 function analysisJob(
   overrides: Partial<KnowledgeJob> = {},
@@ -239,7 +269,7 @@ describe("source-grounded saved-item analysis", () => {
     });
     const gatewayResolver = createStructuredJsonGatewayResolver({
       ci: true,
-      fixture: { model: "fixture/saved-analysis-v1", complete: fixtureComplete },
+      fixture: mockGateway("fixture/saved-analysis-v1", fixtureComplete),
       createRuntimeResolver: runtimeFactory,
       fetchImpl: vi.fn(),
     });
@@ -273,9 +303,20 @@ describe("source-grounded saved-item analysis", () => {
   test("the task-local CI fixture deterministically returns evidence-grounded content", async () => {
     const fixture = createAnalyzeSavedItemFixtureGateway();
     const prompt = ["bounded instructions", JSON.stringify({ segments: evidence.segments })].join("\n");
+    const completionOptions = {
+      systemPrompt: "Fixture system prompt",
+      timeoutMs: 30_000,
+      maxTokens: 900,
+      normalize(value: Record<string, unknown>) {
+        const parsed = SavedItemAnalysisContentSchema.safeParse(value);
+        return parsed.success
+          ? { success: true as const, data: parsed.data }
+          : { success: false as const, fieldPath: "candidates" };
+      },
+    };
 
-    const first = await fixture.complete("analyze-saved-item-v1", prompt);
-    const second = await fixture.complete("analyze-saved-item-v1", prompt);
+    const first = await fixture.complete("analyze-saved-item-v1", prompt, completionOptions);
+    const second = await fixture.complete("analyze-saved-item-v1", prompt, completionOptions);
 
     expect(first).toEqual(second);
     expect(() => validateSavedItemAnalysisContent(first, evidence)).not.toThrow();
@@ -329,7 +370,7 @@ describe("source-grounded saved-item analysis", () => {
 
   test("live resolution uses the claimed owner and immutable pin", async () => {
     const complete = vi.fn(async () => ({ candidates: [candidate] }));
-    const resolve = vi.fn(async () => ({ model: "provider/model-v1", complete }));
+    const resolve = vi.fn(async () => mockGateway("provider/model-v1", complete));
     const store = analysisStore();
     const job = analysisJob();
 
@@ -349,10 +390,10 @@ describe("source-grounded saved-item analysis", () => {
       transcriptProvider: {} as never,
       learningProviderResolver: {} as never,
       analysisGatewayResolver: {
-        resolve: vi.fn(async () => ({
-          model: "fixture/saved-analysis-v1",
-          complete: vi.fn(async () => ({ candidates: [candidate] })),
-        })),
+        resolve: vi.fn(async () => mockGateway(
+          "fixture/saved-analysis-v1",
+          vi.fn(async () => ({ candidates: [candidate] })),
+        )),
       },
     });
 
@@ -369,10 +410,10 @@ describe("source-grounded saved-item analysis", () => {
     const originalSave = structuredClone(analysisStore().rawSave);
     const store = analysisStore();
     const gatewayResolver = {
-      resolve: vi.fn(async () => ({
-        model: "fixture/saved-analysis-v1",
-        complete: vi.fn(async () => ({ candidates: [invalidCandidate] })),
-      })),
+      resolve: vi.fn(async () => mockGateway(
+        "fixture/saved-analysis-v1",
+        vi.fn(async () => ({ candidates: [invalidCandidate] })),
+      )),
     };
 
     await expect(createAnalyzeSavedItemHandler({ store, gatewayResolver })(job, USER_A, NOW))
@@ -382,7 +423,7 @@ describe("source-grounded saved-item analysis", () => {
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledExactlyOnceWith(
       USER_A,
       job,
-      nextJobFailure(job, "PROVIDER_OUTPUT_INVALID", NOW),
+      nextJobFailure(job, "PROVIDER_OUTPUT_INVALID:grounding", NOW),
       false,
     );
     expect(store.rawSave).toEqual(originalSave);
@@ -404,7 +445,7 @@ describe("source-grounded saved-item analysis", () => {
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledExactlyOnceWith(
       USER_A,
       job,
-      nextJobFailure(job, "PROVIDER_UNAVAILABLE", NOW),
+      nextJobFailure(job, "PROVIDER_UNAVAILABLE:transport", NOW),
       true,
     );
     expect(store.rawSave).toEqual(originalSave);
@@ -413,10 +454,10 @@ describe("source-grounded saved-item analysis", () => {
   test("rejects more than three candidates", async () => {
     const store = analysisStore();
     const gatewayResolver = {
-      resolve: vi.fn(async () => ({
-        model: "fixture/saved-analysis-v1",
-        complete: vi.fn(async () => ({ candidates: Array.from({ length: 4 }, () => candidate) })),
-      })),
+      resolve: vi.fn(async () => mockGateway(
+        "fixture/saved-analysis-v1",
+        vi.fn(async () => ({ candidates: Array.from({ length: 4 }, () => candidate) })),
+      )),
     };
 
     await expect(createAnalyzeSavedItemHandler({ store, gatewayResolver })(
@@ -453,10 +494,10 @@ describe("source-grounded saved-item analysis", () => {
     const handler = createAnalyzeSavedItemHandler({
       store,
       gatewayResolver: {
-        resolve: vi.fn(async () => ({
-          model: "fixture/saved-analysis-v1",
-          complete: vi.fn(async () => ({ candidates: [candidate] })),
-        })),
+        resolve: vi.fn(async () => mockGateway(
+          "fixture/saved-analysis-v1",
+          vi.fn(async () => ({ candidates: [candidate] })),
+        )),
       },
     });
 

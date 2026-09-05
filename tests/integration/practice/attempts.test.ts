@@ -1,5 +1,10 @@
-import type { StructuredJsonGateway, StructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
+import type {
+  StructuredJsonCompletionOptions,
+  StructuredJsonGateway,
+  StructuredJsonGatewayResolver,
+} from "@/server/ai/structured-json-gateway";
 import {
+  ActivationOutputSchema,
   buildActivatePracticePrompt,
   createActivationFixtureGateway,
 } from "@/server/ai/prompts/activate.v1";
@@ -251,7 +256,22 @@ function memoryRepository(candidateRecord: CandidateArtifactRecord | null = arti
 }
 
 function gateway(output: unknown, model = "mandarin-model") {
-  return { model, complete: vi.fn(async () => output) } satisfies StructuredJsonGateway;
+  const complete = vi.fn(async <T>(
+    _promptVersion: string,
+    _userPrompt: string,
+    options: StructuredJsonCompletionOptions<T>,
+  ): Promise<T> => {
+    if (typeof output !== "object" || output === null || Array.isArray(output)) {
+      throw new TypeError("test gateway output must be an object");
+    }
+    const decoded = options.normalize(output as Record<string, unknown>);
+    if (!decoded.success) throw new TypeError(decoded.fieldPath ?? "invalid test gateway output");
+    return decoded.data;
+  });
+  return {
+    model,
+    complete: complete as unknown as StructuredJsonGateway["complete"] & typeof complete,
+  };
 }
 
 function resolver(gatewayValue: StructuredJsonGateway) {
@@ -339,6 +359,17 @@ describe("learner-first practice activation", () => {
     await expect(createActivationFixtureGateway().complete(
       "activate-practice-v1",
       buildActivatePracticePrompt(selectedCandidate),
+      {
+        systemPrompt: "Fixture system prompt",
+        timeoutMs: 30_000,
+        maxTokens: 250,
+        normalize(value) {
+          const parsed = ActivationOutputSchema.safeParse(value);
+          return parsed.success
+            ? { success: true, data: parsed.data }
+            : { success: false, fieldPath: "activation" };
+        },
+      },
     )).resolves.toMatchObject({
       targetExpression: "没想到",
       evidenceText: "我完全没想到。",
@@ -527,6 +558,7 @@ describe("evaluation and append-only revisions", () => {
     expect(harness.fixture.complete).toHaveBeenCalledWith(
       "evaluate-practice-v2",
       expect.stringContaining('"assistanceLevel":"hint"'),
+      expect.objectContaining({ timeoutMs: 30_000, maxTokens: 700 }),
     );
   });
 

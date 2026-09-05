@@ -1,4 +1,8 @@
 import type { KnowledgeJob } from "@/contracts/knowledge";
+import {
+  safeModelFailureCode,
+  type SafeModelFailure,
+} from "@/server/ai/model-output";
 import { ModelGatewayError, type ModelGatewayPin } from "@/server/ai/provider";
 import {
   ANALYZE_SAVED_ITEM_PROMPT_VERSION,
@@ -8,6 +12,7 @@ import type { StructuredJsonGatewayResolver } from "@/server/ai/structured-json-
 import { nextJobFailure } from "@/server/domain/lease-job";
 import {
   SavedItemAnalysisJobInputSchema,
+  SavedItemAnalysisContentSchema,
   validateSavedItemAnalysisContent,
 } from "@/server/jobs/job-types";
 import type {
@@ -31,7 +36,10 @@ export function createAnalyzeSavedItemHandler({ store, gatewayResolver }: {
       throw new TypeError("saved-item analysis handler received another job type");
     }
 
-    let failureCode = "PROVIDER_OUTPUT_INVALID";
+    let fallbackFailure: SafeModelFailure = new ModelGatewayError(
+      "PROVIDER_OUTPUT_INVALID",
+      "grounding",
+    );
     try {
       const input = SavedItemAnalysisJobInputSchema.parse(
         await store.readPrivateInput(expectedUserId, job.id),
@@ -64,7 +72,7 @@ export function createAnalyzeSavedItemHandler({ store, gatewayResolver }: {
         revision: input.gatewayRevision,
         fingerprint: input.gatewayFingerprint,
       };
-      failureCode = "PROVIDER_UNAVAILABLE";
+      fallbackFailure = new ModelGatewayError("PROVIDER_UNAVAILABLE", "transport");
       const gateway = await gatewayResolver.resolve(expectedUserId, gatewayPin);
       const promptVersion = input.promptVersion;
       if (promptVersion !== ANALYZE_SAVED_ITEM_PROMPT_VERSION) {
@@ -73,12 +81,24 @@ export function createAnalyzeSavedItemHandler({ store, gatewayResolver }: {
       const raw = await gateway.complete(
         promptVersion,
         buildAnalyzeSavedItemPrompt(evidence),
+        {
+          systemPrompt: `Popcorn learning artifact task ${promptVersion}. Return only the requested JSON object.`,
+          timeoutMs: 30_000,
+          maxTokens: 900,
+          normalize(value) {
+            const parsed = SavedItemAnalysisContentSchema.safeParse(value);
+            if (parsed.success) return { success: true, data: parsed.data };
+            const fieldPath = parsed.error.issues[0]?.path.join(".");
+            return { success: false, ...(fieldPath ? { fieldPath } : {}) };
+          },
+        },
       );
-      failureCode = "PROVIDER_OUTPUT_INVALID";
+      fallbackFailure = new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "grounding");
       const content = validateSavedItemAnalysisContent(raw, evidence);
       if (new TextEncoder().encode(JSON.stringify(content)).byteLength > 262_144) {
         throw new RangeError("saved-item analysis artifact is too large");
       }
+      fallbackFailure = { code: "INTERNAL", stage: "persistence" };
       const artifactId = await store.completeGatewayLearningArtifact(
         expectedUserId,
         job,
@@ -92,7 +112,9 @@ export function createAnalyzeSavedItemHandler({ store, gatewayResolver }: {
       );
       return artifactId ? "completed" : "deferred";
     } catch (error) {
-      const code = error instanceof ModelGatewayError ? error.code : failureCode;
+      const code = error instanceof ModelGatewayError
+        ? safeModelFailureCode(error)
+        : safeModelFailureCode(fallbackFailure);
       const state = nextJobFailure(job, code, now);
       const terminal = state.status === "terminal_failed";
       const persisted = await store.transitionLearningArtifactFailure(

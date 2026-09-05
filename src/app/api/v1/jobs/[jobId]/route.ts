@@ -7,6 +7,7 @@ import {
   createJobStatusRoute,
   parsePublicLearningArtifactResult,
   parsePublicResolveSnapshotResult,
+  publicFailureCategory,
   type PublicJobStatus,
 } from "@/server/jobs/process-jobs";
 import type { Database } from "@/types/database.generated";
@@ -49,13 +50,13 @@ function createAuthenticator(): JobStatusRouteDependencies["authenticate"] {
   };
 }
 
-function createStatusReader(
+export function createStatusReader(
   client: SupabaseClient<Database>,
 ): JobStatusRouteDependencies["readPublicStatus"] {
   return async (expectedUserId, jobId) => {
     const result = await client
       .from("knowledge_jobs")
-      .select("id,user_id,status,job_type")
+      .select("id,user_id,status,job_type,last_error_code")
       .eq("user_id", expectedUserId)
       .eq("id", jobId)
       .maybeSingle();
@@ -82,6 +83,7 @@ function createStatusReader(
       status,
       retryable: status === "pending" || status === "leased" || status === "retryable_failed",
       result: publicResult,
+      failureCategory: publicFailureCategory(status, result.data.last_error_code),
     };
   };
 }

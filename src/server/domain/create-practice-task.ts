@@ -266,6 +266,17 @@ export function createPracticeTaskService(dependencies: {
         output = ActivationOutputSchema.parse(await resolved.gateway.complete(
           ACTIVATE_PRACTICE_PROMPT_VERSION,
           buildActivatePracticePrompt(candidate),
+          {
+            systemPrompt: `Popcorn learning artifact task ${ACTIVATE_PRACTICE_PROMPT_VERSION}. Return only the requested JSON object.`,
+            timeoutMs: 30_000,
+            maxTokens: 250,
+            normalize(value) {
+              const parsed = ActivationOutputSchema.safeParse(value);
+              if (parsed.success) return { success: true, data: parsed.data };
+              const fieldPath = parsed.error.issues[0]?.path.join(".");
+              return { success: false, ...(fieldPath ? { fieldPath } : {}) };
+            },
+          },
         ));
         if (
           output.targetExpression !== candidate.expression ||

@@ -115,6 +115,17 @@ describe("saved-item analysis fixture contract", () => {
     const fixtureOutput = await createAnalyzeSavedItemFixtureGateway().complete(
       ANALYZE_SAVED_ITEM_PROMPT_VERSION,
       buildAnalyzeSavedItemPrompt(source),
+      {
+        systemPrompt: "Fixture system prompt",
+        timeoutMs: 30_000,
+        maxTokens: 900,
+        normalize(value) {
+          const parsed = SavedItemAnalysisContentSchema.safeParse(value);
+          return parsed.success
+            ? { success: true, data: parsed.data }
+            : { success: false, fieldPath: "candidates" };
+        },
+      },
     );
     expect(validateSavedItemAnalysisContent(fixtureOutput, source)).toEqual(fixtureOutput);
   });

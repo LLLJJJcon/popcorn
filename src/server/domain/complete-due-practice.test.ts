@@ -71,18 +71,25 @@ function repository(): DuePracticeCompletionRepository {
   };
 }
 
+type GatewayDouble = {
+  readonly model: string;
+  readonly complete: ReturnType<typeof vi.fn>;
+};
+
 function service(store = repository(), options: {
   ci?: boolean;
-  gateway?: StructuredJsonGateway;
+  gateway?: StructuredJsonGateway | GatewayDouble;
   now?: () => string;
 } = {}) {
+  const selectedGateway = options.gateway ?? createEvaluationFixtureGateway();
+  const gateway = selectedGateway as unknown as StructuredJsonGateway;
   return {
     store,
     service: createDuePracticeCompletionService({
       repository: store,
       ci: options.ci ?? true,
-      fixtureGateway: options.gateway ?? createEvaluationFixtureGateway(),
-      gatewayResolver: { resolve: vi.fn(async () => options.gateway ?? createEvaluationFixtureGateway()) },
+      fixtureGateway: gateway,
+      gatewayResolver: { resolve: vi.fn(async () => gateway) },
       now: options.now ?? (() => NOW),
     }),
   };
@@ -106,6 +113,7 @@ describe("complete due Practice", () => {
     expect(gateway.complete).toHaveBeenCalledWith(
       "evaluate-practice-v2",
       expect.stringContaining("naturalRevisionChinese"),
+      expect.objectContaining({ timeoutMs: 30_000, maxTokens: 700 }),
     );
     expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({
       evaluationPromptVersion: "evaluate-practice-v2",
@@ -225,6 +233,7 @@ describe("complete due Practice", () => {
     expect(gateway.complete).toHaveBeenCalledWith(
       "evaluate-practice-v2",
       expect.stringContaining('"assistanceLevel":"hint"'),
+      expect.objectContaining({ timeoutMs: 30_000, maxTokens: 700 }),
     );
   });
 

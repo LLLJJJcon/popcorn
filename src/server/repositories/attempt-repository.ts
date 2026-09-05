@@ -138,6 +138,19 @@ export function createPracticeAttemptService(dependencies: {
         await resolved.gateway.complete(
           EVALUATE_PRACTICE_PROMPT_VERSION,
           buildEvaluatePracticePrompt(practiceTaskView(draft), responseChinese, assistanceLevel),
+          {
+            systemPrompt: `Popcorn learning artifact task ${EVALUATE_PRACTICE_PROMPT_VERSION}. Return only the requested JSON object.`,
+            timeoutMs: 30_000,
+            maxTokens: 700,
+            normalize(value) {
+              try {
+                parsePracticeEvaluationOutput(value, draft.targetExpression, assistanceLevel);
+                return { success: true, data: value };
+              } catch {
+                return { success: false, fieldPath: "evaluation" };
+              }
+            },
+          },
         ),
         draft.targetExpression,
         assistanceLevel,

@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import {
   KnowledgeJobSchema,
   type KnowledgeJob,
+  type KnowledgeJobStatus,
   type KnowledgeJobType,
 } from "@/contracts/knowledge";
 import { SavedItemKindSchema } from "@/contracts/source";
@@ -155,7 +156,29 @@ export type PublicJobStatus = {
   readonly status: "pending" | "leased" | "succeeded" | "retryable_failed" | "terminal_failed";
   readonly retryable: boolean;
   readonly result: { readonly snapshotId: string } | { readonly artifactId: string } | null;
+  readonly failureCategory: PublicFailureCategory | null;
 };
+
+export type PublicFailureCategory = "model_unavailable" | "model_output" | "internal";
+
+export function publicFailureCategory(
+  status: KnowledgeJobStatus,
+  lastErrorCode: string | null,
+): PublicFailureCategory | null {
+  if (
+    (status !== "retryable_failed" && status !== "terminal_failed") ||
+    lastErrorCode === null
+  ) return null;
+  if (
+    lastErrorCode === "PROVIDER_UNAVAILABLE" ||
+    lastErrorCode.startsWith("PROVIDER_UNAVAILABLE:")
+  ) return "model_unavailable";
+  if (
+    lastErrorCode === "PROVIDER_OUTPUT_INVALID" ||
+    lastErrorCode.startsWith("PROVIDER_OUTPUT_INVALID:")
+  ) return "model_output";
+  return "internal";
+}
 
 const PublicResolveSnapshotResultSchema = z
   .object({ snapshotId: z.string().uuid() })
@@ -181,7 +204,9 @@ type JobStatusRouteDependencies = {
   readonly readPublicStatus: (
     expectedUserId: string,
     jobId: string,
-  ) => Promise<PublicJobStatus | null>;
+  ) => Promise<(Omit<PublicJobStatus, "failureCategory"> & {
+    readonly failureCategory?: PublicFailureCategory | null;
+  }) | null>;
   readonly requestId: () => string;
 };
 
@@ -225,7 +250,14 @@ export function createJobStatusRoute(dependencies: JobStatusRouteDependencies) {
         404,
       );
     }
-    return noStoreJson(success(status, requestId), 200);
+    const publicStatus: PublicJobStatus = {
+      id: status.id,
+      status: status.status,
+      retryable: status.retryable,
+      result: status.result,
+      failureCategory: status.failureCategory ?? null,
+    };
+    return noStoreJson(success(publicStatus, requestId), 200);
   };
 }
 

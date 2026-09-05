@@ -230,6 +230,23 @@ export function createDuePracticeCompletionService(dependencies: {
             await resolved.gateway.complete(
               EVALUATE_PRACTICE_PROMPT_VERSION,
               buildEvaluatePracticePrompt(taskView(task), input.data.responseChinese, input.data.assistanceLevel),
+              {
+                systemPrompt: `Popcorn learning artifact task ${EVALUATE_PRACTICE_PROMPT_VERSION}. Return only the requested JSON object.`,
+                timeoutMs: 30_000,
+                maxTokens: 700,
+                normalize(value) {
+                  try {
+                    parsePracticeEvaluationOutput(
+                      value,
+                      task.targetExpression,
+                      input.data.assistanceLevel,
+                    );
+                    return { success: true, data: value };
+                  } catch {
+                    return { success: false, fieldPath: "evaluation" };
+                  }
+                },
+              },
             ),
             task.targetExpression,
             input.data.assistanceLevel,

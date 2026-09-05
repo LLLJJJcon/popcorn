@@ -1,5 +1,9 @@
 import type { SavedItemAnalysisEvidence } from "@/server/jobs/job-types";
-import type { StructuredJsonGateway } from "@/server/ai/structured-json-gateway";
+import { ModelGatewayError } from "@/server/ai/provider";
+import type {
+  StructuredJsonCompletionOptions,
+  StructuredJsonGateway,
+} from "@/server/ai/structured-json-gateway";
 
 export const ANALYZE_SAVED_ITEM_PROMPT_VERSION = "analyze-saved-item-v1";
 
@@ -24,7 +28,11 @@ export function buildAnalyzeSavedItemPrompt(evidence: SavedItemAnalysisEvidence)
 export function createAnalyzeSavedItemFixtureGateway(): StructuredJsonGateway {
   return {
     model: "fixture/saved-analysis-v1",
-    async complete(_promptVersion, prompt) {
+    async complete<T>(
+      _promptVersion: string,
+      prompt: string,
+      options: StructuredJsonCompletionOptions<T>,
+    ): Promise<T> {
       const serializedEvidence = prompt.slice(prompt.lastIndexOf("\n") + 1);
       const parsed = JSON.parse(serializedEvidence) as {
         readonly segments?: readonly {
@@ -45,7 +53,7 @@ export function createAnalyzeSavedItemFixtureGateway(): StructuredJsonGateway {
         throw new TypeError("fixture requires one bounded persisted transcript segment");
       }
       const evidenceText = segment.originalChinese.slice(0, 2_000);
-      return {
+      const output = {
         candidates: [{
           expression: evidenceText.slice(0, 200),
           englishMeaning: "Meaning from this saved Mandarin moment.",
@@ -60,6 +68,11 @@ export function createAnalyzeSavedItemFixtureGateway(): StructuredJsonGateway {
           confidence: 1,
         }],
       };
+      const decoded = options.normalize(output);
+      if (!decoded.success) {
+        throw new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "wire_schema", decoded.fieldPath);
+      }
+      return decoded.data;
     },
   };
 }
