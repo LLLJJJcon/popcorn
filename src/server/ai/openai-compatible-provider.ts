@@ -179,8 +179,8 @@ function plainOverviewFallback(text: string): OverviewContent | null {
   if (
     !/[A-Za-z]/u.test(trimmed) ||
     /[\u3400-\u9fff]/u.test(trimmed) ||
-    /[\[{]/u.test(trimmed) ||
-    trimmed.includes("```")
+    /[\[\]{}]/u.test(trimmed) ||
+    /```|~~~/u.test(trimmed)
   ) return null;
   const overview = OverviewContentSchema.shape.overview.safeParse(
     normalizeEnglishPunctuation(trimmed),

@@ -57,10 +57,7 @@ export function createLearningArtifactHandler<TInput extends {
   return async (job, expectedUserId, now): Promise<JobHandlerResult> => {
     if (job.userId !== expectedUserId) throw new Error("expected owner does not match claimed job");
     if (job.type !== jobType) throw new TypeError(`${jobType} handler received ${job.type}`);
-    let fallbackFailure: SafeModelFailure = new ModelGatewayError(
-      "PROVIDER_OUTPUT_INVALID",
-      "grounding",
-    );
+    let fallbackFailure: SafeModelFailure = { code: "INTERNAL", stage: "persistence" };
     try {
       const input = inputSchema.parse(await store.readPrivateInput(expectedUserId, job.id));
       const evidence = await store.readLearningArtifactEvidence(
@@ -69,6 +66,7 @@ export function createLearningArtifactHandler<TInput extends {
         input.snapshotId,
         segmentIds(input),
       );
+      fallbackFailure = new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "grounding");
       if (!evidence || evidence.transcriptHash !== input.transcriptHash) throw new Error("persisted evidence mismatch");
       validateEvidence?.(evidence, input);
       const gatewayPin: ModelGatewayPin = {

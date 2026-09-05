@@ -358,6 +358,23 @@ describe("bounded openai-compatible adapter", () => {
     expect(fencedFetch).toHaveBeenCalledTimes(1);
   });
 
+  test.each([
+    ["tilde-fenced prose", "~~~markdown\nA summary.\n~~~"],
+    ["a broken JSON fragment", `"overview":"A summary."}`],
+  ])("rejects %s at Overview output parsing", async (_label, malformed) => {
+    const malformedFetch = vi.fn<typeof fetch>(async () => textCompletionResponse(malformed));
+    const malformedProvider = createOpenAiCompatibleLearningArtifactProvider({
+      config: RUNTIME_CONFIG,
+      fetchImpl: malformedFetch,
+    });
+
+    await expect(malformedProvider.generateOverview(evidence)).rejects.toMatchObject({
+      code: "PROVIDER_OUTPUT_INVALID",
+      stage: "json_extract",
+    });
+    expect(malformedFetch).toHaveBeenCalledTimes(1);
+  });
+
   test("retains a JSON summary and only independently valid grounded optional items", async () => {
     const provider = createOpenAiCompatibleLearningArtifactProvider({
       config: RUNTIME_CONFIG,
@@ -1156,6 +1173,39 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
       }),
       true,
     );
+  });
+
+  test.each([
+    ["overview private-input", "generate_overview", createGenerateOverviewHandler, "private_input"],
+    ["overview evidence", "generate_overview", createGenerateOverviewHandler, "evidence"],
+    ["translation private-input", "translate_segments", createTranslateSegmentsHandler, "private_input"],
+    ["translation evidence", "translate_segments", createTranslateSegmentsHandler, "evidence"],
+    ["explanation private-input", "explain_selection", createExplainSelectionHandler, "private_input"],
+    ["explanation evidence", "explain_selection", createExplainSelectionHandler, "evidence"],
+  ] as const)("%s read failure terminalizes as internal without invoking the model", async (_label, type, factory, failingRead) => {
+    const job = leasedJob(type);
+    const input = privateInput(type, `${type}-v1`);
+    const store = handlerStore(input, failingRead === "private_input"
+      ? { readPrivateInput: vi.fn(async () => { throw new Error("private database detail"); }) }
+      : { readLearningArtifactEvidence: vi.fn(async () => { throw new Error("private database detail"); }) });
+    const resolver = {
+      resolve: vi.fn(async () => ({ provider, model: "mandarin-model" })),
+    };
+    const handler = factory({ store, providerResolver: resolver });
+
+    await expect(handler(job, USER_A, NOW)).resolves.toBe("failed");
+    expect(store.transitionLearningArtifactFailure).toHaveBeenCalledWith(
+      USER_A,
+      job,
+      expect.objectContaining({
+        status: "terminal_failed",
+        lastErrorCode: "INTERNAL:persistence",
+        nextAttemptAt: null,
+      }),
+      true,
+    );
+    expect(resolver.resolve).not.toHaveBeenCalled();
+    expect(store.completeGatewayLearningArtifact).not.toHaveBeenCalled();
   });
 
   test("lost completion and failure fences return deferred without split writes", async () => {
