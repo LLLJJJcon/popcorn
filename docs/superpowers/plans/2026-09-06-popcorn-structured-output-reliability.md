@@ -166,10 +166,12 @@ Practice evaluation uses these exact score anchors:
 | 4 | Correct and clear. | Natural spoken Mandarin with only a minor possible improvement. | Clearly fits the situation. |
 | 5 | Fully correct and precise. | Fully idiomatic spoken Mandarin. | Precise and socially appropriate for the situation. |
 
-The Evaluation system message is the shared prefix, the exact Evaluation
-suffix, then each row above serialized as `Score N — Accuracy: {the exact Accuracy cell} Naturalness: {the exact Naturalness cell} Context fit: {the exact Context fit cell}`
-for scores 1 through 5 in ascending order. The other system messages are only
-the shared prefix plus their one exact suffix.
+Every non-Evaluation system message is exactly
+`INSTRUCTION_ISOLATION_PREFIX + "\n\n" + TASK_SUFFIX`. The Evaluation system
+message is exactly
+`INSTRUCTION_ISOLATION_PREFIX + "\n\n" + EVALUATION_SUFFIX + "\n\n" + rubricLines.join("\n")`,
+where each rubric line is `Score N — Accuracy: {the exact Accuracy cell} Naturalness: {the exact Naturalness cell} Context fit: {the exact Context fit cell}`
+for scores 1 through 5 in ascending order. No trailing newline is added.
 
 Task tests assert the complete system string and serialized user-data shape, so
 parallel agents cannot silently invent divergent instructions.
