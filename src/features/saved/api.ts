@@ -226,6 +226,16 @@ function text(payload: Record<string, Json | undefined>, key: string): string | 
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+function matchingEvidence(row: SavedItemRow, evidence: readonly EvidenceRow[]) {
+  const sameSnapshot = evidence.filter((entry) => entry.snapshotId === row.snapshotId);
+  const segmentId = text(objectPayload(row.payload), "segmentId");
+  if (segmentId) return sameSnapshot.find((entry) => entry.id === segmentId);
+  const timestamp = row.startSeconds;
+  return row.kind === "player_moment" && timestamp !== null
+    ? sameSnapshot.find((entry) => entry.startSeconds <= timestamp && timestamp < entry.endSeconds)
+    : undefined;
+}
+
 function rawSavedText(row: SavedItemRow, evidence: readonly EvidenceRow[]) {
   const payload = objectPayload(row.payload);
   const direct = text(payload, "originalChinese")
@@ -233,8 +243,7 @@ function rawSavedText(row: SavedItemRow, evidence: readonly EvidenceRow[]) {
     ?? text(payload, "selectedChinese")
     ?? text(payload, "title");
   if (direct) return direct;
-  const segmentId = text(payload, "segmentId");
-  const matched = segmentId ? evidence.find((entry) => entry.id === segmentId) : undefined;
+  const matched = matchingEvidence(row, evidence);
   return matched?.originalChinese ?? (row.kind === "player_moment" ? "Saved video moment" : "Saved video");
 }
 
@@ -242,10 +251,7 @@ function translation(row: SavedItemRow, evidence: readonly EvidenceRow[]) {
   const payload = objectPayload(row.payload);
   const direct = text(payload, "englishTranslation") ?? text(payload, "englishExplanation");
   if (direct) return direct;
-  const segmentId = text(payload, "segmentId");
-  return segmentId
-    ? evidence.find((entry) => entry.id === segmentId)?.englishTranslation ?? null
-    : null;
+  return matchingEvidence(row, evidence)?.englishTranslation ?? null;
 }
 
 function timestampUrl(canonicalUrl: string, seconds: number | null) {
@@ -333,9 +339,7 @@ export function createSavedLibraryService(repository: SavedLibraryRepository) {
             promptVersion,
             content,
           })),
-        processingErrors: rows.jobs
-          .filter(({ status }) => status === "terminal_failed")
-          .map(() => "Popcorn could not organize this save. Your original saved text is still available."),
+        processingErrors: [],
       };
     },
     home(userId: string, now: string) {

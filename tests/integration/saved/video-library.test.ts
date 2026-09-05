@@ -200,6 +200,97 @@ describe("owner-scoped Saved video library", () => {
     expect(JSON.stringify(detail)).not.toContain("seg-6\",\"userId");
   });
 
+  it("does not publish a detail alert for a terminal job while preserving the saved material", async () => {
+    const base = rows();
+    const terminal = {
+      ...base,
+      jobs: [{
+        ...base.jobs[0]!,
+        status: "terminal_failed",
+        errorCode: "PROVIDER_UNAVAILABLE",
+      }],
+    };
+
+    const detail = await createSavedLibraryService(repository(terminal)).detail(USER_A, SOURCE_A);
+
+    expect(detail?.processingState).toBe("failed");
+    expect(detail?.processingErrors).toEqual([]);
+    expect(detail?.items[0]).toMatchObject({ rawText: "原文0", englishTranslation: "Translation 0" });
+  });
+
+  it("uses only same-snapshot evidence that contains a player moment timestamp", async () => {
+    const base = rows();
+    const snapshotB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc";
+    const playerItems = [
+      { id: "player-at-start", snapshotId: SNAPSHOT_A, startSeconds: 10 },
+      { id: "player-before-next", snapshotId: SNAPSHOT_A, startSeconds: 13.999 },
+      { id: "player-at-next", snapshotId: SNAPSHOT_A, startSeconds: 14 },
+      { id: "player-other-snapshot", snapshotId: snapshotB, startSeconds: 10 },
+    ].map(({ id, snapshotId, startSeconds }) => ({
+      id,
+      userId: USER_A,
+      sourceId: SOURCE_A,
+      snapshotId,
+      youtubeVideoId: "dQw4w9WgXcQ",
+      kind: "player_moment",
+      status: "ready",
+      capturedAt: "2026-08-16T10:20:00.000Z",
+      startSeconds,
+      payload: {},
+    }));
+    const detailRows = {
+      ...base,
+      snapshots: [...base.snapshots, {
+        id: snapshotB,
+        userId: USER_A,
+        sourceId: SOURCE_A,
+        title: "另一份快照",
+        channel: "中文频道",
+        thumbnailUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+        capturedAt: "2026-08-16T09:01:00.000Z",
+      }],
+      items: playerItems,
+      evidence: [{
+        id: "same-snapshot-segment",
+        userId: USER_A,
+        snapshotId: SNAPSHOT_A,
+        originalChinese: "同一快照的字幕",
+        englishTranslation: "Same snapshot subtitle.",
+        startSeconds: 10,
+        endSeconds: 14,
+      }],
+    };
+
+    const detail = await createSavedLibraryService(repository(detailRows)).detail(USER_A, SOURCE_A);
+
+    expect(detail?.items.map(({ id, rawText, englishTranslation, youtubeUrl }) => ({ id, rawText, englishTranslation, youtubeUrl }))).toEqual([
+      {
+        id: "player-at-start",
+        rawText: "同一快照的字幕",
+        englishTranslation: "Same snapshot subtitle.",
+        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10s",
+      },
+      {
+        id: "player-other-snapshot",
+        rawText: "Saved video moment",
+        englishTranslation: null,
+        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10s",
+      },
+      {
+        id: "player-before-next",
+        rawText: "同一快照的字幕",
+        englishTranslation: "Same snapshot subtitle.",
+        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=13s",
+      },
+      {
+        id: "player-at-next",
+        rawText: "Saved video moment",
+        englishTranslation: null,
+        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=14s",
+      },
+    ]);
+  });
+
   it("fails closed when a repository leaks another owner's detail", async () => {
     const repo = repository();
     const service = createSavedLibraryService(repo);
