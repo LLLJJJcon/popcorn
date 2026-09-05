@@ -66,24 +66,45 @@ describe("bounded task-aware model output", () => {
     });
   });
 
-  test("bounds unsafe field paths before they can enter durable diagnostics", () => {
-    const unsafeNormalizer: WireNormalizer<never> = () => ({
+  test("retains only finite schema tokens and numeric indexes in field paths", () => {
+    const schemaFailure: WireNormalizer<never> = () => ({
       success: false,
-      fieldPath: `private value:${"x".repeat(200)}`,
+      fieldPath: "candidates.0.expression",
     });
-    const extracted = extractUniqueSemanticObject("{}", unsafeNormalizer);
+    const extracted = extractUniqueSemanticObject("{}", schemaFailure);
     expect(extracted).toEqual({
       ok: false,
       reason: "wire_schema",
-      fieldPath: "private_value_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      fieldPath: "candidates.0.expression",
     });
     expect(safeModelFailureCode(new ModelGatewayError(
       "PROVIDER_OUTPUT_INVALID",
       "wire_schema",
       extracted.ok ? undefined : extracted.fieldPath,
-    ))).toBe(
-      "PROVIDER_OUTPUT_INVALID:wire_schema:private_value_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    );
+    ))).toBe("PROVIDER_OUTPUT_INVALID:wire_schema:candidates.0.expression");
+  });
+
+  test.each([
+    ["API-key-like value", "candidates.0.sk-proj-fixture-secret-that-must-not-leak"],
+    ["UUID", "candidates.0.0a000000-0000-4000-8000-00000000a001"],
+    ["user text", "candidates.0.The learner said this was hard"],
+    ["raw model text", "candidates.0.Raw model output says the answer is correct"],
+    ["long opaque identifier", `candidates.0.${"a".repeat(64)}`],
+    ["arbitrary label", "candidates.0.private_value"],
+  ])("omits %s from safe model failure codes", (_label, fieldPath) => {
+    const unsafeNormalizer: WireNormalizer<never> = () => ({
+      success: false,
+      fieldPath,
+    });
+    expect(extractUniqueSemanticObject("{}", unsafeNormalizer)).toEqual({
+      ok: false,
+      reason: "wire_schema",
+    });
+    expect(safeModelFailureCode(new ModelGatewayError(
+      "PROVIDER_OUTPUT_INVALID",
+      "wire_schema",
+      fieldPath,
+    ))).toBe("PROVIDER_OUTPUT_INVALID:wire_schema");
   });
 
   test("normalizes only documented English punctuation", () => {

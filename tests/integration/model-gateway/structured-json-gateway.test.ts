@@ -207,28 +207,64 @@ describe("structured JSON model gateway", () => {
       .rejects.not.toThrow(API_KEY);
   });
 
-  test("retries one eligible 503 by default but honors a zero-retry task", async () => {
-    const defaultFetch = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(assistantResponse("temporarily unavailable", 503, { "Retry-After": "0" }))
+  test.each([429, 502, 503, 504])(
+    "retries one eligible HTTP %i response by default",
+    async (status) => {
+      const fetchImpl = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(assistantResponse(
+          "temporarily unavailable",
+          status,
+          { "Retry-After": "0" },
+        ))
+        .mockResolvedValueOnce(jsonResponse({ score: 4 }));
+      const resolver = createStructuredJsonGatewayResolver({
+        ci: false,
+        fixture: mockGateway("unused", vi.fn()),
+        createRuntimeResolver: () => ({ resolve: vi.fn(async () => runtimeConfig) }),
+        fetchImpl,
+      });
+      const gateway = await resolver.resolve(USER_ID, PIN);
+
+      await expect(gateway.complete(
+        "ordinary-task",
+        "TASK DATA",
+        completionOptions(recordNormalizer),
+      )).resolves.toEqual({ score: 4 });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  test("retries one pre-response connection failure by default", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError("connection reset"))
       .mockResolvedValueOnce(jsonResponse({ score: 4 }));
-    const noRetryFetch = vi.fn<typeof fetch>(async () =>
-      assistantResponse("temporarily unavailable", 503, { "Retry-After": "0" }));
-    const create = (fetchImpl: typeof fetch) => createStructuredJsonGatewayResolver({
+    const resolver = createStructuredJsonGatewayResolver({
       ci: false,
       fixture: mockGateway("unused", vi.fn()),
       createRuntimeResolver: () => ({ resolve: vi.fn(async () => runtimeConfig) }),
       fetchImpl,
     });
+    const gateway = await resolver.resolve(USER_ID, PIN);
 
-    const defaultGateway = await create(defaultFetch).resolve(USER_ID, PIN);
-    await expect(defaultGateway.complete(
+    await expect(gateway.complete(
       "ordinary-task",
       "TASK DATA",
       completionOptions(recordNormalizer),
     )).resolves.toEqual({ score: 4 });
-    expect(defaultFetch).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
 
-    const noRetryGateway = await create(noRetryFetch).resolve(USER_ID, PIN);
+  test("honors a zero-retry task for an otherwise eligible HTTP response", async () => {
+    const noRetryFetch = vi.fn<typeof fetch>(async () =>
+      assistantResponse("temporarily unavailable", 503, { "Retry-After": "0" }));
+    const resolver = createStructuredJsonGatewayResolver({
+      ci: false,
+      fixture: mockGateway("unused", vi.fn()),
+      createRuntimeResolver: () => ({ resolve: vi.fn(async () => runtimeConfig) }),
+      fetchImpl: noRetryFetch,
+    });
+
+    const noRetryGateway = await resolver.resolve(USER_ID, PIN);
     await expect(noRetryGateway.complete(
       "overview-task",
       "TASK DATA",
@@ -276,6 +312,33 @@ describe("structured JSON model gateway", () => {
           reject(new DOMException("aborted", "AbortError"));
         });
       }));
+    const resolver = createStructuredJsonGatewayResolver({
+      ci: false,
+      fixture: mockGateway("unused", vi.fn()),
+      createRuntimeResolver: () => ({ resolve: vi.fn(async () => runtimeConfig) }),
+      fetchImpl,
+    });
+    const gateway = await resolver.resolve(USER_ID, PIN);
+
+    await expect(gateway.complete(
+      "evaluate-v1",
+      "TASK DATA",
+      completionOptions(recordNormalizer, { timeoutMs: 1 }),
+    )).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE", stage: "timeout" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test("preserves timeout classification when response headers arrive before the body stalls", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => {
+            controller.error(new DOMException("aborted", "AbortError"));
+          });
+        },
+      });
+      return new Response(body, { status: 200 });
+    });
     const resolver = createStructuredJsonGatewayResolver({
       ci: false,
       fixture: mockGateway("unused", vi.fn()),

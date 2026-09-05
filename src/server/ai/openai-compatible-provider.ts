@@ -138,6 +138,7 @@ async function readBoundedResponse(response: Response, maxBytes: number): Promis
     }
   } catch (error) {
     if (error instanceof ModelGatewayError) throw error;
+    if (isAbortError(error)) throw error;
     throw unavailable("transport");
   }
   const bytes = new Uint8Array(total);

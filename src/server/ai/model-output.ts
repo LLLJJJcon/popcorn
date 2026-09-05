@@ -2,6 +2,51 @@ import type { ModelGatewayError } from "@/server/ai/provider";
 
 const MAX_JSON_CANDIDATES = 8;
 const MAX_FIELD_PATH_LENGTH = 64;
+const SAFE_FIELD_PATH_TOKENS = new Set([
+  "accuracy",
+  "assistanceLevel",
+  "candidates",
+  "chapters",
+  "communicativeFunction",
+  "confidence",
+  "contextualFit",
+  "endSeconds",
+  "english",
+  "englishExplanation",
+  "englishFeedback",
+  "englishMeaning",
+  "evaluation",
+  "evidenceText",
+  "expression",
+  "goalEnglish",
+  "id",
+  "independentUse",
+  "instructionsEnglish",
+  "keyQuotes",
+  "meaning",
+  "naturalness",
+  "naturalRevisionChinese",
+  "overview",
+  "passed",
+  "promptChinese",
+  "quote",
+  "register",
+  "score",
+  "segmentIds",
+  "segmentIndex",
+  "segments",
+  "selectedChinese",
+  "sourceLineIndex",
+  "sourceLineIndices",
+  "sourceSegmentIds",
+  "startSeconds",
+  "summary",
+  "targetExpression",
+  "timestampSeconds",
+  "title",
+  "tone",
+  "translations",
+]);
 
 export type WireDecodeResult<T> =
   | { readonly success: true; readonly data: T }
@@ -41,11 +86,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function boundedFieldPath(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const safe = value
-    .replace(/[^A-Za-z0-9_.[\]-]+/gu, "_")
-    .slice(0, MAX_FIELD_PATH_LENGTH);
-  return safe.length > 0 ? safe : undefined;
+  if (!value || value.length > MAX_FIELD_PATH_LENGTH) return undefined;
+  const tokens = value.split(".");
+  if (!SAFE_FIELD_PATH_TOKENS.has(tokens[0])) return undefined;
+  if (!tokens.every((token) =>
+    SAFE_FIELD_PATH_TOKENS.has(token) || /^(?:0|[1-9][0-9]{0,2})$/u.test(token)
+  )) return undefined;
+  return value;
 }
 
 function parseRecord(text: string): Record<string, unknown> | null {
