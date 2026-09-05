@@ -213,7 +213,7 @@ describe("fixture-only CI freeze gate", () => {
     expect(workflow).toContain("actions/checkout@v4");
     expect(workflow).toMatch(/fetch-depth:\s*0/);
     expect(workflow).toContain("actions/setup-node@v4");
-    expect(workflow).toMatch(/node-version:\s*["']?20["']?/);
+    expect(workflow).toMatch(/node-version:\s*["']?24\.5\.0["']?/);
     expect(workflow).toContain("pnpm/action-setup@v4");
     expect(workflow).toMatch(/version:\s*["']?11\.19\.0["']?/);
     expect(workflow.indexOf("pnpm/action-setup@v4")).toBeLessThan(
