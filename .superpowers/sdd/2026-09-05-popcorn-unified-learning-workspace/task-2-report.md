@@ -116,3 +116,84 @@ Key output: exit 0 with no warnings or errors.
 
 - Persisted overview content with an obsolete or malformed prompt version is intentionally hidden rather than rendered loosely; raw saves remain available. This follows the fail-closed immutable-artifact policy but means legacy overview data may not appear.
 - After a recovery request is accepted, the item stays in `Starting analysis…` until a subsequent navigation or reload supplies a published artifact; no polling or new bulk job control was introduced.
+
+## Review repair round 1
+
+### Findings verified
+
+1. The recovery client rejected the candidate endpoint's existing legal `ready` response because its discriminated union covered only `gateway_required` and `processing`.
+2. The Server Component passed unvalidated immutable artifact `content` into the `CandidateList` Client Component, so hidden malformed fields could still cross the React server/client serialization boundary.
+3. Saved detail ownership validation treated an unresolved same-owner/same-source `savedItemId` reference as a page-level ownership failure, hiding otherwise valid raw saves.
+
+### Repair RED
+
+After updating the existing overview fixture from the subsequently superseded `youtube-overview-v1` pin to the current `youtube-overview-v2` pin, the three repair regressions failed for only the intended reasons:
+
+```bash
+pnpm vitest run src/features/saved/candidate-list.test.tsx src/features/saved/saved-video-detail.test.tsx tests/integration/saved/video-library.test.ts
+```
+
+```text
+Test Files  3 failed (3)
+Tests       3 failed | 20 passed (23)
+expected router.refresh to be called once, received 0
+expected CandidateList props to contain analysis: unavailable; received raw artifact content including providerBody
+same-source orphaned artifact caused Saved detail to be null
+```
+
+### Repair implementation
+
+- Added the endpoint's complete strict `ready` response to the recovery schema and refresh the current Server Component tree once when it is returned.
+- Replaced the raw client artifact prop with a discriminated `CandidateAnalysis` value. `SavedVideoDetailView` now validates prompt version and candidate schema on the server, passing only parsed candidates for `ready`, or content-free `missing` / `unavailable` markers.
+- Kept artifact user/source checks in the page-level ownership gate. A saved-item reference that resolves to a returned item must still match its source; an unknown same-source reference is quarantined from the artifact DTO instead of removing the raw page.
+- Corrected the previous integration test that expected an orphaned same-source artifact to null the whole page, and added explicit artifact-level cross-owner and cross-source fail-closed cases.
+
+### Repair GREEN
+
+Per-finding checks:
+
+```text
+ready recovery: 1 passed
+server/client artifact boundary: 1 passed
+artifact quarantine plus ownership isolation: 9 passed
+combined repair regressions: 21 passed
+```
+
+Original Task 2 focused suite:
+
+```bash
+pnpm vitest run tests/integration/saved/video-library.test.ts src/features/saved/saved-library.test.tsx src/features/saved/saved-video-detail.test.tsx src/features/saved/candidate-list.test.tsx src/features/saved/saved-timeline.test.tsx tests/integration/knowledge/source-traceability.test.ts
+```
+
+```text
+Test Files  6 passed (6)
+Tests       48 passed (48)
+```
+
+```bash
+pnpm typecheck
+```
+
+```text
+$ tsc --noEmit
+exit 0
+```
+
+The scoped Task 2 ESLint command also exited 0 with no warnings or errors.
+
+### Repair files
+
+- `src/features/saved/api.ts`
+- `src/features/saved/candidate-list.tsx`
+- `src/features/saved/candidate-list.test.tsx`
+- `src/features/saved/saved-video-detail.tsx`
+- `src/features/saved/saved-video-detail.test.tsx`
+- `tests/integration/saved/video-library.test.ts`
+- `.superpowers/sdd/2026-09-05-popcorn-unified-learning-workspace/task-2-report.md`
+
+### Repair self-review and risks
+
+- Cross-owner and cross-source artifact rows still return null for the entire detail; tests cover both independently.
+- Orphaned same-source artifact content is discarded before `SavedArtifactView` construction, so arbitrary fields cannot reach `SavedVideoDetailView`.
+- A matching immutable artifact is parsed in the Server Component and only schema-approved candidates cross into `CandidateList`; malformed and obsolete artifacts carry no raw content across that boundary.
+- The `ready` recovery path depends on Next.js `router.refresh()` to re-read the published artifact. It does not duplicate endpoint candidates into local state, preserving the server as the source of truth.

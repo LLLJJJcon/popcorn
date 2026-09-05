@@ -1,7 +1,9 @@
+import { Children, isValidElement, type ElementType, type ReactElement, type ReactNode } from "react";
 import { render, screen } from "@testing-library/react";
 
 import type { SavedVideoDetail } from "@/features/saved/api";
 import { SavedVideoDetailView } from "@/features/saved/saved-video-detail";
+import { SavedTimeline } from "@/features/saved/saved-timeline";
 import type { DeletionImpact } from "@/server/domain/plan-source-deletion";
 
 vi.mock("next/navigation", () => ({
@@ -43,6 +45,21 @@ function detail(overrides: Partial<SavedVideoDetail> = {}): SavedVideoDetail {
   };
 }
 
+function findElement(root: ReactNode, type: ElementType): ReactElement {
+  if (!isValidElement(root)) throw new Error("expected a React element");
+  if (root.type === type) return root;
+  const children = Children.toArray((root.props as { readonly children?: ReactNode }).children);
+  for (const child of children) {
+    if (!isValidElement(child)) continue;
+    try {
+      return findElement(child, type);
+    } catch {
+      // Continue searching sibling elements.
+    }
+  }
+  throw new Error("element not found");
+}
+
 describe("Saved video learning bridge", () => {
   it("keeps original evidence and stored English visible beside a terminal failure", () => {
     render(<SavedVideoDetailView video={detail()} deletionImpact={deletionImpact} />);
@@ -67,7 +84,7 @@ describe("Saved video learning bridge", () => {
           artifactId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           savedItemId: null,
           type: "overview",
-          promptVersion: "youtube-overview-v1",
+          promptVersion: "youtube-overview-v2",
           content: {
             overview: "A conversation about measured reactions.",
             chapters: [{
@@ -95,5 +112,30 @@ describe("Saved video learning bridge", () => {
     const overview = screen.getByRole("heading", { name: "Video overview" });
     expect(raw.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(container.textContent).not.toMatch(/transcript/i);
+  });
+
+  it("does not pass malformed immutable artifact content across the client boundary", () => {
+    const video = detail({
+      artifacts: [{
+        artifactId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        savedItemId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        type: "saved_item_analysis",
+        promptVersion: "analyze-saved-item-v1",
+        content: {
+          candidates: [{ expression: "不完整" }],
+          providerBody: "sensitive-provider-body-must-stay-on-server",
+        },
+      }],
+    });
+
+    const tree = SavedVideoDetailView({ video, deletionImpact });
+    const timeline = findElement(tree, SavedTimeline);
+    const renderAfter = (timeline.props as {
+      readonly renderAfter: (item: SavedVideoDetail["items"][number]) => ReactElement;
+    }).renderAfter;
+    const candidateBoundary = renderAfter(video.items[0]!);
+
+    expect(candidateBoundary.props).toMatchObject({ analysis: { state: "unavailable" } });
+    expect(JSON.stringify(candidateBoundary.props)).not.toContain("sensitive-provider-body-must-stay-on-server");
   });
 });

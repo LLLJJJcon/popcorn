@@ -5,23 +5,32 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 
-import { CandidateExpressionListSchema } from "@/contracts/knowledge";
+import { CandidateExpressionListSchema, type CandidateExpression } from "@/contracts/knowledge";
 import { PracticeTaskSchema } from "@/contracts/practice";
 import { apiSuccessSchema } from "@/contracts/api";
-import { ANALYZE_SAVED_ITEM_PROMPT_VERSION } from "@/server/ai/prompts/analyze-saved-item.v1";
 import { CandidateExpressionCard } from "./candidate-expression";
-
-const ArtifactContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema });
 
 export type CandidateArtifact = {
   readonly artifactId: string;
   readonly savedItemId: string;
-  readonly promptVersion: string;
-  readonly content: unknown;
+  readonly candidates: readonly CandidateExpression[];
 };
+
+export type CandidateAnalysis =
+  | { readonly state: "missing" }
+  | { readonly state: "unavailable" }
+  | { readonly state: "ready"; readonly artifact: CandidateArtifact };
 
 const RecoverySchema = apiSuccessSchema(z.discriminatedUnion("state", [
   z.strictObject({ state: z.literal("gateway_required") }),
+  z.strictObject({
+    state: z.literal("ready"),
+    artifactId: z.string().uuid(),
+    savedItemId: z.string().uuid(),
+    youtubeVideoId: z.string().regex(/^[A-Za-z0-9_-]{11}$/),
+    canonicalUrl: z.url(),
+    candidates: CandidateExpressionListSchema,
+  }),
   z.strictObject({
     state: z.literal("processing"),
     jobId: z.string().uuid(),
@@ -33,33 +42,29 @@ const RecoverySchema = apiSuccessSchema(z.discriminatedUnion("state", [
 export function CandidateList({
   savedItemId,
   youtubeUrl,
-  artifact,
+  analysis,
 }: {
   readonly savedItemId: string;
   readonly youtubeUrl: string;
-  readonly artifact: CandidateArtifact | null;
+  readonly analysis: CandidateAnalysis;
 }) {
   const router = useRouter();
   const [hydrationReady, setHydrationReady] = useState(false);
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const [recoveryState, setRecoveryState] = useState<"idle" | "pending" | "gateway" | "error">("idle");
-  const parsed = artifact?.savedItemId === savedItemId
-    && artifact.promptVersion === ANALYZE_SAVED_ITEM_PROMPT_VERSION
-    ? ArtifactContentSchema.safeParse(artifact.content)
-    : null;
-  const candidates = parsed?.success ? parsed.data.candidates : null;
+  const artifact = analysis.state === "ready" ? analysis.artifact : null;
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setHydrationReady(true), 0);
     return () => window.clearTimeout(timeoutId);
   }, []);
 
-  if (artifact && !candidates) {
+  if (analysis.state === "unavailable") {
     return <p>Candidate analysis is unavailable.</p>;
   }
 
   async function activate(candidateIndex: number) {
-    if (!artifact || !parsed?.success) return;
+    if (!artifact || artifact.savedItemId !== savedItemId) return;
     setPendingIndex(candidateIndex);
     try {
       const response = await fetch("/api/v1/practice/tasks", {
@@ -89,13 +94,17 @@ export function CandidateList({
       });
       const parsedResponse = RecoverySchema.safeParse(await response.json());
       if (!response.ok || !parsedResponse.success) throw new Error("recovery failed");
+      if (parsedResponse.data.data.state === "ready") {
+        router.refresh();
+        return;
+      }
       setRecoveryState(parsedResponse.data.data.state === "gateway_required" ? "gateway" : "pending");
     } catch {
       setRecoveryState("error");
     }
   }
 
-  if (!artifact) {
+  if (analysis.state === "missing") {
     if (recoveryState === "gateway") {
       return (
         <section aria-label="Candidate expressions">
@@ -119,7 +128,7 @@ export function CandidateList({
   return (
     <section aria-label="Candidate expressions">
       <h3>Candidate expressions</h3>
-      {candidates!.map((candidate, index) => (
+      {artifact!.candidates.map((candidate, index) => (
         <CandidateExpressionCard
           key={`${candidate.expression}-${index}`}
           candidate={candidate}

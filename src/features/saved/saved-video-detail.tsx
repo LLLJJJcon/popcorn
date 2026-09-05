@@ -1,27 +1,38 @@
 import Link from "next/link";
+import { z } from "zod";
 
+import { CandidateExpressionListSchema } from "@/contracts/knowledge";
 import { OverviewContentSchema, YOUTUBE_OVERVIEW_PROMPT_VERSION } from "@/server/ai/prompts/youtube-overview.v1";
 import type { DeletionImpact as SourceDeletionImpact } from "@/server/domain/plan-source-deletion";
 import type { SavedArtifactView, SavedVideoDetail } from "./api";
-import { CandidateList, type CandidateArtifact } from "./candidate-list";
+import { ANALYZE_SAVED_ITEM_PROMPT_VERSION } from "@/server/ai/prompts/analyze-saved-item.v1";
+import { CandidateList, type CandidateAnalysis } from "./candidate-list";
 import { DeleteSourceDialog } from "./delete-source-dialog";
 import { ProcessingState } from "./processing-state";
 import { SavedTimeline } from "./saved-timeline";
 import styles from "./saved-workspace.module.css";
 
-function latestCandidateArtifact(
+const CandidateArtifactContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema });
+
+function latestCandidateAnalysis(
   artifacts: readonly SavedArtifactView[],
   savedItemId: string,
-): CandidateArtifact | null {
+): CandidateAnalysis {
   const artifact = artifacts.findLast((entry) =>
     entry.type === "saved_item_analysis" && entry.savedItemId === savedItemId,
   );
-  return artifact ? {
-    artifactId: artifact.artifactId,
-    savedItemId,
-    promptVersion: artifact.promptVersion,
-    content: artifact.content,
-  } : null;
+  if (!artifact) return { state: "missing" };
+  if (artifact.promptVersion !== ANALYZE_SAVED_ITEM_PROMPT_VERSION) return { state: "unavailable" };
+  const parsed = CandidateArtifactContentSchema.safeParse(artifact.content);
+  if (!parsed.success) return { state: "unavailable" };
+  return {
+    state: "ready",
+    artifact: {
+      artifactId: artifact.artifactId,
+      savedItemId,
+      candidates: parsed.data.candidates,
+    },
+  };
 }
 
 function timestampUrl(canonicalUrl: string, seconds: number) {
@@ -90,7 +101,7 @@ export function SavedVideoDetailView({
             <CandidateList
               savedItemId={item.id}
               youtubeUrl={video.canonicalUrl}
-              artifact={latestCandidateArtifact(video.artifacts, item.id)}
+              analysis={latestCandidateAnalysis(video.artifacts, item.id)}
             />
           )}
         />

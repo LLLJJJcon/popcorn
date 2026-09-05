@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 
+import type { CandidateExpression } from "@/contracts/knowledge";
 import { CandidateList } from "@/features/saved/candidate-list";
 
 const SAVED_ITEM_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -10,6 +11,7 @@ const TASK_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const EXPRESSION_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 const push = vi.fn();
+const refresh = vi.fn();
 const pageRuntime = vi.hoisted(() => ({
   authenticate: vi.fn(),
   detail: vi.fn(),
@@ -17,7 +19,7 @@ const pageRuntime = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push, refresh }),
   redirect: vi.fn(),
   notFound: vi.fn(),
 }));
@@ -32,7 +34,7 @@ vi.mock("@/features/saved/api", async (importOriginal) => ({
   }),
 }));
 
-function candidate(overrides: Record<string, unknown> = {}) {
+function candidate(overrides: Partial<CandidateExpression> = {}): CandidateExpression {
   return {
     expression: "挺有意思的",
     englishMeaning: "pretty interesting",
@@ -49,18 +51,21 @@ function candidate(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function artifact(candidates: unknown[]) {
+function artifact(candidates: readonly CandidateExpression[]) {
   return {
-    artifactId: ARTIFACT_ID,
-    savedItemId: SAVED_ITEM_ID,
-    promptVersion: "analyze-saved-item-v1",
-    content: { candidates },
+    state: "ready" as const,
+    artifact: {
+      artifactId: ARTIFACT_ID,
+      savedItemId: SAVED_ITEM_ID,
+      candidates,
+    },
   };
 }
 
 describe("Saved candidate expressions", () => {
   beforeEach(() => {
     push.mockReset();
+    refresh.mockReset();
     pageRuntime.authenticate.mockReset();
     pageRuntime.detail.mockReset();
     pageRuntime.deletionPreview.mockReset();
@@ -78,7 +83,7 @@ describe("Saved candidate expressions", () => {
     const props = {
       savedItemId: SAVED_ITEM_ID,
       youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      artifact: artifact([candidate()]),
+      analysis: artifact([candidate()]),
     };
     const serverContainer = document.createElement("div");
     serverContainer.innerHTML = renderToString(<CandidateList {...props} />);
@@ -116,7 +121,7 @@ describe("Saved candidate expressions", () => {
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-      artifact={artifact([
+      analysis={artifact([
         candidate(),
         candidate({
           expression: "话虽如此",
@@ -322,7 +327,7 @@ describe("Saved candidate expressions", () => {
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-      artifact={artifact(ambiguous)}
+      analysis={artifact(ambiguous)}
     />);
 
     expect(screen.getAllByText("可以说")).toHaveLength(2);
@@ -348,21 +353,12 @@ describe("Saved candidate expressions", () => {
     expect(push).toHaveBeenCalledExactlyOnceWith(`/practice/${TASK_ID}`);
   });
 
-  it.each([
-    { label: "malformed", content: { candidates: [{ expression: "不完整" }] } },
-    { label: "more than three", content: { candidates: [candidate(), candidate(), candidate(), candidate()] } },
-    { label: "wrong saved item", savedItemId: "ffffffff-ffff-4fff-8fff-ffffffffffff", content: { candidates: [candidate()] } },
-  ])("fails closed for $label artifact data", async (invalid) => {
+  it("keeps an unavailable immutable analysis closed without offering recovery", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-      artifact={{
-        artifactId: ARTIFACT_ID,
-        savedItemId: invalid.savedItemId ?? SAVED_ITEM_ID,
-        promptVersion: "analyze-saved-item-v1",
-        content: invalid.content,
-      }}
+      analysis={{ state: "unavailable" }}
     />);
 
     expect(screen.queryByRole("button", { name: "Practice this expression" })).not.toBeInTheDocument();
@@ -380,7 +376,7 @@ describe("Saved candidate expressions", () => {
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-      artifact={null}
+      analysis={{ state: "missing" }}
     />);
 
     expect(screen.getByText("Expressions are still being organized. Your saved material remains available.")).toBeInTheDocument();
@@ -391,6 +387,32 @@ describe("Saved candidate expressions", () => {
     );
   });
 
+  it("refreshes Saved when recovery reports that the immutable artifact is already ready", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      data: {
+        state: "ready",
+        artifactId: ARTIFACT_ID,
+        savedItemId: SAVED_ITEM_ID,
+        youtubeVideoId: "dQw4w9WgXcQ",
+        canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        candidates: [candidate()],
+      },
+      requestId: "safe-request",
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      analysis={{ state: "missing" }}
+    />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Retry analysis" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("shows a safe retry error and never hides the recovery action behind internal details", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", {
       status: 500,
@@ -399,7 +421,7 @@ describe("Saved candidate expressions", () => {
     render(<CandidateList
       savedItemId={SAVED_ITEM_ID}
       youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-      artifact={null}
+      analysis={{ state: "missing" }}
     />);
 
     await userEvent.click(screen.getByRole("button", { name: "Retry analysis" }));

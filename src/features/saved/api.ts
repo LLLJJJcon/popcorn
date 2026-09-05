@@ -289,7 +289,9 @@ function rowsBelongTo(userId: string, rows: SavedLibraryRows, expectedSourceId?:
   if (rows.artifacts.some((row) =>
     row.userId !== userId
     || !sourceIds.has(row.sourceId)
-    || (row.savedItemId !== null && items.get(row.savedItemId)?.sourceId !== row.sourceId)
+    || (row.savedItemId !== null
+      && items.has(row.savedItemId)
+      && items.get(row.savedItemId)?.sourceId !== row.sourceId)
   )) return false;
   if (rows.jobs.some((row) => row.userId !== userId || !sourceIds.has(row.sourceId))) return false;
   if (rows.evidence.some((row) => row.userId !== userId || !snapshots.has(row.snapshotId))) return false;
@@ -317,10 +319,12 @@ export function createSavedLibraryService(repository: SavedLibraryRepository) {
       const source = rows.sources[0];
       if (!summary || !source) return null;
       const items = sortSavedTimeline(rows.items.map((row) => itemView(row, source, rows.evidence)));
+      const savedItemIds = new Set(rows.items.map(({ id }) => id));
       return {
         ...summary,
         items,
         artifacts: rows.artifacts
+          .filter(({ savedItemId }) => savedItemId === null || savedItemIds.has(savedItemId))
           .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
           .map(({ id: artifactId, savedItemId, type, promptVersion, content }) => ({
             artifactId,

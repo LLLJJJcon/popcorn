@@ -208,12 +208,30 @@ describe("owner-scoped Saved video library", () => {
     expect(repo.calls).toEqual([`detail:${USER_B}:${SOURCE_A}`]);
   });
 
-  it("fails closed when an artifact identity points outside the returned save set", async () => {
+  it("isolates an orphaned same-source artifact while preserving the raw saved material", async () => {
     const base = rows();
-    const leaked = { ...base, artifacts: [{
+    const malformed = { ...base, artifacts: [{
       ...base.artifacts[0]!,
       savedItemId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      type: "saved_item_analysis",
+      promptVersion: "analyze-saved-item-v1",
+      content: { candidates: [{ expression: "不完整" }], providerBody: "private" },
     }] };
+
+    const detail = await createSavedLibraryService(repository(malformed)).detail(USER_A, SOURCE_A);
+
+    expect(detail?.items).toHaveLength(7);
+    expect(detail?.items[0]).toMatchObject({ rawText: "原文0", englishTranslation: "Translation 0" });
+    expect(detail?.artifacts).toEqual([]);
+    expect(JSON.stringify(detail)).not.toContain("private");
+  });
+
+  it.each([
+    ["another owner", { userId: USER_B }],
+    ["another source", { sourceId: "ffffffff-ffff-4fff-8fff-ffffffffffff" }],
+  ])("fails closed when a published artifact belongs to %s", async (_label, override) => {
+    const base = rows();
+    const leaked = { ...base, artifacts: [{ ...base.artifacts[0]!, ...override }] };
 
     await expect(createSavedLibraryService(repository(leaked)).detail(USER_A, SOURCE_A)).resolves.toBeNull();
   });
