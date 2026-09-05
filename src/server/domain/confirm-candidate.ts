@@ -8,7 +8,11 @@ import {
   publicFailureCategory,
   type SavedItemAnalysisRegistration,
 } from "@/server/jobs/process-jobs";
-import type { CandidateSourceContext, ExpressionRepository } from "@/server/repositories/expression-repository";
+import type {
+  CandidateAnalysisJobStatus,
+  CandidateSourceContext,
+  ExpressionRepository,
+} from "@/server/repositories/expression-repository";
 
 const IdSchema = z.string().uuid();
 const HashSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -77,6 +81,42 @@ export function createCandidateService(
     return validateContext(owner, save, await repository.read(owner, save));
   }
 
+  async function boundJob(userId: string, savedItemId: string, jobId: string) {
+    const source = await context(userId, savedItemId);
+    const job = await repository.readAnalysisJobStatus(source.userId, source.savedItemId, jobId);
+    if (!job) throw new CandidateAccessError();
+    return { source, job };
+  }
+
+  function nonReadyJobState(job: CandidateAnalysisJobStatus) {
+    if (job.status === "pending" || job.status === "leased") {
+      return { state: "processing" as const, jobId: job.jobId, status: job.status };
+    }
+    if (job.status === "terminal_failed") {
+      const failureCategory = publicFailureCategory(job.status, job.lastErrorCode);
+      if (!failureCategory) throw new CandidateArtifactError();
+      return { state: "failed" as const, jobId: job.jobId, failureCategory };
+    }
+    throw new CandidateArtifactError();
+  }
+
+  function replayMayAdvance(from: string, to: CandidateAnalysisJobStatus["status"]): boolean {
+    if (from === "pending") {
+      return to === "pending" || to === "leased" || to === "succeeded" || to === "terminal_failed";
+    }
+    if (from === "leased") {
+      return to === "leased" || to === "succeeded" || to === "terminal_failed";
+    }
+    return from === to && (from === "succeeded" || from === "terminal_failed");
+  }
+
+  async function readJob(userId: string, savedItemId: string, jobId: string) {
+    const { source, job } = await boundJob(userId, savedItemId, jobId);
+    const current = ready(source);
+    if (current) return current;
+    return nonReadyJobState(job);
+  }
+
   return {
     async read(userId: string, savedItemId: string) {
       const source = await context(userId, savedItemId);
@@ -84,22 +124,7 @@ export function createCandidateService(
       if (current) return current;
       return { state: "gateway_required" as const };
     },
-    async readJob(userId: string, savedItemId: string, jobId: string) {
-      const source = await context(userId, savedItemId);
-      const current = ready(source);
-      if (current) return current;
-      const job = await repository.readAnalysisJobStatus(source.userId, source.savedItemId, jobId);
-      if (!job) throw new CandidateAccessError();
-      if (job.status === "pending" || job.status === "leased") {
-        return { state: "processing" as const, jobId: job.jobId, status: job.status };
-      }
-      if (job.status === "terminal_failed") {
-        const failureCategory = publicFailureCategory(job.status, job.lastErrorCode);
-        if (!failureCategory) throw new CandidateArtifactError();
-        return { state: "failed" as const, jobId: job.jobId, failureCategory };
-      }
-      throw new CandidateArtifactError();
-    },
+    readJob,
     async recover(userId: string, savedItemId: string, retryId?: string) {
       const source = await context(userId, savedItemId);
       const current = ready(source);
@@ -114,9 +139,25 @@ export function createCandidateService(
         ...(retryId ? { retryId } : {}),
         now: now(),
       });
-      return registered
-        ? { state: "processing" as const, ...registered }
-        : { state: "gateway_required" as const };
+      if (!registered) return { state: "gateway_required" as const };
+      if (registered.created && (registered.status === "pending" || registered.status === "leased")) {
+        return { state: "processing" as const, ...registered };
+      }
+      if (
+        registered.status !== "pending" && registered.status !== "leased"
+        && registered.status !== "succeeded" && registered.status !== "terminal_failed"
+      ) throw new CandidateArtifactError();
+      const replay = await boundJob(source.userId, source.savedItemId, registered.jobId);
+      if (!replayMayAdvance(registered.status, replay.job.status)) {
+        throw new CandidateArtifactError();
+      }
+      if (replay.job.status === "terminal_failed") return nonReadyJobState(replay.job);
+      const replayArtifact = ready(replay.source);
+      if (replayArtifact) return replayArtifact;
+      const state = nonReadyJobState(replay.job);
+      return state.state === "processing"
+        ? { ...state, created: registered.created }
+        : state;
     },
   };
 }

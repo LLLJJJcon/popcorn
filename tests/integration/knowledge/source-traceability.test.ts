@@ -201,6 +201,19 @@ describe("source-grounded candidate route", () => {
     });
   });
 
+  it("GET validates the supplied job before returning an already-ready artifact", async () => {
+    const repo = repository();
+    repo.readAnalysisJobStatus.mockResolvedValueOnce(null);
+
+    const response = await handlers(repo).get(
+      request("GET", undefined, undefined, JOB_ID),
+      SAVE_ID,
+    );
+
+    expect(response.status).toBe(404);
+    expect(repo.readAnalysisJobStatus).toHaveBeenCalledExactlyOnceWith(USER_A, SAVE_ID, JOB_ID);
+  });
+
   it("GET exposes only the safe terminal category for a bound failed job", async () => {
     const repo = repository(context({ artifact: null }));
     repo.readAnalysisJobStatus.mockResolvedValueOnce({
@@ -271,7 +284,13 @@ describe("source-grounded candidate route", () => {
 
   it("replay returns the existing job while an existing artifact causes zero registration", async () => {
     const replay = { register: vi.fn(async () => ({ jobId: JOB_ID, status: "pending", created: false })) };
-    const replayResponse = await handlers(repository(context({ artifact: null })), replay).post(request("POST", {}), SAVE_ID);
+    const replayRepository = repository(context({ artifact: null }));
+    replayRepository.readAnalysisJobStatus.mockResolvedValueOnce({
+      jobId: JOB_ID,
+      status: "pending",
+      lastErrorCode: null,
+    });
+    const replayResponse = await handlers(replayRepository, replay).post(request("POST", {}), SAVE_ID);
     expect(replayResponse.status).toBe(202);
     expect((await replayResponse.json()).data).toEqual({ state: "processing", jobId: JOB_ID, status: "pending", created: false });
 
@@ -281,6 +300,179 @@ describe("source-grounded candidate route", () => {
     expect((await existingResponse.json()).data.state).toBe("ready");
     expect(existing.register).not.toHaveBeenCalled();
   });
+
+  it("registrar replay returns processing only for pending or leased jobs", async () => {
+    for (const status of ["pending", "leased"] as const) {
+      const repo = repository(context({ artifact: null }));
+      repo.readAnalysisJobStatus.mockResolvedValueOnce({
+        jobId: JOB_ID,
+        status,
+        lastErrorCode: null,
+      });
+      const replay = {
+        register: vi.fn(async () => ({ jobId: JOB_ID, status, created: false })),
+      };
+      const response = await handlers(
+        repo,
+        replay,
+      ).post(request("POST", {}), SAVE_ID);
+
+      expect(response.status).toBe(202);
+      expect((await response.json()).data).toEqual({
+        state: "processing",
+        jobId: JOB_ID,
+        status,
+        created: false,
+      });
+    }
+  });
+
+  it.each(["pending", "leased"])(
+    "registrar %s replay fails closed when its job is not owner/save-bound",
+    async (status) => {
+      const replay = {
+        register: vi.fn(async () => ({ jobId: JOB_ID, status, created: false })),
+      };
+
+      const response = await handlers(
+        repository(context({ artifact: null })),
+        replay,
+      ).post(request("POST", {}), SAVE_ID);
+
+      expect(response.status).toBe(404);
+    },
+  );
+
+  it("registrar pending replay returns authoritative succeeded ready state", async () => {
+    const missing = context({ artifact: null });
+    const repo = repository(missing);
+    repo.read
+      .mockResolvedValueOnce(missing)
+      .mockResolvedValueOnce(context());
+    repo.readAnalysisJobStatus.mockResolvedValueOnce({
+      jobId: JOB_ID,
+      status: "succeeded",
+      lastErrorCode: null,
+    });
+    const replay = {
+      register: vi.fn(async () => ({ jobId: JOB_ID, status: "pending", created: false })),
+    };
+
+    const response = await handlers(repo, replay).post(request("POST", {}), SAVE_ID);
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({
+      state: "ready",
+      artifactId: ARTIFACT_ID,
+    });
+  });
+
+  it("registrar terminal replay returns the bound safe failed state", async () => {
+    const missing = context({ artifact: null });
+    const repo = repository(missing);
+    repo.read
+      .mockResolvedValueOnce(missing)
+      .mockResolvedValueOnce(context());
+    repo.readAnalysisJobStatus.mockResolvedValueOnce({
+      jobId: JOB_ID,
+      status: "terminal_failed",
+      lastErrorCode: "PROVIDER_UNAVAILABLE:timeout",
+    });
+    const replay = {
+      register: vi.fn(async () => ({
+        jobId: JOB_ID,
+        status: "terminal_failed",
+        created: false,
+      })),
+    };
+
+    const response = await handlers(repo, replay).post(request("POST", {}), SAVE_ID);
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toEqual({
+      state: "failed",
+      jobId: JOB_ID,
+      failureCategory: "model_unavailable",
+    });
+  });
+
+  it("registrar succeeded replay returns only the newly ready strict artifact", async () => {
+    const missing = context({ artifact: null });
+    const repo = repository(missing);
+    repo.read
+      .mockResolvedValueOnce(missing)
+      .mockResolvedValueOnce(context());
+    repo.readAnalysisJobStatus.mockResolvedValueOnce({
+      jobId: JOB_ID,
+      status: "succeeded",
+      lastErrorCode: null,
+    });
+    const replay = {
+      register: vi.fn(async () => ({ jobId: JOB_ID, status: "succeeded", created: false })),
+    };
+
+    const response = await handlers(repo, replay).post(request("POST", {}), SAVE_ID);
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({
+      state: "ready",
+      artifactId: ARTIFACT_ID,
+      candidates: [candidate],
+    });
+  });
+
+  it("registrar succeeded replay fails closed when its strict artifact is absent", async () => {
+    const repo = repository(context({ artifact: null }));
+    repo.readAnalysisJobStatus.mockResolvedValueOnce({
+      jobId: JOB_ID,
+      status: "succeeded",
+      lastErrorCode: null,
+    });
+    const replay = {
+      register: vi.fn(async () => ({ jobId: JOB_ID, status: "succeeded", created: false })),
+    };
+
+    const response = await handlers(repo, replay).post(request("POST", {}), SAVE_ID);
+
+    expect(response.status).toBe(422);
+  });
+
+  it("registrar terminal replay fails closed when the bound job status disagrees", async () => {
+    const repo = repository(context({ artifact: null }));
+    repo.readAnalysisJobStatus.mockResolvedValueOnce({
+      jobId: JOB_ID,
+      status: "pending",
+      lastErrorCode: null,
+    });
+    const replay = {
+      register: vi.fn(async () => ({
+        jobId: JOB_ID,
+        status: "terminal_failed",
+        created: false,
+      })),
+    };
+
+    const response = await handlers(repo, replay).post(request("POST", {}), SAVE_ID);
+
+    expect(response.status).toBe(422);
+  });
+
+  it.each(["retryable_failed", "future_state"])(
+    "registrar replay status %s fails closed",
+    async (status) => {
+      const replay = {
+        register: vi.fn(async () => ({ jobId: JOB_ID, status, created: false })),
+      };
+
+      const response = await handlers(
+        repository(context({ artifact: null })),
+        replay,
+      ).post(request("POST", {}), SAVE_ID);
+
+      expect(response.status).toBe(422);
+      expect(JSON.stringify(await response.json())).not.toContain(status);
+    },
+  );
 
   it("rejects cross-origin and non-empty recovery bodies before repository work", async () => {
     const repo = repository(context({ artifact: null }));
@@ -452,6 +644,46 @@ describe("production candidate repository query boundaries", () => {
       `knowledge_job_internal:eq:user_id:${USER_A}`,
       `knowledge_job_internal:eq:knowledge_job_id:${JOB_ID}`,
     ]));
+  });
+
+  it.each([
+    ["terminal_failed", "INTERNAL:persistence"],
+    ["succeeded", null],
+  ] as const)("returns a public-save-bound %s status after its private input is cleared", async (
+    status,
+    lastErrorCode,
+  ) => {
+    const rows: Record<string, unknown> = {
+      knowledge_jobs: {
+        id: JOB_ID,
+        user_id: USER_A,
+        saved_item_id: SAVE_ID,
+        job_type: "analyze_saved_item",
+        status,
+        last_error_code: lastErrorCode,
+      },
+      knowledge_job_internal: {
+        user_id: USER_A,
+        input: {},
+      },
+    };
+    const client = {
+      from(table: string) {
+        const query = {
+          select() { return query; },
+          eq() { return query; },
+          maybeSingle() { return Promise.resolve({ data: rows[table], error: null }); },
+        };
+        return query;
+      },
+    };
+
+    await expect(createSupabaseExpressionRepository(client as never)
+      .readAnalysisJobStatus(USER_A, SAVE_ID, JOB_ID)).resolves.toEqual({
+        jobId: JOB_ID,
+        status,
+        lastErrorCode,
+      });
   });
 
   it.each([

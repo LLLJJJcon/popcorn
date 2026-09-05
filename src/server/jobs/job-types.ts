@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-import { CandidateExpressionListSchema, type CandidateExpression } from "@/contracts/knowledge";
+import {
+  CandidateExpressionListSchema,
+  CandidateExpressionSchema,
+  type CandidateExpression,
+} from "@/contracts/knowledge";
 import type { SavedItemKind } from "@/contracts/source";
 import type { SavedItemAnalysisWire } from "@/server/ai/prompts/analyze-saved-item.v1";
 import { createJobResultKey } from "@/server/domain/lease-job";
@@ -75,7 +79,7 @@ function exactOccurrenceCount(value: string, expression: string): number {
     const found = value.indexOf(expression, offset);
     if (found < 0) break;
     count += 1;
-    offset = found + Math.max(1, expression.length);
+    offset = found + 1;
   }
   return count;
 }
@@ -107,7 +111,7 @@ function groundedCandidate(
   const segments = indexes.map((index) => evidence.segments[index]!);
   const evidenceText = segments.map((segment) => segment.originalChinese).join("\n");
   if (!evidenceText.includes(candidate.expression)) return null;
-  return {
+  const grounded = CandidateExpressionSchema.safeParse({
     expression: candidate.expression,
     englishMeaning: candidate.englishMeaning,
     englishExplanation: candidate.englishExplanation,
@@ -119,7 +123,8 @@ function groundedCandidate(
     startSeconds: Math.min(...segments.map((segment) => segment.startSeconds)),
     endSeconds: Math.max(...segments.map((segment) => segment.endSeconds)),
     confidence: candidate.confidence ?? 0.5,
-  };
+  });
+  return grounded.success ? grounded.data : null;
 }
 
 export function groundSavedItemAnalysisContent(

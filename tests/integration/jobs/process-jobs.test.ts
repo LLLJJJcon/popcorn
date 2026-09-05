@@ -663,6 +663,39 @@ describe("source-grounded saved-item analysis", () => {
       .not.toContain("database unavailable");
   });
 
+  test.each([
+    ["private input", () => analysisStore({
+      readPrivateInput: vi.fn(async () => {
+        throw new Error("private input database unavailable");
+      }),
+    })],
+    ["saved evidence", () => analysisStore({
+      readSavedItemAnalysisEvidence: vi.fn(async () => {
+        throw new Error("evidence database unavailable");
+      }),
+    })],
+  ] as const)("classifies a %s repository read failure as persistence", async (
+    _label,
+    makeStore,
+  ) => {
+    const store = makeStore();
+    const job = analysisJob();
+    const resolve = vi.fn();
+
+    await expect(createAnalyzeSavedItemHandler({
+      store,
+      gatewayResolver: { resolve },
+    })(job, USER_A, NOW)).resolves.toBe("failed");
+
+    expect(resolve).not.toHaveBeenCalled();
+    expect(store.transitionLearningArtifactFailure).toHaveBeenCalledExactlyOnceWith(
+      USER_A,
+      job,
+      terminalFailure(job, "INTERNAL:persistence"),
+      true,
+    );
+  });
+
   test("rejects secret-bearing private input before gateway resolution and never persists it", async () => {
     const secret = "provider-key-must-not-leak";
     const store = analysisStore({
@@ -676,6 +709,12 @@ describe("source-grounded saved-item analysis", () => {
     })(analysisJob(), USER_A, NOW)).resolves.toBe("failed");
 
     expect(resolve).not.toHaveBeenCalled();
+    expect(store.transitionLearningArtifactFailure).toHaveBeenCalledExactlyOnceWith(
+      USER_A,
+      expect.anything(),
+      terminalFailure(analysisJob(), "INTERNAL:persistence"),
+      true,
+    );
     expect(JSON.stringify(store.transitionLearningArtifactFailure.mock.calls)).not.toContain(secret);
   });
 
@@ -897,5 +936,11 @@ describe("source-grounded saved-item analysis", () => {
 
     expect(resolve).not.toHaveBeenCalled();
     expect(store.completeGatewayLearningArtifact).not.toHaveBeenCalled();
+    expect(store.transitionLearningArtifactFailure).toHaveBeenCalledExactlyOnceWith(
+      USER_A,
+      expect.anything(),
+      terminalFailure(analysisJob(), "INTERNAL:persistence"),
+      true,
+    );
   });
 });

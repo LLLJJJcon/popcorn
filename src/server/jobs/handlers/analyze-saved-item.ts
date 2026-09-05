@@ -47,10 +47,7 @@ export function createAnalyzeSavedItemHandler({ store, gatewayResolver }: {
       throw new TypeError("saved-item analysis handler received another job type");
     }
 
-    let fallbackFailure: SafeModelFailure = new ModelGatewayError(
-      "PROVIDER_OUTPUT_INVALID",
-      "grounding",
-    );
+    let fallbackFailure: SafeModelFailure = { code: "INTERNAL", stage: "persistence" };
     try {
       const input = SavedItemAnalysisJobInputSchema.parse(
         await store.readPrivateInput(expectedUserId, job.id),

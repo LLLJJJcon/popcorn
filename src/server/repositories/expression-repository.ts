@@ -128,9 +128,20 @@ export function createSupabaseExpressionRepository(
         .maybeSingle();
       queryFailed(internal.error);
       if (!internal.data || internal.data.user_id !== userId) return null;
-      const input = SavedItemAnalysisJobInputSchema.safeParse(internal.data.input);
       const status = KnowledgeJobStatusSchema.safeParse(job.data.status);
-      if (!input.success || input.data.savedItemId !== savedItemId || !status.success) return null;
+      if (!status.success) return null;
+      const input = SavedItemAnalysisJobInputSchema.safeParse(internal.data.input);
+      const finalizedInputIsCleared = (
+        status.data === "terminal_failed" || status.data === "succeeded"
+      )
+        && typeof internal.data.input === "object"
+        && internal.data.input !== null
+        && !Array.isArray(internal.data.input)
+        && Object.keys(internal.data.input).length === 0;
+      if (
+        (!input.success && !finalizedInputIsCleared)
+        || (input.success && input.data.savedItemId !== savedItemId)
+      ) return null;
       return {
         jobId: job.data.id,
         status: status.data,
