@@ -58,6 +58,18 @@ export function parsePracticeEvaluationOutput(
     throw new TypeError("invalid Practice evaluation output");
   }
   const { naturalRevisionChinese, ...evaluationValue } = value as Record<string, unknown>;
+  for (const dimensionName of ["accuracy", "naturalness", "contextualFit"] as const) {
+    const dimension = evaluationValue[dimensionName];
+    if (typeof dimension !== "object" || dimension === null || Array.isArray(dimension)) {
+      continue;
+    }
+    const { feedback, ...dimensionWithoutAlias } = dimension as Record<string, unknown>;
+    evaluationValue[dimensionName] = typeof dimensionWithoutAlias.englishFeedback === "string"
+      ? dimensionWithoutAlias
+      : typeof feedback === "string"
+        ? { ...dimensionWithoutAlias, englishFeedback: feedback }
+        : dimensionWithoutAlias;
+  }
   const evaluation = EvaluationResultSchema.parse({
     ...evaluationValue,
     independentUse: assistanceLevel === "none",
