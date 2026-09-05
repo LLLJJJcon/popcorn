@@ -47,7 +47,7 @@
 | 3 | 8. Vault list and detail UX | fresh feature Agent | Task 6 | Vault page/components/repository/tests |
 | 4 | 9. Integrated acceptance | Controller | Tasks 1–8 | E2E, accessibility, user guide, ledger, checkpoint |
 
-Wave 1 may use three concurrent Agents because its file sets do not overlap. Tasks 5 and 6 run sequentially under the Controller because Task 6 owns a shared contract. Tasks 7 and 8 may run concurrently because Task 6 places Practice material reads in a dedicated repository instead of modifying Vault during Practice UI work.
+The waves describe dependency readiness, but implementation and review dispatches run one task at a time under the required subagent-driven-development protocol. Tasks 5 and 6 run sequentially under the Controller because Task 6 owns a shared contract. Task 6 places Practice material reads in a dedicated repository so Task 8 does not have to undo Practice repository work.
 
 ---
 
