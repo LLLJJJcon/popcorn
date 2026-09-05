@@ -848,6 +848,7 @@ async function saveWithFeedback({
   scheduleReset = setTimeout,
   persistentSuccess = false,
   resetGuard = { generation: 0 },
+  reconcilePersistentState = null,
 }) {
   if (!button) return save(input);
   const generation = ++resetGuard.generation;
@@ -879,13 +880,20 @@ async function saveWithFeedback({
   } catch (error) {
     button.textContent = "Retry save";
     presenter.show({ state: "save-failed", retry });
+    if (typeof reconcilePersistentState === "function") {
+      reconcilePersistentState();
+    }
     throw error;
   } finally {
     scheduleReset(() => {
       if (resetGuard.generation !== generation) return;
-      if (persistentSuccess && succeeded) return;
-      button.textContent = idleLabel;
-      button.disabled = false;
+      if (!(persistentSuccess && succeeded)) {
+        button.textContent = idleLabel;
+        button.disabled = false;
+      }
+      if (typeof reconcilePersistentState === "function") {
+        reconcilePersistentState();
+      }
     }, 1800);
   }
 }
@@ -894,7 +902,11 @@ async function saveWithButton(
   input,
   button,
   idleLabel = "Save",
-  { persistentSuccess = false, onSuccess = null } = {},
+  {
+    persistentSuccess = false,
+    onSuccess = null,
+    reconcilePersistentState = null,
+  } = {},
 ) {
   return saveWithFeedback({
     input,
@@ -902,16 +914,14 @@ async function saveWithButton(
     idleLabel,
     save: async (savedInput) => {
       const result = await saveController.save(savedInput);
-      if (result?.success !== true) {
-        throw new Error(result?.code || result?.error || "SAVE_RETRY");
-      }
-      if (typeof onSuccess === "function") {
+      if (result?.success === true && typeof onSuccess === "function") {
         await onSuccess(savedInput, result);
       }
       return result;
     },
     presenter: saveStatusPresenter,
     persistentSuccess,
+    reconcilePersistentState,
   });
 }
 
@@ -1508,6 +1518,7 @@ async function saveTranscriptRow(segment, button) {
       });
       updateTranscriptSavedButtons();
     },
+    reconcilePersistentState: updateTranscriptSavedButtons,
   });
 }
 
@@ -2738,9 +2749,9 @@ function isTranscriptSegmentSaved(segment, index, segments, videoId = currentVid
   const state = savedTranscriptMarkers.get(videoId);
   if (!state || !segment) return false;
   if (state.segmentIds.has(segment.id)) return true;
-  const start = Number(segment.start);
+  const start = parseInt(segment.start);
   const nextStart = segments[index + 1]
-    ? Number(segments[index + 1].start)
+    ? parseInt(segments[index + 1].start)
     : Infinity;
   return Number.isFinite(start) && [...state.capturedSeconds].some((second) =>
     second >= start && second < nextStart,

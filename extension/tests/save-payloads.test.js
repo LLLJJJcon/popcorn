@@ -628,6 +628,28 @@ test("player moment row mapping includes its start and excludes the next row sta
   assertNoSaveSideEffects(harness);
 });
 
+test("player moment row mapping truncates fractional starts exactly like playback highlighting", () => {
+  const harness = createSidePanelHandlerHarness();
+  const dispatch = (message) => harness.messageListeners.forEach((listener) => listener(message, {}, () => {}));
+  vm.runInContext(`
+    currentTranscript = currentTranscript.map((segment) => ({
+      ...segment,
+      start: segment.start + 0.8,
+    }));
+  `, harness.context);
+
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: 42 });
+  vm.runInContext("renderTranscript(); autoScrollEnabled = false; highlightActiveEntry(42)", harness.context);
+
+  const rows = harness.document.querySelectorAll(".transcript-entry");
+  assert.equal(rows[0].querySelector(".transcript-save-btn").textContent, "Save");
+  assert.equal(rows[0].classList.contains("active-playback"), false);
+  assert.equal(rows[1].querySelector(".transcript-save-btn").textContent, "Saved");
+  assert.equal(rows[1].querySelector(".transcript-save-btn").disabled, true);
+  assert.equal(rows[1].classList.contains("active-playback"), true);
+  assertNoSaveSideEffects(harness);
+});
+
 test("a failed subtitle-row Save retry stays saved after the stale failure reset runs", async () => {
   const harness = createSidePanelHandlerHarness();
   vm.runInContext(
@@ -683,7 +705,7 @@ test("a rejected subtitle-row save does not mark until a successful retry, then 
       enqueueSavedItem = async (input) => {
         globalThis.__saveCalls.push(JSON.parse(JSON.stringify(input)));
         globalThis.__attempts += 1;
-        if (globalThis.__attempts === 1) return { success: false, error: "rejected" };
+        if (globalThis.__attempts === 1) throw new Error("rejected");
         return { success: true, synced: false };
       };
       const retrySegments = getActiveTranscriptSegments();
@@ -721,6 +743,41 @@ test("a rejected subtitle-row save does not mark until a successful retry, then 
     assert.equal(row.querySelector(".transcript-save-btn").disabled, true);
   }
   assert.equal(vm.runInContext("__attempts", harness.context), 2);
+  assertNoSaveSideEffects(harness);
+});
+
+test("an admitted player marker stays authoritative over a concurrent row-save failure and reset", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const dispatch = (message) => harness.messageListeners.forEach((listener) => listener(message, {}, () => {}));
+  vm.runInContext(`
+    globalThis.__rejectRowSave = null;
+    enqueueSavedItem = (input) => {
+      globalThis.__saveCalls.push(JSON.parse(JSON.stringify(input)));
+      return new Promise((_resolve, reject) => {
+        globalThis.__rejectRowSave = () => reject(new Error("rejected"));
+      });
+    };
+    currentTranscriptMode = "zh";
+    renderTranscript();
+  `, harness.context);
+  const row = harness.document.querySelectorAll(".transcript-entry")[1];
+  const saveButton = row.querySelector(".transcript-save-btn");
+
+  await clickAndFlush(harness, saveButton);
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: 42 });
+  assert.equal(saveButton.textContent, "Saved");
+  assert.equal(saveButton.disabled, true);
+
+  vm.runInContext("__rejectRowSave()", harness.context);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(saveButton.textContent, "Saved");
+  assert.equal(saveButton.disabled, true);
+
+  assert.equal(harness.scheduledResets.length, 1);
+  harness.scheduledResets[0].callback();
+  assert.equal(saveButton.textContent, "Saved");
+  assert.equal(saveButton.disabled, true);
+  assert.equal(harness.saveCalls.length, 1);
   assertNoSaveSideEffects(harness);
 });
 
