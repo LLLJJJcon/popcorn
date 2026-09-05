@@ -111,7 +111,7 @@ export function createSupadataTranscriptProvider({
   apiKey,
   fetchImpl = fetch,
   maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES,
-  requestTimeoutMs = 4_000,
+  requestTimeoutMs = 30_000,
 }: ProviderOptions): TranscriptProvider {
   if (apiKey.trim().length === 0) throw new TypeError("Supadata API key is required");
   if (!Number.isInteger(maxResponseBytes) || maxResponseBytes < 1) {
