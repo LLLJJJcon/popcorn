@@ -51,7 +51,7 @@ const GatewayChapterSchema = z.object({
 const GatewayQuoteSchema = z.object({
   quote: z.string().trim().min(1),
   englishMeaning: z.string().trim().min(1),
-  sourceLineIndex: SegmentIndexSchema.optional(),
+  sourceLineIndex: z.unknown().optional(),
 }).passthrough();
 const GatewayTranslationSchema = z.strictObject({
   translations: z.array(z.strictObject({
@@ -310,9 +310,10 @@ export function createOpenAiCompatibleLearningArtifactProvider(
           if (chapters.length === 8) break;
           const parsed = GatewayChapterSchema.safeParse(candidate);
           if (!parsed.success || !evidence.segments[parsed.data.sourceLineIndex]) continue;
-          const { sourceLineIndex, ...chapter } = parsed.data;
+          const { sourceLineIndex, title, summary } = parsed.data;
           const grounded = OverviewContentSchema.shape.chapters.element.safeParse({
-            ...chapter,
+            title,
+            summary,
             ...mapSourceLine(sourceLineIndex),
           });
           if (grounded.success) chapters.push(grounded.data);
@@ -323,9 +324,10 @@ export function createOpenAiCompatibleLearningArtifactProvider(
           if (keyQuotes.length === 5) break;
           const parsed = GatewayQuoteSchema.safeParse(candidate);
           if (!parsed.success) continue;
-          const requestedSegment = parsed.data.sourceLineIndex === undefined
-            ? undefined
-            : evidence.segments[parsed.data.sourceLineIndex];
+          const sourceLineIndex = SegmentIndexSchema.safeParse(parsed.data.sourceLineIndex);
+          const requestedSegment = sourceLineIndex.success
+            ? evidence.segments[sourceLineIndex.data]
+            : undefined;
           const segment = requestedSegment?.originalChinese.includes(parsed.data.quote)
             ? requestedSegment
             : evidence.segments.find((item) => item.originalChinese.includes(parsed.data.quote));

@@ -357,13 +357,18 @@ describe("bounded openai-compatible adapter", () => {
         overview: "The speaker demonstrates a natural phrase and a direct way to say it.",
         ignored: "unknown fields do not invalidate the summary",
         chapters: [
-          { title: "Natural phrasing", summary: "The first line evaluates an expression.", sourceLineIndex: 0 },
+          {
+            title: "Natural phrasing",
+            summary: "The first line evaluates an expression.",
+            sourceLineIndex: 0,
+            confidence: 0.91,
+          },
           { title: "Missing summary", sourceLineIndex: 1 },
           { title: "Out of range", summary: "This anchor does not exist.", sourceLineIndex: 20 },
           "not an object",
         ],
         keyQuotes: [
-          { quote: "这个表达", englishMeaning: "This expression.", sourceLineIndex: 0 },
+          { quote: "这个表达", englishMeaning: "This expression.", sourceLineIndex: 0, confidence: 0.94 },
           { quote: "完全无关", englishMeaning: "Ungrounded text.", sourceLineIndex: 0 },
           { quote: "很自然", sourceLineIndex: 0 },
         ],
@@ -390,6 +395,9 @@ describe("bounded openai-compatible adapter", () => {
   test.each([
     ["wrong", 1],
     ["missing", undefined],
+    ["null", null],
+    ["string", "0"],
+    ["negative", -1],
   ])("recovers a quote with a %s line index by its first exact transcript match", async (_label, sourceLineIndex) => {
     const provider = createOpenAiCompatibleLearningArtifactProvider({
       config: RUNTIME_CONFIG,
