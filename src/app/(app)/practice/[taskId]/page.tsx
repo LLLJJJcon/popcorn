@@ -8,10 +8,14 @@ import { getModelGatewaySettingsEnv } from "@/server/env";
 import { createPracticeMaterialRepository } from "@/server/repositories/practice-material-repository";
 import type { Database } from "@/types/database.generated";
 
+const savedReturnTargetPattern = /^\/saved\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}#saved-item-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export default async function PracticeTaskPage({
   params,
+  searchParams,
 }: {
   readonly params: Promise<{ readonly taskId: string }>;
+  readonly searchParams: Promise<{ readonly returnTo?: string | string[] }>;
 }) {
   const environment = getModelGatewaySettingsEnv();
   const authenticate = createWebSessionAuthenticator({
@@ -32,5 +36,10 @@ export default async function PracticeTaskPage({
     (await params).taskId,
   );
   if (!material) notFound();
-  return <PracticeSession material={material} />;
+  const requestedReturnTarget = (await searchParams).returnTo;
+  const savedReturnTarget = typeof requestedReturnTarget === "string"
+    && savedReturnTargetPattern.test(requestedReturnTarget)
+    ? requestedReturnTarget
+    : null;
+  return <PracticeSession material={material} savedReturnTarget={savedReturnTarget} />;
 }

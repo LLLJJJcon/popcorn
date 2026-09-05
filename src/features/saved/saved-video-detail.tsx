@@ -100,6 +100,7 @@ export function SavedVideoDetailView({
           renderAfter={(item) => (
             <CandidateList
               savedItemId={item.id}
+              videoSourceId={video.sourceId}
               youtubeUrl={video.canonicalUrl}
               analysis={latestCandidateAnalysis(video.artifacts, item.id)}
             />

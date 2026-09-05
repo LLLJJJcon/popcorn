@@ -51,10 +51,12 @@ const MAX_POLL_ATTEMPTS = 60;
 
 export function CandidateList({
   savedItemId,
+  videoSourceId,
   youtubeUrl,
   analysis,
 }: {
   readonly savedItemId: string;
+  readonly videoSourceId: string;
   readonly youtubeUrl: string;
   readonly analysis: CandidateAnalysis;
 }) {
@@ -101,7 +103,8 @@ export function CandidateList({
       });
       const body = apiSuccessSchema(PracticeTaskSchema).safeParse(await response.json());
       if (!response.ok || !body.success) throw new Error("activation failed");
-      router.push(`/practice/${body.data.data.id}`);
+      const returnTo = `/saved/${videoSourceId}#saved-item-${savedItemId}`;
+      router.push(`/practice/${body.data.data.id}?returnTo=${encodeURIComponent(returnTo)}`);
     } catch {
       setPendingIndex(null);
     }
@@ -216,6 +219,7 @@ export function CandidateList({
           candidate={candidate}
           canonicalUrl={youtubeUrl}
           disabled={!hydrationReady || pendingIndex !== null}
+          activating={pendingIndex === index}
           onUse={() => void activate(index)}
         />
       ))}

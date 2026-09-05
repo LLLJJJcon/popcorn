@@ -11,7 +11,13 @@ import type { PracticeMaterialView } from "@/features/practice/material-schema";
 import { PracticeMaterial } from "@/features/practice/practice-material";
 import styles from "@/features/practice/practice-workspace.module.css";
 
-export function PracticeSession({ material }: { readonly material: PracticeMaterialView }) {
+export function PracticeSession({
+  material,
+  savedReturnTarget,
+}: {
+  readonly material: PracticeMaterialView;
+  readonly savedReturnTarget: string | null;
+}) {
   const router = useRouter();
   const [responseChinese, setResponseChinese] = useState("");
   const [result, setResult] = useState<PracticeAttemptResponse | null>(null);
@@ -74,6 +80,11 @@ export function PracticeSession({ material }: { readonly material: PracticeMater
 
   return (
     <main>
+      {savedReturnTarget ? (
+        <p className={styles.savedReturnLink}>
+          <Link href={savedReturnTarget}>Back to this Saved moment</Link>
+        </p>
+      ) : null}
       <PracticeMaterial
         material={material}
         onHintUsed={() => setAssistanceLevel("hint")}

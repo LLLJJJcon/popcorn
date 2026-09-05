@@ -17,6 +17,22 @@
   margin-bottom: 1.5rem;
 }
 
+.savedReturnLink {
+  margin-bottom: 1rem;
+}
+
+.savedReturnLink a {
+  color: var(--cocoa);
+  font-weight: 760;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.savedReturnLink a:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--coral) 70%, var(--cocoa));
+  outline-offset: 3px;
+}
+
 .landingHeader h1,
 .practiceHeader h1 {
   margin-bottom: 0.45rem;
