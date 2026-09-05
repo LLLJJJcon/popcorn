@@ -647,7 +647,30 @@ test("a stale terminal Overview result cannot remove a newer resume record but a
 test("the first pending Overview poll writes its job before its poll delay or Side Panel lifetime ends", async () => {
   const resumeKey = "popcorn:overview-resume:v1";
   const jobId = "60000000-0000-4000-8000-000000000006";
-  const storageLocal = createStorageLocal();
+  const values = {};
+  let finishStorageSet;
+  const storageLocal = {
+    get(keys) {
+      return Promise.resolve(Object.fromEntries(
+        [keys].filter((key) => Object.hasOwn(values, key)).map((key) => [key, values[key]]),
+      ));
+    },
+    set(entries) {
+      return new Promise((resolve) => {
+        finishStorageSet = () => {
+          Object.assign(values, entries);
+          resolve();
+        };
+      });
+    },
+    remove(keys) {
+      delete values[keys];
+      return Promise.resolve();
+    },
+    snapshot() {
+      return JSON.parse(JSON.stringify(values));
+    },
+  };
   const messages = [];
   let runPollDelay;
   let requestCount = 0;
@@ -675,23 +698,32 @@ test("the first pending Overview poll writes its job before its poll delay or Si
   const pendingOverview = helpers.triggerAnalysis();
   await new Promise((resolve) => setImmediate(resolve));
   try {
+    assert.equal(messages.length, 1);
+    assert.equal(typeof finishStorageSet, "function");
+    assert.equal(runPollDelay, undefined);
+    assert.equal(storageLocal.snapshot()[resumeKey], undefined);
+
+    finishStorageSet();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(storageLocal.snapshot()[resumeKey], {
+      videoId: "abc123XYZ00",
+      snapshotId: "40000000-0000-4000-8000-000000000001",
+      jobId,
+    });
     assert.equal(typeof runPollDelay, "function");
+
+    loadSidepanelHelpers({ storageLocal });
     assert.equal(messages.length, 1);
     assert.deepEqual(storageLocal.snapshot()[resumeKey], {
       videoId: "abc123XYZ00",
       snapshotId: "40000000-0000-4000-8000-000000000001",
       jobId,
     });
-
-    loadSidepanelHelpers({ storageLocal });
-    assert.deepEqual(storageLocal.snapshot()[resumeKey], {
-      videoId: "abc123XYZ00",
-      snapshotId: "40000000-0000-4000-8000-000000000001",
-      jobId,
-    });
   } finally {
-    runPollDelay();
-    await pendingOverview;
+    if (typeof runPollDelay === "function") {
+      runPollDelay();
+      await pendingOverview;
+    }
   }
 });
 

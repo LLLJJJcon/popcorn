@@ -116,3 +116,33 @@ If browser storage becomes unavailable after a job has already been registered,
 the owner-scoped server job continues but client recovery cannot be durable.
 The explicit pre-registration path is fail-closed, and no storage or background
 response includes user, Provider, gateway, transcript, or error-detail data.
+
+## Fix round 2 — pending-write await proof
+
+The first-pending-poll test now uses a deferred `chrome.storage.local.set`.
+Before that promise resolves it proves all three required conditions: the write
+was requested, no durable record is visible, and the first poll delay has not
+been entered (with only the registration message sent). It resolves the write,
+then verifies the full record and only then observes the poll delay; creating a
+new Side Panel at that point sends no extra request.
+
+Mutation RED was recorded by temporarily changing the first
+`await onPending(jobId)` to `onPending(jobId)`. The focused test failed at the
+poll-delay barrier with `actual: [Function (anonymous)]` versus expected
+`undefined`, proving a poll would begin before the durable write settled. The
+temporary change was restored and was not committed.
+
+GREEN:
+
+```text
+node --test --test-name-pattern 'first pending Overview poll' extension/tests/translation.test.js
+tests 1; pass 1; fail 0
+
+node --test extension/tests/translation.test.js
+tests 58; pass 58; fail 0
+```
+
+Both Side Panel and background syntax checks, plus the baseline diff check,
+passed after restoration. The residual risk remains browser storage failing
+after a job has already registered; this cannot create a retry or disclose
+cross-user data.
