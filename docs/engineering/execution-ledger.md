@@ -2,13 +2,15 @@
 
 ## Current position
 
-- Stage: Gate C frozen; revised Delivery Tasks 1–4, convenience Tasks 3A–3B, and Task 5 startup/login/model-gateway/translation-recovery/real-Saved/transcript-resume/local-proxy/bulk-translation-retry repairs accepted
-- Next task: Synchronize and rebuild the live extension, verify one whole-failure translation retry, then resolve the separately identified persisted-snapshot/translation reuse gap
+- Stage: Unified Learning Workspace Task 1 accepted; persisted transcript/translation reuse repair also integrated
+- Next task: Unified Learning Workspace Task 2 — Saved workspace
 - Integration branch: `codex/popcorn-youtube-learning`
-- Integration worktree: `/private/tmp/popcorn-youtube-learning`
+- Integration worktree: `/Users/liangjing/Desktop/Courses/internal capstone/Popcorn`
 - Repository baseline: `cc515558c899472dccb8e2fe6d21ef861970109b`
-- Last focused verified commit: `9c44680` (one user retry sends every failed semantic subtitle row in one durable job and one Provider request; independent review, TDD repair, re-review, and Controller verification passed)
+- Unified workspace plan baseline: `13c4a7e021b5149b994560372acb088f9b22def9`
+- Last focused verified commit: `679e7da` (smart root, authenticated shared Shell, active navigation, gateway action notice, Settings route integration, and Home sign-in redirect; independent TDD fix/re-review and Controller gate passed)
 - Approved scope revision: `docs/superpowers/specs/2026-08-22-popcorn-local-first-school-demo-design.md` plus the three 2026-08-22 overlay plans; approved by the user and committed as `60f3888` on 2026-08-22.
+- Approved unified UX spec: `docs/superpowers/specs/2026-09-05-popcorn-unified-learning-workspace-design.md`; implementation plan `docs/superpowers/plans/2026-09-05-popcorn-unified-learning-workspace.md`.
 
 ## Preflight
 
@@ -34,6 +36,7 @@
 
 | Plan | Task | Branch | Base | Head | Review | Verification |
 |---|---:|---|---|---|---|---|
+| Unified Learning Workspace | 1 | `codex/popcorn-youtube-learning` | effective `8bb5cc9` | `ff91c9f` + repair `679e7da` | PASS after one independent FAIL and fresh scoped re-review; strict settings payload validation fixed the only Important finding; active-nav contrast Minor deferred to final visual pass | Controller gate: Shell/Auth/accessibility 30/30, `pnpm typecheck`, and `git diff --check 8bb5cc9..679e7da` passed; no migration, lockfile, root config, extension, or Provider path changed |
 | Foundation | 1 | `codex/popcorn-foundation-1` | `abb4a271a7bbe9d04ad3ace12615e853b8c50e85` | `8294e6bc11778e6e8ff90814cf2f5e0bd32aca38` | PASS; spec compliant and quality approved after independent fix/re-review loops | Integrated through `e21ba63d8c754aeb2a6ff92338b6eed59821a759`; `CI=true pnpm verify` passed; focused page/provenance 5/5; vendor syntax and `git diff --check` passed |
 | Foundation | 2 | `codex/popcorn-foundation-2` plus controller root-gate branch | `b1739e0e229e48a54f0cbb8eae96fc236c8b00bd` | `f75cd8be49d4a3de8fe0335183b971737ff9f000`; root gate `e4a069d4779a85bf6d8e3f3b9e56a10a4183bb7b` | PASS; complete baseline review approved with no Critical, Important, or Minor issues after six independent TDD fix/re-review rounds; root gate independently approved | Integrated through `3e99b29218a2a4555d6c07f3671cc47e5f02a434`; `CI=true pnpm verify` passed; root contract 128/128; focused Task 2 136/136; unit 9/9; provenance 5/5; production build and `git diff --check` passed |
 | Foundation | 3 | `codex/popcorn-foundation-3` | `fdd29126ce745a7b77f06446b6af2e8f65c154b8` | `4626aef76829204ed89b662df6a59e6d5be62e7a` | PASS; fresh full-diff acceptance review approved with no Critical, Important, or Minor issues after security/traceability, exact Han-range, and UTF-16 boundary TDD corrections | Integrated through `2c67f80addbd548320759ccd1ead68f427b4b13c`; clean local reset applied both migrations and deterministic seed; pgTAP 215/215; `CI=true pnpm verify` passed with unit 9/9, contract 128/128, provenance 5/5, and production build; generated types matched the live database except the documented CLI trailing blank line; `git diff --check` passed |
