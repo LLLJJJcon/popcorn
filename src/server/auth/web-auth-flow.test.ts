@@ -23,11 +23,13 @@ function harness({
   signInError = null,
   signOutError = null,
   userId = "22222222-2222-4222-8222-222222222222",
+  userEmail = "learner@example.com",
 }: {
   signUpError?: Error | null;
   signInError?: Error | null;
   signOutError?: Error | null;
   userId?: string | null;
+  userEmail?: string | null;
 } = {}) {
   const writes: CookieWrite[] = [];
   const calls = {
@@ -65,7 +67,7 @@ function harness({
           getUser: async () => {
             calls.getUser += 1;
             return {
-              data: { user: userId ? { id: userId } : null },
+              data: { user: userId ? { id: userId, email: userEmail } : null },
               error: userId ? null : new Error("raw expired-session detail"),
             };
           },
@@ -225,5 +227,18 @@ describe("local Web password authentication", () => {
     await expect(anonymous.handlers.getPageAuthorization()).resolves.toBe(false);
     expect(authenticated.calls.getUser).toBe(1);
     expect(anonymous.calls.getUser).toBe(1);
+  });
+
+  it("returns only a bounded verified account state without leaking a user UUID", async () => {
+    const verified = harness();
+    const missingEmail = harness({ userEmail: null });
+    const expired = harness({ userId: null });
+
+    await expect(verified.handlers.getPageAccount()).resolves.toEqual({
+      authenticated: true,
+      email: "learner@example.com",
+    });
+    await expect(missingEmail.handlers.getPageAccount()).resolves.toEqual({ authenticated: true });
+    await expect(expired.handlers.getPageAccount()).resolves.toEqual({ authenticated: false });
   });
 });

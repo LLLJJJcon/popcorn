@@ -28,7 +28,7 @@ type WebAuthClient = {
     }) => Promise<{ readonly data: unknown; readonly error: unknown }>;
     readonly signOut: () => Promise<{ readonly error: unknown }>;
     readonly getUser: () => Promise<{
-      readonly data: { readonly user: { readonly id: string } | null };
+      readonly data: { readonly user: { readonly id: string; readonly email?: string | null } | null };
       readonly error: unknown;
     }>;
   };
@@ -166,13 +166,22 @@ export function createWebAuthFlowHandlers({
       return redirectTo(origin, "/sign-in");
     },
 
-    async getPageAuthorization(): Promise<boolean> {
+    async getPageAccount(): Promise<{ readonly authenticated: boolean; readonly email?: string }> {
       try {
         const { data, error } = await client.auth.getUser();
-        return !error && typeof data.user?.id === "string" && data.user.id.length > 0;
+        if (error || typeof data.user?.id !== "string" || data.user.id.length === 0) {
+          return { authenticated: false };
+        }
+        return typeof data.user.email === "string" && data.user.email.length > 0
+          ? { authenticated: true, email: data.user.email }
+          : { authenticated: true };
       } catch {
-        return false;
+        return { authenticated: false };
       }
+    },
+
+    async getPageAuthorization(): Promise<boolean> {
+      return (await this.getPageAccount()).authenticated;
     },
   };
 }
