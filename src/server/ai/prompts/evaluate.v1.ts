@@ -46,22 +46,31 @@ const fixtureEvaluation = {
 
 export type ParsedPracticeEvaluation = {
   readonly evaluation: EvaluationResult;
-  readonly coaching: PracticeCoaching;
+  readonly coaching: PracticeCoaching | null;
 };
 
 export function parsePracticeEvaluationOutput(
   value: unknown,
   targetExpression: string,
+  assistanceLevel?: AssistanceLevel,
 ): ParsedPracticeEvaluation {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new TypeError("invalid Practice evaluation output");
   }
   const { naturalRevisionChinese, ...evaluationValue } = value as Record<string, unknown>;
-  const evaluation = EvaluationResultSchema.parse(evaluationValue);
-  const coaching = PracticeCoachingSchema.parse({ naturalRevisionChinese });
-  if (!coaching.naturalRevisionChinese.includes(targetExpression)) {
-    throw new TypeError("Practice coaching is not grounded to the target expression");
-  }
+  const evaluation = EvaluationResultSchema.parse(
+    assistanceLevel === undefined
+      ? evaluationValue
+      : {
+        ...evaluationValue,
+        independentUse: assistanceLevel === "none",
+        assistanceLevel,
+      },
+  );
+  const parsedCoaching = PracticeCoachingSchema.safeParse({ naturalRevisionChinese });
+  const coaching = parsedCoaching.success && parsedCoaching.data.naturalRevisionChinese.includes(targetExpression)
+    ? parsedCoaching.data
+    : null;
   return { evaluation, coaching };
 }
 

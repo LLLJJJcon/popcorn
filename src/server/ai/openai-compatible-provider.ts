@@ -26,6 +26,7 @@ import type { ModelGatewayRuntimeConfig } from "@/server/model-gateway/runtime-r
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_OVERVIEW_TIMEOUT_MS = 120_000;
+const PRACTICE_EVALUATION_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_REQUEST_BYTES = 65_536;
 const DEFAULT_MAX_RESPONSE_BYTES = 524_288;
 const OVERVIEW_MAX_TOKENS = 900;
@@ -161,9 +162,8 @@ function parseAssistantText(text: string): string {
 }
 
 function parseAssistantJson(text: string): unknown {
-  if (text.startsWith("```")) throw outputInvalid();
   try {
-    return JSON.parse(text);
+    return JSON.parse(unwrapMarkdownFence(text));
   } catch {
     throw outputInvalid();
   }
@@ -250,7 +250,9 @@ export function createOpenAiCompatibleStructuredJsonClient(
     return parseAssistantJson(await requestAssistantText(
       promptVersion,
       prompt,
-      requestTimeoutMs,
+      promptVersion === "evaluate-practice-v2"
+        ? PRACTICE_EVALUATION_TIMEOUT_MS
+        : requestTimeoutMs,
       maxTokens,
     ));
   }

@@ -130,7 +130,7 @@ export function createPracticeAttemptService(dependencies: {
     responseChinese: string,
     revision: number,
     assistanceLevel: AssistanceLevel,
-  ): Promise<{ readonly record: PracticeDraftAttemptRecord; readonly coaching: PracticeCoaching }> {
+  ): Promise<{ readonly record: PracticeDraftAttemptRecord; readonly coaching: PracticeCoaching | null }> {
     const resolved = await resolvePracticeEgress(userId, dependencies);
     let parsed: ReturnType<typeof parsePracticeEvaluationOutput>;
     try {
@@ -140,13 +140,8 @@ export function createPracticeAttemptService(dependencies: {
           buildEvaluatePracticePrompt(practiceTaskView(draft), responseChinese, assistanceLevel),
         ),
         draft.targetExpression,
+        assistanceLevel,
       );
-      if (
-        parsed.evaluation.assistanceLevel !== assistanceLevel ||
-        parsed.evaluation.independentUse !== (assistanceLevel === "none")
-      ) {
-        throw new TypeError("Practice evaluation assistance does not match the submission");
-      }
     } catch (error) {
       if (error instanceof PracticeError) throw error;
       throw new PracticeError("PROVIDER_FAILED", true);
