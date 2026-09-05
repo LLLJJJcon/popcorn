@@ -435,17 +435,21 @@ async function sendCloudAction(
   message,
   maxPolls = Math.floor(TRANSLATION_POLLING_WINDOW_MS / TRANSLATION_POLL_INTERVAL_MS),
   onPending,
+  shouldContinue = () => true,
 ) {
   let result = await chrome.runtime.sendMessage(message);
   const jobId = result?.jobId;
+  if (!shouldContinue()) return { success: false, cancelled: true };
   if (result?.success && result.pending && jobId && onPending) {
     await onPending(jobId);
   }
   for (let poll = 0; result?.success && result.pending && jobId && poll < maxPolls; poll += 1) {
     await new Promise((resolve) => setTimeout(resolve, TRANSLATION_POLL_INTERVAL_MS));
+    if (!shouldContinue()) return { success: false, cancelled: true };
     result = await chrome.runtime.sendMessage({ ...message, jobId });
+    if (!shouldContinue()) return { success: false, cancelled: true };
     if (result?.success && result.pending && onPending) {
-      await onPending(result.jobId || jobId);
+      await onPending(jobId);
     }
   }
   return result;
@@ -2278,12 +2282,13 @@ function projectTranscriptSelection(range, transcriptList) {
   };
 }
 
-function createExplanationMessage(selectionEvidence, identity) {
+function createExplanationMessage(selectionEvidence, identity, retryId) {
   return {
     action: "explainSelection",
     videoId: identity.videoId,
     snapshotId: identity.snapshotId,
     ...selectionEvidence,
+    ...(retryId ? { retryId } : {}),
   };
 }
 
@@ -2292,6 +2297,11 @@ function createExplanationMessage(selectionEvidence, identity) {
  */
 async function showExplanation(selectionEvidence) {
   const selectedText = selectionEvidence.selectedChinese;
+  const identity = {
+    videoId: currentVideoId,
+    snapshotId: currentSnapshotId,
+  };
+  document.getElementById("explainModal")?.remove();
   // Create modal
   const modal = document.createElement("div");
   modal.id = "explainModal";
@@ -2313,60 +2323,93 @@ async function showExplanation(selectionEvidence) {
   `;
 
   document.body.appendChild(modal);
+  const contentDiv = modal.querySelector("#explanationContent");
+  let active = true;
+  let retryInFlight = false;
+  const isCurrent = () => active && modal.isConnected &&
+    identity.videoId === currentVideoId && identity.snapshotId === currentSnapshotId;
+  const close = () => {
+    active = false;
+    modal.remove();
+  };
 
   // Close handlers
   document
     .getElementById("closeExplain")
-    .addEventListener("click", () => modal.remove());
+    .addEventListener("click", close);
   modal.addEventListener("click", (e) => {
-    if (e.target === modal) modal.remove();
+    if (e.target === modal) close();
   });
 
-  // Fetch explanation
-  try {
-    const result = await sendCloudAction(createExplanationMessage(selectionEvidence, {
-      videoId: currentVideoId,
-      snapshotId: currentSnapshotId,
-    }));
+  const renderReady = (explanation) => {
+    if (!isCurrent()) return;
+    const text = [
+      `Meaning: ${explanation.meaning}`,
+      `Tone: ${explanation.tone}`,
+      `Communicative function: ${explanation.communicativeFunction}`,
+      `Contextual fit: ${explanation.contextualFit}`,
+    ].join("\n\n");
+    contentDiv.innerHTML = `
+      <div class="explain-text">${escapeHtml(text).replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>")}</div>
+      <button class="explanation-save-btn" type="button">Save Explanation</button>
+    `;
+    const saveButton = contentDiv.querySelector(".explanation-save-btn");
+    saveButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        const input = buildAiExplanationSaveInput({
+          videoId: identity.videoId,
+          evidence: selectionEvidence,
+          englishExplanation: text,
+          ...saveContextForSegmentIds(selectionEvidence.segmentIds),
+        });
+        await saveWithButton(input, saveButton, "Save Explanation");
+      } catch (saveError) {
+        console.error("[Popcorn] Save explanation failed:", saveError);
+      }
+    });
+  };
 
-    const contentDiv = document.getElementById("explanationContent");
-    if (result.success && !result.pending) {
-      const explanation = result.content;
-      const text = [
-        `Meaning: ${explanation.meaning}`,
-        `Tone: ${explanation.tone}`,
-        `Communicative function: ${explanation.communicativeFunction}`,
-        `Contextual fit: ${explanation.contextualFit}`,
-      ].join("\n\n");
-      contentDiv.innerHTML = `
-        <div class="explain-text">${escapeHtml(text).replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>")}</div>
-        <button class="explanation-save-btn" type="button">Save Explanation</button>
-      `;
-      const saveButton = contentDiv.querySelector(".explanation-save-btn");
-      saveButton.addEventListener("click", async (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        try {
-          const input = buildAiExplanationSaveInput({
-            videoId: currentVideoId,
-            evidence: selectionEvidence,
-            englishExplanation: text,
-            ...saveContextForSegmentIds(selectionEvidence.segmentIds),
-          });
-          await saveWithButton(input, saveButton, "Save Explanation");
-        } catch (saveError) {
-          console.error("[Popcorn] Save explanation failed:", saveError);
-        }
-      });
-    } else if (result.pending) {
-      contentDiv.innerHTML = `<div class="explain-loading">${escapeHtml(learningArtifactStatusCopy(result, "Explanation"))}</div>`;
-    } else {
-      contentDiv.innerHTML = `<div class="explain-error">${escapeHtml(learningArtifactStatusCopy(result, "Explanation"))}</div>`;
+  const requestExplanation = async (retryId) => {
+    try {
+      const result = await sendCloudAction(
+        createExplanationMessage(selectionEvidence, identity, retryId),
+        undefined,
+        undefined,
+        isCurrent,
+      );
+      if (!isCurrent() || result.cancelled) return;
+      if (result.success && !result.pending) {
+        renderReady(result.content);
+      } else if (result.pending) {
+        contentDiv.innerHTML = `<div class="explain-loading">${escapeHtml(learningArtifactStatusCopy(result, "Explanation"))}</div>`;
+      } else if (result.terminal === true) {
+        contentDiv.innerHTML = `
+          <div class="explain-error">${escapeHtml(learningArtifactStatusCopy(result, "Explanation"))}</div>
+          <button class="explanation-save-btn explanation-retry-btn" type="button">Retry</button>
+        `;
+        const retryButton = contentDiv.querySelector(".explanation-retry-btn");
+        retryButton.addEventListener("click", async () => {
+          if (retryInFlight || !isCurrent()) return;
+          retryInFlight = true;
+          retryButton.disabled = true;
+          const freshRetryId = crypto.randomUUID();
+          contentDiv.innerHTML = '<div class="explain-loading">Retrying explanation…</div>';
+          await requestExplanation(freshRetryId);
+          retryInFlight = false;
+        });
+      } else {
+        contentDiv.innerHTML = `<div class="explain-error">${escapeHtml(learningArtifactStatusCopy(result, "Explanation"))}</div>`;
+      }
+    } catch (error) {
+      if (isCurrent()) {
+        contentDiv.innerHTML = `<div class="explain-error">${escapeHtml(learningArtifactStatusCopy(null, "Explanation"))}</div>`;
+      }
     }
-  } catch (error) {
-    const contentDiv = document.getElementById("explanationContent");
-    contentDiv.innerHTML = `<div class="explain-error">${escapeHtml(learningArtifactStatusCopy(null, "Explanation"))}</div>`;
-  }
+  };
+
+  await requestExplanation();
 }
 
 /**
@@ -3298,6 +3341,7 @@ globalThis.__YTD_TRANSCRIPT_TESTING__ = {
   renderTranscriptSegmentContent,
   projectTranscriptSelection,
   createExplanationMessage,
+  showExplanation,
   renderAnalysisResults,
   formatTimestampSeconds,
   getTranscriptErrorPresentation,

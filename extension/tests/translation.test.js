@@ -2366,6 +2366,74 @@ test("explicit Overview retry forwards one UUID identity and no Provider control
   }]);
 });
 
+test("explicit Explanation retry forwards one UUID identity and no Provider controls", async () => {
+  const bodies = [];
+  const helpers = loadBackgroundHelpers({ fetchImpl: async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return { status: 202, json: async () => ({ ok: true, data: { jobId: "job-1", status: "pending" } }) };
+  } });
+  await helpers.explainSelection({
+    videoId: "abc123XYZ00",
+    snapshotId: "snapshot-1",
+    selectedChinese: "你好",
+    segmentIds: ["segment-1"],
+    utf16Start: 0,
+    utf16End: 2,
+    startSeconds: 0,
+    endSeconds: 1,
+    context: "你好",
+    retryId: "70000000-0000-4000-8000-000000000001",
+    providerUrl: "https://attacker.example",
+    apiKey: "secret",
+    model: "attacker-model",
+  });
+
+  assert.deepEqual(bodies, [{
+    videoId: "abc123XYZ00",
+    snapshotId: "snapshot-1",
+    selectedChinese: "你好",
+    segmentIds: ["segment-1"],
+    utf16Start: 0,
+    utf16End: 2,
+    startSeconds: 0,
+    endSeconds: 1,
+    context: "你好",
+    retryId: "70000000-0000-4000-8000-000000000001",
+  }]);
+});
+
+test("an already-terminal Explanation registration returns bounded recovery instead of pending", async () => {
+  const helpers = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 200,
+    json: async () => ({
+      ok: true,
+      data: {
+        jobId: "explanation-job-old",
+        status: "terminal_failed",
+        failureCategory: "model_output",
+      },
+    }),
+  }) });
+
+  const result = await helpers.explainSelection({
+    videoId: "abc123XYZ00",
+    snapshotId: "snapshot-1",
+    selectedChinese: "你好",
+    segmentIds: ["segment-1"],
+    utf16Start: 0,
+    utf16End: 2,
+    startSeconds: 0,
+    endSeconds: 1,
+    context: "你好",
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.terminal, true);
+  assert.equal(result.failureCategory, "model_output");
+  assert.match(result.error, /model response could not be read/i);
+  assert.doesNotMatch(JSON.stringify(result), /lastError|secret|provider/i);
+});
+
 test("translation message watchdog rejects, clears its timer, and ignores late replies", async () => {
   let timeoutCallback;
   let timeoutDelay;
@@ -2581,6 +2649,198 @@ test("cross-line projection rejects incomplete row evidence instead of guessing"
   range.setStart(texts[0].firstChild, 1);
   range.setEnd(texts[1].firstChild, 2);
   assert.equal(helpers.projectTranscriptSelection(range, transcriptList), null);
+});
+
+const explanationEvidence = {
+  selectedChinese: "第一行结尾",
+  segmentIds: ["a".repeat(64)],
+  utf16Start: 2,
+  utf16End: 7,
+  startSeconds: 10,
+  endSeconds: 16,
+  context: "甲乙第一行结尾",
+};
+
+const enrichedExplanation = {
+  selectedChinese: "第一行结尾",
+  meaning: "the end of the first line",
+  tone: "neutral",
+  communicativeFunction: "identifies a position",
+  contextualFit: "It describes the selected transcript phrase.",
+};
+
+test("Explanation keeps the admitted job ID for bounded polling and renders the enriched result", async () => {
+  const dom = new JSDOM("<body></body>");
+  const sent = [];
+  const responses = [
+    { success: true, pending: true, jobId: "explanation-job-42", status: "pending" },
+    { success: true, pending: true, jobId: "different-job-must-not-be-used", status: "leased" },
+    { success: true, content: enrichedExplanation },
+  ];
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage(message) {
+      sent.push({ ...message });
+      return Promise.resolve(responses.shift());
+    },
+    setTimeoutImpl(callback, delay) {
+      assert.equal(delay, 500);
+      Promise.resolve().then(callback);
+      return sent.length;
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+  `);
+
+  await helpers.showExplanation(explanationEvidence);
+
+  assert.equal(sent.length, 3);
+  assert.equal(sent[0].jobId, undefined);
+  assert.equal(sent[1].jobId, "explanation-job-42");
+  assert.equal(sent[2].jobId, "explanation-job-42");
+  assert.ok(sent.every((message) => !Object.hasOwn(message, "providerUrl") && !Object.hasOwn(message, "apiKey")));
+  const content = dom.window.document.getElementById("explanationContent");
+  assert.match(content.textContent, /Meaning: the end of the first line/);
+  assert.match(content.textContent, /Tone: neutral/);
+  assert.match(content.textContent, /Communicative function: identifies a position/);
+  assert.match(content.textContent, /Contextual fit: It describes the selected transcript phrase/);
+  assert.ok(content.querySelector(".explanation-save-btn"));
+});
+
+test("closing the Explanation modal cancels pending polling before another request", async () => {
+  const dom = new JSDOM("<body></body>");
+  const sent = [];
+  let releasePoll;
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage(message) {
+      sent.push({ ...message });
+      return Promise.resolve({ success: true, pending: true, jobId: "explanation-job-42", status: "pending" });
+    },
+    setTimeoutImpl(callback, delay) {
+      assert.equal(delay, 500);
+      releasePoll = callback;
+      return 1;
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+  `);
+
+  const request = helpers.showExplanation(explanationEvidence);
+  await new Promise((resolve) => setImmediate(resolve));
+  dom.window.document.getElementById("closeExplain").click();
+  releasePoll();
+  await request;
+
+  assert.equal(sent.length, 1);
+  assert.equal(dom.window.document.getElementById("explainModal"), null);
+});
+
+test("changing video ownership cancels pending Explanation polling and stale rendering", async () => {
+  const dom = new JSDOM("<body></body>");
+  const sent = [];
+  let releasePoll;
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage(message) {
+      sent.push({ ...message });
+      return Promise.resolve({ success: true, pending: true, jobId: "explanation-job-42", status: "pending" });
+    },
+    setTimeoutImpl(callback, delay) {
+      assert.equal(delay, 500);
+      releasePoll = callback;
+      return 1;
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+  `);
+
+  const request = helpers.showExplanation(explanationEvidence);
+  await new Promise((resolve) => setImmediate(resolve));
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "newVideo000";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000099";
+  `);
+  releasePoll();
+  await request;
+
+  assert.equal(sent.length, 1);
+  assert.doesNotMatch(dom.window.document.getElementById("explanationContent").textContent, /Meaning:/);
+});
+
+test("terminal Explanation offers one fresh retry, blocks duplicate clicks, and polls only the new job", async () => {
+  const dom = new JSDOM("<body></body>");
+  const sent = [];
+  let resolveRetryAdmission;
+  let uuidCalls = 0;
+  const retryId = "70000000-0000-4000-8000-000000000021";
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    cryptoImpl: { randomUUID() { uuidCalls += 1; return retryId; } },
+    sendMessage(message) {
+      sent.push({ ...message });
+      if (sent.length === 1) {
+        return Promise.resolve({
+          success: false,
+          terminal: true,
+          failureCategory: "model_output",
+          error: "The model response could not be read. Retry this learning artifact.",
+        });
+      }
+      if (sent.length === 2) {
+        return new Promise((resolve) => { resolveRetryAdmission = resolve; });
+      }
+      return Promise.resolve({ success: true, content: enrichedExplanation });
+    },
+    setTimeoutImpl(callback, delay) {
+      assert.equal(delay, 500);
+      Promise.resolve().then(callback);
+      return sent.length;
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+  `);
+
+  await helpers.showExplanation(explanationEvidence);
+  const retry = dom.window.document.querySelector(".explanation-retry-btn");
+  assert.ok(retry);
+  assert.equal(sent.length, 1);
+  assert.equal(uuidCalls, 0);
+
+  retry.click();
+  retry.click();
+  assert.equal(retry.disabled, true);
+  assert.equal(uuidCalls, 1);
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].retryId, retryId);
+  assert.equal(sent[1].jobId, undefined);
+
+  resolveRetryAdmission({
+    success: true,
+    pending: true,
+    jobId: "explanation-job-new",
+    status: "pending",
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(sent.length, 3);
+  assert.equal(sent[2].retryId, retryId);
+  assert.equal(sent[2].jobId, "explanation-job-new");
+  assert.doesNotMatch(JSON.stringify(sent), /explanation-job-old|providerUrl|apiKey/);
+  assert.match(dom.window.document.getElementById("explanationContent").textContent, /Meaning: the end of the first line/);
 });
 
 test("translation prompt preserves Chinese-to-English learning direction", () => {

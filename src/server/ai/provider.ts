@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import type { KnowledgeJobType } from "@/contracts/knowledge";
+import { KnowledgeJobStatusSchema, type KnowledgeJobType } from "@/contracts/knowledge";
 import { YouTubeVideoIdSchema } from "@/contracts/source";
 import type { ModelOutputStage } from "@/server/ai/model-output";
 import {
@@ -26,6 +26,7 @@ import {
 } from "@/server/ai/prompts/youtube-overview.v1";
 import { failure, success } from "@/server/api/respond";
 import { createJobResultKey } from "@/server/domain/lease-job";
+import type { PublicFailureCategory } from "@/server/jobs/process-jobs";
 import type { Database, Json } from "@/types/database.generated";
 
 const StableIdSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -59,6 +60,7 @@ const ExplanationRequestSchema = z.strictObject({
   startSeconds: z.number().finite().min(0).max(604_800),
   endSeconds: z.number().finite().min(0).max(604_800),
   context: z.string().min(1).max(16_000),
+  retryId: z.string().uuid().optional(),
 }).superRefine((value, context) => {
   if (value.utf16End <= value.utf16Start || value.endSeconds < value.startSeconds) {
     context.addIssue({ code: "custom", message: "selection range is invalid" });
@@ -160,6 +162,7 @@ export interface LearningArtifactRouteStore {
   resolveActiveGatewayPin(expectedUserId: string): Promise<(ModelGatewayPin & { readonly model: string }) | null>;
   resolveEvidence(expectedUserId: string, videoId: string): Promise<LearningArtifactEvidence | null>;
   register(input: LearningArtifactRegistration): Promise<{ readonly jobId: string; readonly status: string; readonly created: boolean }>;
+  readFailureCategory(expectedUserId: string, jobId: string): Promise<PublicFailureCategory | null>;
   readArtifactByResultKey(
     expectedUserId: string,
     sourceId: string,
@@ -364,7 +367,7 @@ export function createLearningArtifactRoute(dependencies: RouteDependencies) {
       ? (parsed.data as z.infer<typeof OverviewRequestSchema>).retryId
       : dependencies.jobType === "translate_segments"
         ? (parsed.data as z.infer<typeof TranslationRequestSchema>).retryId
-        : undefined;
+        : (parsed.data as z.infer<typeof ExplanationRequestSchema>).retryId;
     const knownIds = new Set(owned.segments.map((segment) => segment.stableId));
     if (segmentIds.some((id) => !knownIds.has(id))) {
       return noStoreJson(failure({ code: "VALIDATION_FAILED", message: "Unknown transcript segment", retryable: false }, requestId), 400);
@@ -487,6 +490,17 @@ export function createLearningArtifactRoute(dependencies: RouteDependencies) {
         return noStoreJson(success({ artifactId: artifact.artifactId, content }, requestId), 200);
       }
     }
+    if (registration.status === "terminal_failed") {
+      const failureCategory = await dependencies.store.readFailureCategory(
+        authenticated.userId,
+        registration.jobId,
+      ) ?? "internal";
+      return noStoreJson(success({
+        jobId: registration.jobId,
+        status: "terminal_failed",
+        failureCategory,
+      }, requestId), 200);
+    }
     return noStoreJson(success({ jobId: registration.jobId, status: registration.status }, requestId), 202);
   };
 }
@@ -552,6 +566,17 @@ export function createSupabaseLearningArtifactRouteStore(client: SupabaseClient<
       const row = result.data[0];
       if (!row || result.data.length !== 1) throw new Error("invalid learning-artifact registration");
       return { jobId: row.knowledge_job_id, status: row.status, created: row.created };
+    },
+    async readFailureCategory(expectedUserId, jobId) {
+      const result = await client.from("knowledge_jobs")
+        .select("id,user_id,status,last_error_code")
+        .eq("user_id", expectedUserId).eq("id", jobId).maybeSingle();
+      if (result.error) throw result.error;
+      if (!result.data || result.data.user_id !== expectedUserId) return null;
+      const status = KnowledgeJobStatusSchema.safeParse(result.data.status);
+      if (!status.success || status.data !== "terminal_failed") return null;
+      const { publicFailureCategory } = await import("@/server/jobs/process-jobs");
+      return publicFailureCategory(status.data, result.data.last_error_code) ?? "internal";
     },
     async readArtifactByResultKey(expectedUserId, sourceId, jobType, resultKey) {
       const found = await client.from("generated_artifacts")

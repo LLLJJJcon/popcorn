@@ -771,6 +771,7 @@ function routeStore(overrides: Partial<LearningArtifactRouteStore> = {}): Learni
     resolveEvidence: vi.fn(async (userId, videoId) =>
       userId === USER_A && videoId === evidence.videoId ? evidence : null),
     register: vi.fn(async () => ({ jobId: JOB_ID, status: "pending", created: true })),
+    readFailureCategory: vi.fn(async () => null),
     readArtifactByResultKey: vi.fn(async () => null),
     readArtifact: vi.fn(async () => null),
     ...overrides,
@@ -1019,6 +1020,76 @@ describe("fast durable learning-artifact request routes", () => {
     ]);
     expect(registrations[0].input).not.toHaveProperty("retryId");
     expect(TranslationJobInputSchema.parse(registrations[0].input).segmentIds).toEqual(BULK_SEGMENT_IDS);
+  });
+
+  test("an Explanation retry UUID changes only dedupe identity and never enters private Provider input", async () => {
+    const store = routeStore();
+    const route = createLearningArtifactRoute({
+      jobType: "explain_selection",
+      authenticate: async () => ({ userId: USER_A }),
+      store,
+      promptVersion: "explain-selection-v2",
+      requestId: () => "explanation-retry",
+    });
+    const submit = (retryId?: string) => route(new Request(
+      "https://app.popcorn.local/api/v1/explanations",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...(bodyFor("explain_selection") as object),
+          ...(retryId ? { retryId } : {}),
+        }),
+      },
+    ), { params: Promise.resolve({}) });
+
+    const original = await submit();
+    const replay = await submit("70000000-0000-4000-8000-000000000001");
+    const fresh = await submit("70000000-0000-4000-8000-000000000002");
+
+    expect([original.status, replay.status, fresh.status]).toEqual([202, 202, 202]);
+    const registrations = vi.mocked(store.register).mock.calls.map(([registration]) => registration);
+    expect(new Set(registrations.map(({ dedupeKey }) => dedupeKey)).size).toBe(3);
+    expect(registrations.map(({ input }) => input)).toEqual([
+      registrations[0].input,
+      registrations[0].input,
+      registrations[0].input,
+    ]);
+    expect(registrations[0].input).not.toHaveProperty("retryId");
+    expect(JSON.stringify(registrations[0].input)).not.toContain("70000000-0000-4000-8000");
+  });
+
+  test("an already-terminal Explanation registration returns its bounded public failure instead of processing", async () => {
+    const readFailureCategory = vi.fn(async () => "model_output" as const);
+    const store = routeStore({
+      register: vi.fn(async () => ({ jobId: JOB_ID, status: "terminal_failed", created: false })),
+      readFailureCategory,
+    });
+    const route = createLearningArtifactRoute({
+      jobType: "explain_selection",
+      authenticate: async () => ({ userId: USER_A }),
+      store,
+      promptVersion: "explain-selection-v2",
+      requestId: () => "terminal-explanation",
+    });
+
+    const response = await route(new Request(
+      "https://app.popcorn.local/api/v1/explanations",
+      { method: "POST", body: JSON.stringify(bodyFor("explain_selection")) },
+    ), { params: Promise.resolve({}) });
+
+    expect(response.status).toBe(200);
+    expect(readFailureCategory).toHaveBeenCalledExactlyOnceWith(USER_A, JOB_ID);
+    const payload = await response.json();
+    expect(payload).toEqual({
+      ok: true,
+      data: {
+        jobId: JOB_ID,
+        status: "terminal_failed",
+        failureCategory: "model_output",
+      },
+      requestId: "terminal-explanation",
+    });
+    expect(JSON.stringify(payload)).not.toContain("lastError");
   });
 
   test.each([
@@ -1586,6 +1657,34 @@ describe("CONTRACT-009 Supabase adapters", () => {
       p_expected_config_fingerprint: GATEWAY_FINGERPRINT,
       p_now: NOW,
     });
+  });
+
+  test("terminal registration category is derived from the owner-scoped public job seam", async () => {
+    const maybeSingle = vi.fn(async () => ({
+      data: {
+        id: JOB_ID,
+        user_id: USER_A,
+        status: "terminal_failed",
+        last_error_code: "PROVIDER_OUTPUT_INVALID:wire_schema:meaning",
+      },
+      error: null,
+    }));
+    const query = {
+      select: vi.fn(),
+      eq: vi.fn(),
+      maybeSingle,
+    };
+    query.select.mockReturnValue(query);
+    query.eq.mockReturnValue(query);
+    const from = vi.fn(() => query);
+    const store = createSupabaseLearningArtifactRouteStore({ from } as never);
+
+    await expect(store.readFailureCategory(USER_A, JOB_ID)).resolves.toBe("model_output");
+    expect(from).toHaveBeenCalledExactlyOnceWith("knowledge_jobs");
+    expect(query.select).toHaveBeenCalledExactlyOnceWith("id,user_id,status,last_error_code");
+    expect(query.eq).toHaveBeenNthCalledWith(1, "user_id", USER_A);
+    expect(query.eq).toHaveBeenNthCalledWith(2, "id", JOB_ID);
+    expect(maybeSingle).toHaveBeenCalledTimes(1);
   });
 
   test("failure and completion use exact owner/source/type/lease/attempt fences", async () => {

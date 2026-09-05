@@ -237,6 +237,9 @@ async function submitArtifact(path, payload, jobId) {
     }
   }
   const result = await apiFetch(path, { method: "POST", body: JSON.stringify(payload) });
+  if (result.data?.status === "terminal_failed") {
+    return publicLearningArtifactFailure(result.data);
+  }
   if (result.status === 202) {
     return { success: true, pending: true, jobId: result.data.jobId, status: result.data.status };
   }
@@ -278,6 +281,7 @@ async function explainSelection(message) {
     endSeconds: message.endSeconds,
     context: message.context,
   };
+  if (typeof message.retryId === "string") payload.retryId = message.retryId;
   return submitArtifact("/api/v1/explanations", payload, message.jobId);
 }
 
