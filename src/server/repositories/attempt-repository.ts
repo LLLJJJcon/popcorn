@@ -34,6 +34,7 @@ import {
 import {
   PracticeError,
   createPracticeTaskService,
+  practiceErrorFromUnknown,
   practiceErrorResponse,
   readPracticeMutation,
   resolvePracticeEgress,
@@ -160,8 +161,7 @@ export function createPracticeAttemptService(dependencies: {
         assistanceLevel,
       );
     } catch (error) {
-      if (error instanceof PracticeError) throw error;
-      throw new PracticeError("PROVIDER_FAILED", true);
+      throw practiceErrorFromUnknown(error);
     }
     const evaluation = {
       ...parsed.evaluation,

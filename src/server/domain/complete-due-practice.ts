@@ -22,7 +22,13 @@ import {
 import type { StructuredJsonGateway, StructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
 import { failure, success } from "@/server/api/respond";
 import type { WebSessionResult } from "@/server/auth/web-session";
-import { PracticeError, practiceErrorResponse, readPracticeMutation, resolvePracticeEgress } from "@/server/domain/create-practice-task";
+import {
+  PracticeError,
+  practiceErrorFromUnknown,
+  practiceErrorResponse,
+  readPracticeMutation,
+  resolvePracticeEgress,
+} from "@/server/domain/create-practice-task";
 import { scheduleReview } from "@/server/domain/schedule-review";
 import type { DueTransferTask } from "@/server/domain/create-transfer-task";
 import { buildDueTransferTask } from "@/server/domain/create-transfer-task";
@@ -251,8 +257,7 @@ export function createDuePracticeCompletionService(dependencies: {
           });
           coaching = parsed.coaching;
         } catch (error) {
-          if (error instanceof PracticeError) throw error;
-          throw new PracticeError("PROVIDER_FAILED", true);
+          throw practiceErrorFromUnknown(error);
         }
         completedAt = requestedAt;
         evaluationPromptVersion = resolved.pin ? EVALUATE_PRACTICE_PROMPT_VERSION : null;

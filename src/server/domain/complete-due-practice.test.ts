@@ -2,16 +2,20 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   createDuePracticeCompletionService,
+  createDuePracticeHttpHandler,
   type DuePracticeCompletionRepository,
   type DueTransferTask,
 } from "@/server/domain/complete-due-practice";
 import { createEvaluationFixtureGateway } from "@/server/ai/prompts/evaluate.v1";
 import type { StructuredJsonGateway } from "@/server/ai/structured-json-gateway";
+import { ModelGatewayError } from "@/server/ai/provider";
+import type { ModelOutputStage } from "@/server/ai/model-output";
 
 const USER = "11111111-1111-4111-8111-111111111111";
 const REVIEW = "22222222-2222-4222-8222-222222222222";
 const TASK = "33333333-3333-4333-8333-333333333333";
 const NOW = "2026-08-22T12:00:00.000Z";
+const SAFE_REQUEST_ID = "safe-request";
 
 const task: DueTransferTask = {
   id: TASK,
@@ -93,6 +97,81 @@ function service(store = repository(), options: {
       now: options.now ?? (() => NOW),
     }),
   };
+}
+
+type DueFailureExpectation = {
+  readonly label: string;
+  readonly makeError: () => unknown;
+  readonly code: "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_OUTPUT_INVALID" | "INTERNAL_ERROR";
+  readonly status: 429 | 503 | 422 | 500;
+  readonly retryable: boolean;
+};
+
+function modelFailure(
+  code: "PROVIDER_UNAVAILABLE" | "PROVIDER_OUTPUT_INVALID",
+  stage: ModelOutputStage,
+): () => ModelGatewayError {
+  return () => new ModelGatewayError(code, stage, "sentinel-private-field");
+}
+
+const dueFailureExpectations: readonly DueFailureExpectation[] = [
+  {
+    label: "rate_limit",
+    makeError: modelFailure("PROVIDER_UNAVAILABLE", "rate_limit"),
+    code: "PROVIDER_RATE_LIMITED",
+    status: 429,
+    retryable: true,
+  },
+  ...(["transport", "timeout", "provider_http"] as const).map((stage) => ({
+    label: stage,
+    makeError: modelFailure("PROVIDER_UNAVAILABLE", stage),
+    code: "PROVIDER_UNAVAILABLE" as const,
+    status: 503 as const,
+    retryable: true,
+  })),
+  {
+    label: "response_envelope",
+    makeError: modelFailure("PROVIDER_OUTPUT_INVALID", "response_envelope"),
+    code: "PROVIDER_UNAVAILABLE",
+    status: 503,
+    retryable: true,
+  },
+  ...(["json_extract", "wire_schema", "grounding"] as const).map((stage) => ({
+    label: stage,
+    makeError: modelFailure("PROVIDER_OUTPUT_INVALID", stage),
+    code: "PROVIDER_OUTPUT_INVALID" as const,
+    status: 422 as const,
+    retryable: false,
+  })),
+  {
+    label: "persistence",
+    makeError: modelFailure("PROVIDER_OUTPUT_INVALID", "persistence"),
+    code: "INTERNAL_ERROR",
+    status: 500,
+    retryable: true,
+  },
+  {
+    label: "unexpected",
+    makeError: () => new Error("sentinel-private-provider-message"),
+    code: "INTERNAL_ERROR",
+    status: 500,
+    retryable: true,
+  },
+];
+
+async function expectDueFailureResponse(response: Response, expected: DueFailureExpectation) {
+  const body = await response.json();
+  expect(response.status).toBe(expected.status);
+  expect(body).toEqual({
+    ok: false,
+    error: {
+      code: expected.code,
+      message: expect.any(String),
+      retryable: expected.retryable,
+    },
+    requestId: SAFE_REQUEST_ID,
+  });
+  expect(JSON.stringify(body)).not.toMatch(/sentinel|private-provider-message|private-field/i);
 }
 
 describe("complete due Practice", () => {
@@ -312,16 +391,35 @@ describe("complete due Practice", () => {
     expect(store.completeDuePractice).not.toHaveBeenCalled();
   });
 
-  test("does not call the completion RPC when the gateway fails", async () => {
-    const store = repository();
-    const { service: complete } = service(store, {
-      gateway: { model: "fixture/failure", complete: vi.fn(async () => { throw new Error("baseUrl=secret"); }) },
-    });
+  test.each(dueFailureExpectations)(
+    "maps Due $label failures to the safe HTTP category without calling the completion RPC",
+    async (expected) => {
+      const store = repository();
+      const gateway = {
+        model: "fixture/failure",
+        complete: vi.fn(async () => { throw expected.makeError(); }),
+      };
+      const { service: complete } = service(store, { gateway });
+      const handler = createDuePracticeHttpHandler({
+        authenticate: vi.fn(async () => ({ ok: true as const, userId: USER })),
+        complete: complete.complete,
+        appUrl: "https://popcorn.example",
+        requestId: () => SAFE_REQUEST_ID,
+      });
 
-    await expect(complete.complete(USER, REVIEW, { responseChinese: "太离谱了。", assistanceLevel: "none" }))
-      .rejects.toMatchObject({ code: "PROVIDER_FAILED" });
-    expect(store.completeDuePractice).not.toHaveBeenCalled();
-  });
+      const response = await handler(new Request(
+        `https://popcorn.example/api/v1/practice/due/${REVIEW}`,
+        {
+          method: "POST",
+          headers: { Origin: "https://popcorn.example", "Content-Type": "application/json" },
+          body: JSON.stringify({ responseChinese: "太离谱了。", assistanceLevel: "none" }),
+        },
+      ), { params: Promise.resolve({ reviewTaskId: REVIEW }) });
+
+      await expectDueFailureResponse(response, expected);
+      expect(store.completeDuePractice).not.toHaveBeenCalled();
+    },
+  );
 
   test("returns identical immutable identifiers for an exact replay", async () => {
     const store = repository();

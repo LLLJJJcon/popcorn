@@ -3,6 +3,8 @@ import type {
   StructuredJsonGateway,
   StructuredJsonGatewayResolver,
 } from "@/server/ai/structured-json-gateway";
+import { ModelGatewayError } from "@/server/ai/provider";
+import type { ModelOutputStage } from "@/server/ai/model-output";
 import {
   ActivationOutputSchema,
   buildActivatePracticePrompt,
@@ -34,6 +36,7 @@ const CONFIG = "66666666-6666-4666-8666-666666666666";
 const ATTEMPT = "77777777-7777-4777-8777-777777777777";
 const NOW = "2026-08-21T02:03:04.000Z";
 const FINGERPRINT = "a".repeat(64);
+const SAFE_REQUEST_ID = "safe-request";
 const CANDIDATE_SELECT = "id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,content";
 const DRAFT_SELECT = "id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,activation_prompt_version,activation_model,activation_gateway_config_id,activation_gateway_revision,activation_gateway_fingerprint,created_at,updated_at";
 const ATTEMPT_SELECT = "id,user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at,evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,evaluation_gateway_revision,evaluation_gateway_fingerprint,created_at";
@@ -265,16 +268,105 @@ function gateway(output: unknown, model = "mandarin-model") {
     options: StructuredJsonCompletionOptions<T>,
   ): Promise<T> => {
     if (typeof output !== "object" || output === null || Array.isArray(output)) {
-      throw new TypeError("test gateway output must be an object");
+      throw new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "wire_schema", "evaluation");
     }
     const decoded = options.normalize(output as Record<string, unknown>);
-    if (!decoded.success) throw new TypeError(decoded.fieldPath ?? "invalid test gateway output");
+    if (!decoded.success) {
+      throw new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "wire_schema", decoded.fieldPath);
+    }
     return decoded.data;
   });
   return {
     model,
     complete: complete as unknown as StructuredJsonGateway["complete"] & typeof complete,
   };
+}
+
+type PracticeFailureExpectation = {
+  readonly label: string;
+  readonly makeError: () => unknown;
+  readonly code: "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_OUTPUT_INVALID" | "INTERNAL_ERROR";
+  readonly status: 429 | 503 | 422 | 500;
+  readonly retryable: boolean;
+};
+
+function modelFailure(
+  code: "PROVIDER_UNAVAILABLE" | "PROVIDER_OUTPUT_INVALID",
+  stage: ModelOutputStage,
+): () => ModelGatewayError {
+  return () => new ModelGatewayError(code, stage, "sentinel-private-field");
+}
+
+const practiceFailureExpectations: readonly PracticeFailureExpectation[] = [
+  {
+    label: "rate_limit",
+    makeError: modelFailure("PROVIDER_UNAVAILABLE", "rate_limit"),
+    code: "PROVIDER_RATE_LIMITED",
+    status: 429,
+    retryable: true,
+  },
+  ...(["transport", "timeout", "provider_http"] as const).map((stage) => ({
+    label: stage,
+    makeError: modelFailure("PROVIDER_UNAVAILABLE", stage),
+    code: "PROVIDER_UNAVAILABLE" as const,
+    status: 503 as const,
+    retryable: true,
+  })),
+  {
+    label: "response_envelope",
+    makeError: modelFailure("PROVIDER_OUTPUT_INVALID", "response_envelope"),
+    code: "PROVIDER_UNAVAILABLE",
+    status: 503,
+    retryable: true,
+  },
+  ...(["json_extract", "wire_schema", "grounding"] as const).map((stage) => ({
+    label: stage,
+    makeError: modelFailure("PROVIDER_OUTPUT_INVALID", stage),
+    code: "PROVIDER_OUTPUT_INVALID" as const,
+    status: 422 as const,
+    retryable: false,
+  })),
+  {
+    label: "persistence",
+    makeError: modelFailure("PROVIDER_OUTPUT_INVALID", "persistence"),
+    code: "INTERNAL_ERROR",
+    status: 500,
+    retryable: true,
+  },
+  {
+    label: "unexpected",
+    makeError: () => new Error("sentinel-private-provider-message"),
+    code: "INTERNAL_ERROR",
+    status: 500,
+    retryable: true,
+  },
+];
+
+function failingGateway(makeError: () => unknown): StructuredJsonGateway {
+  return {
+    model: "fixture/failure",
+    async complete() {
+      throw makeError();
+    },
+  };
+}
+
+async function expectPracticeFailureResponse(
+  response: Response,
+  expected: Pick<PracticeFailureExpectation, "code" | "status" | "retryable">,
+) {
+  const body = await response.json();
+  expect(response.status).toBe(expected.status);
+  expect(body).toEqual({
+    ok: false,
+    error: {
+      code: expected.code,
+      message: expect.any(String),
+      retryable: expected.retryable,
+    },
+    requestId: SAFE_REQUEST_ID,
+  });
+  expect(JSON.stringify(body)).not.toMatch(/sentinel|private-provider-message|private-field/i);
 }
 
 function resolver(gatewayValue: StructuredJsonGateway) {
@@ -449,7 +541,7 @@ describe("learner-first practice activation", () => {
     const store = memoryRepository();
     const fixture = gateway({ ...activation, promptChinese: "这个价格也太离谱了吧！" });
 
-    await expect(activate(store, { fixture })).rejects.toMatchObject({ code: "PROVIDER_FAILED" });
+    await expect(activate(store, { fixture })).rejects.toMatchObject({ code: "PROVIDER_OUTPUT_INVALID" });
 
     expect(store.drafts).toHaveLength(0);
   });
@@ -458,10 +550,40 @@ describe("learner-first practice activation", () => {
     const store = memoryRepository();
     const fixture = gateway({ ...activation, promptChinese: "请用太离谱了来回答这个问题？" });
 
-    await expect(activate(store, { fixture })).rejects.toMatchObject({ code: "PROVIDER_FAILED" });
+    await expect(activate(store, { fixture })).rejects.toMatchObject({ code: "PROVIDER_OUTPUT_INVALID" });
 
     expect(store.drafts).toHaveLength(0);
   });
+
+  test.each(practiceFailureExpectations)(
+    "maps activation $label failures to the safe HTTP category without persisting a draft",
+    async (expected) => {
+      const store = memoryRepository();
+      const service = activationService(store, {
+        fixture: failingGateway(expected.makeError),
+      }).service;
+      const handler = createPracticeTaskHttpHandler({
+        authenticate: vi.fn(async () => ({ ok: true as const, userId: USER_A })),
+        activate: service.activate,
+        appUrl: "https://popcorn.example",
+        requestId: () => SAFE_REQUEST_ID,
+      });
+
+      const response = await handler(new Request("https://popcorn.example/api/v1/practice/tasks", {
+        method: "POST",
+        headers: { Origin: "https://popcorn.example", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          savedItemId: SAVE,
+          candidateArtifactId: ARTIFACT,
+          candidateIndex: 0,
+        }),
+      }));
+
+      await expectPracticeFailureResponse(response, expected);
+      expect(store.drafts).toHaveLength(0);
+      expect(store.attempts).toHaveLength(0);
+    },
+  );
 
   test("CI uses its fixture before pin/Vault/fetch and replays one durable identity", async () => {
     const store = memoryRepository();
@@ -798,10 +920,70 @@ describe("evaluation and append-only revisions", () => {
     const service = attemptService(store, { fixture: gateway({ passed: true, score: 5 }) }).service;
     await expect(service.submitOriginal(USER_A, {
       taskId: task.id, responseChinese: "这个价格也太离谱了！",
-    })).rejects.toMatchObject({ code: "PROVIDER_FAILED" });
+    })).rejects.toMatchObject({ code: "PROVIDER_OUTPUT_INVALID" });
     expect(store.attempts).toHaveLength(0);
     expect(store.drafts).toHaveLength(1);
   });
+
+  test.each(practiceFailureExpectations)(
+    "maps original and revision $label failures to the same safe HTTP category without persisting the failed evaluation",
+    async (expected) => {
+      const originalStore = memoryRepository();
+      const originalTask = await activate(originalStore);
+      const originalService = attemptService(originalStore, {
+        fixture: failingGateway(expected.makeError),
+      }).service;
+      const originalHandlers = createPracticeAttemptHttpHandlers({
+        authenticate: vi.fn(async () => ({ ok: true as const, userId: USER_A })),
+        submitOriginal: originalService.submitOriginal,
+        submitRevision: originalService.submitRevision,
+        appUrl: "https://popcorn.example",
+        requestId: () => SAFE_REQUEST_ID,
+      });
+
+      const originalResponse = await originalHandlers.original(new Request(
+        "https://popcorn.example/api/v1/practice/attempts",
+        {
+          method: "POST",
+          headers: { Origin: "https://popcorn.example", "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId: originalTask.id, responseChinese: "这个价格也太离谱了。" }),
+        },
+      ));
+
+      await expectPracticeFailureResponse(originalResponse, expected);
+      expect(originalStore.attempts).toHaveLength(0);
+
+      const revisionStore = memoryRepository();
+      const revisionTask = await activate(revisionStore);
+      const successful = attemptService(revisionStore, { ids: [USER_B] });
+      const recorded = await successful.service.submitOriginal(USER_A, {
+        taskId: revisionTask.id,
+        responseChinese: "这个价格也太离谱了。",
+      });
+      const revisionService = attemptService(revisionStore, {
+        fixture: failingGateway(expected.makeError),
+      }).service;
+      const revisionHandlers = createPracticeAttemptHttpHandlers({
+        authenticate: vi.fn(async () => ({ ok: true as const, userId: USER_A })),
+        submitOriginal: revisionService.submitOriginal,
+        submitRevision: revisionService.submitRevision,
+        appUrl: "https://popcorn.example",
+        requestId: () => SAFE_REQUEST_ID,
+      });
+
+      const revisionResponse = await revisionHandlers.revision(new Request(
+        `https://popcorn.example/api/v1/practice/attempts/${recorded.attempt.id}/revisions`,
+        {
+          method: "POST",
+          headers: { Origin: "https://popcorn.example", "Content-Type": "application/json" },
+          body: JSON.stringify({ responseChinese: "这个价格真的太离谱了。" }),
+        },
+      ), { params: Promise.resolve({ attemptId: recorded.attempt.id }) });
+
+      await expectPracticeFailureResponse(revisionResponse, expected);
+      expect(revisionStore.attempts).toHaveLength(1);
+    },
+  );
 
   test("stores distinct dimensions and exact live provenance", async () => {
     const store = memoryRepository();

@@ -6,7 +6,7 @@ import { CandidateExpressionListSchema, type CandidateExpression } from "@/contr
 import { PracticeTaskSchema, type PracticeTask } from "@/contracts/practice";
 import { failure, success } from "@/server/api/respond";
 import type { WebSessionResult } from "@/server/auth/web-session";
-import type { ModelGatewayPin } from "@/server/ai/provider";
+import { ModelGatewayError, type ModelGatewayPin } from "@/server/ai/provider";
 import {
   ACTIVATE_PRACTICE_PROMPT_VERSION,
   ActivationOutputSchema,
@@ -70,6 +70,9 @@ export type PracticeErrorCode =
   | "NOT_FOUND"
   | "GATEWAY_REQUIRED"
   | "PROVIDER_FAILED"
+  | "PROVIDER_RATE_LIMITED"
+  | "PROVIDER_UNAVAILABLE"
+  | "PROVIDER_OUTPUT_INVALID"
   | "REVISION_CONFLICT"
   | "INTERNAL_ERROR";
 
@@ -79,6 +82,32 @@ export class PracticeError extends Error {
   constructor(readonly code: PracticeErrorCode, readonly retryable = false) {
     super(code);
   }
+}
+
+export function practiceErrorFromUnknown(error: unknown): PracticeError {
+  if (error instanceof PracticeError) return error;
+  if (!(error instanceof ModelGatewayError)) {
+    return new PracticeError("INTERNAL_ERROR", true);
+  }
+  if (error.stage === "rate_limit") {
+    return new PracticeError("PROVIDER_RATE_LIMITED", true);
+  }
+  if (
+    error.stage === "transport" ||
+    error.stage === "timeout" ||
+    error.stage === "provider_http" ||
+    error.stage === "response_envelope"
+  ) {
+    return new PracticeError("PROVIDER_UNAVAILABLE", true);
+  }
+  if (
+    error.stage === "json_extract" ||
+    error.stage === "wire_schema" ||
+    error.stage === "grounding"
+  ) {
+    return new PracticeError("PROVIDER_OUTPUT_INVALID", false);
+  }
+  return new PracticeError("INTERNAL_ERROR", true);
 }
 
 const MAX_BODY_BYTES = 8 * 1_024;
@@ -119,6 +148,12 @@ export function practiceErrorResponse(error: unknown, requestId: string): Respon
       ? { code: "FORBIDDEN" as const, message: "Practice item not found", status: 404 }
       : practice.code === "GATEWAY_REQUIRED"
         ? { code: "MODEL_GATEWAY_CONFIGURATION_REQUIRED" as const, message: "An active model gateway is required", status: 409 }
+        : practice.code === "PROVIDER_RATE_LIMITED"
+          ? { code: "PROVIDER_RATE_LIMITED" as const, message: "Practice Provider rate limit reached", status: 429 }
+          : practice.code === "PROVIDER_UNAVAILABLE"
+            ? { code: "PROVIDER_UNAVAILABLE" as const, message: "Practice Provider is temporarily unavailable", status: 503 }
+            : practice.code === "PROVIDER_OUTPUT_INVALID"
+              ? { code: "PROVIDER_OUTPUT_INVALID" as const, message: "Practice Provider returned an unreadable response", status: 422 }
         : practice.code === "PROVIDER_FAILED"
           ? { code: "PROVIDER_OUTPUT_INVALID" as const, message: "Practice Provider is temporarily unavailable", status: 503 }
           : practice.code === "REVISION_CONFLICT"
@@ -200,8 +235,8 @@ export async function resolvePracticeEgress(
   if (!pin) throw new PracticeError("GATEWAY_REQUIRED");
   try {
     return { gateway: await dependencies.gatewayResolver.resolve(userId, pin), pin };
-  } catch {
-    throw new PracticeError("PROVIDER_FAILED", true);
+  } catch (error) {
+    throw practiceErrorFromUnknown(error);
   }
 }
 
@@ -277,11 +312,11 @@ export function createPracticeTaskService(dependencies: {
             normalize: normalizeActivationWire,
           },
         ));
-        if (
-          output.promptChinese.includes(candidate.expression)
-        ) throw new TypeError("invalid grounded learner-first activation");
-      } catch {
-        throw new PracticeError("PROVIDER_FAILED", true);
+        if (output.promptChinese.includes(candidate.expression)) {
+          throw new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "grounding", "promptChinese");
+        }
+      } catch (error) {
+        throw practiceErrorFromUnknown(error);
       }
 
       const taskId = deterministicUuid([
