@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { KnowledgeJobStatusSchema, type KnowledgeJobStatus } from "@/contracts/knowledge";
+import { SavedItemAnalysisJobInputSchema } from "@/server/jobs/job-types";
 import type { Database, Json } from "@/types/database.generated";
 
 export type CandidateArtifactRecord = {
@@ -23,8 +25,19 @@ export type CandidateSourceContext = {
   readonly artifact: CandidateArtifactRecord | null;
 };
 
+export type CandidateAnalysisJobStatus = {
+  readonly jobId: string;
+  readonly status: KnowledgeJobStatus;
+  readonly lastErrorCode: string | null;
+};
+
 export interface ExpressionRepository {
   read(userId: string, savedItemId: string): Promise<CandidateSourceContext | null>;
+  readAnalysisJobStatus(
+    userId: string,
+    savedItemId: string,
+    jobId: string,
+  ): Promise<CandidateAnalysisJobStatus | null>;
 }
 
 function queryFailed(error: unknown) {
@@ -92,6 +105,36 @@ export function createSupabaseExpressionRepository(
           promptVersion: artifact.data.prompt_version,
           content: artifact.data.content,
         } : null,
+      };
+    },
+    async readAnalysisJobStatus(userId, savedItemId, jobId) {
+      const job = await client.from("knowledge_jobs")
+        .select("id,user_id,saved_item_id,job_type,status,last_error_code")
+        .eq("user_id", userId)
+        .eq("id", jobId)
+        .eq("saved_item_id", savedItemId)
+        .eq("job_type", "analyze_saved_item")
+        .maybeSingle();
+      queryFailed(job.error);
+      if (
+        !job.data || job.data.id !== jobId || job.data.user_id !== userId ||
+        job.data.saved_item_id !== savedItemId || job.data.job_type !== "analyze_saved_item"
+      ) return null;
+
+      const internal = await client.from("knowledge_job_internal")
+        .select("input,user_id")
+        .eq("user_id", userId)
+        .eq("knowledge_job_id", jobId)
+        .maybeSingle();
+      queryFailed(internal.error);
+      if (!internal.data || internal.data.user_id !== userId) return null;
+      const input = SavedItemAnalysisJobInputSchema.safeParse(internal.data.input);
+      const status = KnowledgeJobStatusSchema.safeParse(job.data.status);
+      if (!input.success || input.data.savedItemId !== savedItemId || !status.success) return null;
+      return {
+        jobId: job.data.id,
+        status: status.data,
+        lastErrorCode: job.data.last_error_code,
       };
     },
   };

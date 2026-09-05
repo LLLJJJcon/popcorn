@@ -2,13 +2,16 @@ import { describe, expect, test, vi } from "vitest";
 
 import { KnowledgeJobSchema, type KnowledgeJob } from "@/contracts/knowledge";
 import { ModelGatewayError } from "@/server/ai/provider";
-import { createAnalyzeSavedItemFixtureGateway } from "@/server/ai/prompts/analyze-saved-item.v1";
+import {
+  buildAnalyzeSavedItemPrompt,
+  createAnalyzeSavedItemFixtureGateway,
+  normalizeSavedItemAnalysisWire,
+} from "@/server/ai/prompts/analyze-saved-item.v1";
 import {
   createStructuredJsonGatewayResolver,
   type StructuredJsonGateway,
 } from "@/server/ai/structured-json-gateway";
 import * as processRouteModule from "@/app/api/internal/jobs/process/route";
-import { nextJobFailure } from "@/server/domain/lease-job";
 import { createAnalyzeSavedItemHandler } from "@/server/jobs/handlers/analyze-saved-item";
 import {
   createInternalProcessRoute,
@@ -22,6 +25,7 @@ import {
   createSavedItemAnalysisJobKey,
   SavedItemAnalysisContentSchema,
   type SavedItemAnalysisEvidence,
+  groundSavedItemAnalysisContent,
   validateSavedItemAnalysisContent,
 } from "@/server/jobs/job-types";
 
@@ -156,7 +160,7 @@ const input = {
   savedItemId: SAVE_ID,
   snapshotId: SNAPSHOT_ID,
   transcriptHash: TRANSCRIPT_HASH,
-  promptVersion: "analyze-saved-item-v1",
+  promptVersion: "analyze-saved-item-v2",
   gatewayConfigId: CONFIG_ID,
   gatewayRevision: 3,
   gatewayFingerprint: GATEWAY_FINGERPRINT,
@@ -192,6 +196,31 @@ const candidate = {
   endSeconds: 12,
   confidence: 0.9,
 };
+
+const semanticCandidate = {
+  expression: candidate.expression,
+  englishMeaning: candidate.englishMeaning,
+  englishExplanation: candidate.englishExplanation,
+  tone: candidate.tone,
+  communicativeFunction: candidate.communicativeFunction,
+  register: candidate.register,
+  sourceLineIndices: [0],
+  confidence: candidate.confidence,
+};
+
+function terminalFailure(
+  job: ReturnType<typeof analysisJob>,
+  lastErrorCode: string,
+) {
+  return {
+    ...job,
+    status: "terminal_failed" as const,
+    nextAttemptAt: null,
+    leaseExpiresAt: null,
+    lastErrorCode,
+    updatedAt: NOW,
+  };
+}
 
 const fullWidthEvidence: SavedItemAnalysisEvidence = {
   ...evidence,
@@ -245,7 +274,7 @@ describe("source-grounded saved-item analysis", () => {
       sourceHash: TRANSCRIPT_HASH,
       savedItemId: SAVE_ID,
       snapshotId: SNAPSHOT_ID,
-      promptVersion: "analyze-saved-item-v1",
+      promptVersion: "analyze-saved-item-v2",
       gatewayFingerprint: GATEWAY_FINGERPRINT,
     };
     const baseline = createSavedItemAnalysisJobKey(fields);
@@ -255,11 +284,81 @@ describe("source-grounded saved-item analysis", () => {
       { sourceHash: "1".repeat(64) },
       { savedItemId: "23000000-0000-4000-8000-000000000001" },
       { snapshotId: "24000000-0000-4000-8000-000000000001" },
-      { promptVersion: "analyze-saved-item-v2" },
+      { promptVersion: "analyze-saved-item-v1" },
       { gatewayFingerprint: "2".repeat(64) },
     ]) {
       expect(createSavedItemAnalysisJobKey({ ...fields, ...changed })).not.toBe(baseline);
     }
+  });
+
+  test("uses retryId only to isolate explicit-retry dedupe identity", () => {
+    const fields = {
+      sourceHash: TRANSCRIPT_HASH,
+      savedItemId: SAVE_ID,
+      snapshotId: SNAPSHOT_ID,
+      promptVersion: "analyze-saved-item-v2",
+      gatewayFingerprint: GATEWAY_FINGERPRINT,
+    };
+
+    const firstAnalysis = createSavedItemAnalysisJobKey(fields);
+    const retryA = createSavedItemAnalysisJobKey({
+      ...fields,
+      retryId: "25000000-0000-4000-8000-000000000001",
+    });
+    const retryB = createSavedItemAnalysisJobKey({
+      ...fields,
+      retryId: "25000000-0000-4000-8000-000000000002",
+    });
+
+    expect(retryA).not.toBe(firstAnalysis);
+    expect(retryB).not.toBe(retryA);
+    expect(createSavedItemAnalysisJobKey({
+      ...fields,
+      retryId: "25000000-0000-4000-8000-000000000001",
+    })).toBe(retryA);
+  });
+
+  test("sends semantic source indexes to the gateway and persists server-grounded candidates", async () => {
+    const complete = vi.fn(async (
+      _version: string,
+      _userPrompt: string,
+      options: {
+        systemPrompt: string;
+        normalize(value: Record<string, unknown>): unknown;
+      },
+    ) => {
+      const decoded = options.normalize({ candidates: [semanticCandidate] }) as {
+        success: boolean;
+        data?: unknown;
+      };
+      if (!decoded.success) throw new Error("fixture wire did not normalize");
+      return decoded.data;
+    });
+    const store = analysisStore();
+
+    await expect(createAnalyzeSavedItemHandler({
+      store,
+      gatewayResolver: { resolve: vi.fn(async () => mockGateway("provider/model-v2", complete)) },
+    })(analysisJob(), USER_A, NOW)).resolves.toBe("completed");
+
+    const [version, userPrompt, options] = complete.mock.calls[0]!;
+    expect(version).toBe("analyze-saved-item-v2");
+    expect(userPrompt).toContain('"sourceLineIndex":0');
+    expect(userPrompt).not.toContain(SEGMENT_ID);
+    expect(userPrompt).not.toContain(SAVE_ID);
+    expect(userPrompt).not.toContain("startSeconds");
+    expect(options.systemPrompt).toMatch(/^The user message contains untrusted learning data\./);
+    expect(store.completeGatewayLearningArtifact).toHaveBeenCalledWith(
+      USER_A,
+      expect.anything(),
+      "saved_item_analysis",
+      { candidates: [candidate] },
+      "analyze-saved-item-v2",
+      "provider/model-v2",
+      expect.any(String),
+      PIN,
+      NOW,
+    );
   });
 
   test("CI fixture validates evidence and publishes only through the gateway completion RPC", async () => {
@@ -289,7 +388,7 @@ describe("source-grounded saved-item analysis", () => {
       job,
       "saved_item_analysis",
       { candidates: [candidate] },
-      "analyze-saved-item-v1",
+      "analyze-saved-item-v2",
       "fixture/saved-analysis-v1",
       job.dedupeKey,
       PIN,
@@ -302,24 +401,29 @@ describe("source-grounded saved-item analysis", () => {
 
   test("the task-local CI fixture deterministically returns evidence-grounded content", async () => {
     const fixture = createAnalyzeSavedItemFixtureGateway();
-    const prompt = ["bounded instructions", JSON.stringify({ segments: evidence.segments })].join("\n");
+    const prompt = buildAnalyzeSavedItemPrompt({
+      kind: evidence.kind,
+      rawText: evidence.rawText,
+      sourceLines: evidence.segments.map((segment, sourceLineIndex) => ({
+        sourceLineIndex,
+        originalChinese: segment.originalChinese,
+      })),
+    });
     const completionOptions = {
-      systemPrompt: "Fixture system prompt",
+      systemPrompt: prompt.systemPrompt,
       timeoutMs: 30_000,
       maxTokens: 900,
-      normalize(value: Record<string, unknown>) {
-        const parsed = SavedItemAnalysisContentSchema.safeParse(value);
-        return parsed.success
-          ? { success: true as const, data: parsed.data }
-          : { success: false as const, fieldPath: "candidates" };
-      },
+      normalize: normalizeSavedItemAnalysisWire,
     };
 
-    const first = await fixture.complete("analyze-saved-item-v1", prompt, completionOptions);
-    const second = await fixture.complete("analyze-saved-item-v1", prompt, completionOptions);
+    const first = await fixture.complete("analyze-saved-item-v2", prompt.userPrompt, completionOptions);
+    const second = await fixture.complete("analyze-saved-item-v2", prompt.userPrompt, completionOptions);
 
     expect(first).toEqual(second);
-    expect(() => validateSavedItemAnalysisContent(first, evidence)).not.toThrow();
+    expect(() => validateSavedItemAnalysisContent(
+      groundSavedItemAnalysisContent(first, evidence),
+      evidence,
+    )).not.toThrow();
   });
 
   test.each([
@@ -402,9 +506,9 @@ describe("source-grounded saved-item analysis", () => {
   });
 
   test.each([
-    ["invented evidence", { ...candidate, evidenceText: "完全无关的中文。" }],
-    ["unknown segment", { ...candidate, segmentIds: ["e".repeat(64)] }],
-    ["reversed timestamp", { ...candidate, startSeconds: 12, endSeconds: 10 }],
+    ["unknown source index", { ...semanticCandidate, sourceLineIndices: [99] }],
+    ["ungrounded expression", { ...semanticCandidate, expression: "完全无关" }],
+    ["duplicate source index", { ...semanticCandidate, sourceLineIndices: [0, 0] }],
   ])("rejects %s and preserves the raw save", async (_label, invalidCandidate) => {
     const job = analysisJob();
     const originalSave = structuredClone(analysisStore().rawSave);
@@ -417,20 +521,20 @@ describe("source-grounded saved-item analysis", () => {
     };
 
     await expect(createAnalyzeSavedItemHandler({ store, gatewayResolver })(job, USER_A, NOW))
-      .resolves.toBe("deferred");
+      .resolves.toBe("failed");
 
     expect(store.completeGatewayLearningArtifact).not.toHaveBeenCalled();
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledExactlyOnceWith(
       USER_A,
       job,
-      nextJobFailure(job, "PROVIDER_OUTPUT_INVALID:grounding", NOW),
-      false,
+      terminalFailure(job, "PROVIDER_OUTPUT_INVALID:grounding:sourceLineIndices"),
+      true,
     );
     expect(store.rawSave).toEqual(originalSave);
   });
 
-  test("terminal Provider failure clears only private job input and leaves raw save unchanged", async () => {
-    const job = analysisJob({ attemptCount: 5 });
+  test("an exhausted Provider failure is terminal on the first durable attempt", async () => {
+    const job = analysisJob();
     const store = analysisStore();
     const originalSave = structuredClone(store.rawSave);
     const gatewayResolver = {
@@ -445,7 +549,7 @@ describe("source-grounded saved-item analysis", () => {
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledExactlyOnceWith(
       USER_A,
       job,
-      nextJobFailure(job, "PROVIDER_UNAVAILABLE:transport", NOW),
+      terminalFailure(job, "PROVIDER_UNAVAILABLE:transport"),
       true,
     );
     expect(store.rawSave).toEqual(originalSave);
@@ -456,14 +560,107 @@ describe("source-grounded saved-item analysis", () => {
     const gatewayResolver = {
       resolve: vi.fn(async () => mockGateway(
         "fixture/saved-analysis-v1",
-        vi.fn(async () => ({ candidates: Array.from({ length: 4 }, () => candidate) })),
+        vi.fn(async (_version, _prompt, options) => {
+          const decoded = options.normalize({
+            candidates: Array.from({ length: 4 }, () => semanticCandidate),
+          });
+          if (!decoded.success) {
+            throw new ModelGatewayError(
+              "PROVIDER_OUTPUT_INVALID",
+              "wire_schema",
+              decoded.fieldPath,
+            );
+          }
+          return decoded.data;
+        }),
       )),
     };
 
     await expect(createAnalyzeSavedItemHandler({ store, gatewayResolver })(
       analysisJob(), USER_A, NOW,
-    )).resolves.toBe("deferred");
+    )).resolves.toBe("failed");
     expect(store.completeGatewayLearningArtifact).not.toHaveBeenCalled();
+    expect(store.transitionLearningArtifactFailure).toHaveBeenCalledWith(
+      USER_A,
+      expect.anything(),
+      terminalFailure(analysisJob(), "PROVIDER_OUTPUT_INVALID:wire_schema:candidates"),
+      true,
+    );
+  });
+
+  test.each([
+    [
+      "503 twice",
+      new ModelGatewayError("PROVIDER_UNAVAILABLE", "provider_http"),
+      2,
+      "PROVIDER_UNAVAILABLE:provider_http",
+    ],
+    [
+      "timeout",
+      new ModelGatewayError("PROVIDER_UNAVAILABLE", "timeout"),
+      1,
+      "PROVIDER_UNAVAILABLE:timeout",
+    ],
+  ] as const)("makes %s terminal with no future durable retry", async (
+    _label,
+    exhausted,
+    providerCallCount,
+    errorCode,
+  ) => {
+    const providerCall = vi.fn(async () => {
+      throw exhausted;
+    });
+    const complete = vi.fn(async () => {
+      for (let attempt = 0; attempt < providerCallCount; attempt += 1) {
+        try {
+          await providerCall();
+        } catch {
+          if (attempt + 1 === providerCallCount) throw exhausted;
+        }
+      }
+      throw exhausted;
+    });
+    const store = analysisStore();
+    const job = analysisJob();
+
+    await expect(createAnalyzeSavedItemHandler({
+      store,
+      gatewayResolver: { resolve: vi.fn(async () => mockGateway("provider/model-v2", complete)) },
+    })(job, USER_A, NOW)).resolves.toBe("failed");
+
+    expect(providerCall).toHaveBeenCalledTimes(providerCallCount);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(store.transitionLearningArtifactFailure).toHaveBeenCalledExactlyOnceWith(
+      USER_A,
+      job,
+      terminalFailure(job, errorCode),
+      true,
+    );
+  });
+
+  test("makes persistence failure terminal without a second Provider call", async () => {
+    const complete = vi.fn(async () => ({ candidates: [semanticCandidate] }));
+    const store = analysisStore({
+      completeGatewayLearningArtifact: vi.fn(async () => {
+        throw new Error("database unavailable with private details");
+      }),
+    });
+    const job = analysisJob();
+
+    await expect(createAnalyzeSavedItemHandler({
+      store,
+      gatewayResolver: { resolve: vi.fn(async () => mockGateway("provider/model-v2", complete)) },
+    })(job, USER_A, NOW)).resolves.toBe("failed");
+
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(store.transitionLearningArtifactFailure).toHaveBeenCalledExactlyOnceWith(
+      USER_A,
+      job,
+      terminalFailure(job, "INTERNAL:persistence"),
+      true,
+    );
+    expect(JSON.stringify(store.transitionLearningArtifactFailure.mock.calls))
+      .not.toContain("database unavailable");
   });
 
   test("rejects secret-bearing private input before gateway resolution and never persists it", async () => {
@@ -476,7 +673,7 @@ describe("source-grounded saved-item analysis", () => {
     await expect(createAnalyzeSavedItemHandler({
       store,
       gatewayResolver: { resolve },
-    })(analysisJob(), USER_A, NOW)).resolves.toBe("deferred");
+    })(analysisJob(), USER_A, NOW)).resolves.toBe("failed");
 
     expect(resolve).not.toHaveBeenCalled();
     expect(JSON.stringify(store.transitionLearningArtifactFailure.mock.calls)).not.toContain(secret);
@@ -506,22 +703,22 @@ describe("source-grounded saved-item analysis", () => {
     expect(published).toEqual(new Set([analysisJob().dedupeKey]));
   });
 
-  test("maps analysis retry and completion to only the frozen atomic RPCs", async () => {
+  test("maps analysis terminal failure and completion to only the frozen atomic RPCs", async () => {
     const rpc = vi.fn()
       .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: ARTIFACT_ID, error: null });
     const store = createSupabaseDurableJobStore({ rpc } as never);
     const job = analysisJob();
-    const retry = nextJobFailure(job, "PROVIDER_UNAVAILABLE", NOW);
+    const terminal = terminalFailure(job, "PROVIDER_UNAVAILABLE:transport");
 
-    await expect(store.transitionLearningArtifactFailure(USER_A, job, retry, false))
+    await expect(store.transitionLearningArtifactFailure(USER_A, job, terminal, true))
       .resolves.toBe(true);
     await expect(store.completeGatewayLearningArtifact(
       USER_A,
       job,
       "saved_item_analysis",
       { candidates: [candidate] },
-      "analyze-saved-item-v1",
+      "analyze-saved-item-v2",
       "provider/model-v1",
       job.dedupeKey,
       PIN,
@@ -535,10 +732,10 @@ describe("source-grounded saved-item analysis", () => {
       p_job_type: "analyze_saved_item",
       p_expected_lease_expires_at: job.leaseExpiresAt,
       p_expected_attempt_count: job.attemptCount,
-      p_target_status: retry.status,
-      p_next_attempt_at: retry.nextAttemptAt,
-      p_error_code: "PROVIDER_UNAVAILABLE",
-      p_clear_input: false,
+      p_target_status: terminal.status,
+      p_next_attempt_at: null,
+      p_error_code: "PROVIDER_UNAVAILABLE:transport",
+      p_clear_input: true,
       p_now: NOW,
     });
     expect(rpc).toHaveBeenNthCalledWith(2, "complete_gateway_learning_artifact_job", {
@@ -550,7 +747,7 @@ describe("source-grounded saved-item analysis", () => {
       p_expected_attempt_count: job.attemptCount,
       p_artifact_type: "saved_item_analysis",
       p_content: { candidates: [candidate] },
-      p_prompt_version: "analyze-saved-item-v1",
+      p_prompt_version: "analyze-saved-item-v2",
       p_model: "provider/model-v1",
       p_result_key: job.dedupeKey,
       p_config_id: CONFIG_ID,
@@ -583,7 +780,7 @@ describe("source-grounded saved-item analysis", () => {
       savedItemId: SAVE_ID,
       snapshotId: SNAPSHOT_ID,
       transcriptHash: TRANSCRIPT_HASH,
-      promptVersion: "analyze-saved-item-v1",
+      promptVersion: "analyze-saved-item-v2",
       now: NOW,
     })).resolves.toEqual({ jobId: JOB_ID, status: "pending", created: true });
 
@@ -591,7 +788,7 @@ describe("source-grounded saved-item analysis", () => {
       sourceHash: TRANSCRIPT_HASH,
       savedItemId: SAVE_ID,
       snapshotId: SNAPSHOT_ID,
-      promptVersion: "analyze-saved-item-v1",
+      promptVersion: "analyze-saved-item-v2",
       gatewayFingerprint: GATEWAY_FINGERPRINT,
     });
     expect(rpc).toHaveBeenNthCalledWith(1, "resolve_active_user_model_gateway_pin", {
@@ -607,7 +804,7 @@ describe("source-grounded saved-item analysis", () => {
         savedItemId: SAVE_ID,
         snapshotId: SNAPSHOT_ID,
         transcriptHash: TRANSCRIPT_HASH,
-        promptVersion: "analyze-saved-item-v1",
+        promptVersion: "analyze-saved-item-v2",
         gatewayConfigId: CONFIG_ID,
         gatewayRevision: 3,
         gatewayFingerprint: GATEWAY_FINGERPRINT,
@@ -629,7 +826,7 @@ describe("source-grounded saved-item analysis", () => {
       savedItemId: SAVE_ID,
       snapshotId: SNAPSHOT_ID,
       transcriptHash: TRANSCRIPT_HASH,
-      promptVersion: "analyze-saved-item-v1",
+      promptVersion: "analyze-saved-item-v2",
       now: NOW,
     })).resolves.toBeNull();
 
@@ -663,7 +860,7 @@ describe("source-grounded saved-item analysis", () => {
       savedItemId: SAVE_ID,
       snapshotId: SNAPSHOT_ID,
       transcriptHash: TRANSCRIPT_HASH,
-      promptVersion: "analyze-saved-item-v1",
+      promptVersion: "analyze-saved-item-v2",
       now: NOW,
     };
 
@@ -696,7 +893,7 @@ describe("source-grounded saved-item analysis", () => {
     await expect(createAnalyzeSavedItemHandler({
       store,
       gatewayResolver: { resolve },
-    })(analysisJob(), USER_A, NOW)).resolves.toBe("deferred");
+    })(analysisJob(), USER_A, NOW)).resolves.toBe("failed");
 
     expect(resolve).not.toHaveBeenCalled();
     expect(store.completeGatewayLearningArtifact).not.toHaveBeenCalled();

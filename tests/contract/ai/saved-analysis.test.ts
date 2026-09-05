@@ -4,9 +4,11 @@ import {
   ANALYZE_SAVED_ITEM_PROMPT_VERSION,
   buildAnalyzeSavedItemPrompt,
   createAnalyzeSavedItemFixtureGateway,
+  normalizeSavedItemAnalysisWire,
 } from "@/server/ai/prompts/analyze-saved-item.v1";
 import {
   SavedItemAnalysisContentSchema,
+  groundSavedItemAnalysisContent,
   type SavedItemAnalysisEvidence,
   validateSavedItemAnalysisContent,
 } from "@/server/jobs/job-types";
@@ -112,22 +114,26 @@ describe("saved-item analysis fixture contract", () => {
       candidates: [candidate],
     });
 
+    const prompt = buildAnalyzeSavedItemPrompt({
+      kind: source.kind,
+      rawText: source.rawText,
+      sourceLines: source.segments.map((segment, sourceLineIndex) => ({
+        sourceLineIndex,
+        originalChinese: segment.originalChinese,
+      })),
+    });
     const fixtureOutput = await createAnalyzeSavedItemFixtureGateway().complete(
       ANALYZE_SAVED_ITEM_PROMPT_VERSION,
-      buildAnalyzeSavedItemPrompt(source),
+      prompt.userPrompt,
       {
-        systemPrompt: "Fixture system prompt",
+        systemPrompt: prompt.systemPrompt,
         timeoutMs: 30_000,
         maxTokens: 900,
-        normalize(value) {
-          const parsed = SavedItemAnalysisContentSchema.safeParse(value);
-          return parsed.success
-            ? { success: true, data: parsed.data }
-            : { success: false, fieldPath: "candidates" };
-        },
+        normalize: normalizeSavedItemAnalysisWire,
       },
     );
-    expect(validateSavedItemAnalysisContent(fixtureOutput, source)).toEqual(fixtureOutput);
+    const grounded = groundSavedItemAnalysisContent(fixtureOutput, source);
+    expect(validateSavedItemAnalysisContent(grounded, source)).toEqual(grounded);
   });
 
   test("rejects malformed structured output before publication", () => {

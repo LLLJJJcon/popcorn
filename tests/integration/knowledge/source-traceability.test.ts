@@ -1,5 +1,8 @@
 import { createCandidateHttpHandlers, createCandidateService } from "@/server/domain/confirm-candidate";
-import { createSupabaseExpressionRepository } from "@/server/repositories/expression-repository";
+import {
+  createSupabaseExpressionRepository,
+  type CandidateAnalysisJobStatus,
+} from "@/server/repositories/expression-repository";
 import { createSupabaseSavedItemAnalysisRegistrar } from "@/server/jobs/process-jobs";
 
 const productionRouteHarness = vi.hoisted(() => ({
@@ -69,7 +72,7 @@ function context(overrides: Record<string, unknown> = {}) {
       sourceId: SOURCE_ID,
       savedItemId: SAVE_ID,
       type: "saved_item_analysis",
-      promptVersion: "analyze-saved-item-v1",
+      promptVersion: "analyze-saved-item-v2",
       content: { candidates: [candidate] },
     },
     ...overrides,
@@ -78,11 +81,20 @@ function context(overrides: Record<string, unknown> = {}) {
 
 function repository(value: ReturnType<typeof context> | null = context()) {
   const read = vi.fn(async (_userId: string, _savedItemId: string) => value);
-  return { read };
+  const readAnalysisJobStatus = vi.fn(
+    async (): Promise<CandidateAnalysisJobStatus | null> => null,
+  );
+  return { read, readAnalysisJobStatus };
 }
 
-function request(method: "GET" | "POST", body?: unknown, origin = "https://popcorn.example") {
-  return new Request(`https://popcorn.example/api/v1/saved-items/${SAVE_ID}/candidates`, {
+function request(
+  method: "GET" | "POST",
+  body?: unknown,
+  origin = "https://popcorn.example",
+  jobId?: string,
+) {
+  const query = jobId ? `?jobId=${encodeURIComponent(jobId)}` : "";
+  return new Request(`https://popcorn.example/api/v1/saved-items/${SAVE_ID}/candidates${query}`, {
     method,
     headers: method === "POST" ? { Origin: origin, "Content-Type": "application/json" } : undefined,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -158,7 +170,7 @@ describe("source-grounded candidate route", () => {
         savedItemId: SAVE_ID,
         snapshotId: SNAPSHOT_ID,
         transcriptHash: TRANSCRIPT_HASH,
-        promptVersion: "analyze-saved-item-v1",
+        promptVersion: "analyze-saved-item-v2",
         gatewayConfigId: CONFIG_ID,
         gatewayRevision: 4,
         gatewayFingerprint: FINGERPRINT,
@@ -168,6 +180,81 @@ describe("source-grounded candidate route", () => {
     const body = await response.json();
     expect(body.data).toEqual({ state: "processing", jobId: JOB_ID, status: "pending", created: true });
     expect(JSON.stringify(body)).not.toMatch(/api.?key|vault|origin|header|private|provider|raw|mastery|due/i);
+  });
+
+  it("GET returns processing only for the exact owner/type/save-bound job", async () => {
+    const repo = repository(context({ artifact: null }));
+    repo.readAnalysisJobStatus.mockResolvedValueOnce({
+      jobId: JOB_ID,
+      status: "leased",
+      lastErrorCode: null,
+    });
+
+    const response = await handlers(repo).get(request("GET", undefined, undefined, JOB_ID), SAVE_ID);
+
+    expect(response.status).toBe(200);
+    expect(repo.readAnalysisJobStatus).toHaveBeenCalledExactlyOnceWith(USER_A, SAVE_ID, JOB_ID);
+    expect((await response.json()).data).toEqual({
+      state: "processing",
+      jobId: JOB_ID,
+      status: "leased",
+    });
+  });
+
+  it("GET exposes only the safe terminal category for a bound failed job", async () => {
+    const repo = repository(context({ artifact: null }));
+    repo.readAnalysisJobStatus.mockResolvedValueOnce({
+      jobId: JOB_ID,
+      status: "terminal_failed",
+      lastErrorCode: "PROVIDER_OUTPUT_INVALID:grounding:sourceLineIndices",
+    });
+
+    const response = await handlers(repo).get(request("GET", undefined, undefined, JOB_ID), SAVE_ID);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toEqual({ state: "failed", jobId: JOB_ID, failureCategory: "model_output" });
+    expect(JSON.stringify(body)).not.toContain("grounding");
+    expect(JSON.stringify(body)).not.toContain("sourceLineIndices");
+  });
+
+  it.each(["cross-user job", "wrong job type", "wrong saved item", "wrong private savedItemId"])(
+    "GET rejects %s status instead of exposing another job",
+    async () => {
+      const repo = repository(context({ artifact: null }));
+      repo.readAnalysisJobStatus.mockResolvedValueOnce(null);
+
+      const response = await handlers(repo).get(request("GET", undefined, undefined, JOB_ID), SAVE_ID);
+
+      expect(response.status).toBe(404);
+      expect(JSON.stringify(await response.json())).not.toMatch(/lastError|private|input|provider/i);
+    },
+  );
+
+  it("explicit retry changes only dedupe identity and keeps retryId out of private input", async () => {
+    const retryId = "99999999-9999-4999-8999-999999999999";
+    const pinRow = [{
+      config_id: CONFIG_ID,
+      revision: 4,
+      config_fingerprint: FINGERPRINT,
+      model: "other/model",
+    }];
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({ data: pinRow, error: null })
+      .mockResolvedValueOnce({ data: [{ knowledge_job_id: JOB_ID, status: "pending", created: true }], error: null })
+      .mockResolvedValueOnce({ data: pinRow, error: null })
+      .mockResolvedValueOnce({ data: [{ knowledge_job_id: JOB_ID, status: "pending", created: true }], error: null });
+    const registrar = createSupabaseSavedItemAnalysisRegistrar({ rpc } as never);
+    const missing = repository(context({ artifact: null }));
+
+    await handlers(missing, registrar).post(request("POST", {}), SAVE_ID);
+    await handlers(missing, registrar).post(request("POST", { retryId }), SAVE_ID);
+
+    const first = rpc.mock.calls[1]![1] as Record<string, unknown>;
+    const retried = rpc.mock.calls[3]![1] as Record<string, unknown>;
+    expect(retried.p_dedupe_key).not.toBe(first.p_dedupe_key);
+    expect(retried.p_input).toEqual(first.p_input);
+    expect(JSON.stringify(retried.p_input)).not.toContain(retryId);
   });
 
   it("returns gateway-required without changing the raw save when the owner has no active pin", async () => {
@@ -276,7 +363,7 @@ describe("production candidate repository query boundaries", () => {
       saved_items: { id: SAVE_ID, user_id: USER_A, video_source_id: SOURCE_ID, snapshot_id: SNAPSHOT_ID, youtube_video_id: "dQw4w9WgXcQ" },
       video_sources: { id: SOURCE_ID, user_id: USER_A, youtube_video_id: "dQw4w9WgXcQ", canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
       video_snapshots: { id: SNAPSHOT_ID, user_id: USER_A, video_source_id: SOURCE_ID, transcript_hash: TRANSCRIPT_HASH },
-      generated_artifacts: { id: ARTIFACT_ID, user_id: USER_A, video_source_id: SOURCE_ID, saved_item_id: SAVE_ID, artifact_type: "saved_item_analysis", prompt_version: "analyze-saved-item-v1", content: { candidates: [candidate] }, created_at: NOW },
+      generated_artifacts: { id: ARTIFACT_ID, user_id: USER_A, video_source_id: SOURCE_ID, saved_item_id: SAVE_ID, artifact_type: "saved_item_analysis", prompt_version: "analyze-saved-item-v2", content: { candidates: [candidate] }, created_at: NOW },
     };
     const client = {
       from(table: string) {
@@ -313,6 +400,108 @@ describe("production candidate repository query boundaries", () => {
       `generated_artifacts:order:created_at:${JSON.stringify({ ascending: false })}`,
       `generated_artifacts:order:id:${JSON.stringify({ ascending: false })}`,
     ]));
+  });
+
+  it("returns job status only after owner, analysis type, save, and private input all bind", async () => {
+    const calls: string[] = [];
+    const rows: Record<string, unknown> = {
+      knowledge_jobs: {
+        id: JOB_ID,
+        user_id: USER_A,
+        saved_item_id: SAVE_ID,
+        job_type: "analyze_saved_item",
+        status: "terminal_failed",
+        last_error_code: "INTERNAL:persistence",
+      },
+      knowledge_job_internal: {
+        user_id: USER_A,
+        input: {
+          kind: "analyze_saved_item",
+          savedItemId: SAVE_ID,
+          snapshotId: SNAPSHOT_ID,
+          transcriptHash: TRANSCRIPT_HASH,
+          promptVersion: "analyze-saved-item-v2",
+          gatewayConfigId: CONFIG_ID,
+          gatewayRevision: 4,
+          gatewayFingerprint: FINGERPRINT,
+        },
+      },
+    };
+    const client = {
+      from(table: string) {
+        const query = {
+          select(columns: string) { calls.push(`${table}:select:${columns}`); return query; },
+          eq(column: string, value: string) { calls.push(`${table}:eq:${column}:${value}`); return query; },
+          maybeSingle() { return Promise.resolve({ data: rows[table], error: null }); },
+        };
+        return query;
+      },
+    };
+
+    await expect(createSupabaseExpressionRepository(client as never)
+      .readAnalysisJobStatus(USER_A, SAVE_ID, JOB_ID)).resolves.toEqual({
+        jobId: JOB_ID,
+        status: "terminal_failed",
+        lastErrorCode: "INTERNAL:persistence",
+      });
+    expect(calls).toEqual(expect.arrayContaining([
+      `knowledge_jobs:eq:user_id:${USER_A}`,
+      `knowledge_jobs:eq:id:${JOB_ID}`,
+      `knowledge_jobs:eq:saved_item_id:${SAVE_ID}`,
+      "knowledge_jobs:eq:job_type:analyze_saved_item",
+      `knowledge_job_internal:eq:user_id:${USER_A}`,
+      `knowledge_job_internal:eq:knowledge_job_id:${JOB_ID}`,
+    ]));
+  });
+
+  it.each([
+    ["cross owner", USER_B, "analyze_saved_item", SAVE_ID, SAVE_ID],
+    ["wrong type", USER_A, "generate_overview", SAVE_ID, SAVE_ID],
+    ["wrong save", USER_A, "analyze_saved_item", SNAPSHOT_ID, SAVE_ID],
+    ["wrong private save", USER_A, "analyze_saved_item", SAVE_ID, SNAPSHOT_ID],
+  ])("rejects %s job status rows", async (
+    _label,
+    owner,
+    type,
+    savedItemId,
+    privateSavedItemId,
+  ) => {
+    const rows: Record<string, unknown> = {
+      knowledge_jobs: {
+        id: JOB_ID,
+        user_id: owner,
+        saved_item_id: savedItemId,
+        job_type: type,
+        status: "pending",
+        last_error_code: null,
+      },
+      knowledge_job_internal: {
+        user_id: owner,
+        input: {
+          kind: "analyze_saved_item",
+          savedItemId: privateSavedItemId,
+          snapshotId: SNAPSHOT_ID,
+          transcriptHash: TRANSCRIPT_HASH,
+          promptVersion: "analyze-saved-item-v2",
+          gatewayConfigId: CONFIG_ID,
+          gatewayRevision: 4,
+          gatewayFingerprint: FINGERPRINT,
+        },
+      },
+    };
+    const client = {
+      from(table: string) {
+        const query = {
+          select() { return query; },
+          eq() { return query; },
+          maybeSingle() { return Promise.resolve({ data: rows[table], error: null }); },
+        };
+        return query;
+      },
+    };
+
+    await expect(createSupabaseExpressionRepository(client as never)
+      .readAnalysisJobStatus(USER_A, SAVE_ID, JOB_ID)).resolves.toBeNull();
   });
 });
 
@@ -398,7 +587,7 @@ describe("production candidate route exports and assembly", () => {
       video_source_id: SOURCE_ID,
       saved_item_id: SAVE_ID,
       artifact_type: "saved_item_analysis",
-      prompt_version: "analyze-saved-item-v1",
+      prompt_version: "analyze-saved-item-v2",
       content: { candidates: [candidate] },
       created_at: NOW,
     });
@@ -437,7 +626,7 @@ describe("production candidate route exports and assembly", () => {
         savedItemId: SAVE_ID,
         snapshotId: SNAPSHOT_ID,
         transcriptHash: TRANSCRIPT_HASH,
-        promptVersion: "analyze-saved-item-v1",
+        promptVersion: "analyze-saved-item-v2",
         gatewayConfigId: CONFIG_ID,
         gatewayRevision: 4,
         gatewayFingerprint: FINGERPRINT,

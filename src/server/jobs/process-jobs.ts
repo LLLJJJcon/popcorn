@@ -409,6 +409,7 @@ export type SavedItemAnalysisRegistration = {
   readonly snapshotId: string;
   readonly transcriptHash: string;
   readonly promptVersion: string;
+  readonly retryId?: string;
   readonly now: string;
 };
 
@@ -451,6 +452,7 @@ export function createSupabaseSavedItemAnalysisRegistrar(client: SupabaseClient<
         snapshotId: input.snapshotId,
         promptVersion: input.promptVersion,
         gatewayFingerprint: input.gatewayFingerprint,
+        ...(registration.retryId ? { retryId: registration.retryId } : {}),
       });
       const result = await client.rpc("register_gateway_learning_artifact_job", {
         p_user_id: userId,

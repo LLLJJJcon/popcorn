@@ -4,13 +4,18 @@ import { CandidateExpressionListSchema } from "@/contracts/knowledge";
 import { failure, success } from "@/server/api/respond";
 import type { WebSessionResult } from "@/server/auth/web-session";
 import { ANALYZE_SAVED_ITEM_PROMPT_VERSION } from "@/server/ai/prompts/analyze-saved-item.v1";
-import type { SavedItemAnalysisRegistration } from "@/server/jobs/process-jobs";
+import {
+  publicFailureCategory,
+  type SavedItemAnalysisRegistration,
+} from "@/server/jobs/process-jobs";
 import type { CandidateSourceContext, ExpressionRepository } from "@/server/repositories/expression-repository";
 
 const IdSchema = z.string().uuid();
 const HashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const ArtifactContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema });
-const EmptyBodySchema = z.strictObject({});
+const RecoveryBodySchema = z.strictObject({
+  retryId: z.string().uuid().optional(),
+});
 
 type RegistrarResult = {
   readonly jobId: string;
@@ -27,7 +32,7 @@ class CandidateArtifactError extends Error {}
 
 function ready(context: CandidateSourceContext) {
   const artifact = context.artifact;
-  if (!artifact) return { state: "processing" as const };
+  if (!artifact) return null;
   if (
     artifact.userId !== context.userId
     || artifact.sourceId !== context.sourceId
@@ -74,12 +79,31 @@ export function createCandidateService(
 
   return {
     async read(userId: string, savedItemId: string) {
-      return ready(await context(userId, savedItemId));
-    },
-    async recover(userId: string, savedItemId: string) {
       const source = await context(userId, savedItemId);
       const current = ready(source);
-      if (current.state === "ready") return current;
+      if (current) return current;
+      return { state: "gateway_required" as const };
+    },
+    async readJob(userId: string, savedItemId: string, jobId: string) {
+      const source = await context(userId, savedItemId);
+      const current = ready(source);
+      if (current) return current;
+      const job = await repository.readAnalysisJobStatus(source.userId, source.savedItemId, jobId);
+      if (!job) throw new CandidateAccessError();
+      if (job.status === "pending" || job.status === "leased") {
+        return { state: "processing" as const, jobId: job.jobId, status: job.status };
+      }
+      if (job.status === "terminal_failed") {
+        const failureCategory = publicFailureCategory(job.status, job.lastErrorCode);
+        if (!failureCategory) throw new CandidateArtifactError();
+        return { state: "failed" as const, jobId: job.jobId, failureCategory };
+      }
+      throw new CandidateArtifactError();
+    },
+    async recover(userId: string, savedItemId: string, retryId?: string) {
+      const source = await context(userId, savedItemId);
+      const current = ready(source);
+      if (current) return current;
       const registered = await registrar.register({
         userId: source.userId,
         sourceId: source.sourceId,
@@ -87,6 +111,7 @@ export function createCandidateService(
         snapshotId: source.snapshotId,
         transcriptHash: source.transcriptHash,
         promptVersion: ANALYZE_SAVED_ITEM_PROMPT_VERSION,
+        ...(retryId ? { retryId } : {}),
         now: now(),
       });
       return registered
@@ -100,7 +125,7 @@ type CandidateService = ReturnType<typeof createCandidateService>;
 
 const MAX_BODY_BYTES = 256;
 
-async function boundedEmptyBody(request: Request) {
+async function boundedRecoveryBody(request: Request) {
   const mediaType = request.headers.get("content-type")
     ?.split(";", 1)[0]
     ?.trim()
@@ -135,7 +160,7 @@ async function boundedEmptyBody(request: Request) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return EmptyBodySchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
+  return RecoveryBodySchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
 }
 
 function noStore(body: unknown, status: number) {
@@ -177,7 +202,11 @@ export function createCandidateHttpHandlers({
       const auth = await authenticate(request);
       if (!auth.ok) return authFailure(auth, id);
       try {
-        return noStore(success(await service.read(auth.userId, savedItemId), id), 200);
+        const rawJobId = new URL(request.url).searchParams.get("jobId");
+        const value = rawJobId === null
+          ? await service.read(auth.userId, savedItemId)
+          : await service.readJob(auth.userId, savedItemId, IdSchema.parse(rawJobId));
+        return noStore(success(value, id), 200);
       } catch (error) {
         return routeError(error, id);
       }
@@ -189,13 +218,14 @@ export function createCandidateHttpHandlers({
       if (request.headers.get("origin") !== new URL(appUrl).origin) {
         return noStore(failure({ code: "FORBIDDEN", message: "Request origin is not allowed.", retryable: false }, id), 403);
       }
+      let body: z.infer<typeof RecoveryBodySchema>;
       try {
-        await boundedEmptyBody(request);
+        body = await boundedRecoveryBody(request);
       } catch {
         return noStore(failure({ code: "VALIDATION_FAILED", message: "Invalid request.", retryable: false }, id), 400);
       }
       try {
-        const value = await service.recover(auth.userId, savedItemId);
+        const value = await service.recover(auth.userId, savedItemId, body.retryId);
         return noStore(success(value, id), value.state === "processing" ? 202 : 200);
       } catch (error) {
         return routeError(error, id);
