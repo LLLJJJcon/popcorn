@@ -96,7 +96,7 @@ function service(store = repository(), options: {
 }
 
 describe("complete due Practice", () => {
-  test("pins enriched coaching evaluations to the immutable v2 prompt and fixture model", async () => {
+  test("pins semantic wire evaluations to the immutable v3 prompt and fixture model", async () => {
     const store = repository();
     const fixture = createEvaluationFixtureGateway();
     const gateway = {
@@ -111,13 +111,17 @@ describe("complete due Practice", () => {
     });
 
     expect(gateway.complete).toHaveBeenCalledWith(
-      "evaluate-practice-v2",
-      expect.stringContaining("naturalRevisionChinese"),
-      expect.objectContaining({ timeoutMs: 30_000, maxTokens: 700 }),
+      "evaluate-practice-v3",
+      expect.stringContaining('"task":"evaluation"'),
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining("naturalRevisionChinese"),
+        timeoutMs: 30_000,
+        maxTokens: 700,
+      }),
     );
     expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({
-      evaluationPromptVersion: "evaluate-practice-v2",
-      evaluationModel: "fixture/evaluation-v2",
+      evaluationPromptVersion: "evaluate-practice-v3",
+      evaluationModel: "fixture/evaluation-v3",
     }));
   });
 
@@ -231,10 +235,52 @@ describe("complete due Practice", () => {
       passed: true, assistanceLevel: "hint",
     }));
     expect(gateway.complete).toHaveBeenCalledWith(
-      "evaluate-practice-v2",
-      expect.stringContaining('"assistanceLevel":"hint"'),
+      "evaluate-practice-v3",
+      expect.not.stringContaining("assistanceLevel"),
       expect.objectContaining({ timeoutMs: 30_000, maxTokens: 700 }),
     );
+  });
+
+  test("treats any score below three as a learning result and keeps the existing one-day Due schedule", async () => {
+    const store = repository();
+    store.completeDuePractice = vi.fn(async () => ({
+      reviewTaskId: REVIEW,
+      practiceTaskId: TASK,
+      attemptId: "66666666-6666-4666-8666-666666666666",
+      masteryEventId: "77777777-7777-4777-8777-777777777777",
+      nextReviewTaskId: "88888888-8888-4888-8888-888888888888",
+      priorState: "tried" as const,
+      newState: "tried" as const,
+      nextDueAt: "2026-08-23T12:00:00.000Z",
+      intervalDays: 1,
+      created: true,
+    }));
+    const gateway = {
+      model: "fixture/failed-evaluation",
+      complete: vi.fn(async () => ({
+        accuracy: { score: 5, englishFeedback: "The meaning is correct." },
+        naturalness: { score: 2, englishFeedback: "The word order is substantially unnatural." },
+        contextualFit: { score: 5, englishFeedback: "The response fits the situation." },
+        passed: true,
+        independentUse: true,
+        assistanceLevel: "none",
+        naturalRevisionChinese: "这个价格也太离谱了吧。",
+      })),
+    };
+    const { service: complete } = service(store, { gateway });
+
+    await expect(complete.complete(USER, REVIEW, {
+      responseChinese: "太离谱了我。",
+      assistanceLevel: "none",
+    })).resolves.toMatchObject({
+      transition: null,
+      intervalDays: 1,
+      evaluation: { passed: false, independentUse: false, assistanceLevel: "none" },
+    });
+    expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({
+      passed: false,
+      assistanceLevel: "none",
+    }));
   });
 
   test("fails closed before evaluating or writing a cross-owner, stale, or mismatched task", async () => {

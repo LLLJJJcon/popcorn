@@ -9,12 +9,13 @@ import {
   EvaluationResultSchema,
   type EvaluationResult,
   type PracticeCoaching,
-  type PracticeTask,
 } from "@/contracts/practice";
 import { TargetChineseTextSchema } from "@/contracts/source";
 import {
   EVALUATE_PRACTICE_PROMPT_VERSION,
   buildEvaluatePracticePrompt,
+  derivePracticeDecision,
+  normalizePracticeEvaluationWire,
   parsePracticeEvaluationOutput,
 } from "@/server/ai/prompts/evaluate.v1";
 import type { StructuredJsonGateway, StructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
@@ -101,23 +102,6 @@ const DueInputSchema = z.strictObject({
   responseChinese: TargetChineseTextSchema.max(5_000),
   assistanceLevel: AssistanceLevelSchema,
 });
-
-function taskView(task: DueTransferTask): PracticeTask {
-  return {
-    id: task.id,
-    userId: task.userId,
-    userExpressionId: task.userExpressionId,
-    kind: "due_practice",
-    nativeLanguage: "en",
-    targetLanguage: "zh-CN",
-    targetExpression: task.targetExpression,
-    promptChinese: task.promptChinese,
-    instructionsEnglish: task.instructionsEnglish,
-    goalEnglish: task.goalEnglish,
-    dueAt: task.dueAt,
-    createdAt: task.dueAt,
-  };
-}
 
 function requestKey(userId: string, reviewTaskId: string, taskId: string, responseChinese: string, assistanceLevel: string): string {
   return createHash("sha256").update([userId, reviewTaskId, taskId, responseChinese, assistanceLevel].join("\u0000"), "utf8").digest("hex");
@@ -226,32 +210,29 @@ export function createDuePracticeCompletionService(dependencies: {
         }
         const resolved = await resolvePracticeEgress(userId.data, dependencies);
         try {
+          const prompt = buildEvaluatePracticePrompt({
+            targetExpression: task.targetExpression,
+            promptChinese: task.promptChinese,
+            learnerResponse: input.data.responseChinese,
+          });
           const parsed = parsePracticeEvaluationOutput(
             await resolved.gateway.complete(
               EVALUATE_PRACTICE_PROMPT_VERSION,
-              buildEvaluatePracticePrompt(taskView(task), input.data.responseChinese, input.data.assistanceLevel),
+              prompt.userPrompt,
               {
-                systemPrompt: `Popcorn learning artifact task ${EVALUATE_PRACTICE_PROMPT_VERSION}. Return only the requested JSON object.`,
+                systemPrompt: prompt.systemPrompt,
                 timeoutMs: 30_000,
                 maxTokens: 700,
-                normalize(value) {
-                  try {
-                    parsePracticeEvaluationOutput(
-                      value,
-                      task.targetExpression,
-                      input.data.assistanceLevel,
-                    );
-                    return { success: true, data: value };
-                  } catch {
-                    return { success: false, fieldPath: "evaluation" };
-                  }
-                },
+                normalize: normalizePracticeEvaluationWire,
               },
             ),
             task.targetExpression,
             input.data.assistanceLevel,
           );
-          evaluation = parsed.evaluation;
+          evaluation = EvaluationResultSchema.parse({
+            ...parsed.evaluation,
+            ...derivePracticeDecision(parsed.evaluation, input.data.assistanceLevel),
+          });
           coaching = parsed.coaching;
         } catch (error) {
           if (error instanceof PracticeError) throw error;
@@ -265,7 +246,7 @@ export function createDuePracticeCompletionService(dependencies: {
         evaluationGatewayFingerprint = resolved.pin?.fingerprint ?? null;
       }
 
-      const independent = evaluation.passed && input.data.assistanceLevel === "none";
+      const independent = evaluation.independentUse;
       let completed: DuePracticeRpcResult;
       try {
         completed = await dependencies.repository.completeDuePractice({
@@ -291,14 +272,7 @@ export function createDuePracticeCompletionService(dependencies: {
         transition: completed.priorState === completed.newState
           ? null
           : { from: completed.priorState, to: completed.newState },
-        evaluation: {
-          passed: evaluation.passed,
-          accuracy: evaluation.accuracy,
-          naturalness: evaluation.naturalness,
-          contextualFit: evaluation.contextualFit,
-          independentUse: independent,
-          assistanceLevel: input.data.assistanceLevel,
-        },
+        evaluation,
         coaching,
       };
     },

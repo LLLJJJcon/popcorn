@@ -16,6 +16,8 @@ import {
   EVALUATE_PRACTICE_PROMPT_VERSION,
   buildEvaluatePracticePrompt,
   createEvaluationFixtureGateway,
+  derivePracticeDecision,
+  normalizePracticeEvaluationWire,
   parsePracticeEvaluationOutput,
 } from "@/server/ai/prompts/evaluate.v1";
 import { createActivationFixtureGateway } from "@/server/ai/prompts/activate.v1";
@@ -28,7 +30,6 @@ import {
   PracticeError,
   createPracticeTaskService,
   practiceErrorResponse,
-  practiceTaskView,
   readPracticeMutation,
   resolvePracticeEgress,
   type CandidateArtifactRecord,
@@ -134,22 +135,20 @@ export function createPracticeAttemptService(dependencies: {
     const resolved = await resolvePracticeEgress(userId, dependencies);
     let parsed: ReturnType<typeof parsePracticeEvaluationOutput>;
     try {
+      const prompt = buildEvaluatePracticePrompt({
+        targetExpression: draft.targetExpression,
+        promptChinese: draft.promptChinese,
+        learnerResponse: responseChinese,
+      });
       parsed = parsePracticeEvaluationOutput(
         await resolved.gateway.complete(
           EVALUATE_PRACTICE_PROMPT_VERSION,
-          buildEvaluatePracticePrompt(practiceTaskView(draft), responseChinese, assistanceLevel),
+          prompt.userPrompt,
           {
-            systemPrompt: `Popcorn learning artifact task ${EVALUATE_PRACTICE_PROMPT_VERSION}. Return only the requested JSON object.`,
+            systemPrompt: prompt.systemPrompt,
             timeoutMs: 30_000,
             maxTokens: 700,
-            normalize(value) {
-              try {
-                parsePracticeEvaluationOutput(value, draft.targetExpression, assistanceLevel);
-                return { success: true, data: value };
-              } catch {
-                return { success: false, fieldPath: "evaluation" };
-              }
-            },
+            normalize: normalizePracticeEvaluationWire,
           },
         ),
         draft.targetExpression,
@@ -159,7 +158,10 @@ export function createPracticeAttemptService(dependencies: {
       if (error instanceof PracticeError) throw error;
       throw new PracticeError("PROVIDER_FAILED", true);
     }
-    const evaluation = parsed.evaluation;
+    const evaluation = {
+      ...parsed.evaluation,
+      ...derivePracticeDecision(parsed.evaluation, assistanceLevel),
+    };
     const now = dependencies.now();
     const record: PracticeDraftAttemptRecord = {
       id: dependencies.attemptId(),
@@ -175,8 +177,8 @@ export function createPracticeAttemptService(dependencies: {
       naturalnessFeedbackEnglish: evaluation.naturalness.englishFeedback,
       contextualFitScore: evaluation.contextualFit.score,
       contextualFitFeedbackEnglish: evaluation.contextualFit.englishFeedback,
-      independentUse: assistanceLevel === "none",
-      assistanceLevel,
+      independentUse: evaluation.independentUse,
+      assistanceLevel: evaluation.assistanceLevel,
       submittedAt: now,
       evaluationPromptVersion: resolved.pin ? EVALUATE_PRACTICE_PROMPT_VERSION : null,
       evaluationModel: resolved.pin ? resolved.gateway.model : null,

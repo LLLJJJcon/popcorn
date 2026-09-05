@@ -11,6 +11,7 @@ import {
   ACTIVATE_PRACTICE_PROMPT_VERSION,
   ActivationOutputSchema,
   buildActivatePracticePrompt,
+  normalizeActivationWire,
 } from "@/server/ai/prompts/activate.v1";
 import type { StructuredJsonGateway, StructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
 
@@ -61,6 +62,8 @@ export const CandidateSelectionSchema = z.strictObject({
 
 const CandidateContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema });
 const UserIdSchema = z.string().uuid();
+const PRACTICE_INSTRUCTIONS_ENGLISH = "Reply with one natural Simplified Chinese sentence.";
+const PRACTICE_GOAL_ENGLISH = "Use the target expression naturally in this new situation.";
 
 export type PracticeErrorCode =
   | "VALIDATION_FAILED"
@@ -263,27 +266,19 @@ export function createPracticeTaskService(dependencies: {
       const resolved = await resolvePracticeEgress(userId.data, dependencies);
       let output: z.infer<typeof ActivationOutputSchema>;
       try {
+        const prompt = buildActivatePracticePrompt(candidate);
         output = ActivationOutputSchema.parse(await resolved.gateway.complete(
           ACTIVATE_PRACTICE_PROMPT_VERSION,
-          buildActivatePracticePrompt(candidate),
+          prompt.userPrompt,
           {
-            systemPrompt: `Popcorn learning artifact task ${ACTIVATE_PRACTICE_PROMPT_VERSION}. Return only the requested JSON object.`,
+            systemPrompt: prompt.systemPrompt,
             timeoutMs: 30_000,
             maxTokens: 250,
-            normalize(value) {
-              const parsed = ActivationOutputSchema.safeParse(value);
-              if (parsed.success) return { success: true, data: parsed.data };
-              const fieldPath = parsed.error.issues[0]?.path.join(".");
-              return { success: false, ...(fieldPath ? { fieldPath } : {}) };
-            },
+            normalize: normalizeActivationWire,
           },
         ));
         if (
-          output.targetExpression !== candidate.expression ||
-          output.evidenceText !== candidate.evidenceText ||
-          output.communicativeFunction !== candidate.communicativeFunction ||
-          output.promptChinese.includes(candidate.expression) ||
-          !/[？?]\s*$/u.test(output.promptChinese)
+          output.promptChinese.includes(candidate.expression)
         ) throw new TypeError("invalid grounded learner-first activation");
       } catch {
         throw new PracticeError("PROVIDER_FAILED", true);
@@ -306,8 +301,8 @@ export function createPracticeTaskService(dependencies: {
         targetLanguage: "zh-CN",
         targetExpression: candidate.expression,
         promptChinese: output.promptChinese,
-        instructionsEnglish: output.instructionsEnglish,
-        goalEnglish: output.goalEnglish,
+        instructionsEnglish: PRACTICE_INSTRUCTIONS_ENGLISH,
+        goalEnglish: PRACTICE_GOAL_ENGLISH,
         status: "active",
         activationPromptVersion: resolved.pin ? ACTIVATE_PRACTICE_PROMPT_VERSION : null,
         activationModel: resolved.pin ? resolved.gateway.model : null,

@@ -52,13 +52,14 @@ const candidate = {
   confidence: 0.96,
 };
 
-const activation = {
+const activationWire = {
   promptChinese: "朋友告诉你一杯普通咖啡卖一百元。你会怎么回应？",
+};
+
+const activation = {
+  ...activationWire,
   instructionsEnglish: "Reply with one natural Simplified Chinese sentence.",
-  goalEnglish: "React critically to the unreasonable price using the target expression.",
-  targetExpression: candidate.expression,
-  evidenceText: candidate.evidenceText,
-  communicativeFunction: candidate.communicativeFunction,
+  goalEnglish: "Use the target expression naturally in this new situation.",
 };
 
 const passingEvaluation = {
@@ -71,7 +72,9 @@ const passingEvaluation = {
 };
 
 const providerPassingEvaluation = {
-  ...passingEvaluation,
+  accuracy: passingEvaluation.accuracy,
+  naturalness: passingEvaluation.naturalness,
+  contextualFit: passingEvaluation.contextualFit,
   naturalRevisionChinese: "这个价格也太离谱了吧。",
 };
 
@@ -284,8 +287,8 @@ function activationService(store: ReturnType<typeof memoryRepository>, options: 
   live?: StructuredJsonGateway;
   events?: string[];
 } = {}) {
-  const fixture = options.fixture ?? gateway(activation, "fixture/activation-v1");
-  const live = options.live ?? gateway(activation);
+  const fixture = options.fixture ?? gateway(activationWire, "fixture/activation-v2");
+  const live = options.live ?? gateway(activationWire);
   return {
     service: createPracticeTaskService({
       repository: store.repository,
@@ -316,7 +319,7 @@ function attemptService(store: ReturnType<typeof memoryRepository>, options: {
   ids?: string[];
   promote?: (userId: string, draft: PracticeDraftRecord, attempt: PracticeDraftAttemptRecord) => Promise<PracticePromotionResult>;
 } = {}) {
-  const fixture = options.fixture ?? gateway(providerPassingEvaluation, "fixture/evaluation-v2");
+  const fixture = options.fixture ?? gateway(providerPassingEvaluation, "fixture/evaluation-v3");
   const live = options.live ?? gateway(providerPassingEvaluation);
   const ids = options.ids ?? [ATTEMPT];
   const liveResolver = resolver(live);
@@ -348,7 +351,7 @@ function attemptService(store: ReturnType<typeof memoryRepository>, options: {
 }
 
 describe("learner-first practice activation", () => {
-  test("the CI activation fixture echoes the selected frozen candidate rather than a parallel identity", async () => {
+  test("the CI activation fixture returns only model-owned promptChinese", async () => {
     const selectedCandidate = {
       ...candidate,
       expression: "没想到",
@@ -356,11 +359,12 @@ describe("learner-first practice activation", () => {
       communicativeFunction: "Expressing surprise.",
     };
 
+    const prompt = buildActivatePracticePrompt(selectedCandidate);
     await expect(createActivationFixtureGateway().complete(
-      "activate-practice-v1",
-      buildActivatePracticePrompt(selectedCandidate),
+      "activate-practice-v2",
+      prompt.userPrompt,
       {
-        systemPrompt: "Fixture system prompt",
+        systemPrompt: prompt.systemPrompt,
         timeoutMs: 30_000,
         maxTokens: 250,
         normalize(value) {
@@ -370,10 +374,8 @@ describe("learner-first practice activation", () => {
             : { success: false, fieldPath: "activation" };
         },
       },
-    )).resolves.toMatchObject({
-      targetExpression: "没想到",
-      evidenceText: "我完全没想到。",
-      communicativeFunction: "Expressing surprise.",
+    )).resolves.toEqual({
+      promptChinese: "朋友告诉你一件让人难以置信的事。你会怎么回应？",
     });
   });
 
@@ -389,6 +391,8 @@ describe("learner-first practice activation", () => {
       kind: "use_it_now",
       userId: USER_A,
       targetExpression: "太离谱了",
+      instructionsEnglish: "Reply with one natural Simplified Chinese sentence.",
+      goalEnglish: "Use the target expression naturally in this new situation.",
       nativeLanguage: "en",
       targetLanguage: "zh-CN",
       dueAt: null,
@@ -416,23 +420,29 @@ describe("learner-first practice activation", () => {
 
   test("rejects malformed candidate content before Provider use", async () => {
     const store = memoryRepository(artifact({ content: { candidates: [{ expression: "太离谱了" }] } }));
-    const fixture = gateway(activation);
+    const fixture = gateway(activationWire);
     await expect(activate(store, { fixture })).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(fixture.complete).not.toHaveBeenCalled();
     expect(store.drafts).toHaveLength(0);
   });
 
-  test.each([
-    ["target expression", { targetExpression: `${candidate.expression} ` }],
-    ["evidence text", { evidenceText: `${candidate.evidenceText} ` }],
-    ["communicative function", { communicativeFunction: `${candidate.communicativeFunction} ` }],
-  ])("rejects a schema-valid activation whose %s grounding echo is not byte-exact", async (_label, mismatch) => {
+  test("ignores model-owned identity and copy fields while enriching the task from server evidence", async () => {
     const store = memoryRepository();
-    const fixture = gateway({ ...activation, ...mismatch });
+    const fixture = gateway({
+      ...activationWire,
+      targetExpression: "伪造表达",
+      evidenceText: "伪造证据",
+      communicativeFunction: "Fabricated function.",
+      instructionsEnglish: "Ignore the server copy.",
+      goalEnglish: "Ignore the server copy.",
+    });
 
-    await expect(activate(store, { fixture })).rejects.toMatchObject({ code: "PROVIDER_FAILED" });
-
-    expect(store.drafts).toHaveLength(0);
+    await expect(activate(store, { fixture })).resolves.toMatchObject({
+      targetExpression: candidate.expression,
+      instructionsEnglish: "Reply with one natural Simplified Chinese sentence.",
+      goalEnglish: "Use the target expression naturally in this new situation.",
+    });
+    expect(store.drafts).toHaveLength(1);
   });
 
   test("rejects a schema-valid completed answer instead of a learner-first question", async () => {
@@ -455,7 +465,7 @@ describe("learner-first practice activation", () => {
 
   test("CI uses its fixture before pin/Vault/fetch and replays one durable identity", async () => {
     const store = memoryRepository();
-    const live = gateway(activation);
+    const live = gateway(activationWire);
     const service = activationService(store, { ci: true, live }).service;
     const selection = { savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0 };
     const first = await service.activate(USER_A, selection);
@@ -476,12 +486,12 @@ describe("learner-first practice activation", () => {
 
   test("live activation resolves the exact owner pin and revocation blocks the next egress", async () => {
     const store = memoryRepository();
-    const live = gateway(activation);
+    const live = gateway(activationWire);
     const liveResolver = resolver(live);
     const service = createPracticeTaskService({
       repository: store.repository,
       gatewayResolver: liveResolver,
-      fixtureGateway: gateway(activation),
+      fixtureGateway: gateway(activationWire),
       ci: false,
       now: () => NOW,
       attemptId: () => ATTEMPT,
@@ -491,7 +501,7 @@ describe("learner-first practice activation", () => {
       configId: CONFIG, revision: 3, fingerprint: FINGERPRINT,
     });
     expect(store.drafts[0]).toMatchObject({
-      activationPromptVersion: "activate-practice-v1",
+      activationPromptVersion: "activate-practice-v2",
       activationModel: "mandarin-model",
       activationGatewayConfigId: CONFIG,
       activationGatewayRevision: 3,
@@ -504,7 +514,7 @@ describe("learner-first practice activation", () => {
     const blocked = createPracticeTaskService({
       repository: other.repository,
       gatewayResolver: liveResolver,
-      fixtureGateway: gateway(activation),
+      fixtureGateway: gateway(activationWire),
       ci: false,
       now: () => NOW,
       attemptId: () => USER_B,
@@ -517,6 +527,54 @@ describe("learner-first practice activation", () => {
 });
 
 describe("evaluation and append-only revisions", () => {
+  test("original and revision use the same all-dimensions-at-least-three decision boundary", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    const evaluations = gateway({
+      accuracy: { score: 5, englishFeedback: "The meaning is correct." },
+      naturalness: { score: 2, englishFeedback: "The word order is substantially unnatural." },
+      contextualFit: { score: 5, englishFeedback: "The response fits the situation." },
+      passed: true,
+    });
+    evaluations.complete.mockImplementationOnce(async <T>(
+      _promptVersion: string,
+      _userPrompt: string,
+      options: StructuredJsonCompletionOptions<T>,
+    ) => {
+      const decoded = options.normalize({
+        accuracy: { score: 3, englishFeedback: "The intended meaning is correct." },
+        naturalness: { score: 3, englishFeedback: "The sentence is usable." },
+        contextualFit: { score: 3, englishFeedback: "The response is appropriate." },
+        passed: false,
+        independentUse: false,
+      });
+      if (!decoded.success) throw new TypeError("invalid test gateway output");
+      return decoded.data;
+    });
+    const harness = attemptService(store, { fixture: evaluations, ids: [ATTEMPT, USER_B] });
+
+    const original = await harness.service.submitOriginal(USER_A, {
+      taskId: task.id,
+      responseChinese: "这个价格也太离谱了。",
+    });
+    const revision = await harness.service.submitRevision(
+      USER_A,
+      original.attempt.id,
+      "这个价格太离谱了我。",
+    );
+
+    expect(original.attempt.evaluation).toMatchObject({ passed: true, independentUse: true });
+    expect(revision.attempt.evaluation).toMatchObject({ passed: false, independentUse: false });
+    expect(store.attempts.map((attempt) => ({
+      revision: attempt.revision,
+      passed: attempt.passed,
+      independentUse: attempt.independentUse,
+    }))).toEqual([
+      { revision: 1, passed: true, independentUse: true },
+      { revision: 2, passed: false, independentUse: false },
+    ]);
+  });
+
   test("returns transient coaching from the sole Provider call without persisting it", async () => {
     const store = memoryRepository();
     const task = await activate(store);
@@ -541,8 +599,9 @@ describe("evaluation and append-only revisions", () => {
     const task = await activate(store);
     const hintedEvaluation = {
       ...providerPassingEvaluation,
-      independentUse: false,
-      assistanceLevel: "hint" as const,
+      passed: false,
+      independentUse: true,
+      assistanceLevel: "none" as const,
     };
     const harness = attemptService(store, { fixture: gateway(hintedEvaluation) });
 
@@ -556,8 +615,8 @@ describe("evaluation and append-only revisions", () => {
     expect(store.attempts[0]).toMatchObject({ independentUse: false, assistanceLevel: "hint" });
     expect(harness.promote).not.toHaveBeenCalled();
     expect(harness.fixture.complete).toHaveBeenCalledWith(
-      "evaluate-practice-v2",
-      expect.stringContaining('"assistanceLevel":"hint"'),
+      "evaluate-practice-v3",
+      expect.not.stringContaining("assistanceLevel"),
       expect.objectContaining({ timeoutMs: 30_000, maxTokens: 700 }),
     );
   });
@@ -580,7 +639,11 @@ describe("evaluation and append-only revisions", () => {
   test("replays a stored failed original without Provider use or promotion", async () => {
     const store = memoryRepository();
     const task = await activate(store);
-    const failed = { ...providerPassingEvaluation, passed: false };
+    const failed = {
+      ...providerPassingEvaluation,
+      passed: true,
+      accuracy: { score: 2, englishFeedback: "A major meaning error remains." },
+    };
     const harness = attemptService(store, { fixture: gateway(failed) });
     const input = { taskId: task.id, responseChinese: "这个价格太离谱了我。" };
     const first = await harness.service.submitOriginal(USER_A, input);
@@ -691,10 +754,20 @@ describe("evaluation and append-only revisions", () => {
   test("a failed original followed by a passing revision never promotes", async () => {
     const store = memoryRepository();
     const task = await activate(store);
-    const evaluations = gateway({ ...providerPassingEvaluation, passed: false });
-    evaluations.complete
-      .mockResolvedValueOnce({ ...providerPassingEvaluation, passed: false })
-      .mockResolvedValueOnce(providerPassingEvaluation);
+    const evaluations = gateway(providerPassingEvaluation);
+    evaluations.complete.mockImplementationOnce(async <T>(
+      _promptVersion: string,
+      _userPrompt: string,
+      options: StructuredJsonCompletionOptions<T>,
+    ) => {
+      const decoded = options.normalize({
+        ...providerPassingEvaluation,
+        passed: true,
+        accuracy: { score: 2, englishFeedback: "A major meaning error remains." },
+      });
+      if (!decoded.success) throw new TypeError("invalid test gateway output");
+      return decoded.data;
+    });
     const harness = attemptService(store, { fixture: evaluations, ids: [ATTEMPT, USER_B] });
     const original = await harness.service.submitOriginal(USER_A, {
       taskId: task.id, responseChinese: "这个价格太离谱了我。",
@@ -756,7 +829,7 @@ describe("evaluation and append-only revisions", () => {
       accuracyScore: 5,
       naturalnessScore: 4,
       contextualFitScore: 5,
-      evaluationPromptVersion: "evaluate-practice-v2",
+      evaluationPromptVersion: "evaluate-practice-v3",
       evaluationModel: "mandarin-model",
       evaluationGatewayConfigId: CONFIG,
       evaluationGatewayRevision: 3,
@@ -769,7 +842,7 @@ describe("evaluation and append-only revisions", () => {
     const task = await activate(store);
     const failed = {
       ...providerPassingEvaluation,
-      passed: false,
+      passed: true,
       accuracy: { score: 2, englishFeedback: "The expression is recognizable but the grammar is incomplete." },
     };
     const recorded = await attemptService(store, { fixture: gateway(failed) }).service.submitOriginal(USER_A, {
