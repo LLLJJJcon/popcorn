@@ -93,7 +93,7 @@ pnpm db:reset
 
 使用每日的一键启动方式：`pnpm popcorn:start` 或 `Start Popcorn.command`。浏览器打开后，在 `http://127.0.0.1:3000/sign-in` 创建本地账号并登录。
 
-登录后进入 `/settings/model-gateway`。这里的 API 密钥只在已登录的 Web 设置中输入，绝不放进 `.env.local`、终端命令、Chrome 扩展、Git 或聊天。OpenAI 并非必需；你可以选择任何你已确认兼容的服务商，并只参考该服务商自己的官方 API 文档与控制台。
+登录后进入 `/settings/model-gateway`。这里的 API 密钥只在已登录的 Web 设置中输入，绝不放进 `.env.local`、终端命令、Chrome 扩展、Git 或聊天。OpenAI 并非必需；你可以选择任何你已确认兼容的服务商，并只参考该服务商自己的官方 API 文档与控制台。对这个个人本地项目，保存后的密钥会继续显示在已登录的设置页，方便你核对和修改；不要在共享电脑上保持登录。
 
 | Web 设置字段 | 填写内容 | 取得方式 | 注意事项 |
 | --- | --- | --- | --- |
@@ -114,15 +114,36 @@ pnpm extension:local
 
 在 Chrome 打开 `chrome://extensions`，开启“开发者模式”，选择“加载已解压的扩展程序”，并选择仓库中的 `dist/popcorn-extension` 文件夹。使用与 Web 相同的本地账号登录扩展。
 
-## 学习流程
+## 日常学习流程
 
 1. 启动 Popcorn，并在 Web 与扩展中登录同一账号。
-2. 打开一个公开的 YouTube 观看页面。
-3. 在扩展中选择转录文本的显示语言，然后保存；保存会在后台继续处理。
-4. 回到 Web 的 **Saved** 查看已保存内容，打开学习材料。
-5. 在 **Vault** 搜索和回看资料，完成 **Practice**，再在 **Progress** 阅读进度。
+2. 打开一个公开、带原生简体中文字幕的 YouTube 视频观看页。
+3. 从右侧扩展保存视频时刻、字幕行、字幕选择、Key Quote 或 AI Explanation。保存会在后台完成，不暂停视频，也不会跳转或弹出表单。
+4. 点击扩展顶部的 **Open Popcorn**。它总是打开 Web 主入口：已经登录会进入 **Home**；没有 Web 登录状态才会进入登录页。
+5. 从 **Saved** 打开刚才的视频。Saved 是忠实的来源收件箱：保留当时的原文、译文、时间点和处理状态。
+6. 在候选表达上点击 **Practice this expression**，用目标表达写一个新的中文句子。提交失败时，输入与原始证据都应留在页面，可直接重试。
+7. 首次有效练习后，从 **Open in Vault** 查看表达详情。Vault 是已经练过的长期学习资料库，不是 Saved 的重复列表；它按表达汇总含义、原始视频证据和完整尝试历史。
+8. 之后从 **Practice** 完成到期的新情境练习，再从 **Progress** 查看本周练习、到期完成数、独立复用和掌握度分布。
 
-学习路径是 **tried -> reused -> owned**：先尝试，再复用，最后真正掌握。
+掌握度只有 **tried -> reused -> owned**：第一次有效尝试进入 tried；之后在新情境中独立复用进入 reused；持续独立使用后才进入 owned。保存数量本身不会提高掌握度。
+
+### 页面分别做什么
+
+| 页面 | 用途 | 典型下一步 |
+| --- | --- | --- |
+| **Home** | 聚合入口，显示最近保存、当前到期练习和网关状态 | 去 Saved 整理刚保存的内容，或开始到期 Practice |
+| **Saved** | 按 YouTube 视频保存原始学习快照和处理状态 | 打开一个视频，选择值得练习的候选表达 |
+| **Practice** | 完成首次表达练习和到期复用练习 | 写自己的中文句子，查看反馈后重写 |
+| **Vault** | 搜索已练表达，查看来源证据与完整尝试历史 | 回看一个表达，或等待下一次到期 Practice |
+| **Progress** | 展示可验证的练习证据与 tried/reused/owned 分布 | 决定今天优先练什么 |
+| **Settings** | 配置并启用 OpenAI-compatible 模型网关 | 核对目标地址、模型 ID 和 API key |
+
+### 状态消息怎么理解
+
+- **Queued / retrying automatically**：Web 暂时不可用，但原始保存已经进入扩展本地队列；保持 Popcorn 运行后会自动重试，不要反复点击同一条。
+- **Saved. Waiting to organize / Organizing this save**：原始快照已经安全保存，后台正在补齐字幕、翻译或学习材料，可以继续看视频。
+- **Could not organize / Provider unavailable**：本次外部服务或模型调用没有完成；原始保存和练习输入不会因此消失。检查 Supadata、网关或代理设置后重试。
+- **Set up a model gateway**：Saved 仍可浏览，但生成候选表达和练习反馈前需要在 Settings 启用一个网关。
 
 没有外部密钥时，你仍可以打开本地 UI，并在已有本地账号后运行 `pnpm demo:seed -- --user <你的本地邮箱或 UUID>` 来加入固定演示资料；它不会创建账号，也不会调用 Supadata 或模型网关。真实的 YouTube 转录需要真实 `SUPADATA_API_KEY`，AI 学习材料需要已启用且已同意目标地址的网关凭据。
 
@@ -133,8 +154,10 @@ pnpm extension:local
 | Docker 或 Supabase 无法启动 | 确认 Docker Desktop 正在运行；再次运行 `pnpm exec supabase start` 和 `pnpm exec supabase status`，并检查 `.env.local` 中的本地 Supabase 值。 |
 | Web 页面打不开 | 用每日启动命令重新启动；确认地址为 `http://127.0.0.1:3000`，并确认 `.env.local` 的 `APP_URL` 是同一地址。 |
 | 扩展没有反应或更新未出现 | 回到 `chrome://extensions`，确认扩展已启用；重新运行 `pnpm extension:local` 后选择“重新加载”，并确认登录的是同一账号。 |
+| 点击 Open Popcorn 后出现登录页 | 扩展登录和 Web 登录是两个本地会话；在 Web 登录一次即可。以后会直接进入 Home，除非会话过期或浏览器数据被清除。 |
 | 转录一直显示等待 | 确认 `SUPADATA_API_KEY` 已在 `.env.local` 本地填写且有效；让 Popcorn 保持启动。没有真实 Supadata 密钥时，转录不能完成。 |
 | AI 项目一直显示等待或需要同意 | 在 `/settings/model-gateway` 检查四个 Web 字段，核对显示的准确目标地址，再同意并启用；不要把网关 API 密钥放入 `.env.local`、终端、Chrome、Git 或聊天。 |
+| 提交 Practice 后失败 | 保留当前页面和输入，检查网关/代理后直接重试；Popcorn 不会要求你重新从 Saved 找材料。 |
 | 想运行 `pnpm db:reset` | 先停止。它会删除本地数据库的全部账号和学习资料；只在你确认要完整重建本地演示时使用。 |
 
 若一键停止没有完成，可在启动窗口按 `Ctrl-C`，再运行 `pnpm exec supabase stop`。这同样不会删除正常保存的数据或已加载的扩展。

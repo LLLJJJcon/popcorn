@@ -31,17 +31,22 @@ begin
 end
 $guard$;
 
+delete from private.due_practice_completion_receipts
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
 delete from private.practice_promotion_receipts
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
 delete from private.learning_artifact_gateway_pins
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
 delete from public.mastery_events
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
-delete from public.review_tasks
+update public.review_tasks
+set status = 'cancelled', completed_attempt_id = null, completed_at = null
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
 delete from public.attempts
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
 delete from public.practice_tasks
+where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.review_tasks
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
 delete from public.practice_draft_attempts
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
@@ -131,6 +136,9 @@ begin
     where user_id = '52000000-0000-4000-8000-000000000001'::uuid
   ) or exists (
     select 1 from public.practice_draft_attempts
+    where user_id = '52000000-0000-4000-8000-000000000001'::uuid
+  ) or exists (
+    select 1 from private.due_practice_completion_receipts
     where user_id = '52000000-0000-4000-8000-000000000001'::uuid
   ) or exists (
     select 1 from private.practice_promotion_receipts
@@ -356,14 +364,19 @@ test.afterAll(async () => {
 test.beforeEach(async ({ context }) => installSeedSession(context));
 
 test("one saved YouTube moment becomes tried knowledge and due Practice", async ({ page }) => {
-  await page.goto("/home");
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/home$/);
   await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Set up model gateway" })).toBeVisible();
+  const gatewayNotice = await page.getByRole("status").filter({ hasText: "Set up a model gateway" }).first();
+  await expect(gatewayNotice).toContainText("Your saved moments stay available");
+  await expect(gatewayNotice.getByRole("link", { name: "Open Settings" })).toBeVisible();
   const navigation = page.getByRole("navigation", { name: "Primary navigation" });
   for (const item of ["Home", "Saved", "Practice", "Vault", "Progress"]) {
     await expect(navigation.getByRole("link", { name: item, exact: true })).toBeVisible();
   }
 
-  await page.getByRole("link", { name: "Organize 1 recent save" }).click();
+  await navigation.getByRole("link", { name: "Saved", exact: true }).click();
   await expect(page).toHaveURL(/\/saved$/);
   await expect(page.getByRole("heading", { name: "Saved" })).toBeVisible();
   await page.getByRole("link", { name: "E2E 中文学习示例" }).click();
@@ -372,13 +385,17 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   const candidate = page.getByRole("heading", { name: EXPRESSION, exact: true }).locator("..");
   await expect(candidate.getByText(EVIDENCE_TEXT, { exact: true })).toBeVisible();
   await expect(candidate.getByRole("link", { name: "Watch at 0:04" })).toBeVisible();
-  const activationButton = candidate.getByRole("button", { name: "Use It Now" });
+  const activationButton = candidate.getByRole("button", { name: "Practice this expression" });
   await expect(activationButton).toBeEnabled();
 
-  const [activationResponse] = await Promise.all([
+  const [activationResponse, practiceNavigation] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === "POST"
       && new URL(response.url()).pathname === "/api/v1/practice/tasks",
+    ),
+    page.waitForRequest((request) =>
+      request.method() === "GET"
+      && /\/practice\/[0-9a-f-]+$/.test(new URL(request.url()).pathname),
     ),
     activationButton.click(),
   ]);
@@ -387,8 +404,10 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
     activationResponse.status(),
     `POST /api/v1/practice/tasks returned ${activationResponse.status()}: ${activationBody}`,
   ).toBe(201);
-  await expect(page).toHaveURL(/\/practice\/[0-9a-f-]+$/);
-  await expect(page.getByRole("heading", { name: `Use ${EXPRESSION} now` })).toBeVisible();
+  const practicePath = new URL(practiceNavigation.url()).pathname;
+  if (new URL(page.url()).pathname !== practicePath) await page.goto(practicePath);
+  await expect(page).toHaveURL(new RegExp(`${practicePath}$`));
+  await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
 
   const draft = await admin.from("practice_drafts")
     .select("id,future_user_expression_id")
@@ -407,6 +426,26 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
 
   const original = "这个表达真的很常见。";
   await page.getByLabel("Your Chinese response").fill(original);
+  await page.route("**/api/v1/practice/attempts", async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: false,
+        error: { code: "PROVIDER_UNAVAILABLE", message: "Practice is temporarily unavailable", retryable: true },
+        requestId: "fixture-provider-failure",
+      }),
+    });
+  });
+  await page.getByRole("button", { name: "Check my response" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Your response is still here" }))
+    .toContainText("Your response is still here");
+  await expect(page.getByLabel("Your Chinese response")).toHaveValue(original);
+  await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /E2E 中文学习示例 · 0:04/ })).toBeVisible();
+  await page.getByRole("button", { name: "Show original evidence" }).click();
+  await expect(page.getByText(EVIDENCE_TEXT, { exact: true })).toBeVisible();
+  await page.unroute("**/api/v1/practice/attempts");
   const [originalResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/practice/attempts",
@@ -414,7 +453,8 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
     page.getByRole("button", { name: "Check my response" }).click(),
   ]);
   expect(originalResponse.status()).toBe(201);
-  await expect(page.getByText("This response passed.")).toBeVisible();
+  await expect(page.getByText("Practice recorded")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Natural revision" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open in Vault" })).toBeVisible();
 
   const revision = "我觉得这个表达在口语里很自然。";
@@ -434,18 +474,21 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   }).toBe(2);
 
   await page.getByRole("link", { name: "Open in Vault" }).click();
-  await expect(page).toHaveURL(new RegExp(`/vault#expression-${futureUserExpressionId}$`));
-  const card = page.locator(`#expression-${futureUserExpressionId}`);
-  await expect(card.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
-  await expect(card.getByText("tried", { exact: true })).toBeVisible();
-  await expect(card.getByRole("heading", { name: "Original occurrence" })).toBeVisible();
-  await expect(card.getByText(EVIDENCE_TEXT, { exact: true })).toBeVisible();
-  await expect(card.getByRole("heading", { name: "Attempt history" })).toBeVisible();
-  await expect(card.getByText(original, { exact: true })).toBeVisible();
-  await expect(card.getByText(revision, { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/vault$/);
+  await expect(page.getByRole("heading", { name: "Attempt history" })).toHaveCount(0);
   await page.getByLabel("Search expressions").fill(EXPRESSION);
-  await expect(page.getByRole("list", { name: "Vault search results" })
-    .getByRole("link", { name: new RegExp(EXPRESSION) })).toBeVisible();
+  const searchResult = page.getByRole("list", { name: "Vault search results" })
+    .getByRole("link", { name: new RegExp(EXPRESSION) });
+  await expect(searchResult).toHaveAttribute("href", `/vault/${futureUserExpressionId}`);
+  await searchResult.click();
+  await expect(page).toHaveURL(new RegExp(`/vault/${futureUserExpressionId}$`));
+  await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
+  await expect(page.getByText("tried", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "E2E 中文学习示例" })).toBeVisible();
+  await expect(page.getByText(EVIDENCE_TEXT, { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Attempt history" })).toBeVisible();
+  await expect(page.getByText(original, { exact: true })).toBeVisible();
+  await expect(page.getByText(revision, { exact: true })).toBeVisible();
 
   const review = await admin.from("review_tasks").select("id")
     .eq("user_id", USER_ID).eq("user_expression_id", futureUserExpressionId).single();
@@ -458,8 +501,42 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   await page.goto("/practice");
   await expect(page.getByRole("heading", { name: "Practice" })).toBeVisible();
   await expect(page.getByRole("main").getByRole("listitem")).toHaveCount(1);
-  await expect(page.getByRole("link", { name: `Practice ${EXPRESSION}` })).toBeVisible();
+  await expect(page.getByText(EXPRESSION, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start practice" })).toBeVisible();
   await expect(page.getByText(/tried/)).toBeVisible();
+
+  const [transferResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname === `/api/v1/practice/due/${review.data!.id}`,
+    ),
+    page.getByRole("button", { name: "Start practice" }).click(),
+  ]);
+  expect(transferResponse.status()).toBe(200);
+  await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
+  const dueResponseChinese = "大家都同意，这个结果也太离谱了。";
+  await page.getByLabel("Your Chinese response").fill(dueResponseChinese);
+  const [dueResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.request().method() === "POST"
+      && new URL(response.url()).pathname === `/api/v1/practice/due/${review.data!.id}`,
+    ),
+    page.getByRole("button", { name: "Check my response" }).click(),
+  ]);
+  expect(dueResponse.status()).toBe(201);
+  await expect(page.getByText("Practice recorded")).toBeVisible();
+  await expect(page.getByText(/Mastery moved from tried to reused/)).toBeVisible();
+
+  await page.goto(`/vault/${futureUserExpressionId}`);
+  await expect(page.getByRole("heading", { name: "Attempt history" })).toBeVisible();
+  await expect(page.getByText(dueResponseChinese, { exact: true })).toBeVisible();
+
+  await page.goto("/progress");
+  await expect(page.getByRole("heading", { name: "Your Mandarin in use" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Weekly learning evidence" })
+    .getByRole("listitem").filter({ hasText: "Due Practice completed" }).locator("strong")).toHaveText("1");
+  await expect(page.getByRole("list", { name: "Current mastery distribution" })
+    .getByRole("listitem").filter({ hasText: "Reused" }).locator("strong")).toHaveText("1");
 
   const ignoredAfter = await admin.from("saved_items")
     .select("status,payload,start_seconds,snapshot_id,updated_at")

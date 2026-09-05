@@ -78,8 +78,8 @@
 
 .navigationLink[aria-current="page"],
 .settingsLink[aria-current="page"] {
-  background: var(--coral);
-  color: white;
+  background: var(--coral-active);
+  color: var(--paper);
 }
 
 .settingsLink {
@@ -242,14 +242,40 @@
 @media (max-width: 560px) {
   .rail {
     grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.5rem;
   }
 
   .account {
-    display: flex;
-    grid-column: 1 / -1;
+    grid-column: 2;
+    grid-row: 1;
     justify-content: flex-end;
-    padding-top: 0.5rem;
-    border-top: 1px solid rgb(255 253 248 / 0.2);
+    padding: 0;
+    border: 0;
+  }
+
+  .navigation {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.2rem;
+    overflow: visible;
+  }
+
+  .navigationList {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.1rem;
+  }
+
+  .navigationLink,
+  .settingsLink {
+    padding: 0.5rem 0.15rem;
+    font-size: 0.68rem;
+    text-align: center;
+  }
+
+  .settingsLink {
+    margin: 0;
   }
 
   .gatewayNotice {
