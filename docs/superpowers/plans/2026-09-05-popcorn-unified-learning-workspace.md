@@ -210,7 +210,7 @@ git commit -m "feat: add the unified Popcorn app shell"
     readonly deletionImpact: SourceDeletionImpact;
   }): React.JSX.Element;
   ```
-- `SavedVideoSummary` gains an internal `latestSavedItemId` tie-break field if needed; it never exposes a raw ID in visible copy.
+- Deterministic ordering may use the latest saved-item ID only as a repository-local sort key; remove it before constructing `SavedVideoSummary` so no raw ID enters the page DTO.
 
 **Upstream reuse:** Retain existing YouTube canonical URLs, persisted thumbnails, timestamps, and YouTube Digest provenance. Do not fetch or reconstruct transcripts in the page.
 
@@ -225,7 +225,7 @@ expect(groupSavedVideos(rows).map(({ sourceId }) => sourceId)).toEqual([
 ]);
 ```
 
-Assert raw Chinese and stored English remain visible beside a terminal failure, invalid or missing candidate analysis offers exactly one `Retry analysis` button, candidate action says `Practice this expression`, and no text claims the expression is already in Vault.
+Assert raw Chinese and stored English remain visible beside a terminal failure, missing analysis offers exactly one `Retry analysis` button, malformed immutable analysis stays safely unavailable, candidate action says `Practice this expression`, and no text claims the expression is already in Vault.
 
 - [ ] **Step 2: Run focused tests and capture RED**
 
