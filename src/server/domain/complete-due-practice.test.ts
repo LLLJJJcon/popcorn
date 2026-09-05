@@ -407,6 +407,53 @@ describe("complete due Practice", () => {
     expect(store.completeDuePractice).toHaveBeenCalledOnce();
   });
 
+  test.each(["evaluate-practice-v2", "evaluate-practice-v3"])(
+    "replays a completed %s Due evaluation without Provider use",
+    async (evaluationPromptVersion) => {
+      const store = repository();
+      store.findCompletionState = vi.fn(async () => ({
+        status: "completed" as const,
+        task,
+        attempt: { ...persistedAttempt, evaluationPromptVersion },
+      }));
+      const gateway = {
+        model: "model-that-must-not-run",
+        complete: vi.fn(async () => { throw new Error("Provider must be skipped"); }),
+      };
+      const { service: complete } = service(store, { ci: false, gateway });
+
+      await expect(complete.complete(USER, REVIEW, {
+        responseChinese: persistedAttempt.responseChinese,
+        assistanceLevel: persistedAttempt.assistanceLevel,
+      })).resolves.toMatchObject({ created: true, coaching: null });
+      expect(store.resolveActiveGatewayPin).not.toHaveBeenCalled();
+      expect(gateway.complete).not.toHaveBeenCalled();
+      expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({ evaluationPromptVersion }));
+    },
+  );
+
+  test("rejects an unknown completed Due evaluation version without Provider or completion RPC use", async () => {
+    const store = repository();
+    store.findCompletionState = vi.fn(async () => ({
+      status: "completed" as const,
+      task,
+      attempt: { ...persistedAttempt, evaluationPromptVersion: "evaluate-practice-v999" },
+    }));
+    const gateway = {
+      model: "model-that-must-not-run",
+      complete: vi.fn(async () => { throw new Error("Provider must be skipped"); }),
+    };
+    const { service: complete } = service(store, { ci: false, gateway });
+
+    await expect(complete.complete(USER, REVIEW, {
+      responseChinese: persistedAttempt.responseChinese,
+      assistanceLevel: persistedAttempt.assistanceLevel,
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(store.resolveActiveGatewayPin).not.toHaveBeenCalled();
+    expect(gateway.complete).not.toHaveBeenCalled();
+    expect(store.completeDuePractice).not.toHaveBeenCalled();
+  });
+
   test("canonicalizes a persisted +00:00 replay instant before schedule validation and the RPC", async () => {
     const store = repository();
     store.findCompletionState = vi.fn(async () => ({

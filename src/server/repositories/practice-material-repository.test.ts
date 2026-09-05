@@ -175,10 +175,12 @@ function dueGraph(overrides: DueGraphOverrides = {}): readonly Result[] {
 }
 
 describe("Practice material repository", () => {
-  test("builds an owner-scoped immediate material view from the frozen candidate provenance", async () => {
+  test.each(["analyze-saved-item-v1", "analyze-saved-item-v2"])(
+    "builds an owner-scoped immediate material view from compatible %s candidate provenance",
+    async (promptVersion) => {
     const scripted = scriptedClient([
       { data: draft(), error: null },
-      { data: candidateArtifact(), error: null },
+      { data: candidateArtifact({ prompt_version: promptVersion }), error: null },
       { data: { id: SAVED, user_id: USER, video_source_id: SOURCE, snapshot_id: SNAPSHOT }, error: null },
       { data: { id: SNAPSHOT, user_id: USER, video_source_id: SOURCE, title: "Fixture video" }, error: null },
       { data: { id: SOURCE, user_id: USER, canonical_url: "https://www.youtube.com/watch?v=abcdefghijk" }, error: null },
@@ -220,7 +222,8 @@ describe("Practice material repository", () => {
       ["saved_item_id", SAVED],
       ["artifact_type", "saved_item_analysis"],
     ]));
-  });
+    },
+  );
 
   test("fails closed for malformed or cross-owner immediate provenance", async () => {
     const crossOwner = scriptedClient([{ data: draft({ user_id: OTHER }), error: null }]);
@@ -232,6 +235,13 @@ describe("Practice material repository", () => {
       { data: candidateArtifact({ content: { candidates: [{ expression: "太离谱了" }] } }), error: null },
     ]);
     await expect(createPracticeMaterialRepository(malformed.client as never)
+      .findImmediateMaterial(USER, TASK)).resolves.toBeNull();
+
+    const unknownVersion = scriptedClient([
+      { data: draft(), error: null },
+      { data: candidateArtifact({ prompt_version: "analyze-saved-item-v999" }), error: null },
+    ]);
+    await expect(createPracticeMaterialRepository(unknownVersion.client as never)
       .findImmediateMaterial(USER, TASK)).resolves.toBeNull();
   });
 

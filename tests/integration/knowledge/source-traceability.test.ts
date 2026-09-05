@@ -135,6 +135,22 @@ describe("source-grounded candidate route", () => {
     });
   });
 
+  it("GET returns an allowlisted Saved v1 artifact as ready without registering Provider work", async () => {
+    const registrar = { register: vi.fn() };
+    const historical = context({
+      artifact: { ...context().artifact, promptVersion: "analyze-saved-item-v1" },
+    });
+
+    const response = await handlers(repository(historical), registrar).get(request("GET"), SAVE_ID);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      data: { state: "ready", artifactId: ARTIFACT_ID, candidates: [candidate] },
+    });
+    expect(registrar.register).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["cross owner", context({ userId: USER_B })],
     ["cross source artifact", context({ artifact: { ...context().artifact, sourceId: "99999999-9999-4999-8999-999999999999" } })],
@@ -562,6 +578,7 @@ describe("production candidate repository query boundaries", () => {
         const query = {
           select(columns: string) { calls.push(`${table}:select:${columns}`); return query; },
           eq(column: string, value: string) { calls.push(`${table}:eq:${column}:${value}`); return query; },
+          in(column: string, values: readonly string[]) { calls.push(`${table}:in:${column}:${values.join(",")}`); return query; },
           order(column: string, options: unknown) { calls.push(`${table}:order:${column}:${JSON.stringify(options)}`); return query; },
           limit(value: number) { calls.push(`${table}:limit:${value}`); return query; },
           maybeSingle() { calls.push(`${table}:maybeSingle`); return Promise.resolve({ data: rows[table], error: null }); },
@@ -784,6 +801,7 @@ function productionClient(artifact: Record<string, unknown> | null) {
       const query = {
         select(columns: string) { calls.push(`${table}:select:${columns}`); return query; },
         eq(column: string, value: string) { calls.push(`${table}:eq:${column}:${value}`); return query; },
+        in(column: string, values: readonly string[]) { calls.push(`${table}:in:${column}:${values.join(",")}`); return query; },
         order(column: string, options: unknown) { calls.push(`${table}:order:${column}:${JSON.stringify(options)}`); return query; },
         limit(value: number) { calls.push(`${table}:limit:${value}`); return query; },
         maybeSingle() { calls.push(`${table}:maybeSingle`); return Promise.resolve({ data: rows[table], error: null }); },

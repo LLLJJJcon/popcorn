@@ -17,6 +17,7 @@ import {
   derivePracticeDecision,
   normalizePracticeEvaluationWire,
   parsePracticeEvaluationOutput,
+  isReadableEvaluationPromptVersion,
 } from "@/server/ai/prompts/evaluate.v1";
 import type { StructuredJsonGateway, StructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
 import { failure, success } from "@/server/api/respond";
@@ -133,6 +134,19 @@ function persistedEvaluation(attempt: DuePracticePersistedAttempt): EvaluationRe
   });
 }
 
+function readableEvaluationProvenance(attempt: DuePracticePersistedAttempt): boolean {
+  const metadata = [
+    attempt.evaluationModel,
+    attempt.evaluationGatewayConfigId,
+    attempt.evaluationGatewayRevision,
+    attempt.evaluationGatewayFingerprint,
+  ];
+  return attempt.evaluationPromptVersion === null
+    ? metadata.every((value) => value === null)
+    : isReadableEvaluationPromptVersion(attempt.evaluationPromptVersion)
+      && metadata.every((value) => value !== null);
+}
+
 function expectedSchedule(result: DuePracticeRpcResult, independent: boolean, completedAt: string) {
   if (!independent) return scheduleReview({ kind: "failed_or_heavily_assisted_reuse", now: completedAt });
   if (result.newState === "owned") return scheduleReview({ kind: "owned_maintenance", now: completedAt });
@@ -192,8 +206,10 @@ export function createDuePracticeCompletionService(dependencies: {
       let evaluationGatewayFingerprint: string | null;
       if (state.status === "completed") {
         const attempt = state.attempt;
+        if (!attempt || !readableEvaluationProvenance(attempt)) {
+          throw new PracticeError("NOT_FOUND");
+        }
         if (
-          !attempt ||
           attempt.responseChinese !== input.data.responseChinese ||
           attempt.assistanceLevel !== input.data.assistanceLevel
         ) throw new PracticeError("REVISION_CONFLICT");
@@ -455,6 +471,24 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
         canonicalInstant(attempt.data.submitted_at) !== review.completed_at ||
         attempt.data.independent_use !== (attempt.data.passed && attempt.data.assistance_level === "none")
       ) return null;
+      const persisted = {
+        responseChinese: attempt.data.response_chinese,
+        assistanceLevel: attempt.data.assistance_level,
+        passed: attempt.data.passed,
+        accuracyScore: attempt.data.accuracy_score,
+        accuracyFeedbackEnglish: attempt.data.accuracy_feedback_english,
+        naturalnessScore: attempt.data.naturalness_score,
+        naturalnessFeedbackEnglish: attempt.data.naturalness_feedback_english,
+        contextualFitScore: attempt.data.contextual_fit_score,
+        contextualFitFeedbackEnglish: attempt.data.contextual_fit_feedback_english,
+        submittedAt: canonicalInstant(attempt.data.submitted_at),
+        evaluationPromptVersion: attempt.data.evaluation_prompt_version,
+        evaluationModel: attempt.data.evaluation_model,
+        evaluationGatewayConfigId: attempt.data.evaluation_gateway_config_id,
+        evaluationGatewayRevision: attempt.data.evaluation_gateway_revision,
+        evaluationGatewayFingerprint: attempt.data.evaluation_gateway_fingerprint,
+      } satisfies DuePracticePersistedAttempt;
+      if (!readableEvaluationProvenance(persisted)) return null;
       const independent = attempt.data.passed && attempt.data.assistance_level === "none";
       const eventResult = await client.from("mastery_events")
         .select("id,user_id,user_expression_id,attempt_id,prior_state,new_state,occurred_at")
@@ -474,23 +508,7 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
       return {
         status: "completed",
         task,
-        attempt: {
-          responseChinese: attempt.data.response_chinese,
-          assistanceLevel: attempt.data.assistance_level,
-          passed: attempt.data.passed,
-          accuracyScore: attempt.data.accuracy_score,
-          accuracyFeedbackEnglish: attempt.data.accuracy_feedback_english,
-          naturalnessScore: attempt.data.naturalness_score,
-          naturalnessFeedbackEnglish: attempt.data.naturalness_feedback_english,
-          contextualFitScore: attempt.data.contextual_fit_score,
-          contextualFitFeedbackEnglish: attempt.data.contextual_fit_feedback_english,
-          submittedAt: canonicalInstant(attempt.data.submitted_at),
-          evaluationPromptVersion: attempt.data.evaluation_prompt_version,
-          evaluationModel: attempt.data.evaluation_model,
-          evaluationGatewayConfigId: attempt.data.evaluation_gateway_config_id,
-          evaluationGatewayRevision: attempt.data.evaluation_gateway_revision,
-          evaluationGatewayFingerprint: attempt.data.evaluation_gateway_fingerprint,
-        },
+        attempt: persisted,
       };
     },
     async resolveActiveGatewayPin(userId) {

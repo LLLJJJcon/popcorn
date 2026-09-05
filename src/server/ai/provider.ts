@@ -6,9 +6,24 @@ import { z } from "zod";
 import type { KnowledgeJobType } from "@/contracts/knowledge";
 import { YouTubeVideoIdSchema } from "@/contracts/source";
 import type { ModelOutputStage } from "@/server/ai/model-output";
-import { ExplanationContentSchema, type ExplanationContent } from "@/server/ai/prompts/explain-selection.v1";
-import { TranslationContentSchema, type TranslationContent } from "@/server/ai/prompts/translate-segments.v1";
-import { OverviewContentSchema, type OverviewContent } from "@/server/ai/prompts/youtube-overview.v1";
+import {
+  EXPLAIN_SELECTION_PROMPT_VERSION,
+  EXPLAIN_SELECTION_READABLE_PROMPT_VERSIONS,
+  ExplanationContentSchema,
+  type ExplanationContent,
+} from "@/server/ai/prompts/explain-selection.v1";
+import {
+  TRANSLATE_SEGMENTS_PROMPT_VERSION,
+  TRANSLATE_SEGMENTS_READABLE_PROMPT_VERSIONS,
+  TranslationContentSchema,
+  type TranslationContent,
+} from "@/server/ai/prompts/translate-segments.v1";
+import {
+  YOUTUBE_OVERVIEW_PROMPT_VERSION,
+  YOUTUBE_OVERVIEW_READABLE_PROMPT_VERSIONS,
+  OverviewContentSchema,
+  type OverviewContent,
+} from "@/server/ai/prompts/youtube-overview.v1";
 import { failure, success } from "@/server/api/respond";
 import { createJobResultKey } from "@/server/domain/lease-job";
 import type { Database, Json } from "@/types/database.generated";
@@ -129,11 +144,29 @@ export type LearningArtifactRegistration = {
   readonly now: string;
 };
 
+export type LearningArtifactRecord = {
+  readonly artifactId: string;
+  readonly userId: string;
+  readonly sourceId: string;
+  readonly savedItemId: string | null;
+  readonly artifactType: string;
+  readonly promptVersion: string;
+  readonly model: string;
+  readonly resultKey: string;
+  readonly content: unknown;
+};
+
 export interface LearningArtifactRouteStore {
-  resolveActiveGatewayPin(expectedUserId: string): Promise<ModelGatewayPin | null>;
+  resolveActiveGatewayPin(expectedUserId: string): Promise<(ModelGatewayPin & { readonly model: string }) | null>;
   resolveEvidence(expectedUserId: string, videoId: string): Promise<LearningArtifactEvidence | null>;
   register(input: LearningArtifactRegistration): Promise<{ readonly jobId: string; readonly status: string; readonly created: boolean }>;
-  readArtifact(expectedUserId: string, jobId: string, sourceId: string, jobType: LearningArtifactJobType): Promise<{ readonly artifactId: string; readonly content: unknown } | null>;
+  readArtifactByResultKey(
+    expectedUserId: string,
+    sourceId: string,
+    jobType: LearningArtifactJobType,
+    resultKey: string,
+  ): Promise<LearningArtifactRecord | null>;
+  readArtifact(expectedUserId: string, jobId: string, sourceId: string, jobType: LearningArtifactJobType): Promise<LearningArtifactRecord | null>;
 }
 
 export interface LearningArtifactProvider {
@@ -240,10 +273,55 @@ async function boundedBody(request: Request): Promise<unknown> {
   return JSON.parse(text);
 }
 
-function outputSchema(type: LearningArtifactJobType) {
-  if (type === "generate_overview") return OverviewContentSchema;
-  if (type === "translate_segments") return TranslationContentSchema;
-  return ExplanationContentSchema;
+function artifactType(type: LearningArtifactJobType): string {
+  if (type === "generate_overview") return "overview";
+  if (type === "translate_segments") return "segment_translation";
+  return "selection_explanation";
+}
+
+function readablePromptVersions(type: LearningArtifactJobType, configuredVersion: string): readonly string[] {
+  if (type === "generate_overview" && configuredVersion === YOUTUBE_OVERVIEW_PROMPT_VERSION) {
+    return [...YOUTUBE_OVERVIEW_READABLE_PROMPT_VERSIONS].reverse();
+  }
+  if (type === "translate_segments" && configuredVersion === TRANSLATE_SEGMENTS_PROMPT_VERSION) {
+    return [...TRANSLATE_SEGMENTS_READABLE_PROMPT_VERSIONS].reverse();
+  }
+  if (type === "explain_selection" && configuredVersion === EXPLAIN_SELECTION_PROMPT_VERSION) {
+    return [...EXPLAIN_SELECTION_READABLE_PROMPT_VERSIONS].reverse();
+  }
+  throw new TypeError("learning-artifact route must generate the latest finite prompt version");
+}
+
+function artifactIdentityMatches(
+  artifact: LearningArtifactRecord,
+  expected: {
+    readonly userId: string;
+    readonly sourceId: string;
+    readonly jobType: LearningArtifactJobType;
+    readonly promptVersion: string;
+    readonly model: string;
+    readonly resultKey: string;
+  },
+): boolean {
+  return artifact.userId === expected.userId
+    && artifact.sourceId === expected.sourceId
+    && artifact.savedItemId === null
+    && artifact.artifactType === artifactType(expected.jobType)
+    && artifact.promptVersion === expected.promptVersion
+    && artifact.model === expected.model
+    && artifact.resultKey === expected.resultKey;
+}
+
+function strictArtifactContent(
+  type: LearningArtifactJobType,
+  value: unknown,
+  evidence: LearningArtifactEvidence,
+  segmentIds: readonly string[],
+  selection?: LearningArtifactSelection,
+) {
+  if (type === "generate_overview") return validateOverviewContent(value, evidence);
+  if (type === "translate_segments") return validateTranslationContent(value, segmentIds);
+  return validateExplanationContent(value, selection!.selectedChinese);
 }
 
 export function createLearningArtifactRoute(dependencies: RouteDependencies) {
@@ -312,7 +390,46 @@ export function createLearningArtifactRoute(dependencies: RouteDependencies) {
       configId: z.string().uuid(),
       revision: z.number().int().positive(),
       fingerprint: GatewayFingerprintSchema,
+      model: PromptModelSchema,
     }).parse(gatewayPin);
+
+    const dedupePayload = dependencies.jobType === "generate_overview"
+      ? { snapshotId: owned.snapshotId, ...(retryId ? { retryId } : {}) }
+      : dependencies.jobType === "translate_segments"
+        ? { snapshotId: owned.snapshotId, segmentIds, ...(retryId ? { retryId } : {}) }
+        : parsed.data;
+    for (const compatibleVersion of readablePromptVersions(dependencies.jobType, promptVersion)) {
+      const compatibleResultKey = createLearningArtifactJobKey(
+        dependencies.jobType,
+        owned.transcriptHash,
+        dedupePayload,
+        compatibleVersion,
+        parsedPin.fingerprint,
+      );
+      const artifact = await dependencies.store.readArtifactByResultKey(
+        authenticated.userId,
+        owned.sourceId,
+        dependencies.jobType,
+        compatibleResultKey,
+      );
+      if (!artifact || !artifactIdentityMatches(artifact, {
+        userId: authenticated.userId,
+        sourceId: owned.sourceId,
+        jobType: dependencies.jobType,
+        promptVersion: compatibleVersion,
+        model: parsedPin.model,
+        resultKey: compatibleResultKey,
+      })) continue;
+      try {
+        const selection = dependencies.jobType === "explain_selection"
+          ? parsed.data as z.infer<typeof ExplanationRequestSchema>
+          : undefined;
+        const content = strictArtifactContent(dependencies.jobType, artifact.content, owned, segmentIds, selection);
+        return noStoreJson(success({ artifactId: artifact.artifactId, content }, requestId), 200);
+      } catch {
+        // A historical artifact must still satisfy today's strict domain boundary.
+      }
+    }
 
     const privateInput: Record<string, Json | undefined> = {
       kind: dependencies.jobType,
@@ -336,11 +453,6 @@ export function createLearningArtifactRoute(dependencies: RouteDependencies) {
         context: selection.context,
       });
     }
-    const dedupePayload = dependencies.jobType === "generate_overview"
-      ? { snapshotId: owned.snapshotId, ...(retryId ? { retryId } : {}) }
-      : dependencies.jobType === "translate_segments"
-        ? { snapshotId: owned.snapshotId, segmentIds, ...(retryId ? { retryId } : {}) }
-        : parsed.data;
     const dedupeKey = createLearningArtifactJobKey(
       dependencies.jobType,
       owned.transcriptHash,
@@ -360,7 +472,18 @@ export function createLearningArtifactRoute(dependencies: RouteDependencies) {
     if (registration.status === "succeeded") {
       const artifact = await dependencies.store.readArtifact(authenticated.userId, registration.jobId, owned.sourceId, dependencies.jobType);
       if (artifact) {
-        const content = outputSchema(dependencies.jobType).parse(artifact.content);
+        if (!artifactIdentityMatches(artifact, {
+          userId: authenticated.userId,
+          sourceId: owned.sourceId,
+          jobType: dependencies.jobType,
+          promptVersion,
+          model: parsedPin.model,
+          resultKey: dedupeKey,
+        })) throw new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "grounding");
+        const selection = dependencies.jobType === "explain_selection"
+          ? parsed.data as z.infer<typeof ExplanationRequestSchema>
+          : undefined;
+        const content = strictArtifactContent(dependencies.jobType, artifact.content, owned, segmentIds, selection);
         return noStoreJson(success({ artifactId: artifact.artifactId, content }, requestId), 200);
       }
     }
@@ -381,6 +504,7 @@ export function createSupabaseLearningArtifactRouteStore(client: SupabaseClient<
         configId: row.config_id,
         revision: row.revision,
         fingerprint: row.config_fingerprint,
+        model: row.model,
       };
     },
     async resolveEvidence(expectedUserId, videoId) {
@@ -429,6 +553,25 @@ export function createSupabaseLearningArtifactRouteStore(client: SupabaseClient<
       if (!row || result.data.length !== 1) throw new Error("invalid learning-artifact registration");
       return { jobId: row.knowledge_job_id, status: row.status, created: row.created };
     },
+    async readArtifactByResultKey(expectedUserId, sourceId, jobType, resultKey) {
+      const found = await client.from("generated_artifacts")
+        .select("id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,model,result_key,content")
+        .eq("user_id", expectedUserId).eq("video_source_id", sourceId)
+        .eq("artifact_type", artifactType(jobType)).eq("result_key", resultKey).maybeSingle();
+      if (found.error) throw found.error;
+      if (!found.data) return null;
+      return {
+        artifactId: found.data.id,
+        userId: found.data.user_id,
+        sourceId: found.data.video_source_id,
+        savedItemId: found.data.saved_item_id,
+        artifactType: found.data.artifact_type,
+        promptVersion: found.data.prompt_version,
+        model: found.data.model,
+        resultKey: found.data.result_key,
+        content: found.data.content,
+      };
+    },
     async readArtifact(expectedUserId, jobId, sourceId, jobType) {
       const internal = await client.from("knowledge_job_internal").select("result,user_id")
         .eq("user_id", expectedUserId).eq("knowledge_job_id", jobId).maybeSingle();
@@ -436,13 +579,22 @@ export function createSupabaseLearningArtifactRouteStore(client: SupabaseClient<
       if (!internal.data || internal.data.user_id !== expectedUserId) return null;
       const reference = z.strictObject({ artifactId: z.string().uuid() }).safeParse(internal.data.result);
       if (!reference.success) return null;
-      const artifactType = jobType === "generate_overview" ? "overview" : jobType === "translate_segments" ? "segment_translation" : "selection_explanation";
-      const artifact = await client.from("generated_artifacts").select("id,user_id,video_source_id,artifact_type,content")
+      const artifact = await client.from("generated_artifacts").select("id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,model,result_key,content")
         .eq("user_id", expectedUserId).eq("video_source_id", sourceId).eq("id", reference.data.artifactId)
-        .eq("artifact_type", artifactType).maybeSingle();
+        .eq("artifact_type", artifactType(jobType)).maybeSingle();
       if (artifact.error) throw artifact.error;
       if (!artifact.data || artifact.data.user_id !== expectedUserId) return null;
-      return { artifactId: artifact.data.id, content: artifact.data.content };
+      return {
+        artifactId: artifact.data.id,
+        userId: artifact.data.user_id,
+        sourceId: artifact.data.video_source_id,
+        savedItemId: artifact.data.saved_item_id,
+        artifactType: artifact.data.artifact_type,
+        promptVersion: artifact.data.prompt_version,
+        model: artifact.data.model,
+        resultKey: artifact.data.result_key,
+        content: artifact.data.content,
+      };
     },
   };
 }

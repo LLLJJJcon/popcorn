@@ -34,7 +34,7 @@ const CONFIG = "66666666-6666-4666-8666-666666666666";
 const ATTEMPT = "77777777-7777-4777-8777-777777777777";
 const NOW = "2026-08-21T02:03:04.000Z";
 const FINGERPRINT = "a".repeat(64);
-const CANDIDATE_SELECT = "id,user_id,video_source_id,saved_item_id,artifact_type,content";
+const CANDIDATE_SELECT = "id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,content";
 const DRAFT_SELECT = "id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,activation_prompt_version,activation_model,activation_gateway_config_id,activation_gateway_revision,activation_gateway_fingerprint,created_at,updated_at";
 const ATTEMPT_SELECT = "id,user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at,evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,evaluation_gateway_revision,evaluation_gateway_fingerprint,created_at";
 
@@ -886,6 +886,7 @@ describe("production Supabase practice repository", () => {
       video_source_id: SOURCE,
       saved_item_id: SAVE,
       artifact_type: "saved_item_analysis",
+      prompt_version: "analyze-saved-item-v1",
       content: { candidates: [candidate] },
     };
     const harness = supabaseQueryHarness([
@@ -993,6 +994,42 @@ describe("production Supabase practice repository", () => {
       ["eq", "practice_draft_attempts", "id", USER_B],
     ]));
     expect(harness.remaining).toHaveLength(0);
+  });
+
+  test.each([
+    ["candidate", "analyze-saved-item-v2", "analyze-saved-item-v999"],
+    ["draft", "activate-practice-v2", "activate-practice-v999"],
+    ["attempt", "evaluate-practice-v3", "evaluate-practice-v999"],
+  ] as const)("%s readers accept the current version and reject an unknown version", async (kind, current, unknown) => {
+    const selection = { savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0 };
+    const read = async (version: string) => {
+      if (kind === "candidate") {
+        const harness = supabaseQueryHarness([{
+          table: "generated_artifacts", terminal: "maybeSingle", result: { data: {
+            id: ARTIFACT, user_id: USER_A, video_source_id: SOURCE, saved_item_id: SAVE,
+            artifact_type: "saved_item_analysis", prompt_version: version, content: { candidates: [candidate] },
+          }, error: null },
+        }]);
+        return createSupabasePracticeRepository(harness.client as never).findCandidate(USER_A, selection);
+      }
+      if (kind === "draft") {
+        const harness = supabaseQueryHarness([{
+          table: "practice_drafts", terminal: "maybeSingle", result: { data: {
+            ...draftRow, activation_prompt_version: version,
+          }, error: null },
+        }]);
+        return createSupabasePracticeRepository(harness.client as never).findDraft(USER_A, ATTEMPT);
+      }
+      const harness = supabaseQueryHarness([{
+        table: "practice_draft_attempts", terminal: "maybeSingle", result: { data: {
+          ...attemptRow, evaluation_prompt_version: version,
+        }, error: null },
+      }]);
+      return createSupabasePracticeRepository(harness.client as never).findAttempt(USER_A, USER_B);
+    };
+
+    await expect(read(current)).resolves.not.toBeNull();
+    await expect(read(unknown)).resolves.toBeNull();
   });
 
   test("round-trips a complete draft insert and replays the owner-scoped row after a 23505 race", async () => {

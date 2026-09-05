@@ -19,8 +19,13 @@ import {
   derivePracticeDecision,
   normalizePracticeEvaluationWire,
   parsePracticeEvaluationOutput,
+  isReadableEvaluationPromptVersion,
 } from "@/server/ai/prompts/evaluate.v1";
-import { createActivationFixtureGateway } from "@/server/ai/prompts/activate.v1";
+import {
+  createActivationFixtureGateway,
+  isReadableActivationPromptVersion,
+} from "@/server/ai/prompts/activate.v1";
+import { isReadableSavedAnalysisPromptVersion } from "@/server/ai/prompts/analyze-saved-item.v1";
 import {
   createStructuredJsonGatewayResolver,
   type StructuredJsonGateway,
@@ -406,6 +411,32 @@ function attemptRecord(row: AttemptRow): PracticeDraftAttemptRecord {
   };
 }
 
+function readableDraft(record: PracticeDraftRecord): boolean {
+  const metadata = [
+    record.activationModel,
+    record.activationGatewayConfigId,
+    record.activationGatewayRevision,
+    record.activationGatewayFingerprint,
+  ];
+  return record.activationPromptVersion === null
+    ? metadata.every((value) => value === null)
+    : isReadableActivationPromptVersion(record.activationPromptVersion)
+      && metadata.every((value) => value !== null);
+}
+
+function readableAttempt(record: PracticeDraftAttemptRecord): boolean {
+  const metadata = [
+    record.evaluationModel,
+    record.evaluationGatewayConfigId,
+    record.evaluationGatewayRevision,
+    record.evaluationGatewayFingerprint,
+  ];
+  return record.evaluationPromptVersion === null
+    ? metadata.every((value) => value === null)
+    : isReadableEvaluationPromptVersion(record.evaluationPromptVersion)
+      && metadata.every((value) => value !== null);
+}
+
 const draftColumns = "id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,activation_prompt_version,activation_model,activation_gateway_config_id,activation_gateway_revision,activation_gateway_fingerprint,created_at,updated_at";
 const attemptColumns = "id,user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at,evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,evaluation_gateway_revision,evaluation_gateway_fingerprint,created_at";
 
@@ -420,13 +451,15 @@ export function createSupabasePracticeRepository(client: SupabaseClient<Database
     const result = await client.from("practice_drafts").select(draftColumns)
       .eq("user_id", userId).eq("id", taskId).maybeSingle();
     if (result.error) throw result.error;
-    return result.data ? draftRecord(result.data as DraftRow) : null;
+    if (!result.data) return null;
+    const record = draftRecord(result.data as DraftRow);
+    return readableDraft(record) ? record : null;
   }
 
   return {
     async findCandidate(userId: string, selection: CandidateSelection) {
       const result = await client.from("generated_artifacts")
-        .select("id,user_id,video_source_id,saved_item_id,artifact_type,content")
+        .select("id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,content")
         .eq("user_id", userId)
         .eq("id", selection.candidateArtifactId)
         .eq("saved_item_id", selection.savedItemId)
@@ -434,8 +467,11 @@ export function createSupabasePracticeRepository(client: SupabaseClient<Database
         .maybeSingle();
       if (result.error) throw result.error;
       if (!result.data) return null;
-      const row = result.data as Pick<ArtifactRow, "id" | "user_id" | "video_source_id" | "saved_item_id" | "artifact_type" | "content">;
-      if (!row.saved_item_id || row.user_id !== userId) return null;
+      const row = result.data as Pick<ArtifactRow, "id" | "user_id" | "video_source_id" | "saved_item_id" | "artifact_type" | "prompt_version" | "content">;
+      if (
+        !row.saved_item_id || row.user_id !== userId ||
+        !isReadableSavedAnalysisPromptVersion(row.prompt_version)
+      ) return null;
       return {
         id: row.id,
         userId: row.user_id,
@@ -455,7 +491,9 @@ export function createSupabasePracticeRepository(client: SupabaseClient<Database
         .eq("status", "active")
         .order("created_at", { ascending: true }).limit(1).maybeSingle();
       if (result.error) throw result.error;
-      return result.data ? draftRecord(result.data as DraftRow) : null;
+      if (!result.data) return null;
+      const record = draftRecord(result.data as DraftRow);
+      return readableDraft(record) ? record : null;
     },
 
     findDraft,
@@ -505,14 +543,18 @@ export function createSupabasePracticeRepository(client: SupabaseClient<Database
       const result = await client.from("practice_draft_attempts").select(attemptColumns)
         .eq("user_id", userId).eq("id", attemptId).maybeSingle();
       if (result.error) throw result.error;
-      return result.data ? attemptRecord(result.data as AttemptRow) : null;
+      if (!result.data) return null;
+      const record = attemptRecord(result.data as AttemptRow);
+      return readableAttempt(record) ? record : null;
     },
 
     async findOriginalAttempt(userId, taskId) {
       const result = await client.from("practice_draft_attempts").select(attemptColumns)
         .eq("user_id", userId).eq("practice_draft_id", taskId).eq("revision", 1).maybeSingle();
       if (result.error) throw result.error;
-      return result.data ? attemptRecord(result.data as AttemptRow) : null;
+      if (!result.data) return null;
+      const record = attemptRecord(result.data as AttemptRow);
+      return readableAttempt(record) ? record : null;
     },
 
     async nextRevision(userId, taskId) {

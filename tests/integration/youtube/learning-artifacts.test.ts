@@ -764,16 +764,173 @@ function bodyFor(type: KnowledgeJobType): unknown {
 
 function routeStore(overrides: Partial<LearningArtifactRouteStore> = {}): LearningArtifactRouteStore {
   return {
-    resolveActiveGatewayPin: vi.fn(async (userId) => userId === USER_A ? GATEWAY_PIN : null),
+    resolveActiveGatewayPin: vi.fn(async (userId) => userId === USER_A ? {
+      ...GATEWAY_PIN,
+      model: "mandarin-model",
+    } : null),
     resolveEvidence: vi.fn(async (userId, videoId) =>
       userId === USER_A && videoId === evidence.videoId ? evidence : null),
     register: vi.fn(async () => ({ jobId: JOB_ID, status: "pending", created: true })),
+    readArtifactByResultKey: vi.fn(async () => null),
     readArtifact: vi.fn(async () => null),
     ...overrides,
   };
 }
 
 describe("fast durable learning-artifact request routes", () => {
+  test.each([
+    ["generate_overview", "youtube-overview-v4-simple", validOverview],
+    ["generate_overview", "youtube-overview-v5-structured", validOverview],
+    ["translate_segments", "translate-segments-v1", { segments: [
+      { id: SEGMENT_A, english: "This expression sounds natural." },
+      { id: SEGMENT_B, english: "You can say it exactly this way." },
+    ] }],
+    ["translate_segments", "translate-segments-v2", { segments: [
+      { id: SEGMENT_A, english: "This expression sounds natural." },
+      { id: SEGMENT_B, english: "You can say it exactly this way." },
+    ] }],
+    ["explain_selection", "explain-selection-v1", {
+      selectedChinese: "这个表达", meaning: "this expression", tone: "neutral and conversational",
+      communicativeFunction: "refers back to a phrase under discussion",
+      contextualFit: "It fits because the speaker is evaluating how the phrase sounds.",
+    }],
+    ["explain_selection", "explain-selection-v2", {
+      selectedChinese: "这个表达", meaning: "this expression", tone: "neutral and conversational",
+      communicativeFunction: "refers back to a phrase under discussion",
+      contextualFit: "It fits because the speaker is evaluating how the phrase sounds.",
+    }],
+  ] as const)("%s reuses compatible %s strict artifacts before registration", async (jobType, historicalVersion, content) => {
+    const dedupePayload = jobType === "generate_overview"
+      ? { snapshotId: SNAPSHOT_ID }
+      : jobType === "translate_segments"
+        ? { snapshotId: SNAPSHOT_ID, segmentIds: [SEGMENT_A, SEGMENT_B] }
+        : bodyFor("explain_selection");
+    const resultKey = createLearningArtifactJobKey(
+      jobType,
+      evidence.transcriptHash,
+      dedupePayload,
+      historicalVersion,
+      GATEWAY_FINGERPRINT,
+    );
+    const store = routeStore({
+      readArtifactByResultKey: vi.fn(async (_userId, _sourceId, _jobType, key) => key === resultKey ? {
+        artifactId: ARTIFACT_ID,
+        userId: USER_A,
+        sourceId: SOURCE_ID,
+        savedItemId: null,
+        artifactType: jobType === "generate_overview" ? "overview" : jobType === "translate_segments" ? "segment_translation" : "selection_explanation",
+        promptVersion: historicalVersion,
+        model: "mandarin-model",
+        resultKey,
+        content,
+      } : null),
+    });
+    const route = createLearningArtifactRoute({
+      jobType,
+      authenticate: async () => ({ userId: USER_A }),
+      store,
+      promptVersion: jobType === "generate_overview"
+        ? "youtube-overview-v5-structured"
+        : jobType === "translate_segments"
+          ? "translate-segments-v2"
+          : "explain-selection-v2",
+      requestId: () => "compatible-history",
+    });
+    const response = await route(new Request(
+      jobType === "explain_selection"
+        ? "https://app.popcorn.local/api/v1/explanations"
+        : `https://app.popcorn.local/api/v1/youtube/abc123XYZ00/${jobType}`,
+      { method: "POST", body: JSON.stringify(bodyFor(jobType)) },
+    ), { params: Promise.resolve(jobType === "explain_selection" ? {} : { videoId: "abc123XYZ00" }) });
+
+    expect(response.status).toBe(200);
+    expect(store.register).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({ ok: true, data: { artifactId: ARTIFACT_ID, content } });
+  });
+
+  test("checks compatible Overview result keys newest first and stops after the current hit", async () => {
+    const currentKey = createLearningArtifactJobKey(
+      "generate_overview", evidence.transcriptHash, { snapshotId: SNAPSHOT_ID },
+      "youtube-overview-v5-structured", GATEWAY_FINGERPRINT,
+    );
+    const readArtifactByResultKey = vi.fn(async (_userId, _sourceId, _jobType, resultKey) => ({
+      artifactId: ARTIFACT_ID, userId: USER_A, sourceId: SOURCE_ID, savedItemId: null,
+      artifactType: "overview", promptVersion: "youtube-overview-v5-structured",
+      model: "mandarin-model", resultKey, content: validOverview,
+    }));
+    const store = routeStore({ readArtifactByResultKey });
+    const route = createLearningArtifactRoute({
+      jobType: "generate_overview", authenticate: async () => ({ userId: USER_A }), store,
+      promptVersion: "youtube-overview-v5-structured", requestId: () => "newest-first",
+    });
+
+    const response = await route(new Request(
+      "https://app.popcorn.local/api/v1/youtube/abc123XYZ00/overview",
+      { method: "POST", body: JSON.stringify(bodyFor("generate_overview")) },
+    ), { params: Promise.resolve({ videoId: "abc123XYZ00" }) });
+
+    expect(response.status).toBe(200);
+    expect(readArtifactByResultKey).toHaveBeenCalledExactlyOnceWith(
+      USER_A, SOURCE_ID, "generate_overview", currentKey,
+    );
+    expect(store.register).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["unknown prompt", { promptVersion: "youtube-overview-v999" }],
+    ["wrong owner", { userId: USER_B }],
+    ["wrong source", { sourceId: "20000000-0000-4000-8000-000000000099" }],
+    ["wrong model", { model: "different-model" }],
+    ["wrong result key", { resultKey: "9".repeat(64) }],
+    ["invalid current domain content", { content: { overview: "Not a complete domain artifact." } }],
+  ] as const)("does not reuse a historical Overview with %s", async (_label, override) => {
+    const historicalVersion = "youtube-overview-v4-simple";
+    const resultKey = createLearningArtifactJobKey(
+      "generate_overview", evidence.transcriptHash, { snapshotId: SNAPSHOT_ID },
+      historicalVersion, GATEWAY_FINGERPRINT,
+    );
+    const store = routeStore({
+      readArtifactByResultKey: vi.fn(async () => ({
+        artifactId: ARTIFACT_ID, userId: USER_A, sourceId: SOURCE_ID, savedItemId: null,
+        artifactType: "overview", promptVersion: historicalVersion, model: "mandarin-model",
+        resultKey, content: validOverview, ...override,
+      })),
+    });
+    const route = createLearningArtifactRoute({
+      jobType: "generate_overview", authenticate: async () => ({ userId: USER_A }), store,
+      promptVersion: "youtube-overview-v5-structured", requestId: () => "closed-history",
+    });
+
+    const response = await route(new Request(
+      "https://app.popcorn.local/api/v1/youtube/abc123XYZ00/overview",
+      { method: "POST", body: JSON.stringify(bodyFor("generate_overview")) },
+    ), { params: Promise.resolve({ videoId: "abc123XYZ00" }) });
+
+    expect(response.status).toBe(202);
+    expect(store.register).toHaveBeenCalledTimes(1);
+  });
+
+  test("translation completion recovery rejects an artifact whose stored prompt_version is unknown", async () => {
+    const store = routeStore({
+      register: vi.fn(async () => ({ jobId: JOB_ID, status: "succeeded", created: false })),
+      readArtifact: vi.fn(async () => ({
+        artifactId: ARTIFACT_ID, userId: USER_A, sourceId: SOURCE_ID, savedItemId: null,
+        artifactType: "segment_translation", promptVersion: "translate-segments-v999",
+        model: "mandarin-model", resultKey: "8".repeat(64),
+        content: { segments: [{ id: SEGMENT_A, english: "This expression sounds natural." }] },
+      })),
+    });
+    const route = createLearningArtifactRoute({
+      jobType: "translate_segments", authenticate: async () => ({ userId: USER_A }), store,
+      promptVersion: "translate-segments-v2", requestId: () => "translation-recovery-version",
+    });
+
+    await expect(route(new Request(
+      "https://app.popcorn.local/api/v1/youtube/abc123XYZ00/translations",
+      { method: "POST", body: JSON.stringify({ snapshotId: SNAPSHOT_ID, segmentIds: [SEGMENT_A] }) },
+    ), { params: Promise.resolve({ videoId: "abc123XYZ00" }) })).rejects.toThrow();
+  });
+
   test("an Overview retry UUID changes only its semantic dedupe identity", async () => {
     const store = routeStore();
     const route = createLearningArtifactRoute({
@@ -815,7 +972,7 @@ describe("fast durable learning-artifact request routes", () => {
       jobType: "translate_segments",
       authenticate: async () => ({ userId: USER_A }),
       store,
-      promptVersion: "translation-v1",
+      promptVersion: "translate-segments-v2",
       requestId: () => "request-retry",
     });
     const submit = (retryId: string) => route(new Request(
@@ -844,16 +1001,16 @@ describe("fast durable learning-artifact request routes", () => {
   });
 
   test.each([
-    ["generate_overview", "overview"],
-    ["translate_segments", "translation"],
-    ["explain_selection", "explanation"],
-  ] as const)("%s pins the authenticated owner's gateway and returns 202 before runtime resolution", async (jobType, path) => {
+    ["generate_overview", "overview", "youtube-overview-v5-structured"],
+    ["translate_segments", "translation", "translate-segments-v2"],
+    ["explain_selection", "explanation", "explain-selection-v2"],
+  ] as const)("%s pins the authenticated owner's gateway and returns 202 before runtime resolution", async (jobType, path, latestVersion) => {
     const store = routeStore();
     const route = createLearningArtifactRoute({
       jobType,
       authenticate: async () => ({ userId: USER_A }),
       store,
-      promptVersion: `${path}-v1`,
+      promptVersion: latestVersion,
       requestId: () => "request-1",
     });
     const url = jobType === "explain_selection"
@@ -875,7 +1032,7 @@ describe("fast durable learning-artifact request routes", () => {
       gatewayPin: GATEWAY_PIN,
     });
     expect(registration.input).toMatchObject({
-      promptVersion: `${path}-v1`,
+      promptVersion: latestVersion,
       snapshotId: SNAPSHOT_ID,
       gatewayConfigId: CONFIG_ID,
       gatewayRevision: 3,
@@ -908,7 +1065,9 @@ describe("fast durable learning-artifact request routes", () => {
       jobType: Array.isArray((body as { segmentIds?: unknown }).segmentIds) ? "translate_segments" : "generate_overview",
       authenticate,
       store,
-      promptVersion: "route-v1",
+      promptVersion: Array.isArray((body as { segmentIds?: unknown }).segmentIds)
+        ? "translate-segments-v2"
+        : "youtube-overview-v5-structured",
       requestId: () => "request-2",
     });
     const response = await route(
@@ -925,7 +1084,7 @@ describe("fast durable learning-artifact request routes", () => {
       jobType: "explain_selection",
       authenticate: async () => ({ userId: USER_A }),
       store,
-      promptVersion: "explain-v1",
+      promptVersion: "explain-selection-v2",
       requestId: () => "request-3",
     });
     const response = await route(new Request("https://app.popcorn.local/api/v1/explanations", {
@@ -942,7 +1101,7 @@ describe("fast durable learning-artifact request routes", () => {
       jobType: "explain_selection",
       authenticate: async () => ({ userId: USER_A }),
       store,
-      promptVersion: "explain-v1",
+      promptVersion: "explain-selection-v2",
       requestId: () => "request-context",
     });
     const response = await route(new Request("https://app.popcorn.local/api/v1/explanations", {
@@ -960,15 +1119,23 @@ describe("fast durable learning-artifact request routes", () => {
 
   test("successful same-video same-snapshot replay reuses the deduplicated artifact without a new Provider job", async () => {
     const content = validOverview;
+    const resultKey = createLearningArtifactJobKey(
+      "generate_overview", evidence.transcriptHash, { snapshotId: SNAPSHOT_ID },
+      "youtube-overview-v5-structured", GATEWAY_FINGERPRINT,
+    );
     const store = routeStore({
       register: vi.fn(async () => ({ jobId: JOB_ID, status: "succeeded", created: false })),
-      readArtifact: vi.fn(async (userId) => userId === USER_A ? { artifactId: ARTIFACT_ID, content } : null),
+      readArtifact: vi.fn(async (userId) => userId === USER_A ? {
+        artifactId: ARTIFACT_ID, userId: USER_A, sourceId: SOURCE_ID, savedItemId: null,
+        artifactType: "overview", promptVersion: "youtube-overview-v5-structured", model: "mandarin-model",
+        resultKey, content,
+      } : null),
     });
     const route = createLearningArtifactRoute({
       jobType: "generate_overview",
       authenticate: async () => ({ userId: USER_A }),
       store,
-      promptVersion: "overview-v1",
+      promptVersion: "youtube-overview-v5-structured",
       requestId: () => "request-4",
     });
     const request = () => route(new Request("https://app.popcorn.local/api/v1/youtube/abc123XYZ00/overview", {
@@ -1005,7 +1172,7 @@ describe("fast durable learning-artifact request routes", () => {
         jobType: "generate_overview",
         authenticate: async () => ({ userId: USER_A }),
         store,
-        promptVersion: "overview-v1",
+        promptVersion: "youtube-overview-v5-structured",
         requestId: () => "request-override",
       });
       const response = await route(new Request(

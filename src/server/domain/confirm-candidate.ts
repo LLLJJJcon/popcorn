@@ -3,7 +3,10 @@ import { z } from "zod";
 import { CandidateExpressionListSchema } from "@/contracts/knowledge";
 import { failure, success } from "@/server/api/respond";
 import type { WebSessionResult } from "@/server/auth/web-session";
-import { ANALYZE_SAVED_ITEM_PROMPT_VERSION } from "@/server/ai/prompts/analyze-saved-item.v1";
+import {
+  ANALYZE_SAVED_ITEM_PROMPT_VERSION,
+  isReadableSavedAnalysisPromptVersion,
+} from "@/server/ai/prompts/analyze-saved-item.v1";
 import {
   publicFailureCategory,
   type SavedItemAnalysisRegistration,
@@ -42,7 +45,7 @@ function ready(context: CandidateSourceContext) {
     || artifact.sourceId !== context.sourceId
     || artifact.savedItemId !== context.savedItemId
     || artifact.type !== "saved_item_analysis"
-    || artifact.promptVersion !== ANALYZE_SAVED_ITEM_PROMPT_VERSION
+    || !isReadableSavedAnalysisPromptVersion(artifact.promptVersion)
   ) throw new CandidateArtifactError();
   const content = ArtifactContentSchema.safeParse(artifact.content);
   if (!content.success) throw new CandidateArtifactError();

@@ -9,7 +9,7 @@ import {
   type PracticeMaterialTask,
   type PracticeMaterialView,
 } from "@/features/practice/material-schema";
-import { ANALYZE_SAVED_ITEM_PROMPT_VERSION } from "@/server/ai/prompts/analyze-saved-item.v1";
+import { isReadableSavedAnalysisPromptVersion } from "@/server/ai/prompts/analyze-saved-item.v1";
 import type { Database } from "@/types/database.generated";
 
 const UuidSchema = z.string().uuid();
@@ -40,7 +40,7 @@ const ArtifactRowSchema = z.strictObject({
   video_source_id: UuidSchema,
   saved_item_id: UuidSchema,
   artifact_type: z.literal("saved_item_analysis"),
-  prompt_version: z.literal(ANALYZE_SAVED_ITEM_PROMPT_VERSION),
+  prompt_version: z.string(),
   content: z.unknown(),
 });
 
@@ -204,7 +204,8 @@ export function createPracticeMaterialRepository(
         .eq("video_source_id", draft.data.video_source_id).eq("saved_item_id", draft.data.saved_item_id)
         .eq("artifact_type", "saved_item_analysis")));
       if (
-        !artifact.success || !belongs(artifact.data, userId.data) ||
+        !artifact.success || !isReadableSavedAnalysisPromptVersion(artifact.data.prompt_version) ||
+        !belongs(artifact.data, userId.data) ||
         artifact.data.id !== draft.data.candidate_artifact_id ||
         artifact.data.video_source_id !== draft.data.video_source_id ||
         artifact.data.saved_item_id !== draft.data.saved_item_id

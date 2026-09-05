@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { KnowledgeJobStatusSchema, type KnowledgeJobStatus } from "@/contracts/knowledge";
+import { ANALYZE_SAVED_ITEM_READABLE_PROMPT_VERSIONS } from "@/server/ai/prompts/analyze-saved-item.v1";
 import { SavedItemAnalysisJobInputSchema } from "@/server/jobs/job-types";
 import type { Database, Json } from "@/types/database.generated";
 
@@ -81,6 +82,7 @@ export function createSupabaseExpressionRepository(
           .eq("video_source_id", sourceId)
           .eq("saved_item_id", savedItemId)
           .eq("artifact_type", "saved_item_analysis")
+          .in("prompt_version", [...ANALYZE_SAVED_ITEM_READABLE_PROMPT_VERSIONS])
           .order("created_at", { ascending: false })
           .order("id", { ascending: false })
           .limit(1)
