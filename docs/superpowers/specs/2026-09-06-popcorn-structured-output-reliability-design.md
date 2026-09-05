@@ -460,8 +460,8 @@ Retry policy:
   longest task budget;
 - authentication/configuration failure: fail immediately with a Settings
   action;
-- persistence failure: retain the durable job's recoverability without making
-  another Provider request when the validated result is already available;
+- persistence failure: terminate safely without a hidden automatic Provider
+  recall; an explicit user retry may perform a new model request;
 - explicit user retry must create or requeue a genuinely executable attempt,
   never only redisplay an exhausted deduplicated job.
 
@@ -592,13 +592,13 @@ this change and do not require a real-Provider smoke.
 
 Implementation is split so concurrent agents never modify the same files:
 
-1. controller-owned shared request/extraction contracts and prompt version
-   compatibility;
-2. Overview and translation adaptation;
-3. Explanation and Saved analysis adaptation;
-4. Practice activation and evaluation adaptation;
-5. Web and extension status/partial-result UX;
-6. controller integration, cross-feature fixtures, and manual smoke.
+1. controller-owned shared request/extraction contracts;
+2. one parallel server wave for Overview/Translation/Explanation, Saved
+   analysis, and Practice activation/evaluation;
+3. one controller-frozen sequential task for finite historical-version reads,
+   compatible cache reuse, and zero-Provider-call verification;
+4. one parallel consumer wave for extension, Saved Web, and Practice Web UX;
+5. controller integration, focused cross-feature fixtures, and manual smoke.
 
 Shared contracts, migrations if proven necessary, generated database types,
 root configuration, lockfiles, prompt-version compatibility policy, and final
