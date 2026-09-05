@@ -905,6 +905,7 @@ describe("Popcorn local launcher", () => {
     const environment = {
       ...process.env,
       PATH: `${binDirectory}${path.delimiter}${process.env.PATH}`,
+      npm_execpath: "",
       POPCORN_TEST_FALLBACK_LOG: fallbackLog,
     };
 
@@ -1207,6 +1208,7 @@ describe("Popcorn local launcher", () => {
     const environment = {
       ...process.env,
       PATH: `${binDirectory}${path.delimiter}${process.env.PATH}`,
+      npm_execpath: "",
       POPCORN_TEST_COMMAND_LOG: commandLog,
     };
 
@@ -1218,6 +1220,33 @@ describe("Popcorn local launcher", () => {
 
     expect(result.exitCode).toBe(0);
     expect(`${result.stdout}\n${result.stderr}`).not.toContain(credentialSentinel);
+    expect((await readFile(commandLog, "utf8")).trim()).toBe("exec supabase stop");
+  });
+
+  test("the real stop CLI reuses an absolute package-manager CLI when pnpm is absent from PATH", async () => {
+    const directory = await temporaryDirectory("popcorn corepack stop ");
+    const binDirectory = path.join(directory, "bin");
+    const packageManagerCli = path.join(directory, "fake-pnpm.cjs");
+    const commandLog = path.join(directory, "package-manager.log");
+    await mkdir(binDirectory);
+    await writeFile(packageManagerCli, [
+      "require(\"node:fs\").appendFileSync(process.env.POPCORN_TEST_COMMAND_LOG, `${process.argv.slice(2).join(\" \")}\\n`);",
+      "",
+    ].join("\n"));
+    const environment = {
+      ...process.env,
+      PATH: binDirectory,
+      npm_execpath: packageManagerCli,
+      POPCORN_TEST_COMMAND_LOG: commandLog,
+    };
+
+    const result = await runCaptured(
+      process.execPath,
+      [path.join(root, "scripts/popcorn-local.mjs"), "stop"],
+      { cwd: directory, env: environment },
+    );
+
+    expect(result.exitCode).toBe(0);
     expect((await readFile(commandLog, "utf8")).trim()).toBe("exec supabase stop");
   });
 

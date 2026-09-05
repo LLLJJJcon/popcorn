@@ -342,16 +342,30 @@ export function createPopcornLauncher({
   stopTimeoutMs = STOP_TIMEOUT_MS,
   readyTimeoutMs = READY_TIMEOUT_MS,
   readyIntervalMs = READY_INTERVAL_MS,
-  runCommand = (command, args) => commandExit(command, args, { cwd: repositoryRoot, stdio: "ignore" }),
-  spawnService = (command, args, environment) => spawn(command, args, {
-    cwd: repositoryRoot,
-    env: environment,
-    stdio: "inherit",
-  }),
+  runCommand,
+  spawnService,
   waitForReady = (url, signal) => defaultWaitForReady(url, signal, readyTimeoutMs, readyIntervalMs),
   openBrowser = defaultOpenBrowser,
   controlChannel = { listen: createControlServer, request: sendControl },
 } = {}) {
+  const packageManagerCli = typeof process.env.npm_execpath === "string" && path.isAbsolute(process.env.npm_execpath)
+    ? process.env.npm_execpath
+    : undefined;
+  const packageManagerInvocation = (command, args) => packageManagerCli && command === "pnpm"
+    ? [process.execPath, [packageManagerCli, ...args]]
+    : [command, args];
+  runCommand ??= (command, args) => {
+    const [executable, executableArgs] = packageManagerInvocation(command, args);
+    return commandExit(executable, executableArgs, { cwd: repositoryRoot, stdio: "ignore" });
+  };
+  spawnService ??= (command, args, environment) => {
+    const [executable, executableArgs] = packageManagerInvocation(command, args);
+    return spawn(executable, executableArgs, {
+      cwd: repositoryRoot,
+      env: environment,
+      stdio: "inherit",
+    });
+  };
   let controlServer;
   let children = [];
   let cleanupPromise;
