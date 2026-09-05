@@ -65,6 +65,19 @@ afterEach(() => {
 });
 
 describe("ModelGatewaySettings", () => {
+  it("composes one setup form and one configured list without shell-owned account chrome", async () => {
+    mockFetch(response(settings([pending])));
+    render(<ModelGatewaySettings />);
+
+    expect(await screen.findByRole("heading", { name: "Model gateway settings", level: 1 })).toBeInTheDocument();
+    expect(screen.getAllByRole("form")).toHaveLength(1);
+    expect(screen.getAllByRole("form", { name: "Add a model gateway" })).toHaveLength(1);
+    expect(screen.getAllByRole("region", { name: "Configured gateways" })).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { name: "Add a gateway" })).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { name: "Configured gateways" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+  });
+
   it("lets a user enter the exact gateway base URL without an approved catalog", async () => {
     mockFetch(response({ configs: [] }));
     render(<ModelGatewaySettings />);

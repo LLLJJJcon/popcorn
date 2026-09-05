@@ -484,9 +484,6 @@ export function ModelGatewaySettings() {
           <h1>Model gateway settings</h1>
           <p>Choose where Popcorn sends only the learning context you approve.</p>
         </div>
-        <form action="/auth/sign-out" method="post">
-          <button className={styles.secondaryButton} type="submit">Sign out</button>
-        </form>
       </header>
 
       <p className={styles.status} role="status" aria-live="polite">{status}</p>

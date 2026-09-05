@@ -212,6 +212,16 @@ test("opening Saved requests the fixed library once and safely filters literal s
   assert.doesNotMatch(document.body.textContent, /All Notes|Copy text|Copy timestamp|Delete note/i);
 });
 
+test("the Side Panel header opens the Popcorn Web root", async () => {
+  const { document, messages } = loadSidepanel();
+  const button = document.getElementById("settingsBtn");
+
+  assert.equal(button.textContent.trim(), "Open Popcorn");
+  button.click();
+  await flush();
+  assert.deepEqual(messages.at(-1), { action: "openPopcorn" });
+});
+
 test("Saved exposes a loading state while its fixed request is pending", async () => {
   let resolveLibrary;
   const { document } = loadSidepanel({

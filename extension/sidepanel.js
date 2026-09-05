@@ -915,7 +915,7 @@ function setupEventListeners() {
   });
 
   document.getElementById("settingsBtn")?.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ action: "openOptions" });
+    chrome.runtime.sendMessage({ action: "openPopcorn" });
   });
   document.getElementById("saveVideoBtn")?.addEventListener("click", async (event) => {
     event.preventDefault();

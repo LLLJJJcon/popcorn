@@ -446,6 +446,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return respondFrom(getSavedLibrary(), sendResponse);
   }
 
+  if (message?.action === "openPopcorn") {
+    if (!isTrustedSidePanelSender(sender)) {
+      sendResponse({ success: false, error: "forbidden" });
+      return false;
+    }
+    const url = new URL("/", POPCORN_API_ORIGIN).toString();
+    return respondFrom(
+      chrome.tabs.create({ url }).then(() => ({ success: true })),
+      sendResponse,
+    );
+  }
+
   if (["openSavedLibrary", "openSavedDetail"].includes(message?.action)) {
     if (!isTrustedSidePanelSender(sender)) {
       sendResponse({ success: false, error: "forbidden" });

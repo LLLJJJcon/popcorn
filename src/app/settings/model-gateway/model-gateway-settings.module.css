@@ -1,16 +1,7 @@
 .page {
-  --cream: #fff8ec;
-  --paper: #fffdf8;
-  --ink: #2d2925;
-  --muted: #6f665e;
-  --terracotta: #b9533d;
-  --terracotta-dark: #873929;
-  --sage: #71816a;
-  min-height: 100vh;
-  padding: clamp(1.25rem, 4vw, 4rem);
-  background: radial-gradient(circle at top right, #f0ddc5 0, transparent 34%), var(--cream);
-  color: var(--ink);
-  font-family: ui-rounded, "Avenir Next", Avenir, system-ui, sans-serif;
+  width: min(72rem, 100%);
+  margin: 0 auto;
+  color: var(--cocoa);
 }
 
 .header,
@@ -25,22 +16,23 @@
 }
 
 .header {
-  max-width: 70rem;
-  margin: 0 auto 1.5rem;
+  max-width: 46rem;
+  margin-bottom: 2rem;
 }
 
 .header h1 {
-  margin: 0.2rem 0 0.4rem;
+  margin: 0.2rem 0 0.5rem;
   max-width: 17ch;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(2rem, 5vw, 4.4rem);
-  line-height: 0.98;
+  font-size: clamp(2.15rem, 5vw, 4rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
 }
 
 .eyebrow,
 .step {
   margin: 0;
-  color: var(--terracotta-dark);
+  color: var(--cocoa);
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -48,13 +40,12 @@
 }
 
 .panel {
-  max-width: 70rem;
-  margin: 1rem auto;
+  margin: 1rem 0;
   padding: clamp(1rem, 3vw, 2rem);
-  border: 1px solid #dbcdbb;
-  border-radius: 1.25rem;
-  background: color-mix(in srgb, var(--paper) 94%, transparent);
-  box-shadow: 0 1rem 3rem rgb(73 50 31 / 8%);
+  border: 1px solid color-mix(in srgb, var(--cocoa) 10%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: var(--shadow-paper);
 }
 
 .sectionHeading {
@@ -70,7 +61,7 @@
 
 .sectionHeading > p {
   max-width: 31rem;
-  color: var(--muted);
+  color: color-mix(in srgb, var(--cocoa) 70%, transparent);
 }
 
 .formGrid,
@@ -100,9 +91,9 @@
   min-height: 2.75rem;
   padding: 0.65rem 0.75rem;
   border: 1px solid #ad9b89;
-  border-radius: 0.65rem;
+  border-radius: var(--radius-sm);
   background: white;
-  color: var(--ink);
+  color: var(--cocoa);
   font: inherit;
 }
 
@@ -132,21 +123,21 @@
 }
 
 .primaryButton {
-  border: 1px solid var(--terracotta);
-  background: var(--terracotta);
-  color: white;
+  border: 1px solid var(--cocoa);
+  background: var(--cocoa);
+  color: var(--paper);
 }
 
 .secondaryButton {
-  border: 1px solid #7d6f62;
+  border: 1px solid color-mix(in srgb, var(--cocoa) 50%, transparent);
   background: transparent;
-  color: var(--ink);
+  color: var(--cocoa);
 }
 
 .dangerButton {
-  border: 1px solid #9d332d;
-  background: #fff2ef;
-  color: #7c211d;
+  border: 1px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--paper));
+  color: var(--danger);
 }
 
 .primaryButton:disabled,
@@ -158,21 +149,20 @@
 
 .status,
 .error {
-  max-width: 70rem;
   min-height: 1.5rem;
-  margin: 0.5rem auto;
+  margin: 0.5rem 0;
 }
 
 .status {
-  color: var(--sage);
+  color: var(--success);
   font-weight: 700;
 }
 
 .error {
   padding: 0.75rem 1rem;
-  border-left: 4px solid #a62f29;
-  background: #fff0ed;
-  color: #711f1a;
+  border-left: 4px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--paper));
+  color: var(--danger);
 }
 
 .cards {
@@ -183,9 +173,9 @@
 
 .card {
   padding: clamp(1rem, 2.5vw, 1.5rem);
-  border: 1px solid #d8c9b7;
+  border: 1px solid color-mix(in srgb, var(--cocoa) 12%, transparent);
   border-radius: 1rem;
-  background: #fffefa;
+  background: var(--paper);
 }
 
 .card h3 {
@@ -195,7 +185,7 @@
 
 .origin {
   overflow-wrap: anywhere;
-  color: var(--muted);
+  color: color-mix(in srgb, var(--cocoa) 70%, transparent);
 }
 
 .state {
@@ -206,18 +196,18 @@
 }
 
 .pending_consent {
-  background: #f6dfae;
-  color: #5f4208;
+  background: color-mix(in srgb, var(--attention) 18%, var(--paper));
+  color: var(--attention);
 }
 
 .active {
-  background: #d9e7d4;
-  color: #294c2a;
+  background: color-mix(in srgb, var(--success) 16%, var(--paper));
+  color: var(--success);
 }
 
 .revoked {
-  background: #ece5df;
-  color: #574f48;
+  background: color-mix(in srgb, var(--cocoa) 9%, var(--paper));
+  color: color-mix(in srgb, var(--cocoa) 78%, transparent);
 }
 
 .details {
@@ -229,12 +219,12 @@
 
 .details div {
   padding: 0.75rem;
-  border-radius: 0.65rem;
-  background: #f7f0e5;
+  border-radius: var(--radius-sm);
+  background: var(--cream);
 }
 
 .details dt {
-  color: var(--muted);
+  color: color-mix(in srgb, var(--cocoa) 70%, transparent);
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -249,9 +239,9 @@
 .confirmation {
   margin-top: 1rem;
   padding: 1rem;
-  border: 1px solid #b7aa94;
-  border-radius: 0.8rem;
-  background: #fbf5e9;
+  border: 1px solid color-mix(in srgb, var(--cocoa) 22%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--cream);
 }
 
 .consent legend {
@@ -286,9 +276,9 @@
   display: grid;
   gap: 0.5rem;
   padding: 1rem;
-  border: 1px solid #d8c9b7;
-  border-radius: 0.8rem;
-  background: #fbf5e9;
+  border: 1px solid color-mix(in srgb, var(--cocoa) 12%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--cream);
 }
 
 .sessionKey label {
@@ -302,9 +292,9 @@
   min-height: 2.75rem;
   padding: 0.65rem 0.75rem;
   border: 1px solid #ad9b89;
-  border-radius: 0.65rem;
+  border-radius: var(--radius-sm);
   background: white;
-  color: var(--ink);
+  color: var(--cocoa);
   font: inherit;
 }
 
@@ -315,14 +305,10 @@
 
 .sessionKey p {
   margin: 0;
-  color: var(--muted);
+  color: color-mix(in srgb, var(--cocoa) 70%, transparent);
 }
 
 @media (max-width: 42rem) {
-  .page {
-    padding: 1rem;
-  }
-
   .primaryButton,
   .secondaryButton,
   .dangerButton {

@@ -278,6 +278,7 @@ function loadBackgroundMessageRouter() {
     open: [],
     broadcast: [],
     openOptions: [],
+    createdTabs: [],
     authMessages: [],
   };
   let onMessage;
@@ -329,10 +330,15 @@ function loadBackgroundMessageRouter() {
         get: async () => ({ url: "https://www.youtube.com/watch?v=abc123XYZ00" }),
         query: async () => [],
         sendMessage: async () => ({}),
+        create(options) {
+          calls.createdTabs.push(options);
+          return Promise.resolve(options);
+        },
       },
       scripting: { executeScript: async () => [] },
     },
     YTD_SETTINGS: { DEFAULTS: { boundedCachePrefix: "popcorn:test" } },
+    POPCORN_RUNTIME_CONFIG: { appUrl: "http://127.0.0.1:3000" },
     POPCORN_AUTH: {
       createAuthClient: () => ({ initialize: async () => {}, getAccessToken: async () => "token" }),
       createAuthMessageHandler: () => async (message) => {
@@ -454,4 +460,30 @@ test("exact Options and Side Panel pages stay trusted when Chrome supplies a tab
     assert.deepEqual(rejected.calls.openOptions, []);
     assert.deepEqual(responses, []);
   }
+});
+
+test("only the exact trusted Side Panel can open the Popcorn Web root", async () => {
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  const sidePanelUrl = "chrome-extension://extension-id/sidepanel.html";
+  const trusted = loadBackgroundMessageRouter();
+  const trustedResponses = [];
+
+  assert.equal(trusted.onMessage(
+    { action: "openPopcorn" },
+    { id: "extension-id", url: sidePanelUrl, tab: { id: 91, url: sidePanelUrl } },
+    (response) => trustedResponses.push(response),
+  ), true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(plain(trusted.calls.createdTabs), [{ url: "http://127.0.0.1:3000/" }]);
+  assert.deepEqual(plain(trustedResponses), [{ success: true }]);
+
+  const rejected = loadBackgroundMessageRouter();
+  const rejectedResponses = [];
+  assert.equal(rejected.onMessage(
+    { action: "openPopcorn" },
+    { id: "extension-id", url: "chrome-extension://extension-id/options.html" },
+    (response) => rejectedResponses.push(response),
+  ), false);
+  assert.deepEqual(rejected.calls.createdTabs, []);
+  assert.deepEqual(plain(rejectedResponses), [{ success: false, error: "forbidden" }]);
 });
