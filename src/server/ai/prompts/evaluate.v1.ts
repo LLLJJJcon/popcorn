@@ -52,21 +52,17 @@ export type ParsedPracticeEvaluation = {
 export function parsePracticeEvaluationOutput(
   value: unknown,
   targetExpression: string,
-  assistanceLevel?: AssistanceLevel,
+  assistanceLevel: AssistanceLevel,
 ): ParsedPracticeEvaluation {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new TypeError("invalid Practice evaluation output");
   }
   const { naturalRevisionChinese, ...evaluationValue } = value as Record<string, unknown>;
-  const evaluation = EvaluationResultSchema.parse(
-    assistanceLevel === undefined
-      ? evaluationValue
-      : {
-        ...evaluationValue,
-        independentUse: assistanceLevel === "none",
-        assistanceLevel,
-      },
-  );
+  const evaluation = EvaluationResultSchema.parse({
+    ...evaluationValue,
+    independentUse: assistanceLevel === "none",
+    assistanceLevel,
+  });
   const parsedCoaching = PracticeCoachingSchema.safeParse({ naturalRevisionChinese });
   const coaching = parsedCoaching.success && parsedCoaching.data.naturalRevisionChinese.includes(targetExpression)
     ? parsedCoaching.data

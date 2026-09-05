@@ -232,13 +232,10 @@ export function createDuePracticeCompletionService(dependencies: {
               buildEvaluatePracticePrompt(taskView(task), input.data.responseChinese, input.data.assistanceLevel),
             ),
             task.targetExpression,
+            input.data.assistanceLevel,
           );
           evaluation = parsed.evaluation;
           coaching = parsed.coaching;
-          if (
-            evaluation.assistanceLevel !== input.data.assistanceLevel ||
-            evaluation.independentUse !== (input.data.assistanceLevel === "none")
-          ) throw new TypeError("Practice evaluation assistance does not match the submission");
         } catch (error) {
           if (error instanceof PracticeError) throw error;
           throw new PracticeError("PROVIDER_FAILED", true);

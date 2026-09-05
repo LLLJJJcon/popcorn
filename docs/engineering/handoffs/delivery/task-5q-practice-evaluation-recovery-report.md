@@ -27,3 +27,7 @@ The OpenAI-compatible structured JSON client rejected any assistant content begi
 ## Residual risk
 
 This intentionally does not recover a response missing or invalid in any scored dimension; it still returns the existing provider-failure path and persists nothing. Coaching may be omitted from an otherwise successful response, in which case callers receive `null` coaching.
+
+## Fix round 1
+
+The first implementation left Due Practice on the compatibility path that omitted trusted assistance and subsequently compared the model's claims. Due Practice now passes `input.data.assistanceLevel` to the parser, which requires that trusted value and derives both assistance fields before strict evaluation parsing. The redundant model-claim rejection was removed. Both original/revision attempts and Due Practice therefore reject only invalid required scoring, not conflicting or absent model-declared assistance fields.
