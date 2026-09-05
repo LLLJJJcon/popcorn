@@ -1,0 +1,292 @@
+.workspace {
+  width: min(70rem, 100%);
+  margin: 0 auto;
+  padding: clamp(1rem, 3vw, 3rem);
+}
+
+.workspace h1,
+.workspace h2,
+.workspace h3,
+.workspace p {
+  margin-top: 0;
+}
+
+.pageHeader,
+.detailHeader {
+  max-width: 52rem;
+  margin-bottom: 1.5rem;
+}
+
+.pageHeader h1,
+.detailHeader h1 {
+  margin-bottom: 0.45rem;
+  font-size: clamp(2.35rem, 7vw, 5rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.eyebrow {
+  margin-bottom: 0.45rem;
+  color: color-mix(in srgb, var(--coral) 62%, var(--cocoa));
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.searchPanel,
+.expressionCard,
+.emptyState,
+.detailHeader,
+.paperSection {
+  border: 1px solid color-mix(in srgb, var(--cocoa) 11%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: var(--shadow-paper);
+}
+
+.searchPanel,
+.emptyState,
+.detailHeader,
+.paperSection {
+  padding: clamp(1rem, 3vw, 1.75rem);
+}
+
+.searchPanel {
+  margin-bottom: 1rem;
+}
+
+.searchForm,
+.filterGrid {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.searchLabel,
+.filterGrid label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 760;
+}
+
+.searchInput,
+.filterGrid input {
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid color-mix(in srgb, var(--cocoa) 28%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.8rem;
+  background: var(--paper);
+  color: inherit;
+  font: inherit;
+}
+
+.searchInput {
+  font-size: 1.08rem;
+}
+
+.masteryFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  border: 0;
+  padding: 0;
+}
+
+.masteryFilters legend {
+  width: 100%;
+  margin-bottom: 0.35rem;
+  font-weight: 760;
+}
+
+.filterChip,
+.clearButton {
+  min-height: 2.5rem;
+  border: 1px solid color-mix(in srgb, var(--cocoa) 24%, transparent);
+  border-radius: 999px;
+  padding: 0.55rem 0.85rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.filterChip[aria-pressed="true"] {
+  border-color: var(--cocoa);
+  background: var(--cocoa);
+  color: var(--paper);
+}
+
+.advancedFilters summary {
+  width: fit-content;
+  color: color-mix(in srgb, var(--coral) 62%, var(--cocoa));
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.filterGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.8rem;
+}
+
+.clearButton {
+  width: fit-content;
+}
+
+.searchResults,
+.attemptList,
+.relatedList {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.searchResults li {
+  border-top: 1px solid color-mix(in srgb, var(--cocoa) 10%, transparent);
+  padding-top: 0.75rem;
+}
+
+.searchResults a,
+.textLink,
+.backLink,
+.expressionLink {
+  color: inherit;
+  font-weight: 760;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.expressionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+}
+
+.expressionCard {
+  min-width: 0;
+  padding: 1.15rem;
+}
+
+.expressionCard h2 {
+  margin-bottom: 0.4rem;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+}
+
+.meaning,
+.detailMeaning {
+  color: color-mix(in srgb, var(--cocoa) 78%, transparent);
+  font-size: 1.08rem;
+}
+
+.summaryMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.mastery,
+.matchLabel {
+  border-radius: 999px;
+  padding: 0.3rem 0.6rem;
+  background: color-mix(in srgb, var(--coral) 12%, var(--paper));
+  font-weight: 760;
+}
+
+.sourceSummary,
+.sourceTimestamp {
+  margin: 0.85rem 0 0;
+  color: color-mix(in srgb, var(--cocoa) 68%, transparent);
+  font-size: 0.9rem;
+}
+
+.emptyState {
+  text-align: center;
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: 1rem;
+}
+
+.detailHeader {
+  display: grid;
+  max-width: none;
+  grid-template-columns: minmax(0, 1.25fr) minmax(16rem, 0.75fr);
+  gap: clamp(1rem, 4vw, 3rem);
+}
+
+.detailMeta,
+.feedbackGrid {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.detailMeta div,
+.feedbackGrid div {
+  min-width: 0;
+}
+
+.detailMeta dt,
+.feedbackGrid dt {
+  font-weight: 800;
+}
+
+.detailMeta dd,
+.feedbackGrid dd {
+  margin: 0.2rem 0 0;
+}
+
+.paperSection {
+  margin-top: 1rem;
+}
+
+.paperSection blockquote {
+  margin: 1rem 0;
+  border-left: 0.3rem solid var(--coral);
+  padding-left: 1rem;
+  font-size: clamp(1.15rem, 2.5vw, 1.45rem);
+  line-height: 1.55;
+}
+
+.attemptCard {
+  border-top: 1px solid color-mix(in srgb, var(--cocoa) 12%, transparent);
+  padding-top: 1rem;
+}
+
+.attemptHeader,
+.relatedList li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.attemptHeader {
+  color: color-mix(in srgb, var(--cocoa) 68%, transparent);
+  font-size: 0.9rem;
+}
+
+.attemptResponse {
+  margin: 0.65rem 0;
+  font-size: 1.18rem;
+  font-weight: 700;
+}
+
+.feedbackGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 44rem) {
+  .detailHeader,
+  .filterGrid,
+  .feedbackGrid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -31,6 +31,7 @@ const card: ExpressionCardView = {
   register: "Informal spoken Mandarin.",
   masteryState: "tried",
   sourceDeleted: false,
+  sourceTitle: "A measured Mandarin conversation",
   occurrence: {
     evidenceText: "这个价格也太离谱了吧",
     segmentIds: ["segment-1"],
@@ -153,6 +154,10 @@ describe("Vault and due Practice boundaries", () => {
       { table: "video_sources", data: [{
         id: USER, user_id: USER, canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       }] },
+      { table: "video_snapshots", data: [
+        { id: EXACT_EXPRESSION, user_id: USER, video_source_id: USER, title: card.sourceTitle, captured_at: "2026-08-21T03:03:04.000Z" },
+        { id: SIMILAR_EXPRESSION, user_id: USER, video_source_id: USER, title: "Older title", captured_at: NOW },
+      ] },
       { table: "practice_draft_attempts", data: [
         {
           id: card.attempts[0]!.id, user_id: USER, future_user_expression_id: EXPRESSION,
@@ -175,11 +180,17 @@ describe("Vault and due Practice boundaries", () => {
     expect(cards[0]?.attempts.map((attempt) => attempt.responseChinese)).toEqual([
       "这个价格也太离谱了。", "真的太离谱了。",
     ]);
+    expect(cards[0]?.sourceTitle).toBe(card.sourceTitle);
     expect(harness.calls).toEqual(expect.arrayContaining([
       ["eq", "user_expressions", "user_id", USER],
       ["eq", "expression_senses", "user_id", USER],
       ["eq", "expression_occurrences", "user_id", USER],
       ["eq", "video_sources", "user_id", USER],
+      ["eq", "video_snapshots", "user_id", USER],
+      ["in", "video_snapshots", "video_source_id", [USER]],
+      ["order", "video_snapshots", "captured_at", { ascending: false }],
+      ["order", "video_snapshots", "id", { ascending: false }],
+      ["limit", "video_snapshots", 300],
       ["eq", "practice_draft_attempts", "user_id", USER],
       ["in", "practice_draft_attempts", "future_user_expression_id", [EXPRESSION]],
     ]));
@@ -206,6 +217,7 @@ describe("Vault and due Practice boundaries", () => {
         user_id: USER,
         canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       }] },
+      { table: "video_snapshots", data: [] },
       { table: "attempts", data: [{
         id: ZERO_EXPRESSION,
         user_id: USER,
@@ -345,6 +357,7 @@ describe("Vault and due Practice boundaries", () => {
       { table: "expression_senses", data: [targetSense] },
       { table: "expression_occurrences", data: [occurrenceRow(OTHER, OTHER)] },
       { table: "video_sources", data: [source] },
+      { table: "video_snapshots", data: [] },
       { table: "practice_draft_attempts", data: [] },
       { table: "user_expressions", data: [
         expressionRow(EXPRESSION, OTHER),
@@ -360,6 +373,7 @@ describe("Vault and due Practice boundaries", () => {
         occurrenceRow(ZERO_EXPRESSION, zeroSense),
       ] },
       { table: "video_sources", data: [source] },
+      { table: "video_snapshots", data: [] },
       { table: "practice_draft_attempts", data: [] },
     ]);
 
@@ -405,21 +419,23 @@ describe("Vault and due Practice boundaries", () => {
     expect(await listResponse.text()).not.toMatch(/api.?key|gateway|fingerprint|prompt|provider|raw/i);
   });
 
-  test("renders complete grounded cards, due Practice, and useful empty states", () => {
+  test("renders compact linked Vault summaries without expanding evidence or attempts", () => {
     const { rerender } = render(createElement(VaultList, { cards: [] }));
     expect(screen.getByText(/No expressions in your Vault yet/i)).toBeInTheDocument();
     rerender(createElement(VaultList, { cards: [card] }));
-    expect(screen.getByRole("heading", { name: "太离谱了" })).toBeInTheDocument();
-    expect(screen.getByText(card.englishExplanation)).toBeInTheDocument();
-    expect(screen.getByText(activeOccurrence.evidenceText)).toBeInTheDocument();
-    expect(screen.getByText(card.attempts[0]!.responseChinese)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Watch source/i })).toHaveAttribute("href", activeOccurrence.youtubeUrl);
+    expect(screen.getByRole("link", { name: /太离谱了/ })).toHaveAttribute("href", `/vault/${EXPRESSION}`);
+    expect(screen.getByText(card.englishMeaning)).toBeInTheDocument();
+    expect(screen.queryByText(card.englishExplanation)).not.toBeInTheDocument();
+    expect(screen.queryByText(activeOccurrence.evidenceText)).not.toBeInTheDocument();
+    expect(screen.queryByText(card.attempts[0]!.responseChinese)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Attempt history" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Watch source/i })).not.toBeInTheDocument();
 
-    rerender(createElement(DuePractice, { tasks: [] }));
-    expect(screen.getByText(/No Practice is due/i)).toBeInTheDocument();
-    rerender(createElement(DuePractice, { tasks: [due] }));
+    rerender(createElement(DuePractice, { key: "empty", tasks: [] }));
+    expect(screen.getByRole("heading", { name: "You are caught up" })).toBeInTheDocument();
+    rerender(createElement(DuePractice, { key: "due", tasks: [due] }));
     expect(screen.getByRole("heading", { name: "Practice" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Practice 太离谱了/i })).toHaveAttribute("href", `/vault#expression-${due.userExpressionId}`);
+    expect(screen.getByRole("button", { name: "Start practice" })).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/queue/i);
   });
 
@@ -460,11 +476,54 @@ describe("Vault and due Practice boundaries", () => {
       ["in", "attempts", "user_expression_id", [EXPRESSION]],
     ]));
 
+    expect(result[0]?.sourceTitle).toBeNull();
     render(createElement(ExpressionCard, { card: result[0]! }));
     expect(screen.getByText("Source deleted")).toBeInTheDocument();
-    expect(screen.getByText(card.attempts[0]!.responseChinese)).toBeInTheDocument();
+    expect(screen.queryByText(card.attempts[0]!.responseChinese)).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Watch source/i })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/40s|43s|source evidence/i);
+  });
+
+  test("keeps an active Vault card usable when no persisted snapshot title exists", async () => {
+    const harness = queryClient([
+      { table: "user_expressions", data: [expressionRow(EXPRESSION, OTHER)] },
+      { table: "expression_senses", data: [senseRow(OTHER, card.expression, card.englishMeaning)] },
+      { table: "expression_occurrences", data: [occurrenceRow(OTHER, OTHER)] },
+      { table: "video_sources", data: [{ id: USER, user_id: USER, canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }] },
+      { table: "video_snapshots", data: [] },
+      { table: "practice_draft_attempts", data: [] },
+    ]);
+
+    await expect(createSupabaseReviewTaskRepository(harness.client as never).listVault(USER))
+      .resolves.toMatchObject([{ userExpressionId: EXPRESSION, sourceTitle: null }]);
+  });
+
+  test("rejects snapshot rows whose returned owner or source contradicts the active graph", async () => {
+    async function readWithSnapshot(snapshot: Record<string, unknown>) {
+      const harness = queryClient([
+        { table: "user_expressions", data: [expressionRow(EXPRESSION, OTHER)] },
+        { table: "expression_senses", data: [senseRow(OTHER, card.expression, card.englishMeaning)] },
+        { table: "expression_occurrences", data: [occurrenceRow(OTHER, OTHER)] },
+        { table: "video_sources", data: [{ id: USER, user_id: USER, canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }] },
+        { table: "video_snapshots", data: [snapshot] },
+      ]);
+      return createSupabaseReviewTaskRepository(harness.client as never).listVault(USER);
+    }
+
+    await expect(readWithSnapshot({ id: EXACT_EXPRESSION, user_id: OTHER, video_source_id: USER, title: "Private", captured_at: NOW }))
+      .rejects.toThrow(/owner relation mismatch/);
+    await expect(readWithSnapshot({ id: EXACT_EXPRESSION, user_id: USER, video_source_id: OTHER, title: "Wrong source", captured_at: NOW }))
+      .rejects.toThrow(/evidence graph/);
+  });
+
+  test("an owner-scoped detail lookup returns no cross-owner-equivalent row", async () => {
+    const harness = queryClient([{ table: "user_expressions", data: [] }]);
+    await expect(createSupabaseReviewTaskRepository(harness.client as never).getVault(USER, OTHER)).resolves.toBeNull();
+    expect(harness.calls).toEqual(expect.arrayContaining([
+      ["eq", "user_expressions", "user_id", USER],
+      ["eq", "user_expressions", "id", OTHER],
+      ["limit", "user_expressions", 100],
+    ]));
   });
 
   test("a card never renders private Provider provenance", () => {

@@ -35,6 +35,7 @@ export type ExpressionCardView = {
   readonly register: string;
   readonly masteryState: MasteryState;
   readonly sourceDeleted: boolean;
+  readonly sourceTitle: string | null;
   readonly occurrence: {
     readonly evidenceText: string;
     readonly segmentIds: readonly string[];
@@ -196,6 +197,23 @@ export function createSupabaseReviewTaskRepository(
     const sources = sourceIds.length === 0 ? [] : rows(await db.from("video_sources")
       .select("id,user_id,canonical_url").eq("user_id", userId).in("id", sourceIds)
       .order("id", { ascending: true }).limit(100));
+    const snapshots = sourceIds.length === 0 ? [] : rows(await db.from("video_snapshots")
+      .select("id,user_id,video_source_id,title,captured_at")
+      .eq("user_id", userId).in("video_source_id", sourceIds)
+      .order("captured_at", { ascending: false }).order("id", { ascending: false }).limit(300));
+    owned(snapshots, userId);
+    const sourceIdSet = new Set(sourceIds);
+    if (snapshots.some((row) => !sourceIdSet.has(text(row, "video_source_id")))) {
+      throw new Error("incomplete expression evidence graph");
+    }
+    const latestSnapshotBySource = new Map<string, Record<string, unknown>>();
+    for (const snapshot of snapshots) {
+      const sourceId = text(snapshot, "video_source_id");
+      text(snapshot, "id");
+      text(snapshot, "captured_at");
+      text(snapshot, "title");
+      if (!latestSnapshotBySource.has(sourceId)) latestSnapshotBySource.set(sourceId, snapshot);
+    }
     const canonicalAttempts = tombstonedExpressionIds.length === 0 ? [] : rows(await db.from("attempts")
       .select("id,user_id,user_expression_id,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,submitted_at")
       .eq("user_id", userId).in("user_expression_id", tombstonedExpressionIds)
@@ -221,6 +239,7 @@ export function createSupabaseReviewTaskRepository(
       const expressionAttempts = sourceDeleted
         ? canonicalAttempts.filter((row) => row.user_expression_id === expression.id)
         : draftAttempts.filter((row) => row.future_user_expression_id === expression.id);
+      const snapshot = sourceDeleted ? undefined : latestSnapshotBySource.get(text(sense, "video_source_id"));
       const sourceOccurrence = sourceDeleted ? null : (() => {
         const startSeconds = numberValue(occurrence!, "start_seconds");
         const canonicalUrl = text(source!, "canonical_url");
@@ -242,6 +261,7 @@ export function createSupabaseReviewTaskRepository(
         register: text(sense, "register"),
         masteryState: text(expression, "mastery_state") as MasteryState,
         sourceDeleted,
+        sourceTitle: snapshot ? text(snapshot, "title") : null,
         occurrence: sourceOccurrence,
         attempts: expressionAttempts.map((row) => ({
           id: text(row, "id"),
