@@ -11,7 +11,7 @@ import {
   PracticeCoachingSchema,
   type AssistanceLevel,
 } from "@/contracts/practice";
-import { EnglishTextSchema, Sha256HashSchema, TargetChineseTextSchema } from "@/contracts/source";
+import { EnglishTextSchema, TargetChineseTextSchema } from "@/contracts/source";
 import { EvaluationPanel } from "@/features/practice/evaluation-panel";
 import { PracticeMaterialViewSchema, type PracticeMaterialView } from "@/features/practice/material-schema";
 import { PracticeMaterial } from "@/features/practice/practice-material";
@@ -23,16 +23,11 @@ const IsoDateTimeSchema = z.string().datetime({ offset: true });
 
 const DueTransferSchema = z.strictObject({
   id: UuidSchema,
-  userId: UuidSchema,
   reviewTaskId: UuidSchema,
-  userExpressionId: UuidSchema,
   targetExpression: TargetChineseTextSchema.max(200),
   promptChinese: TargetChineseTextSchema.max(2_000),
   instructionsEnglish: EnglishTextSchema.max(1_000),
   goalEnglish: EnglishTextSchema.max(1_000),
-  dueAt: IsoDateTimeSchema,
-  masteryState: MasteryStateSchema,
-  contextFingerprint: Sha256HashSchema,
   material: PracticeMaterialViewSchema,
 });
 
@@ -127,7 +122,6 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
       if (
         transfer.reviewTaskId !== reviewTaskId ||
         transfer.id !== transfer.material.task.id ||
-        transfer.userExpressionId !== transfer.material.task.userExpressionId ||
         transfer.targetExpression !== transfer.material.task.targetExpression
       ) throw new Error("due practice transfer identity mismatch");
       setMaterial(transfer.material);

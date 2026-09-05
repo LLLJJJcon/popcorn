@@ -54,16 +54,11 @@ function transfer(reviewTaskId: string, expression: string) {
   const view = material(reviewTaskId, expression);
   return {
     id: view.task.id,
-    userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     reviewTaskId,
-    userExpressionId: view.task.userExpressionId,
     targetExpression: view.task.targetExpression,
     promptChinese: view.task.promptChinese,
     instructionsEnglish: view.task.instructionsEnglish,
     goalEnglish: view.task.goalEnglish,
-    dueAt: view.task.dueAt,
-    masteryState: view.masteryState,
-    contextFingerprint: "a".repeat(64),
     material: view,
   };
 }
@@ -225,7 +220,7 @@ describe("DuePractice", () => {
   });
 
   test("rejects a malformed successful transfer envelope without losing the queued item", async () => {
-    const malformed = { ...transfer(ids.fourth, "第四"), contextFingerprint: undefined };
+    const malformed = { ...transfer(ids.fourth, "第四"), targetExpression: undefined };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(apiResponse(malformed)));
     const user = userEvent.setup();
     render(<DuePractice tasks={tasks.slice(0, 1)} />);
