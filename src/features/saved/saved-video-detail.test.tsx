@@ -4,7 +4,6 @@ import { render, screen } from "@testing-library/react";
 import type { SavedVideoDetail } from "@/features/saved/api";
 import { SavedVideoDetailView } from "@/features/saved/saved-video-detail";
 import { SavedTimeline } from "@/features/saved/saved-timeline";
-import { YOUTUBE_OVERVIEW_PROMPT_VERSION } from "@/server/ai/prompts/youtube-overview.v1";
 import type { DeletionImpact } from "@/server/domain/plan-source-deletion";
 
 vi.mock("next/navigation", () => ({
@@ -76,7 +75,10 @@ describe("Saved video learning bridge", () => {
     expect(screen.getAllByRole("button", { name: "Analyze" })).toHaveLength(1);
   });
 
-  it("renders a persisted overview after raw moments without reconstructing source data", () => {
+  it.each([
+    "youtube-overview-v4-simple",
+    "youtube-overview-v5-structured",
+  ])("renders a readable %s overview after raw moments without reconstructing source data", (promptVersion) => {
     const { container } = render(<SavedVideoDetailView
       video={detail({
         processingState: "ready",
@@ -85,7 +87,7 @@ describe("Saved video learning bridge", () => {
           artifactId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           savedItemId: null,
           type: "overview",
-          promptVersion: YOUTUBE_OVERVIEW_PROMPT_VERSION,
+          promptVersion,
           content: {
             overview: "A conversation about measured reactions.",
             chapters: [{
@@ -113,6 +115,30 @@ describe("Saved video learning bridge", () => {
     const overview = screen.getByRole("heading", { name: "Video overview" });
     expect(raw.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(container.textContent).not.toMatch(/transcript/i);
+  });
+
+  it("does not render an unknown overview artifact version", () => {
+    render(<SavedVideoDetailView
+      video={detail({
+        processingState: "ready",
+        processingErrors: [],
+        artifacts: [{
+          artifactId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          savedItemId: null,
+          type: "overview",
+          promptVersion: "youtube-overview-v999",
+          content: {
+            overview: "This must remain unavailable.",
+            chapters: [],
+            keyQuotes: [],
+          },
+        }],
+      })}
+      deletionImpact={deletionImpact}
+    />);
+
+    expect(screen.queryByRole("heading", { name: "Video overview" })).not.toBeInTheDocument();
+    expect(screen.queryByText("This must remain unavailable.")).not.toBeInTheDocument();
   });
 
   it("does not pass malformed immutable artifact content across the client boundary", () => {

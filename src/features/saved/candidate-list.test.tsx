@@ -182,7 +182,10 @@ describe("Saved candidate expressions", () => {
     expect(screen.queryByText(/0\.69|69%|confidence/i)).not.toBeInTheDocument();
   });
 
-  it("renders the production Saved page with only the latest current-version artifact wired to activation", async () => {
+  it.each([
+    "analyze-saved-item-v1",
+    "analyze-saved-item-v2",
+  ])("renders the latest readable %s artifact and wires its domain candidate to activation", async (promptVersion) => {
     pageRuntime.authenticate.mockResolvedValue({ ok: true, userId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" });
     pageRuntime.detail.mockResolvedValue({
       sourceId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
@@ -210,14 +213,14 @@ describe("Saved candidate expressions", () => {
           artifactId: "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
           savedItemId: SAVED_ITEM_ID,
           type: "saved_item_analysis",
-          promptVersion: "analyze-saved-item-v1",
+          promptVersion,
           content: { candidates: [candidate({ expression: "旧表达" })] },
         },
         {
           artifactId: ARTIFACT_ID,
           savedItemId: SAVED_ITEM_ID,
           type: "saved_item_analysis",
-          promptVersion: "analyze-saved-item-v1",
+          promptVersion,
           content: { candidates: [candidate({ expression: "最新表达" })] },
         },
       ],
@@ -258,7 +261,7 @@ describe("Saved candidate expressions", () => {
     });
   });
 
-  it("keeps the production raw timeline visible and refuses activation when the latest artifact has the wrong prompt version", async () => {
+  it("keeps the production raw timeline visible and refuses an unknown candidate artifact version", async () => {
     pageRuntime.authenticate.mockResolvedValue({ ok: true, userId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" });
     pageRuntime.detail.mockResolvedValue({
       sourceId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
@@ -281,22 +284,13 @@ describe("Saved candidate expressions", () => {
         englishTranslation: "Preserved raw subtitle.",
         youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=62s",
       }],
-      artifacts: [
-        {
-          artifactId: ARTIFACT_ID,
-          savedItemId: SAVED_ITEM_ID,
-          type: "saved_item_analysis",
-          promptVersion: "analyze-saved-item-v1",
-          content: { candidates: [candidate({ expression: "旧但有效" })] },
-        },
-        {
-          artifactId: "99999999-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          savedItemId: SAVED_ITEM_ID,
-          type: "saved_item_analysis",
-          promptVersion: "analyze-saved-item-v2",
-          content: { candidates: [candidate({ expression: "错误版本" })] },
-        },
-      ],
+      artifacts: [{
+        artifactId: "99999999-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        savedItemId: SAVED_ITEM_ID,
+        type: "saved_item_analysis",
+        promptVersion: "analyze-saved-item-v999",
+        content: { candidates: [candidate({ expression: "未知版本表达" })] },
+      }],
     });
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
@@ -305,8 +299,7 @@ describe("Saved candidate expressions", () => {
 
     expect(screen.getByTestId("raw-text")).toHaveTextContent("保留的原始字幕");
     expect(screen.queryByRole("button", { name: "Practice this expression" })).not.toBeInTheDocument();
-    expect(screen.queryByText("旧但有效")).not.toBeInTheDocument();
-    expect(screen.queryByText("错误版本")).not.toBeInTheDocument();
+    expect(screen.queryByText("未知版本表达")).not.toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -489,7 +482,7 @@ describe("Saved candidate expressions", () => {
               canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
               candidates: [candidate({ expression: "恢复的表达" })],
             }
-            : { state: "processing" },
+            : { state: "processing", jobId: TASK_ID, status: "leased" },
           requestId: "safe-request",
         }), { status: 200, headers: { "Content-Type": "application/json" } });
       });
@@ -514,7 +507,7 @@ describe("Saved candidate expressions", () => {
     expect(screen.getByRole("button", { name: "Practice this expression" })).toBeInTheDocument();
   });
 
-  it("keeps recovery pending through 59 seconds and restores retry only after the bounded poll window", async () => {
+  it("polls at 1s then 5s, keeps processing safe at 60s, and stops with one status check at 5m", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -524,7 +517,7 @@ describe("Saved candidate expressions", () => {
       }), { status: 202, headers: { "Content-Type": "application/json" } }))
       .mockImplementation(async () => new Response(JSON.stringify({
         ok: true,
-        data: { state: "processing" },
+        data: { state: "processing", jobId: TASK_ID, status: "leased" },
         requestId: "safe-request",
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
     render(<CandidateList
@@ -542,10 +535,80 @@ describe("Saved candidate expressions", () => {
     expect(screen.getByRole("button", { name: "Analyzing…" })).toBeDisabled();
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Analysis is taking longer than expected. Try again.");
-    expect(screen.getByRole("button", { name: "Retry analysis" })).toBeEnabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Still analyzing in the background");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(61);
-    expect(fetchMock.mock.calls.filter(([, init]) => (init?.method ?? "GET") === "POST")).toHaveLength(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
+    expect(fetchMock).toHaveBeenCalledTimes(61);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(fetchMock).toHaveBeenCalledTimes(62);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(235_000); });
+
+    expect(screen.getByRole("status")).toHaveTextContent("Still queued");
+    const checkStatus = screen.getByRole("button", { name: "Check status" });
+    expect(checkStatus).toBeEnabled();
+    expect(fetchMock).toHaveBeenCalledTimes(109);
+    expect(fetchMock.mock.calls.slice(1).every(([url]) => (
+      url === `/api/v1/saved-items/${SAVED_ITEM_ID}/candidates?jobId=${TASK_ID}`
+    ))).toBe(true);
+    await act(async () => { fireEvent.click(checkStatus); });
+    expect(fetchMock).toHaveBeenCalledTimes(110);
+    expect(screen.getByRole("button", { name: "Check status" })).toBeEnabled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(110);
+  });
+
+  it("shows a safe terminal model-output failure and submits one UUID for one in-flight Retry", async () => {
+    vi.useFakeTimers();
+    const retryJobId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const retryId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const randomUuid = vi.spyOn(crypto, "randomUUID").mockReturnValue(retryId);
+    let resolveRetry: ((value: Response) => void) | undefined;
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        data: { state: "processing", jobId: TASK_ID, status: "pending", created: true },
+        requestId: "safe-request",
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        data: { state: "failed", jobId: TASK_ID, failureCategory: "model_output" },
+        requestId: "safe-request",
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveRetry = resolve; }));
+    const view = render(<CandidateList
+      savedItemId={SAVED_ITEM_ID}
+      videoSourceId={VIDEO_SOURCE_ID}
+      youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      analysis={{ state: "missing" }}
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Analyze" }));
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("The model response could not be organized");
+    const retry = screen.getByRole("button", { name: "Retry analysis" });
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    await act(async () => {});
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBe("{}");
+    expect(fetchMock.mock.calls[2]?.[1]?.body).toBe(JSON.stringify({ retryId }));
+    expect(randomUuid).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Analyzing…" })).toBeDisabled();
+
+    await act(async () => {
+      resolveRetry?.(new Response(JSON.stringify({
+        ok: true,
+        data: { state: "processing", jobId: retryJobId, status: "pending", created: true },
+        requestId: "safe-request",
+      }), { status: 202, headers: { "Content-Type": "application/json" } }));
+      await Promise.resolve();
+    });
+    view.unmount();
   });
 
   it("restores an enabled retry action when candidate polling fails", async () => {

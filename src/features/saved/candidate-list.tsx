@@ -31,6 +31,14 @@ const ReadyRecoverySchema = z.strictObject({
   candidates: CandidateExpressionListSchema,
 });
 
+const PublicFailureCategorySchema = z.enum(["model_unavailable", "model_output", "internal"]);
+
+const FailedRecoverySchema = z.strictObject({
+  state: z.literal("failed"),
+  jobId: z.string().uuid(),
+  failureCategory: PublicFailureCategorySchema,
+});
+
 const RecoverySchema = apiSuccessSchema(z.discriminatedUnion("state", [
   z.strictObject({ state: z.literal("gateway_required") }),
   ReadyRecoverySchema,
@@ -40,15 +48,33 @@ const RecoverySchema = apiSuccessSchema(z.discriminatedUnion("state", [
     status: z.string().trim().min(1).max(100),
     created: z.boolean(),
   }),
+  FailedRecoverySchema,
 ]));
 
 const PollSchema = apiSuccessSchema(z.discriminatedUnion("state", [
+  z.strictObject({ state: z.literal("gateway_required") }),
   ReadyRecoverySchema,
-  z.strictObject({ state: z.literal("processing") }),
+  z.strictObject({
+    state: z.literal("processing"),
+    jobId: z.string().uuid(),
+    status: z.string().trim().min(1).max(100),
+  }),
+  FailedRecoverySchema,
 ]));
 
-const POLL_INTERVAL_MS = 1_000;
-const MAX_POLL_ATTEMPTS = 60;
+type FailureCategory = z.infer<typeof PublicFailureCategorySchema>;
+type RecoveryState = "idle" | "pending" | "background" | "queued" | "checking" | "gateway" | "terminal" | "error";
+
+const FAST_POLL_INTERVAL_MS = 1_000;
+const SLOW_POLL_INTERVAL_MS = 5_000;
+const BACKGROUND_AFTER_MS = 60_000;
+const STOP_POLLING_AFTER_MS = 300_000;
+
+function terminalFailureMessage(category: FailureCategory): string {
+  if (category === "model_output") return "The model response could not be organized.";
+  if (category === "model_unavailable") return "The model is unavailable right now.";
+  return "Analysis could not be completed.";
+}
 
 export function CandidateList({
   savedItemId,
@@ -64,10 +90,13 @@ export function CandidateList({
   const router = useRouter();
   const [hydrationReady, setHydrationReady] = useState(false);
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
-  const [recoveryState, setRecoveryState] = useState<"idle" | "pending" | "gateway" | "error">("idle");
+  const [recoveryState, setRecoveryState] = useState<RecoveryState>("idle");
+  const [failureCategory, setFailureCategory] = useState<FailureCategory | null>(null);
   const [recoveredArtifact, setRecoveredArtifact] = useState<CandidateArtifact | null>(null);
   const retryController = useRef<AbortController | null>(null);
   const retryTimer = useRef<number | null>(null);
+  const jobId = useRef<string | null>(null);
+  const requestInFlight = useRef(false);
   const mounted = useRef(false);
   const artifact = analysis.state === "ready" ? analysis.artifact : recoveredArtifact;
 
@@ -82,6 +111,7 @@ export function CandidateList({
       mounted.current = false;
       if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
       retryController.current?.abort();
+      requestInFlight.current = false;
     };
   }, []);
 
@@ -111,82 +141,162 @@ export function CandidateList({
     }
   }
 
-  async function retry() {
-    retryController.current?.abort();
-    if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
-    const controller = new AbortController();
-    retryController.current = controller;
-    setRecoveryState("pending");
+  function isCurrent(controller: AbortController) {
+    return !controller.signal.aborted && mounted.current && retryController.current === controller;
+  }
 
-    const failRecovery = () => {
-      if (!controller.signal.aborted && mounted.current && retryController.current === controller) {
-        setRecoveryState("error");
-      }
-    };
+  function stopTimer() {
+    if (retryTimer.current !== null) {
+      window.clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
+  }
 
-    const poll = async (attempt: number): Promise<void> => {
-      if (controller.signal.aborted) return;
-      try {
-        const response = await fetch(`/api/v1/saved-items/${savedItemId}/candidates`, {
+  function showReady(data: z.infer<typeof ReadyRecoverySchema>, controller: AbortController) {
+    if (!isCurrent(controller)) return;
+    setRecoveredArtifact({
+      artifactId: data.artifactId,
+      savedItemId: data.savedItemId,
+      candidates: data.candidates,
+    });
+    setRecoveryState("idle");
+  }
+
+  function showTerminal(category: FailureCategory, controller: AbortController) {
+    if (!isCurrent(controller)) return;
+    stopTimer();
+    setFailureCategory(category);
+    setRecoveryState("terminal");
+  }
+
+  function failRecovery(controller: AbortController) {
+    if (!isCurrent(controller)) return;
+    stopTimer();
+    setRecoveryState("error");
+  }
+
+  function schedulePoll(controller: AbortController, ownerBoundJobId: string, elapsedMs: number) {
+    const delay = elapsedMs < BACKGROUND_AFTER_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS;
+    retryTimer.current = window.setTimeout(() => {
+      retryTimer.current = null;
+      void poll(controller, ownerBoundJobId, elapsedMs + delay);
+    }, delay);
+  }
+
+  async function poll(controller: AbortController, ownerBoundJobId: string, elapsedMs: number): Promise<void> {
+    if (!isCurrent(controller)) return;
+    try {
+      const response = await fetch(
+        `/api/v1/saved-items/${savedItemId}/candidates?jobId=${encodeURIComponent(ownerBoundJobId)}`,
+        {
           method: "GET",
           credentials: "same-origin",
           cache: "no-store",
           signal: controller.signal,
-        });
-        const parsedResponse = PollSchema.safeParse(await response.json());
-        if (!response.ok || !parsedResponse.success) throw new Error("candidate poll failed");
-        if (controller.signal.aborted || !mounted.current || retryController.current !== controller) return;
-        if (parsedResponse.data.data.state === "ready") {
-          setRecoveredArtifact({
-            artifactId: parsedResponse.data.data.artifactId,
-            savedItemId: parsedResponse.data.data.savedItemId,
-            candidates: parsedResponse.data.data.candidates,
-          });
-          setRecoveryState("idle");
-          return;
-        }
-        if (attempt >= MAX_POLL_ATTEMPTS) {
-          setRecoveryState("error");
-          return;
-        }
-        retryTimer.current = window.setTimeout(() => { void poll(attempt + 1); }, POLL_INTERVAL_MS);
-      } catch {
-        failRecovery();
+        },
+      );
+      const parsedResponse = PollSchema.safeParse(await response.json());
+      if (!response.ok || !parsedResponse.success) throw new Error("candidate poll failed");
+      if (!isCurrent(controller)) return;
+      const data = parsedResponse.data.data;
+      if (data.state === "ready") {
+        showReady(data, controller);
+        return;
       }
-    };
+      if (data.state === "gateway_required") {
+        setRecoveryState("gateway");
+        return;
+      }
+      if (data.state === "failed") {
+        if (data.jobId !== ownerBoundJobId) throw new Error("candidate job mismatch");
+        showTerminal(data.failureCategory, controller);
+        return;
+      }
+      if (data.jobId !== ownerBoundJobId) throw new Error("candidate job mismatch");
+      if (elapsedMs >= STOP_POLLING_AFTER_MS) {
+        setRecoveryState("queued");
+        return;
+      }
+      if (elapsedMs >= BACKGROUND_AFTER_MS) setRecoveryState("background");
+      schedulePoll(controller, ownerBoundJobId, elapsedMs);
+    } catch {
+      failRecovery(controller);
+    }
+  }
+
+  async function requestAnalysis(terminalRetry: boolean) {
+    if (requestInFlight.current) return;
+    requestInFlight.current = true;
+    stopTimer();
+    retryController.current?.abort();
+    const controller = new AbortController();
+    retryController.current = controller;
+    setRecoveryState("pending");
 
     try {
       const response = await fetch(`/api/v1/saved-items/${savedItemId}/candidates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: terminalRetry ? JSON.stringify({ retryId: crypto.randomUUID() }) : "{}",
         credentials: "same-origin",
         signal: controller.signal,
       });
       const parsedResponse = RecoverySchema.safeParse(await response.json());
       if (!response.ok || !parsedResponse.success) throw new Error("recovery failed");
-      if (parsedResponse.data.data.state === "ready") {
-        if (!controller.signal.aborted && mounted.current && retryController.current === controller) {
-          setRecoveredArtifact({
-            artifactId: parsedResponse.data.data.artifactId,
-            savedItemId: parsedResponse.data.data.savedItemId,
-            candidates: parsedResponse.data.data.candidates,
-          });
-          setRecoveryState("idle");
-        }
+      if (!isCurrent(controller)) return;
+      const data = parsedResponse.data.data;
+      if (data.state === "ready") {
+        showReady(data, controller);
         return;
       }
-      if (parsedResponse.data.data.state === "gateway_required") {
-        if (!controller.signal.aborted && mounted.current && retryController.current === controller) setRecoveryState("gateway");
+      if (data.state === "gateway_required") {
+        setRecoveryState("gateway");
         return;
       }
-      if (parsedResponse.data.data.status.endsWith("failed")) {
-        failRecovery();
+      if (data.state === "failed") {
+        jobId.current = data.jobId;
+        showTerminal(data.failureCategory, controller);
         return;
       }
-      retryTimer.current = window.setTimeout(() => { void poll(1); }, POLL_INTERVAL_MS);
+      jobId.current = data.jobId;
+      schedulePoll(controller, data.jobId, 0);
     } catch {
-      failRecovery();
+      failRecovery(controller);
+    } finally {
+      if (retryController.current === controller) requestInFlight.current = false;
+    }
+  }
+
+  async function checkStatus() {
+    const ownerBoundJobId = jobId.current;
+    if (!ownerBoundJobId || requestInFlight.current) return;
+    requestInFlight.current = true;
+    retryController.current?.abort();
+    const controller = new AbortController();
+    retryController.current = controller;
+    setRecoveryState("checking");
+    try {
+      const response = await fetch(
+        `/api/v1/saved-items/${savedItemId}/candidates?jobId=${encodeURIComponent(ownerBoundJobId)}`,
+        { method: "GET", credentials: "same-origin", cache: "no-store", signal: controller.signal },
+      );
+      const parsedResponse = PollSchema.safeParse(await response.json());
+      if (!response.ok || !parsedResponse.success) throw new Error("candidate status failed");
+      if (!isCurrent(controller)) return;
+      const data = parsedResponse.data.data;
+      if (data.state === "ready") showReady(data, controller);
+      else if (data.state === "gateway_required") setRecoveryState("gateway");
+      else if (data.state === "failed") {
+        if (data.jobId !== ownerBoundJobId) throw new Error("candidate job mismatch");
+        showTerminal(data.failureCategory, controller);
+      } else {
+        if (data.jobId !== ownerBoundJobId) throw new Error("candidate job mismatch");
+        setRecoveryState("queued");
+      }
+    } catch {
+      failRecovery(controller);
+    } finally {
+      if (retryController.current === controller) requestInFlight.current = false;
     }
   }
 
@@ -201,10 +311,21 @@ export function CandidateList({
         </section>
       );
     }
-    const pending = recoveryState === "pending";
+    const pending = recoveryState === "pending" || recoveryState === "background" || recoveryState === "checking";
+    const terminal = recoveryState === "terminal";
+    const queued = recoveryState === "queued" || recoveryState === "checking";
+    const message = recoveryState === "background"
+      ? "Still analyzing in the background"
+      : queued
+        ? "Still queued"
+        : pending
+          ? "Analyzing this expression and preparing it for practice…"
+          : "Choose a saved expression you want to learn, then click Analyze.";
     return (
       <section className={styles.analysisPanel} aria-label="Analysis status">
-        {recoveryState === "error"
+        {terminal
+          ? <p className={styles.analysisMessage} role="alert">{terminalFailureMessage(failureCategory!)}</p>
+          : recoveryState === "error"
           ? <p className={styles.analysisMessage} role="alert">Analysis is taking longer than expected. Try again.</p>
           : (
               <div className={styles.analysisMessage}>
@@ -212,14 +333,29 @@ export function CandidateList({
                   ? <span className={styles.activityIndicator} role="progressbar" aria-label="Analysis in progress" />
                   : null}
                 <p role="status">
-                  {pending
-                    ? "Analyzing this expression and preparing it for practice…"
-                    : "Choose a saved expression you want to learn, then click Analyze."}
+                  {message}
                 </p>
               </div>
             )}
-        <button className={styles.analysisAction} type="button" disabled={pending} onClick={retry}>
-          {pending ? "Analyzing…" : recoveryState === "error" ? "Retry analysis" : "Analyze"}
+        <button
+          className={styles.analysisAction}
+          type="button"
+          disabled={pending}
+          onClick={queued
+            ? () => { void checkStatus(); }
+            : terminal
+              ? () => { void requestAnalysis(true); }
+              : () => { void requestAnalysis(false); }}
+        >
+          {recoveryState === "checking"
+            ? "Checking…"
+            : queued
+              ? "Check status"
+              : pending
+                ? "Analyzing…"
+                : terminal || recoveryState === "error"
+                  ? "Retry analysis"
+                  : "Analyze"}
         </button>
       </section>
     );
