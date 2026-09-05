@@ -30,7 +30,7 @@ export default async function SignInPage() {
               <h2 id="sign-in-title">You&apos;re signed in</h2>
               <p>Signed in as {account.email ?? "Popcorn account"}.</p>
               <div className={styles.accountActions}>
-                <a className={styles.primaryAction} href="/settings/model-gateway">Continue to model gateway settings</a>
+                <a className={styles.primaryAction} href="/home">Continue to Popcorn</a>
                 <form action="/auth/sign-out" method="post" aria-label="Sign out of Popcorn">
                   <button className={styles.secondaryAction} type="submit">Sign out</button>
                 </form>

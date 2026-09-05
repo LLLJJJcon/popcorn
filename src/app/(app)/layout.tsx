@@ -1,26 +1,19 @@
-import Link from "next/link";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
-const navigation = [
-  { href: "/home", label: "Home" },
-  { href: "/saved", label: "Saved" },
-  { href: "/practice", label: "Practice" },
-  { href: "/vault", label: "Vault" },
-  { href: "/progress", label: "Progress" },
-] as const;
+import { AppShell } from "@/features/shell/app-shell";
+import { createWebAuthFlowHandlers } from "@/server/auth/web-auth-flow";
+import { getModelGatewaySettingsEnv } from "@/server/env";
 
-export default function AppLayout({ children }: { readonly children: React.ReactNode }) {
-  return (
-    <>
-      <header>
-        <nav aria-label="Primary navigation">
-          <ul>
-            {navigation.map((item) => (
-              <li key={item.href}><Link href={item.href}>{item.label}</Link></li>
-            ))}
-          </ul>
-        </nav>
-      </header>
-      {children}
-    </>
-  );
+export default async function AppLayout({ children }: { readonly children: React.ReactNode }) {
+  const environment = getModelGatewaySettingsEnv();
+  const account = await createWebAuthFlowHandlers({
+    appUrl: environment.APP_URL,
+    supabaseUrl: environment.NEXT_PUBLIC_SUPABASE_URL,
+    anonKey: environment.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    cookieStore: await cookies(),
+  }).getPageAccount();
+  if (!account.authenticated) redirect("/sign-in");
+
+  return <AppShell account={{ email: account.email }}>{children}</AppShell>;
 }

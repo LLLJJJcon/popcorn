@@ -1,10 +1,9 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { ModelGatewaySettings } from "@/app/settings/model-gateway/model-gateway-settings";
 import { createWebAuthFlowHandlers } from "@/server/auth/web-auth-flow";
 import { getModelGatewaySettingsEnv } from "@/server/env";
-
-import { ModelGatewaySettings } from "./model-gateway-settings";
 
 export default async function ModelGatewaySettingsPage() {
   const environment = getModelGatewaySettingsEnv();

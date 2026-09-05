@@ -47,9 +47,9 @@ describe("SignInPage", () => {
 
     const account = screen.getByRole("region", { name: "Local Popcorn account" });
     expect(within(account).getByText("Signed in as learner@example.com.")).toBeInTheDocument();
-    expect(within(account).getByRole("link", { name: "Continue to model gateway settings" })).toHaveAttribute(
+    expect(within(account).getByRole("link", { name: "Continue to Popcorn" })).toHaveAttribute(
       "href",
-      "/settings/model-gateway",
+      "/home",
     );
     const signOutForm = within(account).getByRole("form", { name: "Sign out of Popcorn" });
     expect(signOutForm).toHaveAttribute("action", "/auth/sign-out");

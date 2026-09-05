@@ -151,7 +151,7 @@ export function createWebAuthFlowHandlers({
       } catch {
         return redirectTo(origin, "/sign-in?status=error");
       }
-      return redirectTo(origin, "/settings/model-gateway");
+      return redirectTo(origin, "/home");
     },
 
     async signOut(request: Request): Promise<Response> {

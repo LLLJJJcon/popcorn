@@ -112,7 +112,7 @@ describe("local Web password authentication", () => {
 
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe(
-      "https://popcorn.example/settings/model-gateway",
+      "https://popcorn.example/home",
     );
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(calls.signIn).toEqual([{
@@ -132,7 +132,7 @@ describe("local Web password authentication", () => {
 
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe(
-      "https://popcorn.example/settings/model-gateway",
+      "https://popcorn.example/home",
     );
     expect(calls.signUp).toEqual([{ email: "new@example.com", password: "correct-horse" }]);
     expect(calls.signIn).toEqual([]);

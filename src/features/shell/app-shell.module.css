@@ -1,0 +1,259 @@
+.skipLink {
+  position: fixed;
+  z-index: 100;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--cocoa);
+  font-weight: 800;
+  transform: translateY(-200%);
+}
+
+.skipLink:focus {
+  transform: translateY(0);
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--cream);
+  color: var(--cocoa);
+}
+
+.rail {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100vh;
+  padding: 1.5rem 1rem;
+  background: var(--cocoa);
+  color: var(--paper);
+}
+
+.brand {
+  width: fit-content;
+  margin: 0 0.5rem 1.75rem;
+  color: inherit;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.65rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.navigation,
+.navigationList {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.navigation {
+  min-height: 19rem;
+}
+
+.navigationList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navigationLink,
+.settingsLink {
+  display: block;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.navigationLink:hover,
+.settingsLink:hover {
+  background: rgb(255 253 248 / 0.1);
+}
+
+.navigationLink[aria-current="page"],
+.settingsLink[aria-current="page"] {
+  background: var(--coral);
+  color: white;
+}
+
+.settingsLink {
+  margin-top: 1rem;
+  border-top: 1px solid rgb(255 253 248 / 0.2);
+}
+
+.navigationFallback {
+  min-height: 19rem;
+}
+
+.account {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: auto;
+  padding: 1rem 0.75rem 0;
+  border-top: 1px solid rgb(255 253 248 / 0.2);
+}
+
+.account p {
+  margin: 0;
+}
+
+.accountLabel {
+  color: rgb(255 253 248 / 0.68);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.accountName {
+  overflow: hidden;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+}
+
+.account button {
+  margin-top: 0.45rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--paper);
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.workspace {
+  min-width: 0;
+}
+
+.content {
+  width: min(100%, 76rem);
+  margin: 0 auto;
+  padding: clamp(1.25rem, 4vw, 3.5rem);
+}
+
+.gatewayNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1rem clamp(1.25rem, 4vw, 3.5rem) 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--attention) 35%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--attention) 9%, var(--paper));
+  color: var(--cocoa);
+}
+
+.gatewayNotice p {
+  margin: 0;
+}
+
+.gatewayNotice a {
+  flex: 0 0 auto;
+  color: var(--attention);
+  font-weight: 850;
+}
+
+.shell :focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 3px;
+}
+
+@media (max-width: 899px) {
+  .shell {
+    display: block;
+  }
+
+  .rail {
+    position: sticky;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    height: auto;
+    padding: 0.75rem 1rem;
+    gap: 0.75rem;
+  }
+
+  .brand {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+
+  .navigation {
+    display: flex;
+    min-height: 0;
+    overflow-x: auto;
+  }
+
+  .navigationList {
+    display: flex;
+    gap: 0.2rem;
+  }
+
+  .navigationLink,
+  .settingsLink {
+    padding: 0.55rem 0.65rem;
+    white-space: nowrap;
+  }
+
+  .settingsLink {
+    margin: 0 0 0 0.5rem;
+    border: 0;
+  }
+
+  .account {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .accountLabel,
+  .accountName {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .account button {
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .navigationFallback {
+    min-height: 2.4rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .rail {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .account {
+    display: flex;
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgb(255 253 248 / 0.2);
+  }
+
+  .gatewayNotice {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
