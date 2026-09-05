@@ -149,10 +149,10 @@ export function VaultSearch() {
               <input value={filters.register} maxLength={200} onChange={(event) => update("register", event.currentTarget.value)} />
             </label>
             <label>Learned from
-              <input type="date" value={filters.createdFrom} onChange={(event) => update("createdFrom", event.currentTarget.value)} />
+              <input type="date" lang="en" value={filters.createdFrom} onChange={(event) => update("createdFrom", event.currentTarget.value)} />
             </label>
             <label>Learned before
-              <input type="date" value={filters.createdBefore} onChange={(event) => update("createdBefore", event.currentTarget.value)} />
+              <input type="date" lang="en" value={filters.createdBefore} onChange={(event) => update("createdBefore", event.currentTarget.value)} />
             </label>
           </div>
         </details>

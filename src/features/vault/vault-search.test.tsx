@@ -83,6 +83,8 @@ describe("VaultSearch", () => {
     expect(within(filters!).getByLabelText("Register")).toBeInTheDocument();
     expect(within(filters!).getByLabelText("Learned from")).toBeInTheDocument();
     expect(within(filters!).getByLabelText("Learned before")).toBeInTheDocument();
+    expect(within(filters!).getByLabelText("Learned from")).toHaveAttribute("lang", "en");
+    expect(within(filters!).getByLabelText("Learned before")).toHaveAttribute("lang", "en");
     expect(screen.queryByLabelText(/Video source ID/i)).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/Video source ID/i);
   });
