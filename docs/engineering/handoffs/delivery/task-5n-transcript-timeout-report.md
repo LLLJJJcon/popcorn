@@ -19,4 +19,3 @@ Raised the default Supadata request/poll timeout from 4,000 ms to 30,000 ms in `
 ## Risk
 
 Low. This is a narrow default-value adjustment that preserves the current response handling and retry semantics.
-
