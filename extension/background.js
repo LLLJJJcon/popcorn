@@ -129,6 +129,9 @@ function normalizeTranscriptResult(data) {
     id: segment.stableId,
     stableId: segment.stableId,
     text: segment.originalChinese,
+    ...(typeof segment.englishTranslation === "string"
+      ? { englishTranslation: segment.englishTranslation }
+      : {}),
     start: segment.startSeconds,
     duration: Math.max(0, segment.endSeconds - segment.startSeconds),
     language: "zh-CN",

@@ -965,12 +965,17 @@ function setSavedFilter(showAll) {
 // VIDEO DETECTION
 // ============================================================
 
+let currentTabCheckGeneration = 0;
+
 async function checkCurrentTab() {
+  const tabCheckGeneration = ++currentTabCheckGeneration;
+  const isStaleTabCheck = () => tabCheckGeneration !== currentTabCheckGeneration;
   try {
     const tabs = await chrome.tabs.query({
       active: true,
       lastFocusedWindow: true,
     });
+    if (isStaleTabCheck()) return;
     const tab = tabs[0] || null;
 
     debugLog("[YouTube Digest Panel] Found tab:", tab?.id, tab?.url);
@@ -996,6 +1001,7 @@ async function checkCurrentTab() {
         action: "relayToContent",
         payload: { action: "getVideoInfo" },
       });
+      if (isStaleTabCheck()) return;
       debugLog("[YouTube Digest Panel] getVideoInfo result:", result);
       if (result.success && result.response) {
         currentVideoTitle = result.response.title || "";
@@ -1004,6 +1010,7 @@ async function checkCurrentTab() {
         currentVideoDuration = result.response.duration || 0;
       }
     } catch (e) {
+      if (isStaleTabCheck()) return;
       console.error("[YouTube Digest Panel] getVideoInfo error:", e);
       currentVideoTitle = "";
       currentChannelName = "";
@@ -1011,8 +1018,10 @@ async function checkCurrentTab() {
       currentVideoDuration = 0;
     }
 
+    if (isStaleTabCheck()) return;
     startDigest(videoId, tab.url);
   } catch (error) {
+    if (isStaleTabCheck()) return;
     console.error("Tab check error:", error);
     showState("welcome");
   }
@@ -1075,17 +1084,22 @@ async function startDigest(videoId, videoUrl) {
   // same video after an error. Advance the generation so a previous retry
   // cannot clear the refreshed view or a retry started from it.
   translationGeneration += 1;
+  const digestGeneration = translationGeneration;
+  const isStaleDigest = () =>
+    digestGeneration !== translationGeneration || videoId !== currentVideoId;
   retryFailedTranslationsInFlight = false;
   retryFailedTranslationsCount = 0;
   if (transcriptScrollObserver) transcriptScrollObserver.disconnect();
   transcriptScrollObserver = null;
 
+  currentVideoId = videoId;
+  currentVideoUrl = videoUrl;
+
   // Check cache for this video
   const cached = await loadFromCache(videoId);
+  if (isStaleDigest()) return;
   if (cached) {
     debugLog("Loading from cache:", videoId);
-    currentVideoId = videoId;
-    currentVideoUrl = videoUrl;
     currentAnalysis = cached.analysis || null;
     currentTranscript = cached.transcript;
     currentTranscriptText = cached.transcriptText;
@@ -1127,8 +1141,6 @@ async function startDigest(videoId, videoUrl) {
     return;
   }
 
-  currentVideoId = videoId;
-  currentVideoUrl = videoUrl;
   currentAnalysis = null;
   currentTranscript = null;
   currentTranscriptText = null;
@@ -1152,6 +1164,7 @@ async function startDigest(videoId, videoUrl) {
     action: "fetchTranscript",
     videoId: videoId,
   });
+  if (isStaleDigest()) return;
 
   if (!transcriptResult.success) {
     const presentation = getTranscriptErrorPresentation(transcriptResult);
@@ -1170,6 +1183,11 @@ async function startDigest(videoId, videoUrl) {
   currentTranscriptLanguage = transcriptResult.language || null;
   currentSnapshotId = transcriptResult.snapshotId;
   currentTranscriptHash = transcriptResult.transcriptHash;
+
+  // These cloud-supplied values are render-only: do not persist them locally.
+  // Both English modes consume this one cache before lazy misses are queued.
+  clearTranscriptParagraphCache(videoId);
+  primeTranscriptParagraphCache(currentTranscript, videoId);
 
   // Render transcript immediately (no LLM needed)
   renderTranscript();
@@ -2408,8 +2426,27 @@ function getActiveTranscriptSegments() {
   return groupTranscriptEntries(currentTranscript || []);
 }
 
-function transcriptTranslationCacheKey(segment) {
-  return `${currentVideoId}:en:semantic:${segment.id}`;
+function transcriptTranslationCacheKey(segment, videoId = currentVideoId) {
+  return `${videoId}:en:semantic:${segment.id}`;
+}
+
+function clearTranscriptParagraphCache(videoId) {
+  const prefix = `${videoId}:en:semantic:`;
+  for (const key of transcriptParagraphCache.keys()) {
+    if (key.startsWith(prefix)) transcriptParagraphCache.delete(key);
+  }
+}
+
+function primeTranscriptParagraphCache(transcript, videoId) {
+  if (!Array.isArray(transcript)) return;
+  transcript.forEach((segment) => {
+    const id = segment?.stableId || segment?.id;
+    const english = typeof segment?.englishTranslation === "string"
+      ? segment.englishTranslation.trim()
+      : "";
+    if (!id || !english) return;
+    transcriptParagraphCache.set(transcriptTranslationCacheKey({ id }, videoId), english);
+  });
 }
 
 function setTranscriptModeButtons(mode) {

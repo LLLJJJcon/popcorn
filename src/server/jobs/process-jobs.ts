@@ -19,6 +19,7 @@ import type {
   LearningArtifactProviderResolver,
   ModelGatewayPin,
 } from "@/server/ai/provider";
+import { TranslationContentSchema } from "@/server/ai/prompts/translate-segments.v1";
 import type { StructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
 import { createAnalyzeSavedItemHandler } from "@/server/jobs/handlers/analyze-saved-item";
 import { createExplainSelectionHandler } from "@/server/jobs/handlers/explain-selection";
@@ -823,12 +824,13 @@ async function readPersistedTranscriptSnapshot(
     | "start_seconds"
     | "end_seconds"
     | "language"
+    | "english_translation"
     | "user_id"
     | "snapshot_id"
   >> = [];
   for (let from = 0; ; from += TRANSCRIPT_SEGMENT_PAGE_SIZE) {
     const page = await client.from("transcript_segments")
-      .select("stable_id,position,original_chinese,start_seconds,end_seconds,language,user_id,snapshot_id")
+      .select("stable_id,position,original_chinese,english_translation,start_seconds,end_seconds,language,user_id,snapshot_id")
       .eq("user_id", expectedUserId)
       .eq("snapshot_id", persistedSnapshot.id)
       .order("position", { ascending: true })
@@ -857,19 +859,60 @@ async function readPersistedTranscriptSnapshot(
     startSeconds: segment.start_seconds,
     endSeconds: segment.end_seconds,
     language: "zh-CN" as const,
+    ...(segment.english_translation === null
+      ? {}
+      : { englishTranslation: segment.english_translation }),
   }));
   const timestamp = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
   };
-  return {
-    language: "zh-CN",
+  const snapshot = {
+    language: "zh-CN" as const,
     transcriptHash: persistedSnapshot.transcript_hash,
     segments: nativeSegments,
     plainText: nativeSegments.map((segment) => segment.originalChinese).join(" "),
     timestampedText: nativeSegments
       .map((segment) => `[${timestamp(segment.startSeconds)}] ${segment.originalChinese}`)
       .join("\n"),
+  };
+  const currentStableIds = new Set(snapshot.segments.map((segment) => segment.stableId));
+  const translations = new Map<string, string>();
+  for (let from = 0; ; from += TRANSCRIPT_SEGMENT_PAGE_SIZE) {
+    const artifacts = await client.from("generated_artifacts")
+      .select("id,user_id,video_source_id,artifact_type,content,created_at")
+      .eq("user_id", expectedUserId)
+      .eq("video_source_id", persistedSnapshot.video_source_id)
+      .eq("artifact_type", "segment_translation")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + TRANSCRIPT_SEGMENT_PAGE_SIZE - 1);
+    if (artifacts.error) throw artifacts.error;
+    for (const artifact of artifacts.data) {
+      if (
+        artifact.user_id !== expectedUserId ||
+        artifact.video_source_id !== persistedSnapshot.video_source_id ||
+        artifact.artifact_type !== "segment_translation"
+      ) continue;
+      const content = TranslationContentSchema.safeParse(artifact.content);
+      if (!content.success) continue;
+      for (const segment of content.data.segments) {
+        if (currentStableIds.has(segment.id) && !translations.has(segment.id)) {
+          translations.set(segment.id, segment.english);
+        }
+      }
+    }
+    if (artifacts.data.length < TRANSCRIPT_SEGMENT_PAGE_SIZE) break;
+  }
+  if (translations.size === 0) return snapshot;
+  return {
+    ...snapshot,
+    segments: snapshot.segments.map((segment) => {
+      const englishTranslation = translations.get(segment.stableId);
+      return englishTranslation === undefined
+        ? segment
+        : { ...segment, englishTranslation };
+    }),
   };
 }
 

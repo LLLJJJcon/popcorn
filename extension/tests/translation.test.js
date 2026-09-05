@@ -11,6 +11,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
 function loadSidepanelHelpers({
   sendMessage = () => Promise.resolve({}),
+  queryTabs = () => Promise.resolve([]),
   setTimeoutImpl = () => 0,
   clearTimeoutImpl = () => {},
   documentImpl,
@@ -67,7 +68,7 @@ function loadSidepanelHelpers({
     chrome: {
       runtime: { onMessage: listeners, sendMessage },
       windows: { getCurrent: () => Promise.resolve({ id: 1 }) },
-      tabs: { onUpdated: listeners, onActivated: listeners },
+      tabs: { query: queryTabs, onUpdated: listeners, onActivated: listeners },
     },
     YTD_SETTINGS: {},
   };
@@ -668,6 +669,429 @@ test("a succeeded transcript job resumes the returned snapshot without starting 
     "https://app.popcorn.local/api/v1/jobs/job-1",
     `https://app.popcorn.local/api/v1/youtube/abc123XYZ00/transcript?snapshotId=${snapshotId}`,
   ]);
+});
+
+test("persisted English transcript rows avoid translation requests in English and bilingual modes", async () => {
+  const ids = ["a", "b", "c"].map((value) => value.repeat(64));
+  const background = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 200,
+    json: async () => ({ ok: true, data: {
+      snapshotId: "40000000-0000-4000-8000-000000000001",
+      snapshot: {
+        language: "zh-CN", transcriptHash: "d".repeat(64),
+        plainText: "第一行\n第二行\n第三行",
+        timestampedText: "[0:00] 第一行\n[0:01] 第二行\n[0:02] 第三行",
+        segments: ids.map((stableId, index) => ({
+          stableId, originalChinese: `第${index + 1}行`,
+          englishTranslation: `Persisted English ${index + 1}`,
+          startSeconds: index, endSeconds: index + 1,
+        })),
+      },
+    } }),
+  }) });
+  const transcriptResult = await background.handleFetchTranscript("abc123XYZ00");
+
+  for (const mode of ["en", "bilingual"]) {
+    const dom = new JSDOM(`
+      <div id="welcomeState"></div><div id="loadingState"></div>
+      <div id="errorState"></div><div id="resultsState"></div><div id="tabsNav"></div>
+      <div id="loadingText"></div><div id="loadingSubtext"></div>
+      <div id="contentArea"><div id="transcriptList"></div></div>
+      <button id="retryFailedTranslationsBtn" hidden>Retry failed</button>
+      <button id="followPlaybackBtn"></button>
+      <span id="langSpinner"></span>
+    `);
+    const sent = [];
+    const helpers = loadSidepanelHelpers({
+      documentImpl: dom.window.document,
+      windowImpl: dom.window,
+      sendMessage(message) {
+        if (message.action === "fetchTranscript") return Promise.resolve(transcriptResult);
+        sent.push({ ...message });
+        return Promise.resolve({ success: true, content: { segments: [] } });
+      },
+    });
+    helpers.evaluateInSidepanel(`
+      currentTranscriptMode = ${JSON.stringify(mode)};
+    `);
+
+    await helpers.evaluateInSidepanel(
+      'startDigest("abc123XYZ00", "https://www.youtube.com/watch?v=abc123XYZ00")',
+    );
+    await Promise.resolve();
+
+    assert.deepEqual(sent, []);
+    assert.equal(
+      dom.window.document.querySelectorAll(".transcript-entry.translated").length,
+      3,
+    );
+  }
+});
+
+test("persisted English transcript rows request only missing stable IDs", async () => {
+  const ids = ["e", "f", "0"].map((value) => value.repeat(64));
+  const background = loadBackgroundHelpers({ fetchImpl: async () => ({
+    status: 200,
+    json: async () => ({ ok: true, data: {
+      snapshotId: "40000000-0000-4000-8000-000000000002",
+      snapshot: {
+        language: "zh-CN", transcriptHash: "1".repeat(64),
+        plainText: "第一行\n第二行\n第三行",
+        timestampedText: "[0:00] 第一行\n[0:01] 第二行\n[0:02] 第三行",
+        segments: [
+          { stableId: ids[0], originalChinese: "第一行", englishTranslation: "Stored first", startSeconds: 0, endSeconds: 1 },
+          { stableId: ids[1], originalChinese: "第二行", startSeconds: 1, endSeconds: 2 },
+          { stableId: ids[2], originalChinese: "第三行", startSeconds: 2, endSeconds: 3 },
+        ],
+      },
+    } }),
+  }) });
+  const transcriptResult = await background.handleFetchTranscript("abc123XYZ00");
+  const dom = new JSDOM(`
+    <div id="welcomeState"></div><div id="loadingState"></div>
+    <div id="errorState"></div><div id="resultsState"></div><div id="tabsNav"></div>
+    <div id="loadingText"></div><div id="loadingSubtext"></div>
+    <div id="contentArea"><div id="transcriptList"></div></div>
+    <button id="retryFailedTranslationsBtn" hidden>Retry failed</button>
+    <button id="followPlaybackBtn"></button>
+    <span id="langSpinner"></span>
+  `);
+  const sent = [];
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage(message) {
+      if (message.action === "fetchTranscript") return Promise.resolve(transcriptResult);
+      sent.push({ ...message });
+      return Promise.resolve({
+        success: true,
+        content: { segments: message.segmentIds.map((id) => ({ id, english: `Fetched ${id[0]}` })) },
+      });
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentTranscriptMode = "en";
+  `);
+
+  await helpers.evaluateInSidepanel(
+    'startDigest("abc123XYZ00", "https://www.youtube.com/watch?v=abc123XYZ00")',
+  );
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(sent)), [{
+    action: "translateSegments",
+    videoId: "abc123XYZ00",
+    snapshotId: "40000000-0000-4000-8000-000000000002",
+    segmentIds: [ids[1], ids[2]],
+  }]);
+  assert.equal(
+    dom.window.document.querySelector(`[data-segment-id="${ids[0]}"] .transcript-translation`).textContent,
+    "Stored first",
+  );
+});
+
+test("a second fresh same-video response requests English missing from the new response", async () => {
+  const videoId = "abc123XYZ00";
+  const stableId = "a".repeat(64);
+  const dom = new JSDOM(`
+    <div id="welcomeState"></div><div id="loadingState"></div>
+    <div id="errorState"></div><div id="resultsState"></div><div id="tabsNav"></div>
+    <div id="loadingText"></div><div id="loadingSubtext"></div>
+    <div id="contentArea"><div id="transcriptList"></div></div>
+    <button id="retryFailedTranslationsBtn" hidden>Retry failed</button>
+    <button id="followPlaybackBtn"></button>
+    <span id="langSpinner"></span>
+  `);
+  let fetchCount = 0;
+  const translationMessages = [];
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage(message) {
+      if (message.action === "fetchTranscript") {
+        fetchCount += 1;
+        return Promise.resolve({
+          success: true,
+          snapshotId: fetchCount === 1
+            ? "40000000-0000-4000-8000-000000000001"
+            : "40000000-0000-4000-8000-000000000002",
+          transcriptHash: "c".repeat(64),
+          transcriptText: "同一个视频",
+          transcriptTextTimestamped: "[0:00] 同一个视频",
+          language: "zh-CN",
+          transcript: [{
+            id: stableId,
+            stableId,
+            text: "同一个视频",
+            ...(fetchCount === 1 ? { englishTranslation: "Prior session English" } : {}),
+            start: 0,
+            duration: 1,
+            language: "zh-CN",
+          }],
+        });
+      }
+      if (message.action === "translateSegments") {
+        translationMessages.push({ ...message });
+        return Promise.resolve({
+          success: true,
+          content: { segments: [{ id: stableId, english: "Freshly requested English" }] },
+        });
+      }
+      return Promise.resolve({ success: true });
+    },
+  });
+  helpers.evaluateInSidepanel('currentTranscriptMode = "en";');
+
+  await helpers.evaluateInSidepanel(
+    `startDigest(${JSON.stringify(videoId)}, "https://www.youtube.com/watch?v=${videoId}")`,
+  );
+  await Promise.resolve();
+  await helpers.evaluateInSidepanel(
+    `startDigest(${JSON.stringify(videoId)}, "https://www.youtube.com/watch?v=${videoId}")`,
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(translationMessages)), [{
+    action: "translateSegments",
+    videoId,
+    snapshotId: "40000000-0000-4000-8000-000000000002",
+    segmentIds: [stableId],
+  }]);
+  assert.equal(
+    dom.window.document.querySelector(".transcript-translation").textContent,
+    "Freshly requested English",
+  );
+});
+
+test("checkCurrentTab ignores an older video inspection after a newer one completes", async () => {
+  const firstVideoId = "abc123XYZ00";
+  const secondVideoId = "def456XYZ00";
+  const firstId = "a".repeat(64);
+  const secondId = "b".repeat(64);
+  const dom = new JSDOM(`
+    <div id="welcomeState"></div><div id="loadingState"></div>
+    <div id="errorState"></div><div id="resultsState"></div><div id="tabsNav"></div>
+    <div id="loadingText"></div><div id="loadingSubtext"></div>
+    <div id="videoInfo"></div><div id="videoTitle"></div><div id="videoChannel"></div>
+    <div id="contentArea"><div id="transcriptList"></div></div>
+    <button id="saveVideoBtn"></button>
+    <button id="retryFailedTranslationsBtn" hidden>Retry failed</button>
+    <button id="followPlaybackBtn"></button>
+    <span id="langSpinner"></span>
+  `);
+  const tabs = [
+    { id: 1, url: `https://www.youtube.com/watch?v=${firstVideoId}` },
+    { id: 2, url: `https://www.youtube.com/watch?v=${secondVideoId}` },
+  ];
+  let resolveFirstInfo;
+  let markFirstInfoRequested;
+  const firstInfoRequested = new Promise((resolve) => { markFirstInfoRequested = resolve; });
+  let infoRequestCount = 0;
+  const fetchedVideoIds = [];
+  const transcriptResult = (videoId) => ({
+    success: true,
+    snapshotId: videoId === firstVideoId
+      ? "40000000-0000-4000-8000-000000000001"
+      : "40000000-0000-4000-8000-000000000002",
+    transcriptHash: "c".repeat(64),
+    transcriptText: videoId === firstVideoId ? "第一个视频" : "第二个视频",
+    transcriptTextTimestamped: videoId === firstVideoId
+      ? "[0:00] 第一个视频"
+      : "[0:00] 第二个视频",
+    language: "zh-CN",
+    transcript: [{
+      id: videoId === firstVideoId ? firstId : secondId,
+      stableId: videoId === firstVideoId ? firstId : secondId,
+      text: videoId === firstVideoId ? "第一个视频" : "第二个视频",
+      start: 0,
+      duration: 1,
+      language: "zh-CN",
+    }],
+  });
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    queryTabs: async () => [tabs.shift()].filter(Boolean),
+    sendMessage(message) {
+      if (message.action === "relayToContent") {
+        infoRequestCount += 1;
+        if (infoRequestCount === 1) {
+          return new Promise((resolve) => {
+            resolveFirstInfo = resolve;
+            markFirstInfoRequested();
+          });
+        }
+        return Promise.resolve({
+          success: true,
+          response: { title: "Second title", channelName: "Second channel" },
+        });
+      }
+      if (message.action === "fetchTranscript") {
+        fetchedVideoIds.push(message.videoId);
+        return Promise.resolve(transcriptResult(message.videoId));
+      }
+      return Promise.resolve({ success: true });
+    },
+  });
+
+  const first = helpers.evaluateInSidepanel("checkCurrentTab()");
+  await firstInfoRequested;
+  const second = helpers.evaluateInSidepanel("checkCurrentTab()");
+  await second;
+  await Promise.resolve();
+  await Promise.resolve();
+  resolveFirstInfo({
+    success: true,
+    response: { title: "First title", channelName: "First channel" },
+  });
+  await first;
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(fetchedVideoIds, [secondVideoId]);
+  assert.deepEqual(
+    JSON.parse(helpers.evaluateInSidepanel(`JSON.stringify({
+      videoId: currentVideoId,
+      videoUrl: currentVideoUrl,
+      tabId: youtubeTabId,
+      title: currentVideoTitle,
+      channel: currentChannelName,
+    })`)),
+    {
+      videoId: secondVideoId,
+      videoUrl: `https://www.youtube.com/watch?v=${secondVideoId}`,
+      tabId: 2,
+      title: "Second title",
+      channel: "Second channel",
+    },
+  );
+  assert.match(dom.window.document.getElementById("transcriptList").textContent, /第二个视频/);
+  assert.doesNotMatch(dom.window.document.getElementById("transcriptList").textContent, /第一个视频/);
+});
+
+test("a late fresh transcript result cannot replace a newer video's transcript or cache", async () => {
+  const firstVideoId = "abc123XYZ00";
+  const secondVideoId = "def456XYZ00";
+  const firstId = "a".repeat(64);
+  const secondId = "b".repeat(64);
+  const dom = new JSDOM(`
+    <div id="welcomeState"></div><div id="loadingState"></div>
+    <div id="errorState"></div><div id="resultsState"></div><div id="tabsNav"></div>
+    <div id="loadingText"></div><div id="loadingSubtext"></div>
+    <div id="contentArea"><div id="transcriptList"></div></div>
+    <button id="retryFailedTranslationsBtn" hidden>Retry failed</button>
+    <button id="followPlaybackBtn"></button>
+    <span id="langSpinner"></span>
+  `);
+  let resolveFirst;
+  let resolveSecond;
+  const freshResult = ({ snapshotId, stableId, chinese, english }) => ({
+    success: true,
+    snapshotId,
+    transcriptHash: "c".repeat(64),
+    transcriptText: chinese,
+    transcriptTextTimestamped: `[0:00] ${chinese}`,
+    language: "zh-CN",
+    transcript: [{
+      id: stableId, stableId, text: chinese, englishTranslation: english,
+      start: 0, duration: 1, language: "zh-CN",
+    }],
+  });
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage(message) {
+      if (message.action !== "fetchTranscript") return Promise.resolve({ success: true });
+      return new Promise((resolve) => {
+        if (message.videoId === firstVideoId) resolveFirst = resolve;
+        if (message.videoId === secondVideoId) resolveSecond = resolve;
+      });
+    },
+  });
+
+  const first = helpers.evaluateInSidepanel(
+    `startDigest(${JSON.stringify(firstVideoId)}, "https://www.youtube.com/watch?v=${firstVideoId}")`,
+  );
+  await Promise.resolve();
+  const second = helpers.evaluateInSidepanel(
+    `startDigest(${JSON.stringify(secondVideoId)}, "https://www.youtube.com/watch?v=${secondVideoId}")`,
+  );
+  await Promise.resolve();
+  resolveSecond(freshResult({
+    snapshotId: "40000000-0000-4000-8000-000000000002", stableId: secondId,
+    chinese: "第二个视频", english: "Second video English",
+  }));
+  await second;
+  resolveFirst(freshResult({
+    snapshotId: "40000000-0000-4000-8000-000000000001", stableId: firstId,
+    chinese: "第一个视频", english: "First video English",
+  }));
+  await first;
+
+  const state = JSON.parse(helpers.evaluateInSidepanel(`JSON.stringify({
+    videoId: currentVideoId,
+    snapshotId: currentSnapshotId,
+    transcriptId: currentTranscript[0].stableId,
+    staleEnglish: transcriptParagraphCache.get(${JSON.stringify(`${secondVideoId}:en:semantic:${firstId}`)}) || null,
+  })`));
+  assert.deepEqual(state, {
+    videoId: secondVideoId,
+    snapshotId: "40000000-0000-4000-8000-000000000002",
+    transcriptId: secondId,
+    staleEnglish: null,
+  });
+  assert.match(dom.window.document.getElementById("transcriptList").textContent, /第二个视频/);
+  assert.doesNotMatch(dom.window.document.getElementById("transcriptList").textContent, /第一个视频/);
+});
+
+test("switching a fresh persisted-English transcript from English to bilingual sends no new translations", async () => {
+  const ids = ["d", "e"].map((value) => value.repeat(64));
+  const dom = new JSDOM(`
+    <div id="welcomeState"></div><div id="loadingState"></div>
+    <div id="errorState"></div><div id="resultsState"></div><div id="tabsNav"></div>
+    <div id="loadingText"></div><div id="loadingSubtext"></div>
+    <div id="contentArea"><div id="transcriptList"></div></div>
+    <button id="retryFailedTranslationsBtn" hidden>Retry failed</button>
+    <button id="followPlaybackBtn"></button>
+    <span id="langSpinner"></span>
+  `);
+  const sent = [];
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage(message) {
+      if (message.action === "fetchTranscript") {
+        return Promise.resolve({
+          success: true,
+          snapshotId: "40000000-0000-4000-8000-000000000003",
+          transcriptHash: "f".repeat(64),
+          transcriptText: "第一行\n第二行",
+          transcriptTextTimestamped: "[0:00] 第一行\n[0:01] 第二行",
+          language: "zh-CN",
+          transcript: ids.map((stableId, index) => ({
+            id: stableId, stableId, text: `第${index + 1}行`,
+            englishTranslation: `Stored English ${index + 1}`,
+            start: index, duration: 1, language: "zh-CN",
+          })),
+        });
+      }
+      sent.push({ ...message });
+      return Promise.resolve({ success: true, content: { segments: [] } });
+    },
+  });
+  helpers.evaluateInSidepanel('currentTranscriptMode = "en";');
+
+  await helpers.evaluateInSidepanel(
+    'startDigest("abc123XYZ00", "https://www.youtube.com/watch?v=abc123XYZ00")',
+  );
+  await helpers.evaluateInSidepanel('handleTranscriptModeChange("bilingual")');
+  await Promise.resolve();
+
+  assert.deepEqual(sent, []);
+  assert.equal(dom.window.document.querySelectorAll(".transcript-original").length, 2);
+  assert.equal(dom.window.document.querySelectorAll(".transcript-translation").length, 2);
+  assert.match(dom.window.document.getElementById("transcriptList").textContent, /Stored English 1/);
 });
 
 test("a rejected transcript fetch produces a bounded local-service recovery instead of a no-transcript presentation", async () => {

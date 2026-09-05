@@ -28,6 +28,7 @@ export type NativeTranscriptSegment = {
   readonly stableId: string;
   readonly position: number;
   readonly originalChinese: string;
+  readonly englishTranslation?: string;
   readonly startSeconds: number;
   readonly endSeconds: number;
   readonly language: "zh-CN";

@@ -63,6 +63,15 @@ const persistedSnapshot: NativeTranscriptSnapshot = {
   ],
 };
 
+function emptyTranslationArtifactQuery() {
+  return {
+    select: vi.fn(function (this: unknown) { return this; }),
+    eq: vi.fn(function (this: unknown) { return this; }),
+    order: vi.fn(function (this: unknown) { return this; }),
+    range: vi.fn(async () => ({ data: [], error: null })),
+  };
+}
+
 function job(overrides: Partial<KnowledgeJob> = {}): KnowledgeJob {
   return KnowledgeJobSchema.parse({
     id: JOB_ID,
@@ -583,10 +592,12 @@ describe("CONTRACT-006 Supabase RPC adapters", () => {
         };
       }),
     };
+    const artifactQuery = emptyTranslationArtifactQuery();
     const from = vi.fn((table: string) => {
       if (table === "video_sources") return sourceQuery;
       if (table === "video_snapshots") return snapshotQuery;
       if (table === "transcript_segments") return segmentsQuery;
+      if (table === "generated_artifacts") return artifactQuery;
       throw new Error(`unexpected table ${table}`);
     });
     const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
@@ -655,10 +666,12 @@ describe("CONTRACT-006 Supabase RPC adapters", () => {
         error: null,
       })),
     };
+    const artifactQuery = emptyTranslationArtifactQuery();
     const from = vi.fn((table: string) => {
       if (table === "video_sources") return sourceQuery;
       if (table === "video_snapshots") return snapshotQuery;
       if (table === "transcript_segments") return segmentsQuery;
+      if (table === "generated_artifacts") return artifactQuery;
       throw new Error(`unexpected table ${table}`);
     });
     const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
@@ -732,10 +745,12 @@ describe("CONTRACT-006 Supabase RPC adapters", () => {
         error: null,
       })),
     };
+    const artifactQuery = emptyTranslationArtifactQuery();
     const from = vi.fn((table: string) => {
       if (table === "video_sources") return sourceQuery;
       if (table === "video_snapshots") return snapshotQuery;
       if (table === "transcript_segments") return segmentsQuery;
+      if (table === "generated_artifacts") return artifactQuery;
       throw new Error(`unexpected table ${table}`);
     });
     const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
@@ -798,10 +813,12 @@ describe("CONTRACT-006 Supabase RPC adapters", () => {
         error: null,
       })),
     };
+    const artifactQuery = emptyTranslationArtifactQuery();
     const from = vi.fn((table: string) => {
       if (table === "video_sources") return sourceQuery;
       if (table === "video_snapshots") return snapshotQuery;
       if (table === "transcript_segments") return segmentsQuery;
+      if (table === "generated_artifacts") return artifactQuery;
       throw new Error(`unexpected table ${table}`);
     });
     const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
@@ -854,10 +871,12 @@ describe("CONTRACT-006 Supabase RPC adapters", () => {
         error: null,
       })),
     };
+    const artifactQuery = emptyTranslationArtifactQuery();
     const from = vi.fn((table: string) => {
       if (table === "video_sources") return sourceQuery;
       if (table === "video_snapshots") return snapshotQuery;
       if (table === "transcript_segments") return segmentsQuery;
+      if (table === "generated_artifacts") return artifactQuery;
       throw new Error(`unexpected table ${table}`);
     });
     const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
@@ -876,6 +895,172 @@ describe("CONTRACT-006 Supabase RPC adapters", () => {
     expect(result?.timestampedText.endsWith("[16:40] 第1000句。")).toBe(true);
     expect(segmentsQuery.range).toHaveBeenCalledWith(0, 999);
     expect(segmentsQuery.range).toHaveBeenCalledWith(1_000, 1_999);
+  });
+
+  test("keeps the newest same-ID artifact, row fallback, and complementary paged batches", async () => {
+    const currentStableId = "a".repeat(64);
+    const retainedRowStableId = "b".repeat(64);
+    const complementaryStableId = "c".repeat(64);
+    const obsoleteStableId = "f".repeat(64);
+    const OTHER_SOURCE_ID = "20000000-0000-4000-8000-000000000002";
+    const malformedArtifacts = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `50000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`,
+      user_id: USER_A,
+      video_source_id: SOURCE_ID,
+      artifact_type: "segment_translation",
+      created_at: "2026-08-19T00:00:00.000Z",
+      content: { segments: [] },
+    }));
+    const sourceQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({
+        data: { id: SOURCE_ID, user_id: USER_A, youtube_video_id: "abc123XYZ00" },
+        error: null,
+      })),
+    };
+    const snapshotQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      maybeSingle: vi.fn(async () => ({
+        data: {
+          id: SNAPSHOT_ID,
+          user_id: USER_A,
+          video_source_id: SOURCE_ID,
+          transcript_hash: persistedSnapshot.transcriptHash,
+          transcript_language: "zh-CN",
+        },
+        error: null,
+      })),
+    };
+    const segmentsQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown) { return this; }),
+      order: vi.fn(function (this: unknown) { return this; }),
+      range: vi.fn(async () => ({
+        data: [
+          {
+            stable_id: currentStableId, position: 0, original_chinese: "第一句。",
+            english_translation: null, start_seconds: 0, end_seconds: 1, language: "zh-CN",
+            user_id: USER_A, snapshot_id: SNAPSHOT_ID,
+          },
+          {
+            stable_id: retainedRowStableId, position: 1, original_chinese: "第二句。",
+            english_translation: "Row-level English fallback.", start_seconds: 1, end_seconds: 2,
+            language: "zh-CN", user_id: USER_A, snapshot_id: SNAPSHOT_ID,
+          },
+          {
+            stable_id: complementaryStableId, position: 2, original_chinese: "第三句。",
+            english_translation: null, start_seconds: 2, end_seconds: 3,
+            language: "zh-CN", user_id: USER_A, snapshot_id: SNAPSHOT_ID,
+          },
+        ],
+        error: null,
+      })),
+    };
+    const artifactRows = [
+      {
+        id: "60000000-0000-4000-8000-000000000001",
+        user_id: USER_A,
+        video_source_id: OTHER_SOURCE_ID,
+        artifact_type: "segment_translation",
+        created_at: "2026-08-22T00:00:00.000Z",
+        content: { segments: [{ id: currentStableId, english: "Wrong-source English." }] },
+      },
+      {
+        id: "60000000-0000-4000-8000-000000000002",
+        user_id: USER_B,
+        video_source_id: SOURCE_ID,
+        artifact_type: "segment_translation",
+        created_at: "2026-08-21T00:00:00.000Z",
+        content: { segments: [{ id: currentStableId, english: "Foreign English." }] },
+      },
+      {
+        id: "60000000-0000-4000-8000-000000000003",
+        user_id: USER_A,
+        video_source_id: SOURCE_ID,
+        artifact_type: "segment_translation",
+        created_at: "2026-08-20T00:00:00.000Z",
+        content: {
+          segments: [
+            { id: currentStableId, english: "Newest valid English." },
+            { id: obsoleteStableId, english: "Obsolete segment English." },
+          ],
+        },
+      },
+      ...malformedArtifacts,
+      {
+        id: "60000000-0000-4000-8000-000000000004",
+        user_id: USER_A,
+        video_source_id: SOURCE_ID,
+        artifact_type: "segment_translation",
+        created_at: "2026-08-18T00:00:00.000Z",
+        content: {
+          segments: [
+            { id: currentStableId, english: "Older duplicate English." },
+            { id: complementaryStableId, english: "Older batch English." },
+          ],
+        },
+      },
+    ];
+    const artifactFilters = new Map<string, string>();
+    const artifactOrders: Array<{ column: "created_at" | "id"; ascending: boolean }> = [];
+    const artifactQuery = {
+      select: vi.fn(function (this: unknown) { return this; }),
+      eq: vi.fn(function (this: unknown, column: string, value: string) {
+        artifactFilters.set(column, value);
+        return this;
+      }),
+      order: vi.fn(function (
+        this: unknown,
+        column: "created_at" | "id",
+        options: { ascending: boolean },
+      ) {
+        artifactOrders.push({ column, ascending: options.ascending });
+        return this;
+      }),
+      range: vi.fn(async (from: number, to: number) => {
+        const filtered = artifactRows.filter((row) =>
+          [...artifactFilters].every(([column, value]) =>
+            row[column as "user_id" | "video_source_id" | "artifact_type"] === value,
+          ),
+        );
+        const sorted = [...filtered].sort((left, right) => {
+          for (const { column, ascending } of artifactOrders) {
+            const comparison = left[column].localeCompare(right[column]);
+            if (comparison !== 0) return ascending ? comparison : -comparison;
+          }
+          return 0;
+        });
+        return { data: sorted.slice(from, to + 1), error: null };
+      }),
+    };
+    const from = vi.fn((table: string) => {
+      if (table === "video_sources") return sourceQuery;
+      if (table === "video_snapshots") return snapshotQuery;
+      if (table === "transcript_segments") return segmentsQuery;
+      if (table === "generated_artifacts") return artifactQuery;
+      throw new Error(`unexpected table ${table}`);
+    });
+    const store = createSupabaseTranscriptStore({ from } as never, () => NOW);
+
+    const result = await store.readSnapshot(USER_A, "abc123XYZ00", SNAPSHOT_ID);
+
+    expect(result?.segments.map((segment) => ({
+      stableId: segment.stableId,
+      englishTranslation: segment.englishTranslation,
+    }))).toEqual([
+      { stableId: currentStableId, englishTranslation: "Newest valid English." },
+      { stableId: retainedRowStableId, englishTranslation: "Row-level English fallback." },
+      { stableId: complementaryStableId, englishTranslation: "Older batch English." },
+    ]);
+    expect(artifactQuery.eq).toHaveBeenCalledWith("user_id", USER_A);
+    expect(artifactQuery.eq).toHaveBeenCalledWith("video_source_id", SOURCE_ID);
+    expect(artifactQuery.eq).toHaveBeenCalledWith("artifact_type", "segment_translation");
+    expect(artifactQuery.order).toHaveBeenCalledWith("created_at", { ascending: false });
+    expect(artifactQuery.order).toHaveBeenCalledWith("id", { ascending: false });
+    expect(artifactQuery.range).toHaveBeenCalledWith(0, 999);
+    expect(artifactQuery.range).toHaveBeenCalledWith(1_000, 1_999);
   });
 
   test("registers a conflict through one RPC and never mutates job tables", async () => {
