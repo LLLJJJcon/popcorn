@@ -1,7 +1,7 @@
 # Popcorn Unified Learning Workspace Design
 
 **Date:** 2026-09-05
-**Status:** Approved direction, pending written-spec review
+**Status:** Approved by the user on 2026-09-05
 **Baseline:** `c947cac27d82ffcab882be8613860ed93cbbf4cc`
 
 This specification supersedes the Web viewport boundary in
