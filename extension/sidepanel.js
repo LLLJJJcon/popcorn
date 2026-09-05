@@ -621,6 +621,25 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 // Listen for messages from the Digest button on YouTube page
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.action === "playerMomentSaved") {
+    if (
+      Object.keys(message).length !== 3 ||
+      typeof message.youtubeVideoId !== "string" ||
+      !SAVE_VIDEO_ID_PATTERN.test(message.youtubeVideoId) ||
+      !Number.isInteger(message.capturedSecond) ||
+      message.capturedSecond < 0 ||
+      message.capturedSecond > SAVE_LIMITS.maxSeconds ||
+      message.youtubeVideoId !== currentVideoId
+    ) {
+      return false;
+    }
+    recordSavedTranscriptMarker({
+      videoId: message.youtubeVideoId,
+      capturedSecond: message.capturedSecond,
+    });
+    updateTranscriptSavedButtons();
+    return false;
+  }
   if (message.action === "startDigestFromButton") {
     // Load the digest for the current video. Served from cache when we've
     // seen this video before (no API calls); fetched fresh otherwise.
@@ -875,13 +894,22 @@ async function saveWithButton(
   input,
   button,
   idleLabel = "Save",
-  { persistentSuccess = false } = {},
+  { persistentSuccess = false, onSuccess = null } = {},
 ) {
   return saveWithFeedback({
     input,
     button,
     idleLabel,
-    save: (savedInput) => saveController.save(savedInput),
+    save: async (savedInput) => {
+      const result = await saveController.save(savedInput);
+      if (result?.success !== true) {
+        throw new Error(result?.code || result?.error || "SAVE_RETRY");
+      }
+      if (typeof onSuccess === "function") {
+        await onSuccess(savedInput, result);
+      }
+      return result;
+    },
     presenter: saveStatusPresenter,
     persistentSuccess,
   });
@@ -1471,7 +1499,16 @@ async function saveTranscriptRow(segment, button) {
     englishTranslation: shownEnglishForSegment(segment),
     ...saveContextForSegmentIds([segment.id]),
   });
-  return saveWithButton(input, button, "Save", { persistentSuccess: true });
+  return saveWithButton(input, button, "Save", {
+    persistentSuccess: true,
+    onSuccess: (savedInput) => {
+      recordSavedTranscriptMarker({
+        videoId: savedInput.youtubeVideoId,
+        segmentId: savedInput.segmentId,
+      });
+      updateTranscriptSavedButtons();
+    },
+  });
 }
 
 function renderTranscript() {
@@ -1506,10 +1543,11 @@ function renderTranscript() {
     const seconds = Math.floor(group.start % 60);
     const timestamp = `${minutes}:${String(seconds).padStart(2, "0")}`;
 
+    const saved = isTranscriptSegmentSaved(group, grouped.indexOf(group), grouped);
     div.innerHTML = `
       <span class="transcript-time">${timestamp}</span>
       <span class="transcript-text">${renderSubtitleInlineMarkup(group.text)}</span>
-      <button class="transcript-save-btn" type="button">Save</button>
+      <button class="transcript-save-btn" type="button"${saved ? " disabled" : ""}>${saved ? "Saved" : "Save"}</button>
     `;
 
     div.addEventListener("click", (event) =>
@@ -2676,6 +2714,57 @@ function onContentAreaScroll() {
 // TRANSCRIPT MODE UI — Original / Chinese / aligned bilingual
 // ============================================================
 
+const savedTranscriptMarkers = new Map();
+
+function savedMarkerState(videoId) {
+  let state = savedTranscriptMarkers.get(videoId);
+  if (!state) {
+    state = { capturedSeconds: new Set(), segmentIds: new Set() };
+    savedTranscriptMarkers.set(videoId, state);
+  }
+  return state;
+}
+
+function recordSavedTranscriptMarker({ videoId, capturedSecond, segmentId } = {}) {
+  if (!SAVE_VIDEO_ID_PATTERN.test(videoId || "")) return;
+  const state = savedMarkerState(videoId);
+  if (Number.isInteger(capturedSecond) && capturedSecond >= 0 && capturedSecond <= SAVE_LIMITS.maxSeconds) {
+    state.capturedSeconds.add(capturedSecond);
+  }
+  if (typeof segmentId === "string" && segmentId) state.segmentIds.add(segmentId);
+}
+
+function isTranscriptSegmentSaved(segment, index, segments, videoId = currentVideoId) {
+  const state = savedTranscriptMarkers.get(videoId);
+  if (!state || !segment) return false;
+  if (state.segmentIds.has(segment.id)) return true;
+  const start = Number(segment.start);
+  const nextStart = segments[index + 1]
+    ? Number(segments[index + 1].start)
+    : Infinity;
+  return Number.isFinite(start) && [...state.capturedSeconds].some((second) =>
+    second >= start && second < nextStart,
+  );
+}
+
+function updateTranscriptSavedButtons() {
+  const rows = [...document.querySelectorAll("#transcriptList .transcript-entry")];
+  if (!rows.length) return;
+  const segments = getActiveTranscriptSegments();
+  rows.forEach((row, index) => {
+    const button = row.querySelector(".transcript-save-btn");
+    const segment = segments.find(({ id }) => id === row.dataset.segmentId) || segments[index];
+    if (!button || !segment) return;
+    if (isTranscriptSegmentSaved(segment, segments.indexOf(segment), segments)) {
+      button.textContent = "Saved";
+      button.disabled = true;
+    } else if (button.textContent === "Saved") {
+      button.textContent = "Save";
+      button.disabled = false;
+    }
+  });
+}
+
 function getOriginalTranscriptLabel() {
   return "Native Simplified Chinese";
 }
@@ -2791,10 +2880,11 @@ function renderTranscriptModeRows(segments, mode) {
     const minutes = Math.floor(segment.start / 60);
     const seconds = Math.floor(segment.start % 60);
     const timestamp = `${minutes}:${String(seconds).padStart(2, "0")}`;
+    const saved = isTranscriptSegmentSaved(segment, index, segments);
     div.innerHTML = `
       <span class="transcript-time">${timestamp}</span>
       ${renderTranscriptSegmentContent(segment, mode, cached, "")}
-      <button class="transcript-save-btn" type="button">Save</button>
+      <button class="transcript-save-btn" type="button"${saved ? " disabled" : ""}>${saved ? "Saved" : "Save"}</button>
     `;
     div.addEventListener("click", (event) =>
       seekFromTranscriptEntryClick(event, segment.start),

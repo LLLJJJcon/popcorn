@@ -388,7 +388,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: "Sync queue unavailable." });
       return false;
     }
-    return respondFrom(queue.enqueueSavedItem(message.input), sendResponse);
+    const queued = queue.enqueueSavedItem(message.input);
+    if (!trustedPlayerMoment) return respondFrom(queued, sendResponse);
+    return respondFrom(queued.then((result) => {
+      if (result?.success === true) {
+        try {
+          void Promise.resolve(chrome.runtime.sendMessage({
+            action: "playerMomentSaved",
+            youtubeVideoId: message.input.youtubeVideoId,
+            capturedSecond: message.input.capturedSecond,
+          })).catch(() => {});
+        } catch (_error) {
+          // Durable queue admission already succeeded; notification is best effort.
+        }
+      }
+      return result;
+    }), sendResponse);
   }
 
   if (message?.action === "flushPendingEvents") {

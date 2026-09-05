@@ -119,6 +119,7 @@ function createSidePanelHandlerHarness() {
 
   const saveCalls = [];
   const runtimeMessages = [];
+  const messageListeners = [];
   const forbiddenCalls = [];
   const scheduledResets = [];
   const recordForbiddenCall = (name, args = []) => {
@@ -149,7 +150,7 @@ function createSidePanelHandlerHarness() {
     },
     chrome: {
       runtime: {
-        onMessage: passive,
+        onMessage: { addListener(listener) { messageListeners.push(listener); } },
         async sendMessage(message) {
           runtimeMessages.push(jsonValue(message));
           if (
@@ -213,6 +214,7 @@ function createSidePanelHandlerHarness() {
         globalThis.__recordForbiddenCall("provider", args);
         throw new Error("Provider must not run from a save handler");
       };
+      globalThis.__realTranslateTranscript = translateTranscript;
       translateTranscript = async (...args) => {
         globalThis.__recordForbiddenCall("translation", args);
         throw new Error("translation must not run from a save handler");
@@ -247,6 +249,7 @@ function createSidePanelHandlerHarness() {
     runtimeMessages,
     forbiddenCalls,
     scheduledResets,
+    messageListeners,
     get submitted() {
       return submitted;
     },
@@ -569,6 +572,62 @@ test("the actual subtitle-row Save click keeps the row saved after the reset cal
   assertNoSaveSideEffects(harness);
 });
 
+test("player moment notifications mark only the matching row across transcript modes", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const dispatch = (message) => harness.messageListeners.forEach((listener) => listener(message, {}, () => {}));
+
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: "aaaaaaaaaaa", capturedSecond: 36 });
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID });
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: "36" });
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: -1 });
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: 36.5 });
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: 604_801 });
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: 36, extra: true });
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: 42 });
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: 42 });
+
+  vm.runInContext(`
+    const markerSegments = getActiveTranscriptSegments();
+    markerSegments.forEach((segment, index) => transcriptParagraphCache.set(
+      transcriptTranslationCacheKey(segment),
+      "English marker row " + index
+    ));
+    translateTranscript = globalThis.__realTranslateTranscript;
+    renderTranscript();
+  `, harness.context);
+  for (const mode of ["zh", "en", "bilingual", "zh"]) {
+    await vm.runInContext(`handleTranscriptModeChange(${JSON.stringify(mode)})`, harness.context);
+    const row = harness.document.querySelectorAll(".transcript-entry")[1];
+    assert.equal(row.querySelector(".transcript-save-btn").textContent, "Saved");
+    assert.equal(row.querySelector(".transcript-save-btn").disabled, true);
+    assert.equal(harness.document.querySelectorAll(".transcript-entry")[0].querySelector(".transcript-save-btn").disabled, false);
+  }
+
+  vm.runInContext('currentVideoId = "aaaaaaaaaaa"; renderTranscript()', harness.context);
+  assert.ok([...harness.document.querySelectorAll(".transcript-save-btn")].every((button) => (
+    button.textContent === "Save" && button.disabled === false
+  )));
+  vm.runInContext(`currentVideoId = ${JSON.stringify(VIDEO_ID)}; renderTranscript()`, harness.context);
+  assert.equal(harness.document.querySelectorAll(".transcript-save-btn")[1].textContent, "Saved");
+  assertNoSaveSideEffects(harness);
+  assert.equal(harness.saveCalls.length, 0);
+});
+
+test("player moment row mapping includes its start and excludes the next row start", () => {
+  const harness = createSidePanelHandlerHarness();
+  const dispatch = (message) => harness.messageListeners.forEach((listener) => listener(message, {}, () => {}));
+
+  dispatch({ action: "playerMomentSaved", youtubeVideoId: VIDEO_ID, capturedSecond: 48 });
+  vm.runInContext("renderTranscript()", harness.context);
+
+  const buttons = harness.document.querySelectorAll(".transcript-save-btn");
+  assert.equal(buttons[1].textContent, "Save");
+  assert.equal(buttons[1].disabled, false);
+  assert.equal(buttons[2].textContent, "Saved");
+  assert.equal(buttons[2].disabled, true);
+  assertNoSaveSideEffects(harness);
+});
+
 test("a failed subtitle-row Save retry stays saved after the stale failure reset runs", async () => {
   const harness = createSidePanelHandlerHarness();
   vm.runInContext(
@@ -613,6 +672,84 @@ test("a failed subtitle-row Save retry stays saved after the stale failure reset
 
   assert.equal(saveButton.textContent, "Saved");
   assert.equal(saveButton.disabled, true);
+  assertNoSaveSideEffects(harness);
+});
+
+test("a rejected subtitle-row save does not mark until a successful retry, then survives every mode", async () => {
+  const harness = createSidePanelHandlerHarness();
+  vm.runInContext(
+    `
+      globalThis.__attempts = 0;
+      enqueueSavedItem = async (input) => {
+        globalThis.__saveCalls.push(JSON.parse(JSON.stringify(input)));
+        globalThis.__attempts += 1;
+        if (globalThis.__attempts === 1) return { success: false, error: "rejected" };
+        return { success: true, synced: false };
+      };
+      const retrySegments = getActiveTranscriptSegments();
+      retrySegments.forEach((segment, index) => transcriptParagraphCache.set(
+        transcriptTranslationCacheKey(segment),
+        "English retry row " + index
+      ));
+      translateTranscript = globalThis.__realTranslateTranscript;
+      currentTranscriptMode = "zh";
+      renderTranscript();
+    `,
+    harness.context,
+  );
+  let row = harness.document.querySelectorAll(".transcript-entry")[1];
+  const saveButton = row.querySelector(".transcript-save-btn");
+  const retryButton = harness.document.getElementById("saveRetryBtn");
+
+  await clickAndFlush(harness, saveButton);
+  assert.equal(saveButton.textContent, "Retry save");
+  assert.equal(saveButton.disabled, true);
+  assert.equal(retryButton.hidden, false);
+
+  for (const mode of ["en", "bilingual", "zh"]) {
+    await vm.runInContext(`handleTranscriptModeChange(${JSON.stringify(mode)})`, harness.context);
+    row = harness.document.querySelectorAll(".transcript-entry")[1];
+    assert.equal(row.querySelector(".transcript-save-btn").textContent, "Save");
+    assert.equal(row.querySelector(".transcript-save-btn").disabled, false);
+  }
+
+  await clickAndFlush(harness, retryButton);
+  for (const mode of ["en", "bilingual", "zh"]) {
+    await vm.runInContext(`handleTranscriptModeChange(${JSON.stringify(mode)})`, harness.context);
+    row = harness.document.querySelectorAll(".transcript-entry")[1];
+    assert.equal(row.querySelector(".transcript-save-btn").textContent, "Saved");
+    assert.equal(row.querySelector(".transcript-save-btn").disabled, true);
+  }
+  assert.equal(vm.runInContext("__attempts", harness.context), 2);
+  assertNoSaveSideEffects(harness);
+});
+
+test("a row save resolving after navigation marks only the video admitted in its payload", async () => {
+  const harness = createSidePanelHandlerHarness();
+  vm.runInContext(`
+    globalThis.__resolveRowSave = null;
+    enqueueSavedItem = (input) => {
+      globalThis.__saveCalls.push(JSON.parse(JSON.stringify(input)));
+      return new Promise((resolve) => { globalThis.__resolveRowSave = resolve; });
+    };
+    currentTranscriptMode = "zh";
+    renderTranscript();
+  `, harness.context);
+  const originalSaveButton = harness.document.querySelectorAll(".transcript-save-btn")[1];
+
+  await clickAndFlush(harness, originalSaveButton);
+  vm.runInContext('currentVideoId = "aaaaaaaaaaa"; renderTranscript()', harness.context);
+  vm.runInContext('__resolveRowSave({ success: true, synced: false })', harness.context);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.ok([...harness.document.querySelectorAll(".transcript-save-btn")].every((button) => (
+    button.textContent === "Save" && button.disabled === false
+  )));
+  vm.runInContext(`currentVideoId = ${JSON.stringify(VIDEO_ID)}; renderTranscript()`, harness.context);
+  assert.equal(harness.document.querySelectorAll(".transcript-save-btn")[1].textContent, "Saved");
+  assert.equal(harness.document.querySelectorAll(".transcript-save-btn")[1].disabled, true);
+  assert.equal(harness.saveCalls.length, 1);
+  assert.equal(harness.saveCalls[0].youtubeVideoId, VIDEO_ID);
   assertNoSaveSideEffects(harness);
 });
 

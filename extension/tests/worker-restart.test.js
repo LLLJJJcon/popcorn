@@ -13,13 +13,22 @@ function eventHook() {
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
-function loadBackground() {
+function loadBackground({
+  enqueueResult = { success: true, synced: false, pending: true },
+  notificationFailure = null,
+} = {}) {
   const hooks = {
     startup: eventHook(), installed: eventHook(), alarm: eventHook(), message: eventHook(),
   };
-  const calls = { flushes: [], enqueues: [], summaries: 0, discards: [] };
+  const calls = {
+    flushes: [],
+    enqueues: [],
+    summaries: 0,
+    discards: [],
+    notifications: [],
+  };
   const queue = {
-    async enqueueSavedItem(input) { calls.enqueues.push(input); return { success: true, synced: false, pending: true }; },
+    async enqueueSavedItem(input) { calls.enqueues.push(input); return enqueueResult; },
     async flushPendingEvents(trigger) { calls.flushes.push(trigger); return { success: true, pending: 0 }; },
     async getSyncSummary() { calls.summaries += 1; return { pendingCount: 0 }; },
     async discardPendingEvents(ownerUserId) { calls.discards.push(ownerUserId); return { discardedCount: 1 }; },
@@ -36,7 +45,10 @@ function loadBackground() {
       onMessage: hooks.message,
       onStartup: hooks.startup,
       onInstalled: hooks.installed,
-      sendMessage: async () => {},
+      sendMessage: async (message) => {
+        calls.notifications.push(plain(message));
+        if (notificationFailure) throw notificationFailure;
+      },
       openOptionsPage() {},
     },
     action: { onClicked: passive },
@@ -109,9 +121,14 @@ test("queue messages remain trusted-context-only and expose only bounded status"
 
   assert.deepEqual(plain(await send(listener, {
     action: "enqueueSavedItem",
-    input: { clientEventId: "player-event", youtubeVideoId: "dQw4w9WgXcQ", kind: "player_moment" },
+    input: { clientEventId: "player-event", youtubeVideoId: "dQw4w9WgXcQ", kind: "player_moment", capturedSecond: 0 },
   }, content)), { success: true, synced: false, pending: true });
-  assert.deepEqual(harness.calls.enqueues.at(-1), { clientEventId: "player-event", youtubeVideoId: "dQw4w9WgXcQ", kind: "player_moment" });
+  assert.deepEqual(harness.calls.enqueues.at(-1), {
+    clientEventId: "player-event",
+    youtubeVideoId: "dQw4w9WgXcQ",
+    kind: "player_moment",
+    capturedSecond: 0,
+  });
   assert.deepEqual(plain(await send(listener, {
     action: "enqueueSavedItem",
     input: { clientEventId: "wrong-video", youtubeVideoId: "aaaaaaaaaaa", kind: "player_moment" },
@@ -121,6 +138,120 @@ test("queue messages remain trusted-context-only and expose only bounded status"
   assert.deepEqual(plain(await send(listener, { action: "discardPendingEvents", ownerUserId: "user-a" }, sidePanel)), { success: false, error: "forbidden" });
   assert.deepEqual(plain(await send(listener, { action: "getSyncSummary" }, options)), { pendingCount: 0 });
   assert.deepEqual(plain(await send(listener, { action: "discardPendingEvents", ownerUserId: "user-a" }, options)), { discardedCount: 1 });
+});
+
+test("admitted player moments notify the panel with only the bounded marker payload", async () => {
+  const harness = loadBackground();
+  const listener = harness.hooks.message.listeners[0];
+  const content = {
+    id: "extension-id",
+    tab: { id: 7, url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  };
+
+  const response = await send(listener, {
+    action: "enqueueSavedItem",
+    input: {
+      clientEventId: "player-event",
+      youtubeVideoId: "dQw4w9WgXcQ",
+      kind: "player_moment",
+      capturedSecond: 39,
+    },
+  }, content);
+
+  assert.equal(response.success, true);
+  assert.deepEqual(harness.calls.notifications, [{
+    action: "playerMomentSaved",
+    youtubeVideoId: "dQw4w9WgXcQ",
+    capturedSecond: 39,
+  }]);
+});
+
+test("rejected, mismatched, untrusted, and non-player saves never notify the panel", async () => {
+  const rejected = loadBackground({ enqueueResult: { success: false, error: "rejected" } });
+  const rejectedListener = rejected.hooks.message.listeners[0];
+  const content = {
+    id: "extension-id",
+    tab: { id: 7, url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  };
+  const sidePanel = { id: "extension-id", url: "chrome-extension://extension-id/sidepanel.html" };
+
+  const rejectedResponse = await send(rejectedListener, {
+    action: "enqueueSavedItem",
+    input: {
+      clientEventId: "player-event",
+      youtubeVideoId: "dQw4w9WgXcQ",
+      kind: "player_moment",
+      capturedSecond: 39,
+    },
+  }, content);
+  assert.equal(rejectedResponse.success, false);
+  assert.deepEqual(rejected.calls.notifications, []);
+
+  const admitted = loadBackground();
+  const admittedListener = admitted.hooks.message.listeners[0];
+  assert.deepEqual(plain(await send(admittedListener, {
+    action: "enqueueSavedItem",
+    input: {
+      clientEventId: "wrong-video",
+      youtubeVideoId: "aaaaaaaaaaa",
+      kind: "player_moment",
+      capturedSecond: 39,
+    },
+  }, content)), { success: false, error: "forbidden" });
+  assert.deepEqual(plain(await send(admittedListener, {
+    action: "enqueueSavedItem",
+    input: {
+      clientEventId: "untrusted",
+      youtubeVideoId: "dQw4w9WgXcQ",
+      kind: "player_moment",
+      capturedSecond: 39,
+    },
+  }, { ...content, id: "another-extension" })), { success: false, error: "forbidden" });
+  assert.equal((await send(admittedListener, {
+    action: "enqueueSavedItem",
+    input: {
+      clientEventId: "row-event",
+      youtubeVideoId: "dQw4w9WgXcQ",
+      kind: "subtitle_row",
+      segmentId: "a".repeat(64),
+    },
+  }, sidePanel)).success, true);
+  assert.deepEqual(admitted.calls.notifications, []);
+  assert.deepEqual(admitted.calls.enqueues, [{
+    clientEventId: "row-event",
+    youtubeVideoId: "dQw4w9WgXcQ",
+    kind: "subtitle_row",
+    segmentId: "a".repeat(64),
+  }]);
+});
+
+test("player moment notification delivery failure never rolls back queue admission", async () => {
+  const harness = loadBackground({ notificationFailure: new Error("panel closed") });
+  const listener = harness.hooks.message.listeners[0];
+  const content = {
+    id: "extension-id",
+    tab: { id: 7, url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  };
+  const input = {
+    clientEventId: "player-event",
+    youtubeVideoId: "dQw4w9WgXcQ",
+    kind: "player_moment",
+    capturedSecond: 39,
+  };
+
+  const response = await send(listener, { action: "enqueueSavedItem", input }, content);
+  await Promise.resolve();
+
+  assert.deepEqual(plain(response), { success: true, synced: false, pending: true });
+  assert.deepEqual(harness.calls.enqueues, [input]);
+  assert.deepEqual(harness.calls.notifications, [{
+    action: "playerMomentSaved",
+    youtubeVideoId: "dQw4w9WgXcQ",
+    capturedSecond: 39,
+  }]);
 });
 
 test("manifest keeps exact extension hosts and bounded storage permissions", () => {
