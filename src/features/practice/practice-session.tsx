@@ -72,57 +72,59 @@ export function PracticeSession({ material }: { readonly material: PracticeMater
   }
 
   return (
-    <PracticeMaterial
-      material={material}
-      onHintUsed={() => setAssistanceLevel("hint")}
-    >
-      <form className={styles.responseForm} onSubmit={submit}>
-        <label htmlFor="practice-response">Your Chinese response</label>
-        <textarea
-          ref={responseRef}
-          id="practice-response"
-          lang="zh-CN"
-          maxLength={5_000}
-          required
-          value={responseChinese}
-          onChange={(event) => setResponseChinese(event.target.value)}
-        />
-        <div className={styles.buttonRow}>
-          <button className={styles.primaryButton} type="submit" disabled={submitting}>
-            {submitting
-              ? "Checking your Chinese…"
-              : result
-                ? "Check revised response"
-                : "Check my response"}
-          </button>
-          <button className={styles.secondaryButton} type="button" onClick={goToPractice}>Stop for now</button>
-        </div>
-        {submitting ? <p className={styles.checking} role="status" aria-live="polite">Checking your Chinese…</p> : null}
-        {slow ? (
-          <p className={styles.checking} role="status">
-            Your configured model is still working. Keep this page open; your response is safe here.
-          </p>
-        ) : null}
-        {failed ? (
-          <p className={styles.alert} role="alert">
-            We could not check that response. Your response is still here — check Settings or try again.
-          </p>
-        ) : null}
-      </form>
+    <main>
+      <PracticeMaterial
+        material={material}
+        onHintUsed={() => setAssistanceLevel("hint")}
+      >
+        <form className={styles.responseForm} onSubmit={submit}>
+          <label htmlFor="practice-response">Your Chinese response</label>
+          <textarea
+            ref={responseRef}
+            id="practice-response"
+            lang="zh-CN"
+            maxLength={5_000}
+            required
+            value={responseChinese}
+            onChange={(event) => setResponseChinese(event.target.value)}
+          />
+          <div className={styles.buttonRow}>
+            <button className={styles.primaryButton} type="submit" disabled={submitting}>
+              {submitting
+                ? "Checking your Chinese…"
+                : result
+                  ? "Check revised response"
+                  : "Check my response"}
+            </button>
+            <button className={styles.secondaryButton} type="button" onClick={goToPractice}>Stop for now</button>
+          </div>
+          {submitting ? <p className={styles.checking} role="status" aria-live="polite">Checking your Chinese…</p> : null}
+          {slow ? (
+            <p className={styles.checking} role="status">
+              Your configured model is still working. Keep this page open; your response is safe here.
+            </p>
+          ) : null}
+          {failed ? (
+            <p className={styles.alert} role="alert">
+              We could not check that response. Your response is still here — check Settings or try again.
+            </p>
+          ) : null}
+        </form>
 
-      {result && feedbackVisible ? (
-        <EvaluationPanel
-          evaluation={result.attempt.evaluation}
-          coaching={result.coaching}
-          evidenceMessage={hasVaultEntry
-            ? "This independent first attempt was added to your Vault as learning evidence."
-            : "This attempt was recorded, but it was not added to your Vault as independent evidence."}
-          onRevise={revise}
-          onContinue={goToPractice}
-          onStop={goToPractice}
-        />
-      ) : null}
-      {hasVaultEntry ? <p><a className={styles.textLink} href="/vault">Open in Vault</a></p> : null}
-    </PracticeMaterial>
+        {result && feedbackVisible ? (
+          <EvaluationPanel
+            evaluation={result.attempt.evaluation}
+            coaching={result.coaching}
+            evidenceMessage={hasVaultEntry
+              ? "This independent first attempt was added to your Vault as learning evidence."
+              : "This attempt was recorded, but it was not added to your Vault as independent evidence."}
+            onRevise={revise}
+            onContinue={goToPractice}
+            onStop={goToPractice}
+          />
+        ) : null}
+        {hasVaultEntry ? <p><a className={styles.textLink} href="/vault">Open in Vault</a></p> : null}
+      </PracticeMaterial>
+    </main>
   );
 }

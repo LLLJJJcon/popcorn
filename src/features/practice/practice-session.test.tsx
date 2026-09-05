@@ -61,6 +61,9 @@ afterEach(() => {
 describe("PracticeSession", () => {
   test("shows grounded material while withholding a complete answer before submit", () => {
     render(<PracticeSession material={material} />);
+    const main = screen.getByRole("main");
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(main).toContainElement(screen.getByRole("heading", { name: "太离谱了" }));
     expect(screen.getByRole("heading", { name: "太离谱了" })).toBeInTheDocument();
     expect(screen.getByText("That is outrageous.")).toBeInTheDocument();
     expect(screen.getByText(/current mastery: tried/i)).toBeInTheDocument();
