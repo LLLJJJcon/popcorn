@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, test, vi } from "vitest";
 
-import { createStatusReader } from "@/app/api/v1/jobs/[jobId]/route";
 import { createJobStatusRoute } from "@/server/jobs/process-jobs";
+import { createStatusReader } from "@/server/jobs/public-job-status";
 import type { Database } from "@/types/database.generated";
 
 const USER_ID = "51000000-0000-4000-8000-000000000001";
