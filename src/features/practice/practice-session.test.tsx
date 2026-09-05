@@ -60,7 +60,7 @@ afterEach(() => {
 
 describe("PracticeSession", () => {
   test("shows grounded material while withholding a complete answer before submit", () => {
-    render(<PracticeSession material={material} />);
+    render(<PracticeSession material={material} savedReturnTarget={null} />);
     const main = screen.getByRole("main");
     expect(screen.getAllByRole("main")).toHaveLength(1);
     expect(main).toContainElement(screen.getByRole("heading", { name: "太离谱了" }));
@@ -82,7 +82,7 @@ describe("PracticeSession", () => {
     })));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<PracticeSession material={material} />);
+    render(<PracticeSession material={material} savedReturnTarget={null} />);
 
     await user.click(screen.getByRole("button", { name: "Need a hint?" }));
     expect(screen.getByText(material.expression.englishExplanation)).toBeInTheDocument();
@@ -102,7 +102,7 @@ describe("PracticeSession", () => {
     const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { resolveRequest = resolve; }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<PracticeSession material={material} />);
+    render(<PracticeSession material={material} savedReturnTarget={null} />);
 
     await user.type(screen.getByLabelText("Your Chinese response"), "这个价格太离谱了。");
     await user.click(screen.getByRole("button", { name: "Check my response" }));
@@ -118,7 +118,7 @@ describe("PracticeSession", () => {
   test("retains learner Chinese on recoverable error", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: false }, { status: 503 })));
     const user = userEvent.setup();
-    render(<PracticeSession material={material} />);
+    render(<PracticeSession material={material} savedReturnTarget={null} />);
     const response = screen.getByLabelText("Your Chinese response");
     await user.type(response, "这个价格也太离谱了！");
     await user.click(screen.getByRole("button", { name: "Check my response" }));
@@ -131,7 +131,7 @@ describe("PracticeSession", () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
     vi.stubGlobal("fetch", fetchMock);
-    render(<PracticeSession material={material} />);
+    render(<PracticeSession material={material} savedReturnTarget={null} />);
     fireEvent.change(screen.getByLabelText("Your Chinese response"), { target: { value: "这个价格太离谱了。" } });
     fireEvent.click(screen.getByRole("button", { name: "Check my response" }));
 
@@ -147,7 +147,7 @@ describe("PracticeSession", () => {
       evaluation: { ...evaluation, independentUse: false, assistanceLevel: "hint" },
     }))));
     const user = userEvent.setup();
-    render(<PracticeSession material={material} />);
+    render(<PracticeSession material={material} savedReturnTarget={null} />);
     await user.click(screen.getByRole("button", { name: "Need a hint?" }));
     await user.type(screen.getByLabelText("Your Chinese response"), "这个价格也太离谱了。");
     await user.click(screen.getByRole("button", { name: "Check my response" }));
@@ -159,12 +159,46 @@ describe("PracticeSession", () => {
   test("links a passing independent first attempt to its internal Vault destination", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => apiResponse(attemptResponse())));
     const user = userEvent.setup();
-    render(<PracticeSession material={material} />);
+    render(<PracticeSession material={material} savedReturnTarget={null} />);
 
     await user.type(screen.getByLabelText("Your Chinese response"), "这个价格也太离谱了。");
     await user.click(screen.getByRole("button", { name: "Check my response" }));
 
     expect(await screen.findByText(/added to your Vault as learning evidence/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open in Vault" })).toHaveAttribute("href", "/vault");
+  });
+
+  test("preserves a non-passing response and submits one real revision request", async () => {
+    const nonPass = attemptResponse({
+      evaluation: {
+        ...evaluation,
+        passed: false,
+        accuracy: { score: 2, englishFeedback: "The meaning is only partly clear." },
+        naturalness: { score: 4, englishFeedback: "The response sounds natural." },
+        contextualFit: { score: 1, englishFeedback: "The response does not fit the situation." },
+        independentUse: false,
+      },
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(apiResponse(nonPass))
+      .mockResolvedValueOnce(apiResponse(attemptResponse()));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<PracticeSession material={material} savedReturnTarget={null} />);
+
+    const response = screen.getByLabelText("Your Chinese response");
+    await user.type(response, "第一版回应。");
+    await user.click(screen.getByRole("button", { name: "Check my response" }));
+
+    expect(await screen.findByRole("heading", { name: "Keep practising - 2 areas need work" })).toBeInTheDocument();
+    expect(response).toHaveValue("第一版回应。");
+    await user.click(screen.getByRole("button", { name: "Revise and check again" }));
+    await user.clear(response);
+    await user.type(response, "这个价格也太离谱了。");
+    await user.click(screen.getByRole("button", { name: "Check revised response" }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/practice/attempts");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/practice/attempts/44444444-4444-4444-8444-444444444444/revisions");
   });
 });

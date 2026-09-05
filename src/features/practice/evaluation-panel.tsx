@@ -2,32 +2,39 @@ import type { EvaluationResult, PracticeCoaching } from "@/contracts/practice";
 import styles from "@/features/practice/practice-workspace.module.css";
 
 type Transition = { readonly from: string; readonly to: string };
+type DimensionView = {
+  readonly name: "Accuracy" | "Naturalness" | "Context fit";
+  readonly guidanceName: "accuracy" | "naturalness" | "context fit";
+  readonly result: EvaluationResult["accuracy"];
+};
 
 function Dimension({
   name,
   dimension,
+  needsWork,
 }: {
   readonly name: string;
   readonly dimension: EvaluationResult["accuracy"];
+  readonly needsWork: boolean;
 }) {
   return (
-    <section className={styles.dimension}>
+    <section
+      aria-label={`${name} score`}
+      className={`${styles.dimension} ${needsWork ? styles.dimensionNeedsWork : ""}`}
+      data-outcome={needsWork ? "needs-work" : "on-track"}
+    >
       <h3>{name} · {dimension.score}/5</h3>
       <p>{dimension.englishFeedback}</p>
     </section>
   );
 }
 
-function mostUsefulRevision(evaluation: EvaluationResult): string {
-  const dimensions = [
-    { name: "accuracy", ...evaluation.accuracy },
-    { name: "naturalness", ...evaluation.naturalness },
-    { name: "context fit", ...evaluation.contextualFit },
+function evaluationDimensions(evaluation: EvaluationResult): readonly DimensionView[] {
+  return [
+    { name: "Accuracy", guidanceName: "accuracy", result: evaluation.accuracy },
+    { name: "Naturalness", guidanceName: "naturalness", result: evaluation.naturalness },
+    { name: "Context fit", guidanceName: "context fit", result: evaluation.contextualFit },
   ];
-  const focus = dimensions.reduce((lowest, dimension) => (
-    dimension.score < lowest.score ? dimension : lowest
-  ));
-  return `${focus.englishFeedback} Rewrite your sentence once, keeping what works and applying this ${focus.name} feedback.`;
 }
 
 function formatDueDate(value: string): string {
@@ -47,6 +54,7 @@ export function EvaluationPanel({
   nextDueAt = null,
   remainingCount = 0,
   onRevise,
+  reviseLabel = "Revise and check again",
   onContinue,
   onStop,
 }: {
@@ -57,13 +65,23 @@ export function EvaluationPanel({
   readonly nextDueAt?: string | null;
   readonly remainingCount?: number;
   readonly onRevise?: () => void;
+  readonly reviseLabel?: string;
   readonly onContinue?: () => void;
   readonly onStop: () => void;
 }) {
+  const dimensions = evaluationDimensions(evaluation);
+  const failedDimensions = dimensions.filter(({ result }) => result.score < 3);
+  const focus = dimensions.reduce((lowest, dimension) => (
+    dimension.result.score < lowest.result.score ? dimension : lowest
+  ));
+  const feedbackHeading = failedDimensions.length > 0
+    ? `Keep practising - ${failedDimensions.length} ${failedDimensions.length === 1 ? "area needs" : "areas need"} work`
+    : "Feedback";
+
   return (
     <section className={styles.feedbackCard} aria-labelledby="practice-feedback-heading">
       <p className={styles.cardEyebrow}>Your feedback</p>
-      <h2 id="practice-feedback-heading">Feedback</h2>
+      <h2 id="practice-feedback-heading">{feedbackHeading}</h2>
       <p className={styles.takeaway}>
         {evaluation.passed
           ? "Strong start — your meaning came through."
@@ -71,14 +89,23 @@ export function EvaluationPanel({
       </p>
 
       <div className={styles.dimensions}>
-        <Dimension name="Accuracy" dimension={evaluation.accuracy} />
-        <Dimension name="Naturalness" dimension={evaluation.naturalness} />
-        <Dimension name="Context fit" dimension={evaluation.contextualFit} />
+        {dimensions.map((dimension) => (
+          <Dimension
+            key={dimension.name}
+            name={dimension.name}
+            dimension={dimension.result}
+            needsWork={dimension.result.score < 3}
+          />
+        ))}
       </div>
 
       <section className={styles.revision} aria-labelledby="revision-heading">
-        <h3 id="revision-heading">Try next</h3>
-        <p>{mostUsefulRevision(evaluation)}</p>
+        <h3 id="revision-heading">
+          {failedDimensions.length > 0 ? `Focus first: ${focus.name}` : "Try next"}
+        </h3>
+        <p>
+          {focus.result.englishFeedback} Rewrite your sentence once, keeping what works and applying this {focus.guidanceName} feedback.
+        </p>
       </section>
 
       {coaching ? (
@@ -97,7 +124,7 @@ export function EvaluationPanel({
       </section>
 
       <div className={styles.buttonRow}>
-        {onRevise ? <button className={styles.secondaryButton} type="button" onClick={onRevise}>Revise once</button> : null}
+        {onRevise ? <button className={styles.secondaryButton} type="button" onClick={onRevise}>{reviseLabel}</button> : null}
         {onContinue ? <button className={styles.primaryButton} type="button" onClick={onContinue}>Continue</button> : null}
         <button className={styles.secondaryButton} type="button" onClick={onStop}>Stop for now</button>
       </div>

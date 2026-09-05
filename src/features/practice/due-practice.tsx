@@ -278,7 +278,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
           value={responseChinese} onChange={(event) => setResponseChinese(event.target.value)} />
         <div className={styles.buttonRow}>
           {completion && localRevision ? (
-            <button className={styles.primaryButton} type="submit">Compare my rewrite</button>
+            <button className={styles.primaryButton} type="submit">Show comparison</button>
           ) : completion && !feedbackVisible ? (
             <button className={styles.primaryButton} type="button" onClick={() => void continueSession()}>Continue</button>
           ) : completion ? null : (
@@ -293,21 +293,38 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
         {failed ? <p className={styles.alert} role="alert">We could not check that response. Your response is still here — try again.</p> : null}
       </form>
 
-      {comparedLocally ? (
-        <p className={styles.checking} role="status">
-          Compared locally with the recorded feedback — no new model check was made.
-        </p>
+      {comparedLocally && completion?.coaching ? (
+        <section
+          aria-labelledby="suggested-revision-comparison-heading"
+          className={styles.comparison}
+        >
+          <h2 id="suggested-revision-comparison-heading">Compare with suggested revision</h2>
+          <div className={styles.comparisonGrid}>
+            <section>
+              <h3>Your rewrite</h3>
+              <p lang="zh-CN">{responseChinese}</p>
+            </section>
+            <section>
+              <h3>Suggested revision</h3>
+              <p lang="zh-CN">{completion.coaching.naturalRevisionChinese}</p>
+            </section>
+          </div>
+          <p className={styles.muted}>Notice what changed, then keep the wording that best matches what you meant.</p>
+        </section>
       ) : null}
 
       {completion && feedbackVisible ? (
         <EvaluationPanel
           evaluation={completion.evaluation}
-          coaching={completion.coaching}
-          evidenceMessage="Practice evidence was recorded."
+          coaching={comparedLocally ? null : completion.coaching}
+          evidenceMessage={completion.evaluation.passed && completion.evaluation.independentUse
+            ? "This independent attempt was added to your Vault as learning evidence."
+            : "This attempt was recorded, but the expression was not added to your Vault as independent evidence."}
           transition={completion.transition}
           nextDueAt={completion.nextDueAt}
           remainingCount={queue.length}
-          onRevise={localComparisonUsed ? undefined : reviseLocally}
+          onRevise={localComparisonUsed || !completion.coaching ? undefined : reviseLocally}
+          reviseLabel="Compare with suggested revision"
           onContinue={queue.length > 0 ? () => void continueSession() : undefined}
           onStop={stop}
         />

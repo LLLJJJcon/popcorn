@@ -38,7 +38,7 @@ describe("EvaluationPanel", () => {
     expect(screen.getByText(/Next due Aug 29, 2026/i)).toBeInTheDocument();
     expect(screen.getByText("2 left in this session")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Revise once" }));
+    await user.click(screen.getByRole("button", { name: "Revise and check again" }));
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await user.click(screen.getByRole("button", { name: "Stop for now" }));
     expect(onRevise).toHaveBeenCalledOnce();
@@ -56,6 +56,49 @@ describe("EvaluationPanel", () => {
     expect(screen.queryByText(/mastery moved/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Natural revision")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
+  });
+
+  test("turns a valid non-pass into a clear hierarchy with only failed dimensions emphasized", () => {
+    render(<EvaluationPanel
+      evaluation={{
+        ...evaluation,
+        passed: false,
+        accuracy: { score: 2, englishFeedback: "The target meaning is only partly clear." },
+        naturalness: { score: 4, englishFeedback: "The response sounds natural." },
+        contextualFit: { score: 1, englishFeedback: "The response does not fit this situation." },
+        independentUse: false,
+      }}
+      coaching={{ naturalRevisionChinese: "这个价格也太离谱了吧。" }}
+      evidenceMessage="This attempt was recorded, but the expression was not added to your Vault as independent evidence."
+      onRevise={() => undefined}
+      onStop={() => undefined}
+    />);
+
+    expect(screen.getByRole("heading", { name: "Keep practising - 2 areas need work" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Focus first: Context fit" })).toBeInTheDocument();
+    expect(screen.getByText(/not added to your Vault/i)).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Accuracy score" })).toHaveAttribute("data-outcome", "needs-work");
+    expect(screen.getByRole("region", { name: "Naturalness score" })).toHaveAttribute("data-outcome", "on-track");
+    expect(screen.getByRole("region", { name: "Context fit score" })).toHaveAttribute("data-outcome", "needs-work");
+  });
+
+  test("uses stable dimension order to break a lowest-score tie", () => {
+    render(<EvaluationPanel
+      evaluation={{
+        ...evaluation,
+        passed: false,
+        accuracy: { score: 1, englishFeedback: "Accuracy needs work." },
+        naturalness: { score: 1, englishFeedback: "Naturalness needs work." },
+        contextualFit: { score: 1, englishFeedback: "Context fit needs work." },
+        independentUse: false,
+      }}
+      coaching={null}
+      evidenceMessage="The expression was not added to your Vault."
+      onRevise={() => undefined}
+      onStop={() => undefined}
+    />);
+
+    expect(screen.getByRole("heading", { name: "Focus first: Accuracy" })).toBeInTheDocument();
   });
 
   test("turns positive lowest-dimension feedback into a concrete rewrite instruction", () => {

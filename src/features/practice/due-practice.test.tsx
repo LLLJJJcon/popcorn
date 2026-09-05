@@ -207,16 +207,53 @@ describe("DuePractice", () => {
     await user.click(screen.getByRole("button", { name: "Start practice" }));
     await user.type(await screen.findByLabelText("Your Chinese response"), "第一版回应。");
     await user.click(screen.getByRole("button", { name: "Check my response" }));
-    await user.click(await screen.findByRole("button", { name: "Revise once" }));
+    await user.click(await screen.findByRole("button", { name: "Compare with suggested revision" }));
     const response = screen.getByLabelText("Your Chinese response");
     await user.clear(response);
     await user.type(response, "我根据反馈改写了。");
-    await user.click(screen.getByRole("button", { name: "Compare my rewrite" }));
+    await user.click(screen.getByRole("button", { name: "Show comparison" }));
 
-    expect(await screen.findByText(/compared locally.*no new model check/i)).toBeInTheDocument();
-    expect(screen.getByText("这件事也太夸张了吧。")).toBeInTheDocument();
+    const comparison = await screen.findByRole("region", { name: "Compare with suggested revision" });
+    expect(within(comparison).getByText("我根据反馈改写了。")).toBeInTheDocument();
+    expect(within(comparison).getByText("这件事也太夸张了吧。")).toBeInTheDocument();
+    expect(within(comparison).queryByText(/\b(?:checked|evaluated|scored)\b/i)).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
+  });
+
+  test("keeps a valid non-pass response and omits comparison when no suggested revision exists", async () => {
+    const nonPass = {
+      ...completion(ids.fourth),
+      transition: null,
+      priorState: "tried",
+      newState: "tried",
+      evaluation: {
+        ...completion(ids.fourth).evaluation,
+        passed: false,
+        accuracy: { score: 2, englishFeedback: "The meaning is only partly clear." },
+        naturalness: { score: 4, englishFeedback: "The response sounds natural." },
+        contextualFit: { score: 1, englishFeedback: "The response does not fit the situation." },
+        independentUse: false,
+      },
+      coaching: null,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(apiResponse(transfer(ids.fourth, "第四")))
+      .mockResolvedValueOnce(apiResponse(nonPass, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<DuePractice tasks={tasks.slice(0, 1)} />);
+
+    await user.click(screen.getByRole("button", { name: "Start practice" }));
+    const response = await screen.findByLabelText("Your Chinese response");
+    await user.type(response, "这份回答需要修改。");
+    await user.click(screen.getByRole("button", { name: "Check my response" }));
+
+    expect(await screen.findByRole("heading", { name: "Keep practising - 2 areas need work" })).toBeInTheDocument();
+    expect(response).toHaveValue("这份回答需要修改。");
+    expect(screen.getByText(/not added to your Vault/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Compare with suggested revision" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   test("rejects a malformed successful transfer envelope without losing the queued item", async () => {
