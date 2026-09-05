@@ -67,13 +67,17 @@ async function responseData<T>(response: Response, schema: z.ZodType<ApiSuccess<
   return schema.parse(await response.json()).data;
 }
 
-function selectedQueue(tasks: readonly DuePracticeView[]): DuePracticeView[] {
+function sortedBacklog(tasks: readonly DuePracticeView[]): DuePracticeView[] {
   return [...tasks]
-    .sort((left, right) => left.dueAt.localeCompare(right.dueAt) || left.reviewTaskId.localeCompare(right.reviewTaskId))
-    .slice(0, 3);
+    .sort((left, right) => left.dueAt.localeCompare(right.dueAt) || left.reviewTaskId.localeCompare(right.reviewTaskId));
+}
+
+function selectedQueue(tasks: readonly DuePracticeView[]): DuePracticeView[] {
+  return sortedBacklog(tasks).slice(0, 3);
 }
 
 export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeView[] }) {
+  const [backlog, setBacklog] = useState(() => sortedBacklog(tasks));
   const [queue, setQueue] = useState(() => selectedQueue(tasks));
   const [started, setStarted] = useState(false);
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
@@ -107,6 +111,8 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
     setStarted(true);
     setSubmitting(true);
     setFailed(false);
+    setMaterial(null);
+    setActiveReviewId(null);
     setCompletion(null);
     setFeedbackVisible(false);
     setLocalRevision(false);
@@ -167,6 +173,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
       }
       setCompletion(result);
       setFeedbackVisible(true);
+      setBacklog((current) => current.filter((task) => task.reviewTaskId !== activeReviewId));
       setQueue((current) => current.filter((task) => task.reviewTaskId !== activeReviewId));
     } catch {
       setFailed(true);
@@ -179,6 +186,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
   }
 
   function stop() {
+    setQueue(backlog.slice(0, 3));
     setStarted(false);
     setActiveReviewId(null);
     setMaterial(null);

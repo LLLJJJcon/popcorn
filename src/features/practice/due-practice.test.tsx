@@ -124,7 +124,7 @@ describe("DuePractice", () => {
 
     await user.click(screen.getByRole("button", { name: "Start practice" }));
     await screen.findByRole("heading", { name: "第四" });
-    await user.click(screen.getByRole("button", { name: "Stop for now" }));
+    await user.click(screen.getAllByRole("button", { name: "Stop for now" }).at(-1)!);
 
     expect(screen.getByRole("button", { name: "Start practice" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -247,5 +247,57 @@ describe("DuePractice", () => {
     expect(response).toHaveValue("这份回答要保留。");
     await user.click(screen.getByRole("button", { name: "Stop for now" }));
     expect(screen.getByText("1 due · about 2 minutes")).toBeInTheDocument();
+  });
+
+  test("keeps the fourth due item for the next session after completing the three-item cap", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一")))
+      .mockResolvedValueOnce(apiResponse(completion(ids.first), 201))
+      .mockResolvedValueOnce(apiResponse(transfer(ids.second, "第二")))
+      .mockResolvedValueOnce(apiResponse(completion(ids.second), 201))
+      .mockResolvedValueOnce(apiResponse(transfer(ids.third, "第三")))
+      .mockResolvedValueOnce(apiResponse(completion(ids.third), 201))
+      .mockResolvedValueOnce(apiResponse(transfer(ids.fourth, "第四")));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<DuePractice tasks={tasks} />);
+
+    await user.click(screen.getByRole("button", { name: "Start practice" }));
+    for (const [position, expression] of ["第一", "第二", "第三"].entries()) {
+      expect(await screen.findByRole("heading", { name: expression })).toBeInTheDocument();
+      await user.type(screen.getByLabelText("Your Chinese response"), `${expression}次回答。`);
+      await user.click(screen.getByRole("button", { name: "Check my response" }));
+      await screen.findByText("Practice recorded");
+      if (position < 2) await user.click(screen.getByRole("button", { name: "Continue" }));
+    }
+    await user.click(screen.getAllByRole("button", { name: "Stop for now" }).at(-1)!);
+
+    expect(screen.queryByText("You are caught up")).not.toBeInTheDocument();
+    expect(screen.getByText("1 due · about 2 minutes")).toBeInTheDocument();
+    expect(screen.getByText("第四")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start practice" }));
+    expect(await screen.findByRole("heading", { name: "第四" })).toBeInTheDocument();
+  });
+
+  test("clears the completed material while the next item is opening", async () => {
+    let resolveNext!: (value: Response) => void;
+    const nextResponse = new Promise<Response>((resolve) => { resolveNext = resolve; });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一")))
+      .mockResolvedValueOnce(apiResponse(completion(ids.first), 201))
+      .mockReturnValueOnce(nextResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<DuePractice tasks={tasks.filter((task) => [ids.first, ids.second].includes(task.reviewTaskId))} />);
+
+    await user.click(screen.getByRole("button", { name: "Start practice" }));
+    await user.type(await screen.findByLabelText("Your Chinese response"), "第一项回答。");
+    await user.click(screen.getByRole("button", { name: "Check my response" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+
+    expect(screen.queryByRole("heading", { name: "第一" })).not.toBeInTheDocument();
+    expect(screen.getByText("Opening your next practice item…")).toBeInTheDocument();
+    resolveNext(apiResponse(transfer(ids.second, "第二")));
+    expect(await screen.findByRole("heading", { name: "第二" })).toBeInTheDocument();
   });
 });
