@@ -35,5 +35,6 @@ export function createExplainSelectionHandler({
       context: input.context,
     }),
     validate: (value, _evidence, input) => validateExplanationContent(value, input.selectedChinese) as Json,
+    terminalOnFirstFailure: true,
   });
 }

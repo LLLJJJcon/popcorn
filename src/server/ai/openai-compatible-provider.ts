@@ -2,28 +2,31 @@ import { z } from "zod";
 
 import {
   ModelGatewayError,
+  validateExplanationContent,
   validateOverviewContent,
+  validateTranslationContent,
   type LearningArtifactEvidence,
   type LearningArtifactProvider,
 } from "@/server/ai/provider";
 import {
   extractUniqueSemanticObject,
+  normalizeEnglishPunctuation,
   type ModelOutputStage,
-  type WireNormalizer,
 } from "@/server/ai/model-output";
 import type { StructuredJsonCompletionOptions } from "@/server/ai/structured-json-gateway";
 import {
   buildExplanationPrompt,
-  ExplanationContentSchema,
   EXPLAIN_SELECTION_PROMPT_VERSION,
+  normalizeExplanationWire,
 } from "@/server/ai/prompts/explain-selection.v1";
 import {
   buildTranslationPrompt,
+  normalizeTranslationWire,
   TRANSLATE_SEGMENTS_PROMPT_VERSION,
-  TranslationContentSchema,
 } from "@/server/ai/prompts/translate-segments.v1";
 import {
   buildOverviewPrompt,
+  normalizeOverviewWire,
   OverviewContentSchema,
   type OverviewContent,
   YOUTUBE_OVERVIEW_PROMPT_VERSION,
@@ -44,27 +47,6 @@ const GatewayEnvelopeSchema = z.object({
     }).passthrough(),
   }).passthrough()).length(1),
 }).passthrough();
-
-const SegmentIndexSchema = z.number().int().nonnegative();
-const GatewayOverviewSchema = z.object({
-  overview: z.string().trim().min(1),
-}).passthrough();
-const GatewayChapterSchema = z.object({
-  title: z.string().trim().min(1),
-  summary: z.string().trim().min(1),
-  sourceLineIndex: SegmentIndexSchema,
-}).passthrough();
-const GatewayQuoteSchema = z.object({
-  quote: z.string().trim().min(1),
-  englishMeaning: z.string().trim().min(1),
-  sourceLineIndex: z.unknown().optional(),
-}).passthrough();
-const GatewayTranslationSchema = z.strictObject({
-  translations: z.array(z.strictObject({
-    segmentIndex: SegmentIndexSchema,
-    english: z.string(),
-  })).min(1),
-});
 
 export type OpenAiCompatibleAdapterOptions = {
   readonly config: ModelGatewayRuntimeConfig;
@@ -111,12 +93,10 @@ function boundedPositiveInteger(value: number | undefined, fallback: number): nu
 
 function requestSegments(
   segments: LearningArtifactEvidence["segments"],
-): { segmentIndex: number; originalChinese: string; startSeconds: number; endSeconds: number }[] {
-  return segments.map((segment, segmentIndex) => ({
-    segmentIndex,
+): { sourceLineIndex: number; originalChinese: string }[] {
+  return segments.map((segment, sourceLineIndex) => ({
+    sourceLineIndex,
     originalChinese: segment.originalChinese,
-    startSeconds: segment.startSeconds,
-    endSeconds: segment.endSeconds,
   }));
 }
 
@@ -172,11 +152,6 @@ function parseAssistantText(text: string): string {
   }
 }
 
-function unwrapMarkdownFence(text: string): string {
-  const match = /^```(?:[\w-]+)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/u.exec(text);
-  return (match?.[1] ?? text).trim();
-}
-
 function retryAfterMilliseconds(response: Response): number | null {
   const value = response.headers.get("retry-after")?.trim();
   if (!value) return null;
@@ -199,13 +174,20 @@ function isAbortError(error: unknown): boolean {
     "name" in error && error.name === "AbortError";
 }
 
-function zodNormalizer<T>(schema: z.ZodType<T>): WireNormalizer<T> {
-  return (value) => {
-    const parsed = schema.safeParse(value);
-    if (parsed.success) return { success: true, data: parsed.data };
-    const path = parsed.error.issues[0]?.path.join(".");
-    return { success: false, ...(path ? { fieldPath: path } : {}) };
-  };
+function plainOverviewFallback(text: string): OverviewContent | null {
+  const trimmed = text.trim();
+  if (
+    !/[A-Za-z]/u.test(trimmed) ||
+    /[\u3400-\u9fff]/u.test(trimmed) ||
+    /[\[{]/u.test(trimmed) ||
+    trimmed.includes("```")
+  ) return null;
+  const overview = OverviewContentSchema.shape.overview.safeParse(
+    normalizeEnglishPunctuation(trimmed),
+  );
+  return overview.success
+    ? { overview: overview.data, chapters: [], keyQuotes: [] }
+    : null;
 }
 
 export function createOpenAiCompatibleStructuredJsonClient(
@@ -331,67 +313,57 @@ export function createOpenAiCompatibleLearningArtifactProvider(
 
   return {
     async generateOverview(evidence) {
-      const text = unwrapMarkdownFence(await completeText(
+      const prompt = buildOverviewPrompt({
+        title: evidence.title,
+        sourceLines: requestSegments(evidence.segments),
+      });
+      const text = await completeText(
         YOUTUBE_OVERVIEW_PROMPT_VERSION,
-        buildOverviewPrompt(evidence.title, evidence.segments),
+        prompt.userPrompt,
         {
-          systemPrompt: `Popcorn learning artifact task ${YOUTUBE_OVERVIEW_PROMPT_VERSION}. Follow the requested response format.`,
+          systemPrompt: prompt.systemPrompt,
           timeoutMs: overviewTimeoutMs,
           maxTokens: OVERVIEW_MAX_TOKENS,
           maxTransportRetries: 0,
         },
-      ));
+      );
       try {
-        let raw: unknown;
-        let parsedJson = true;
-        try {
-          raw = JSON.parse(text);
-        } catch {
-          parsedJson = false;
+        const extracted = extractUniqueSemanticObject(text, normalizeOverviewWire);
+        if (!extracted.ok) {
+          const fallback = plainOverviewFallback(text);
+          if (fallback) return validateOverviewContent(fallback, evidence);
+          throw outputInvalid(
+            extracted.reason === "wire_schema" ? "wire_schema" : "json_extract",
+            extracted.fieldPath,
+          );
         }
-        if (!parsedJson) {
-          return validateOverviewContent({ overview: text, chapters: [], keyQuotes: [] }, evidence);
-        }
-        const gateway = GatewayOverviewSchema.parse(raw);
+        const gateway = extracted.value;
         const mapSourceLine = (sourceLineIndex: number) => {
           const segment = evidence.segments[sourceLineIndex];
-          if (!segment) throw outputInvalid();
+          if (!segment) return null;
           return {
             timestampSeconds: segment.startSeconds,
             sourceSegmentIds: [segment.stableId],
           };
         };
         const chapters: OverviewContent["chapters"] = [];
-        const chapterCandidates = Array.isArray(gateway.chapters) ? gateway.chapters : [];
-        for (const candidate of chapterCandidates) {
-          if (chapters.length === 8) break;
-          const parsed = GatewayChapterSchema.safeParse(candidate);
-          if (!parsed.success || !evidence.segments[parsed.data.sourceLineIndex]) continue;
-          const { sourceLineIndex, title, summary } = parsed.data;
+        for (const { sourceLineIndex, title, summary } of gateway.chapters) {
+          const source = mapSourceLine(sourceLineIndex);
+          if (!source) continue;
           const grounded = OverviewContentSchema.shape.chapters.element.safeParse({
             title,
             summary,
-            ...mapSourceLine(sourceLineIndex),
+            ...source,
           });
           if (grounded.success) chapters.push(grounded.data);
         }
         const keyQuotes: OverviewContent["keyQuotes"] = [];
-        const quoteCandidates = Array.isArray(gateway.keyQuotes) ? gateway.keyQuotes : [];
-        for (const candidate of quoteCandidates) {
-          if (keyQuotes.length === 5) break;
-          const parsed = GatewayQuoteSchema.safeParse(candidate);
-          if (!parsed.success) continue;
-          const sourceLineIndex = SegmentIndexSchema.safeParse(parsed.data.sourceLineIndex);
-          const requestedSegment = sourceLineIndex.success
-            ? evidence.segments[sourceLineIndex.data]
-            : undefined;
-          const segment = requestedSegment?.originalChinese.includes(parsed.data.quote)
-            ? requestedSegment
-            : evidence.segments.find((item) => item.originalChinese.includes(parsed.data.quote));
-          if (!segment) continue;
+        for (const { sourceLineIndex, quote, englishMeaning } of gateway.keyQuotes) {
+          const segment = evidence.segments[sourceLineIndex];
+          if (!segment?.originalChinese.includes(quote)) continue;
           const grounded = OverviewContentSchema.shape.keyQuotes.element.safeParse({
-            quote: parsed.data.quote,
-            englishMeaning: parsed.data.englishMeaning,
+            quote,
+            englishMeaning,
             timestampSeconds: segment.startSeconds,
             sourceSegmentIds: [segment.stableId],
           });
@@ -415,59 +387,56 @@ export function createOpenAiCompatibleLearningArtifactProvider(
         throw outputInvalid();
       }
       const requested = selected as LearningArtifactEvidence["segments"][number][];
+      const prompt = buildTranslationPrompt({ sourceLines: requestSegments(requested) });
       const raw = await complete(
         TRANSLATE_SEGMENTS_PROMPT_VERSION,
-        buildTranslationPrompt(requestSegments(requested)),
+        prompt.userPrompt,
         {
-          systemPrompt: `Popcorn learning artifact task ${TRANSLATE_SEGMENTS_PROMPT_VERSION}. Return only the requested JSON object.`,
+          systemPrompt: prompt.systemPrompt,
           timeoutMs: artifactTimeoutMs,
           maxTokens: 800,
-          normalize: zodNormalizer(GatewayTranslationSchema),
+          normalize: normalizeTranslationWire,
         },
       );
       try {
-        const gateway = GatewayTranslationSchema.parse(raw);
-        if (
-          gateway.translations.length !== segmentIds.length ||
-          gateway.translations.some((item, index) => item.segmentIndex !== index)
-        ) {
-          throw outputInvalid();
-        }
-        return TranslationContentSchema.parse({
-          segments: gateway.translations.map((item, index) => ({
-            id: segmentIds[index],
+        const segments = raw.translations
+          .filter((item) => item.sourceLineIndex < segmentIds.length)
+          .sort((left, right) => left.sourceLineIndex - right.sourceLineIndex)
+          .map((item) => ({
+            id: segmentIds[item.sourceLineIndex],
             english: item.english,
-          })),
-        });
+          }));
+        if (segments.length === 0) throw outputInvalid("grounding", "translations");
+        return validateTranslationContent({ segments }, segmentIds);
       } catch (error) {
         if (error instanceof ModelGatewayError) throw error;
-        throw outputInvalid();
+        throw outputInvalid("grounding", "translations");
       }
     },
 
     async explainSelection(_evidence, selection) {
+      const prompt = buildExplanationPrompt({
+        selectedChinese: selection.selectedChinese,
+        contextChinese: selection.context,
+      });
       const raw = await complete(
         EXPLAIN_SELECTION_PROMPT_VERSION,
-        buildExplanationPrompt({
-          selectedChinese: selection.selectedChinese,
-          startSeconds: selection.startSeconds,
-          endSeconds: selection.endSeconds,
-          context: selection.context,
-        }),
+        prompt.userPrompt,
         {
-          systemPrompt: `Popcorn learning artifact task ${EXPLAIN_SELECTION_PROMPT_VERSION}. Return only the requested JSON object.`,
+          systemPrompt: prompt.systemPrompt,
           timeoutMs: artifactTimeoutMs,
           maxTokens: 500,
-          normalize: zodNormalizer(ExplanationContentSchema),
+          normalize: normalizeExplanationWire,
         },
       );
       try {
-        const parsed = ExplanationContentSchema.parse(raw);
-        if (parsed.selectedChinese !== selection.selectedChinese) throw outputInvalid();
-        return parsed;
+        return validateExplanationContent({
+          selectedChinese: selection.selectedChinese,
+          ...raw,
+        }, selection.selectedChinese);
       } catch (error) {
         if (error instanceof ModelGatewayError) throw error;
-        throw outputInvalid();
+        throw outputInvalid("grounding");
       }
     },
   };

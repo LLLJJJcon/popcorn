@@ -1,6 +1,10 @@
 import type { z } from "zod";
 
 import type { KnowledgeJob } from "@/contracts/knowledge";
+import {
+  safeModelFailureCode,
+  type SafeModelFailure,
+} from "@/server/ai/model-output";
 import type {
   LearningArtifactEvidence,
   LearningArtifactJobType,
@@ -53,7 +57,10 @@ export function createLearningArtifactHandler<TInput extends {
   return async (job, expectedUserId, now): Promise<JobHandlerResult> => {
     if (job.userId !== expectedUserId) throw new Error("expected owner does not match claimed job");
     if (job.type !== jobType) throw new TypeError(`${jobType} handler received ${job.type}`);
-    let code = "PROVIDER_OUTPUT_INVALID";
+    let fallbackFailure: SafeModelFailure = new ModelGatewayError(
+      "PROVIDER_OUTPUT_INVALID",
+      "grounding",
+    );
     try {
       const input = inputSchema.parse(await store.readPrivateInput(expectedUserId, job.id));
       const evidence = await store.readLearningArtifactEvidence(
@@ -69,12 +76,13 @@ export function createLearningArtifactHandler<TInput extends {
         revision: input.gatewayRevision,
         fingerprint: input.gatewayFingerprint,
       };
-      code = "PROVIDER_UNAVAILABLE";
+      fallbackFailure = new ModelGatewayError("PROVIDER_UNAVAILABLE", "transport");
       const resolved = await providerResolver.resolve(expectedUserId, gatewayPin);
       const raw = await invoke(resolved.provider, evidence, input);
-      code = "PROVIDER_OUTPUT_INVALID";
+      fallbackFailure = new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "grounding");
       const content = validate(raw, evidence, input);
       if (new TextEncoder().encode(JSON.stringify(content)).byteLength > 262_144) throw new RangeError("artifact content too large");
+      fallbackFailure = { code: "INTERNAL", stage: "persistence" };
       const artifactId = await store.completeGatewayLearningArtifact(
         expectedUserId,
         job,
@@ -88,7 +96,9 @@ export function createLearningArtifactHandler<TInput extends {
       );
       return artifactId ? "completed" : "deferred";
     } catch (error) {
-      const failureCode = error instanceof ModelGatewayError ? error.code : code;
+      const failureCode = error instanceof ModelGatewayError
+        ? safeModelFailureCode(error)
+        : safeModelFailureCode(fallbackFailure);
       const retryState = nextJobFailure(job, failureCode, now);
       const state = terminalOnFirstFailure && retryState.status !== "terminal_failed"
         ? {

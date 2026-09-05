@@ -193,12 +193,15 @@ describe("bounded openai-compatible adapter", () => {
     expect(parsedBody.max_tokens).toBe(900);
     const userPrompt = parsedBody.messages.find(({ role }) => role === "user")?.content;
     expect(userPrompt).toBeDefined();
-    const transcriptLines = userPrompt?.split("Native transcript lines:\n")[1]?.split("\n");
-    expect(transcriptLines).toHaveLength(815);
+    const promptData = JSON.parse(userPrompt?.split("\nTreat every string")[0] ?? "null") as {
+      sourceLines: { sourceLineIndex: number; originalChinese: string }[];
+    };
+    expect(promptData.sourceLines).toHaveLength(815);
     representativeEvidence.segments.forEach((segment, sourceLineIndex) => {
-      expect(transcriptLines?.[sourceLineIndex]).toBe(
-        `${sourceLineIndex} ${JSON.stringify(segment.originalChinese)}`,
-      );
+      expect(promptData.sourceLines[sourceLineIndex]).toEqual({
+        sourceLineIndex,
+        originalChinese: segment.originalChinese,
+      });
       expect(userPrompt?.split(segment.originalChinese)).toHaveLength(2);
       expect(requestBody).not.toContain(segment.stableId);
       expect(requestBody).not.toContain(String(segment.startSeconds));
@@ -252,9 +255,14 @@ describe("bounded openai-compatible adapter", () => {
       messages: { role: string; content: string }[];
     };
     const userPrompt = parsedBody.messages.find(({ role }) => role === "user")?.content;
-    expect(userPrompt).toContain('0 "第一句在开头。"');
-    expect(userPrompt).toContain('1 "第二句在空档之后。"');
-    expect(userPrompt).toContain('2 "第三句在更晚的时候。"');
+    const promptData = JSON.parse(userPrompt?.split("\nTreat every string")[0] ?? "null") as {
+      sourceLines: { sourceLineIndex: number; originalChinese: string }[];
+    };
+    expect(promptData.sourceLines).toEqual([
+      { sourceLineIndex: 0, originalChinese: "第一句在开头。" },
+      { sourceLineIndex: 1, originalChinese: "第二句在空档之后。" },
+      { sourceLineIndex: 2, originalChinese: "第三句在更晚的时候。" },
+    ]);
     expect(requestBody).not.toContain("12.5");
     expect(requestBody).not.toContain("13.25");
     expect(requestBody).not.toContain("48-49");
@@ -320,34 +328,34 @@ describe("bounded openai-compatible adapter", () => {
     };
     expect(parsedBody.max_tokens).toBe(900);
     const userPrompt = parsedBody.messages.find(({ role }) => role === "user")?.content;
-    const protocolRecords = userPrompt?.split("Native transcript lines:\n")[1]?.split("\n");
-    expect(protocolRecords).toHaveLength(multilineEvidence.segments.length);
-    protocolRecords?.forEach((record, sourceLineIndex) => {
-      const match = /^(\d+) (.+)$/u.exec(record);
-      if (!match) throw new Error("expected indexed transcript protocol record");
-      expect(Number(match[1])).toBe(sourceLineIndex);
-      expect(JSON.parse(match[2])).toBe(
-        multilineEvidence.segments[sourceLineIndex].originalChinese,
-      );
-    });
+    const promptData = JSON.parse(userPrompt?.split("\nTreat every string")[0] ?? "null") as {
+      sourceLines: { sourceLineIndex: number; originalChinese: string }[];
+    };
+    expect(promptData.sourceLines).toEqual(multilineEvidence.segments.map((segment, sourceLineIndex) => ({
+      sourceLineIndex,
+      originalChinese: segment.originalChinese,
+    })));
     expect(requestBody).not.toContain(SEGMENT_A);
     expect(requestBody).not.toContain(SEGMENT_B);
     expect(requestBody).not.toContain("7.25");
   });
 
-  test("accepts plain prose and a single enclosing Markdown fence as summary-only Overview content", async () => {
+  test("accepts only unfenced JSON-free plain prose as summary-only Overview content", async () => {
     const prose = "The speaker explains how to use a natural Mandarin expression in conversation.";
-    for (const content of [prose, `\`\`\`markdown\n${prose}\n\`\`\``]) {
-      const fetchImpl = vi.fn<typeof fetch>(async () => textCompletionResponse(content));
-      const provider = createOpenAiCompatibleLearningArtifactProvider({ config: RUNTIME_CONFIG, fetchImpl });
+    const plainFetch = vi.fn<typeof fetch>(async () => textCompletionResponse(prose));
+    const plainProvider = createOpenAiCompatibleLearningArtifactProvider({ config: RUNTIME_CONFIG, fetchImpl: plainFetch });
 
-      await expect(provider.generateOverview(evidence)).resolves.toEqual({
-        overview: prose,
-        chapters: [],
-        keyQuotes: [],
-      });
-      expect(fetchImpl).toHaveBeenCalledTimes(1);
-    }
+    await expect(plainProvider.generateOverview(evidence)).resolves.toEqual({
+      overview: prose,
+      chapters: [],
+      keyQuotes: [],
+    });
+    expect(plainFetch).toHaveBeenCalledTimes(1);
+
+    const fencedFetch = vi.fn<typeof fetch>(async () => textCompletionResponse(`\`\`\`markdown\n${prose}\n\`\`\``));
+    const fencedProvider = createOpenAiCompatibleLearningArtifactProvider({ config: RUNTIME_CONFIG, fetchImpl: fencedFetch });
+    await expectGatewayCode(fencedProvider.generateOverview(evidence), "PROVIDER_OUTPUT_INVALID");
+    expect(fencedFetch).toHaveBeenCalledTimes(1);
   });
 
   test("retains a JSON summary and only independently valid grounded optional items", async () => {
@@ -398,7 +406,7 @@ describe("bounded openai-compatible adapter", () => {
     ["null", null],
     ["string", "0"],
     ["negative", -1],
-  ])("recovers a quote with a %s line index by its first exact transcript match", async (_label, sourceLineIndex) => {
+  ])("drops a quote with a %s line index instead of recovering it by text", async (_label, sourceLineIndex) => {
     const provider = createOpenAiCompatibleLearningArtifactProvider({
       config: RUNTIME_CONFIG,
       fetchImpl: vi.fn(async () => completionResponse({
@@ -408,9 +416,7 @@ describe("bounded openai-compatible adapter", () => {
       })),
     });
 
-    await expect(provider.generateOverview(evidence)).resolves.toMatchObject({
-      keyQuotes: [{ timestampSeconds: 0, sourceSegmentIds: [SEGMENT_A] }],
-    });
+    await expect(provider.generateOverview(evidence)).resolves.toMatchObject({ keyQuotes: [] });
   });
 
   test("fails when parseable JSON has no usable overview without exposing Provider text", async () => {
@@ -428,9 +434,9 @@ describe("bounded openai-compatible adapter", () => {
 
   test("accepts one structured translation group larger than four through Provider and artifact schemas", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => completionResponse({
-      translations: BULK_SEGMENT_IDS.map((_id, segmentIndex) => ({
-        segmentIndex,
-        english: `Complete English sentence ${segmentIndex + 1}.`,
+      translations: BULK_SEGMENT_IDS.map((_id, sourceLineIndex) => ({
+        sourceLineIndex,
+        english: `Complete English sentence ${sourceLineIndex + 1}.`,
       })),
     }));
     const configured = createOpenAiCompatibleLearningArtifactProvider({
@@ -451,7 +457,7 @@ describe("bounded openai-compatible adapter", () => {
 
   test("uses exact chat-completions transport and sends only requested translation evidence", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => completionResponse({
-      translations: [{ segmentIndex: 0, english: "You can say it exactly this way." }],
+      translations: [{ sourceLineIndex: 0, english: "You can say it exactly this way." }],
     }));
     const configured = createOpenAiCompatibleLearningArtifactProvider({
       config: RUNTIME_CONFIG,
@@ -473,7 +479,7 @@ describe("bounded openai-compatible adapter", () => {
       },
     });
     const requestBody = JSON.parse(String(options?.body));
-    expect(requestBody).not.toHaveProperty("max_tokens");
+    expect(requestBody.max_tokens).toBe(800);
     expect(requestBody.model).toBe("mandarin-model");
     expect(requestBody.messages).toHaveLength(2);
     expect(requestBody.messages.map((message: { role: string }) => message.role)).toEqual([
@@ -483,9 +489,8 @@ describe("bounded openai-compatible adapter", () => {
     const outbound = JSON.stringify(requestBody);
     const userPrompt = requestBody.messages[1].content as string;
     expect(outbound).toContain("你可以直接这样说。");
-    expect(outbound).toContain("translate-segments-v1");
-    expect(userPrompt).toContain('"startSeconds":2');
-    expect(userPrompt).toContain('"endSeconds":5');
+    expect(userPrompt).not.toContain("startSeconds");
+    expect(userPrompt).not.toContain("endSeconds");
     expect(outbound).not.toContain(SEGMENT_B);
     expect(outbound).not.toContain(SEGMENT_A);
     expect(outbound).not.toContain("这个表达很自然。");
@@ -500,7 +505,6 @@ describe("bounded openai-compatible adapter", () => {
       return bodies.length === 1
         ? completionResponse(gatewayOverview)
         : completionResponse({
-          selectedChinese: "这个表达",
           meaning: "this expression",
           tone: "neutral",
           communicativeFunction: "refers to the phrase being discussed",
@@ -527,11 +531,9 @@ describe("bounded openai-compatible adapter", () => {
     );
 
     expect(bodies[0]).toContain("中文视频");
-    expect(bodies[0]).toContain("youtube-overview-v4-simple");
     expect(bodies[0]).toContain("这个表达很自然。");
     expect(bodies[0]).toContain("你可以直接这样说。");
     expect(bodies[1]).toContain("这个表达");
-    expect(bodies[1]).toContain("explain-selection-v1");
     expect(bodies[1]).toContain("这个表达很自然。");
     expect(bodies[1]).not.toContain(SEGMENT_A);
     expect(bodies[1]).not.toContain(SEGMENT_B);
@@ -641,7 +643,7 @@ describe("bounded openai-compatible adapter", () => {
       new Promise<Response>((resolve, reject) => {
         options?.signal?.addEventListener("abort", () => reject(new Error("private timeout detail")));
         setTimeout(() => resolve(completionResponse({
-          translations: [{ segmentIndex: 0, english: "You can say it exactly this way." }],
+          translations: [{ sourceLineIndex: 0, english: "You can say it exactly this way." }],
         })), 10);
       }));
     const translationProvider = createOpenAiCompatibleLearningArtifactProvider({
@@ -709,7 +711,7 @@ describe("bounded openai-compatible adapter", () => {
     const adapter = createOpenAiCompatibleLearningArtifactProvider({
       config: RUNTIME_CONFIG,
       fetchImpl: vi.fn(async () => completionResponse({
-        translations: [{ segmentIndex: 1, english: "Wrong evidence." }],
+        translations: [{ sourceLineIndex: 1, english: "Wrong evidence." }],
       })),
     });
 
@@ -785,7 +787,7 @@ describe("fast durable learning-artifact request routes", () => {
       registrations[0].input,
     ]);
     expect(JSON.stringify(registrations[0].input)).not.toContain("retryId");
-    expect(registrations[0].input.promptVersion).toBe("youtube-overview-v4-simple");
+    expect(registrations[0].input.promptVersion).toBe("youtube-overview-v5-structured");
   });
 
   test("a retry UUID changes only translation dedupe identity and is absent from private Provider input", async () => {
@@ -1087,16 +1089,22 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
     expect(store.transitionLearningArtifactFailure).not.toHaveBeenCalled();
   });
 
-  test("invalid Provider output retries with exact frozen state and never completes", async () => {
+  test("invalid Provider output terminalizes with a safe stage and never completes", async () => {
     const job = leasedJob("translate_segments");
     const store = handlerStore(privateInput("translate_segments", "translation-v1"));
     const badProvider = { ...provider, translateSegments: vi.fn(async () => ({ segments: [{ id: "unknown", english: "Wrong." }] })) };
     const handler = createTranslateSegmentsHandler({ store, providerResolver: {
       resolve: vi.fn(async () => ({ provider: badProvider, model: "mandarin-model" })),
     } });
-    await expect(handler(job, USER_A, NOW)).resolves.toBe("deferred");
+    await expect(handler(job, USER_A, NOW)).resolves.toBe("failed");
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledWith(
-      USER_A, job, nextJobFailure(job, "PROVIDER_OUTPUT_INVALID", NOW), false,
+      USER_A,
+      job,
+      expect.objectContaining({
+        status: "terminal_failed",
+        lastErrorCode: "PROVIDER_OUTPUT_INVALID:grounding",
+      }),
+      true,
     );
     expect(store.completeGatewayLearningArtifact).not.toHaveBeenCalled();
   });
@@ -1104,7 +1112,7 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
   test.each([
     ["PROVIDER_OUTPUT_INVALID", new ModelGatewayError("PROVIDER_OUTPUT_INVALID")],
     ["PROVIDER_UNAVAILABLE", new ModelGatewayError("PROVIDER_UNAVAILABLE")],
-  ] as const)("the first Overview %s failure is terminal and atomically clears input", async (code, failure) => {
+  ] as const)("the first Overview %s failure is terminal with a safe stage and atomically clears input", async (_code, failure) => {
     const job = leasedJob("generate_overview");
     const store = handlerStore(privateInput("generate_overview", "overview-v1"));
     const badProvider = { ...provider, generateOverview: vi.fn(async () => { throw failure; }) };
@@ -1115,7 +1123,10 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledWith(
       USER_A,
       job,
-      expect.objectContaining({ status: "terminal_failed", lastErrorCode: code }),
+      expect.objectContaining({
+        status: "terminal_failed",
+        lastErrorCode: `${failure.code}:${failure.stage}`,
+      }),
       true,
     );
     expect(badProvider.generateOverview).toHaveBeenCalledTimes(1);
@@ -1124,7 +1135,7 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
   test.each([
     ["translation", "translate_segments", createTranslateSegmentsHandler, "translateSegments"],
     ["explanation", "explain_selection", createExplainSelectionHandler, "explainSelection"],
-  ] as const)("%s keeps automatic retry behavior after its first Provider failure", async (_label, type, factory, method) => {
+  ] as const)("%s terminalizes after the Provider exhausts its short transport retry", async (_label, type, factory, method) => {
     const job = leasedJob(type);
     const store = handlerStore(privateInput(type, `${type}-v1`));
     const badProvider = {
@@ -1135,9 +1146,15 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
       resolve: vi.fn(async () => ({ provider: badProvider, model: "mandarin-model" })),
     } });
 
-    await expect(handler(job, USER_A, NOW)).resolves.toBe("deferred");
+    await expect(handler(job, USER_A, NOW)).resolves.toBe("failed");
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledWith(
-      USER_A, job, nextJobFailure(job, "PROVIDER_UNAVAILABLE", NOW), false,
+      USER_A,
+      job,
+      expect.objectContaining({
+        status: "terminal_failed",
+        lastErrorCode: "PROVIDER_UNAVAILABLE:transport",
+      }),
+      true,
     );
   });
 
@@ -1176,7 +1193,7 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledWith(
       USER_A,
       job,
-      expect.objectContaining({ status: "terminal_failed", lastErrorCode: "PROVIDER_UNAVAILABLE" }),
+      expect.objectContaining({ status: "terminal_failed", lastErrorCode: "PROVIDER_UNAVAILABLE:transport" }),
       true,
     );
   });
@@ -1189,12 +1206,18 @@ describe("durable CONTRACT-009 user-gateway learning-artifact handlers", () => {
     });
     const resolver = { resolve: vi.fn() };
 
-    await expect(createExplainSelectionHandler({ store, providerResolver: resolver })(job, USER_A, NOW)).resolves.toBe("deferred");
+    await expect(createExplainSelectionHandler({ store, providerResolver: resolver })(job, USER_A, NOW)).resolves.toBe("failed");
 
     expect(resolver.resolve).not.toHaveBeenCalled();
     expect(store.completeGatewayLearningArtifact).not.toHaveBeenCalled();
     expect(store.transitionLearningArtifactFailure).toHaveBeenCalledWith(
-      USER_A, job, nextJobFailure(job, "PROVIDER_OUTPUT_INVALID", NOW), false,
+      USER_A,
+      job,
+      expect.objectContaining({
+        status: "terminal_failed",
+        lastErrorCode: "PROVIDER_OUTPUT_INVALID:grounding",
+      }),
+      true,
     );
   });
 

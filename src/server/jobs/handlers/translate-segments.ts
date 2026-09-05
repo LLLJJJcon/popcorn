@@ -25,5 +25,6 @@ export function createTranslateSegmentsHandler({
     segmentIds: (input) => input.segmentIds,
     invoke: (activeProvider, evidence, input) => activeProvider.translateSegments(evidence, input.segmentIds),
     validate: (value, _evidence, input) => validateTranslationContent(value, input.segmentIds) as Json,
+    terminalOnFirstFailure: true,
   });
 }

@@ -515,8 +515,13 @@ export function validateOverviewContent(value: unknown, evidence: LearningArtifa
 export function validateTranslationContent(value: unknown, expectedIds: readonly string[]): TranslationContent {
   const parsed = TranslationContentSchema.parse(value);
   if (new Set(parsed.segments.map((item) => item.id)).size !== parsed.segments.length) throw new Error("duplicate translation ID");
-  if (parsed.segments.length !== expectedIds.length || parsed.segments.some((item, index) => item.id !== expectedIds[index])) {
-    throw new Error("translation IDs must match requested stable IDs in order");
+  let previousIndex = -1;
+  for (const item of parsed.segments) {
+    const requestedIndex = expectedIds.indexOf(item.id);
+    if (requestedIndex <= previousIndex) {
+      throw new Error("translation IDs must be an ordered subset of requested stable IDs");
+    }
+    previousIndex = requestedIndex;
   }
   return parsed;
 }
