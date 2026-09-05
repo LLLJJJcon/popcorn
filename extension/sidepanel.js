@@ -802,8 +802,10 @@ async function saveWithFeedback({
   presenter,
   scheduleReset = setTimeout,
   persistentSuccess = false,
+  resetGuard = { generation: 0 },
 }) {
   if (!button) return save(input);
+  const generation = ++resetGuard.generation;
   button.disabled = true;
   button.textContent = "Saving…";
   presenter.show({ state: "saving" });
@@ -815,6 +817,7 @@ async function saveWithFeedback({
     presenter,
     scheduleReset,
     persistentSuccess,
+    resetGuard,
   });
   let succeeded = false;
   try {
@@ -834,6 +837,7 @@ async function saveWithFeedback({
     throw error;
   } finally {
     scheduleReset(() => {
+      if (resetGuard.generation !== generation) return;
       if (persistentSuccess && succeeded) return;
       button.textContent = idleLabel;
       button.disabled = false;

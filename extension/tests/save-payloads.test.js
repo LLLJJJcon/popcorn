@@ -62,6 +62,12 @@ const identity = { clientEventId: EVENT_ID, capturedAt: CAPTURED_AT };
 const SIDE_PANEL_HTML = `
   <button id="errorBtn" type="button"></button>
   <button id="saveVideoBtn" type="button">Save Video</button>
+  <section id="saveStatus" hidden>
+    <p id="saveStatusMessage"></p>
+    <blockquote id="saveRawText" hidden></blockquote>
+    <button id="saveRetryBtn" type="button" hidden>Retry save</button>
+    <a id="saveRecoveryLink" hidden></a>
+  </section>
   <div id="overviewText"></div>
   <ul id="chapterList"></ul>
   <div id="quotesList"></div>
@@ -560,6 +566,53 @@ test("the actual subtitle-row Save click keeps the row saved after the reset cal
 
   assert.equal(harness.saveCalls.length, 1);
   assert.deepEqual(harness.runtimeMessages, []);
+  assertNoSaveSideEffects(harness);
+});
+
+test("a failed subtitle-row Save retry stays saved after the stale failure reset runs", async () => {
+  const harness = createSidePanelHandlerHarness();
+  vm.runInContext(
+    `
+      globalThis.__attempts = 0;
+      enqueueSavedItem = async (input) => {
+        globalThis.__saveCalls.push(JSON.parse(JSON.stringify(input)));
+        globalThis.__attempts += 1;
+        if (globalThis.__attempts === 1) throw new Error("SAVE_RETRY");
+        return { success: true, synced: false };
+      };
+      currentTranscriptMode = "bilingual";
+      const renderedSegments = getActiveTranscriptSegments();
+      transcriptParagraphCache.set(
+        transcriptTranslationCacheKey(renderedSegments[1]),
+        "That is way too absurd."
+      );
+      renderTranscriptModeRows(renderedSegments, "bilingual");
+    `,
+    harness.context,
+  );
+  const row = harness.document.querySelectorAll(".transcript-entry")[1];
+  const saveButton = row.querySelector(".transcript-save-btn");
+  const retryButton = harness.document.getElementById("saveRetryBtn");
+
+  await clickAndFlush(harness, saveButton);
+
+  assert.equal(vm.runInContext("__attempts", harness.context), 1);
+  assert.equal(saveButton.textContent, "Retry save");
+  assert.equal(saveButton.disabled, true);
+  assert.equal(retryButton.hidden, false);
+  assert.equal(harness.scheduledResets.length, 1);
+
+  await clickAndFlush(harness, retryButton);
+
+  assert.equal(vm.runInContext("__attempts", harness.context), 2);
+  assert.equal(harness.scheduledResets.length, 2);
+  assert.equal(saveButton.textContent, "Saved");
+  assert.equal(saveButton.disabled, true);
+
+  for (const reset of harness.scheduledResets) reset.callback();
+
+  assert.equal(saveButton.textContent, "Saved");
+  assert.equal(saveButton.disabled, true);
   assertNoSaveSideEffects(harness);
 });
 
