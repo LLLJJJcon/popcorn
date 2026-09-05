@@ -61,8 +61,8 @@ input is identical and credential/Provider controls are absent.
 All commands were run after the final change:
 
 ```text
-pnpm vitest run tests/integration/youtube/learning-artifacts.test.ts  # 66 passed
-node --test extension/tests/translation.test.js                       # 45 passed
+pnpm vitest run tests/integration/youtube/learning-artifacts.test.ts  # 67 passed
+node --test extension/tests/translation.test.js                       # 47 passed
 pnpm eslint src/server/ai/openai-compatible-provider.ts src/server/ai/provider.ts src/server/ai/prompts/youtube-overview.v1.ts 'src/app/api/v1/youtube/[videoId]/overview/route.ts' tests/integration/youtube/learning-artifacts.test.ts  # passed
 node --check extension/background.js                                  # passed
 node --check extension/sidepanel.js                                   # passed
@@ -77,3 +77,41 @@ git diff --check                                                      # passed
   integration fixture.
 - Model output that names an unknown/out-of-range block remains sanitized as
   `PROVIDER_OUTPUT_INVALID`; it cannot create synthetic stable IDs.
+
+## Fix round 1 — independent review findings
+
+### RED
+
+The review regressions were added before their production changes.
+
+```text
+pnpm vitest run tests/integration/youtube/learning-artifacts.test.ts
+# 67 tests: 1 failed
+# grounds each Overview anchor to one prompt-visible caption line across timestamp gaps
+# ModelGatewayError: PROVIDER_OUTPUT_INVALID
+
+node --test extension/tests/translation.test.js
+# 47 tests: 45 passed, 2 failed
+# a late Overview response for video A cannot overwrite video B or release B loading
+#   received A overview where currentAnalysis had to remain null for B
+# a pending Overview retry resumes its owner-bound job when the Overview tab is re-entered
+#   continuation omitted retryId and jobId
+```
+
+### GREEN
+
+- Prompt blocks now retain compact per-line index and exact start/end times.
+  The strict Provider result includes exactly one block and line anchor per
+  chapter/quote; it maps to one real stable ID and runs the unchanged grounding
+  validator against that exact persisted line.
+- Overview request ownership now combines a monotonic generation with video and
+  snapshot IDs. A stale request cannot render, cache, change retry UI, or clear
+  the active request's loading state.
+- A pending Overview request retains its owner-bound `retryId` and `jobId`.
+  Re-entering Overview continues that durable job through the existing message
+  path; success, terminal failure, and a new digest clear the retained state.
+
+```text
+pnpm vitest run tests/integration/youtube/learning-artifacts.test.ts  # 67 passed
+node --test extension/tests/translation.test.js                       # 47 passed
+```

@@ -180,6 +180,7 @@ test("Overview has a hidden accessible retry action beside its title", () => {
 test("a failed Overview reveals one explicit UUID retry and suppresses duplicates while it is in flight", async () => {
   const dom = new JSDOM(`
     <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
+    <button id="followPlaybackBtn"></button>
     <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
   `);
   const sent = [];
@@ -224,6 +225,97 @@ test("a failed Overview reveals one explicit UUID retry and suppresses duplicate
   await firstRetry;
   assert.equal(retry.hidden, false);
   assert.equal(retry.disabled, false);
+});
+
+test("a late Overview response for video A cannot overwrite video B or release B loading", async () => {
+  const dom = new JSDOM(`
+    <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
+    <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
+  `);
+  const responses = [];
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage(message) {
+      return new Promise((resolve) => responses.push({ message, resolve }));
+    },
+  });
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "videoAAAAAA";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "甲视频字幕" }];
+    currentAnalysis = null;
+  `);
+
+  const requestA = helpers.triggerAnalysis();
+  helpers.evaluateInSidepanel(`
+    currentVideoId = "videoBBBBBB";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000002";
+    currentTranscriptTimestamped = [{ text: "乙视频字幕" }];
+    currentAnalysis = null;
+    isAnalysisLoading = false;
+  `);
+  const requestB = helpers.triggerAnalysis();
+  const content = (name) => ({
+    overview: `${name} overview`, chapters: [], keyQuotes: [], keyMoments: [],
+  });
+
+  responses[0].resolve({ success: true, content: content("A") });
+  await requestA;
+  assert.equal(helpers.evaluateInSidepanel("currentAnalysis"), null);
+  assert.equal(helpers.evaluateInSidepanel("isAnalysisLoading"), true);
+  assert.equal(dom.window.document.getElementById("overviewText").textContent, "");
+
+  responses[1].resolve({ success: true, content: content("B") });
+  await requestB;
+  assert.equal(helpers.evaluateInSidepanel("currentAnalysis.overview"), "B overview");
+  assert.equal(helpers.evaluateInSidepanel("isAnalysisLoading"), false);
+  assert.equal(dom.window.document.getElementById("overviewText").textContent, "B overview");
+});
+
+test("a pending Overview retry resumes its owner-bound job when the Overview tab is re-entered", async () => {
+  const dom = new JSDOM(`
+    <button id="retryOverviewBtn" type="button" hidden>Retry overview</button>
+    <button id="followPlaybackBtn"></button>
+    <div id="overviewText"></div><ul id="chapterList"></ul><div id="quotesList"></div>
+  `);
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    cryptoImpl: { randomUUID: () => "70000000-0000-4000-8000-000000000001" },
+  });
+  helpers.evaluateInSidepanel(`
+    globalThis.overviewMessages = [];
+    globalThis.overviewResponses = [
+      { success: false, error: "Initial Overview failure." },
+      { success: true, pending: true, jobId: "overview-retry-job" },
+      { success: true, content: { overview: "Recovered Overview", chapters: [], keyQuotes: [], keyMoments: [] } },
+    ];
+    sendCloudAction = async (message) => {
+      globalThis.overviewMessages.push(message);
+      return globalThis.overviewResponses.shift();
+    };
+    currentVideoId = "abc123XYZ00";
+    currentSnapshotId = "40000000-0000-4000-8000-000000000001";
+    currentTranscriptTimestamped = [{ text: "重试字幕" }];
+    currentAnalysis = null;
+  `);
+
+  await helpers.triggerAnalysis();
+  await helpers.retryOverview();
+  helpers.evaluateInSidepanel('switchTab("overview")');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const messages = JSON.parse(helpers.evaluateInSidepanel("JSON.stringify(globalThis.overviewMessages)"));
+  assert.equal(messages.length, 3);
+  assert.deepEqual(messages[2], {
+    action: "requestOverview",
+    videoId: "abc123XYZ00",
+    snapshotId: "40000000-0000-4000-8000-000000000001",
+    retryId: "70000000-0000-4000-8000-000000000001",
+    jobId: "overview-retry-job",
+  });
+  assert.equal(helpers.evaluateInSidepanel("currentAnalysis.overview"), "Recovered Overview");
 });
 
 test("semantic segmentation rebuilds sentences across caption boundaries", () => {

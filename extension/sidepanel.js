@@ -366,6 +366,8 @@ let currentVideoDescription = "";
 let currentVideoDuration = 0;
 let isAnalysisLoading = false; // Track if analysis is in progress
 let overviewRetryAvailable = false;
+let overviewGeneration = 0;
+let overviewRequest = null;
 let youtubeTabId = null; // Store the YouTube tab ID for reliable messaging
 let errorAction = null;
 let savedLibrarySummaries = [];
@@ -1103,6 +1105,9 @@ async function startDigest(videoId, videoUrl) {
   // same video after an error. Advance the generation so a previous retry
   // cannot clear the refreshed view or a retry started from it.
   translationGeneration += 1;
+  overviewGeneration += 1;
+  overviewRequest = null;
+  isAnalysisLoading = false;
   const digestGeneration = translationGeneration;
   const isStaleDigest = () =>
     digestGeneration !== translationGeneration || videoId !== currentVideoId;
@@ -1612,9 +1617,31 @@ function retryOverview() {
   return triggerAnalysis(crypto.randomUUID());
 }
 
+function isCurrentOverviewRequest(request) {
+  return overviewRequest === request &&
+    request.generation === overviewGeneration &&
+    request.videoId === currentVideoId &&
+    request.snapshotId === currentSnapshotId;
+}
+
 async function triggerAnalysis(retryId) {
   if (!currentTranscriptTimestamped || isAnalysisLoading || currentAnalysis)
     return;
+
+  const request = !retryId && overviewRequest?.jobId &&
+    overviewRequest.generation === overviewGeneration &&
+    overviewRequest.videoId === currentVideoId &&
+    overviewRequest.snapshotId === currentSnapshotId
+    ? overviewRequest
+    : {
+      videoId: currentVideoId,
+      snapshotId: currentSnapshotId,
+      generation: overviewGeneration,
+      retryId,
+      jobId: undefined,
+    };
+  overviewRequest = request;
+  let clearRequest = false;
 
   isAnalysisLoading = true;
   overviewRetryAvailable = false;
@@ -1634,19 +1661,23 @@ async function triggerAnalysis(retryId) {
   try {
     const analysisResult = await sendCloudAction({
       action: "requestOverview",
-      videoId: currentVideoId,
-      snapshotId: currentSnapshotId,
-      ...(retryId ? { retryId } : {}),
+      videoId: request.videoId,
+      snapshotId: request.snapshotId,
+      ...(request.retryId ? { retryId: request.retryId } : {}),
+      ...(request.jobId ? { jobId: request.jobId } : {}),
     });
+    if (!isCurrentOverviewRequest(request)) return;
 
     if (!analysisResult.success) {
       if (chapterList)
         chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Analysis failed: ${escapeHtml(analysisResult.error || "Unknown error")}</li>`;
       overviewRetryAvailable = true;
+      clearRequest = true;
       return;
     }
     if (analysisResult.pending) {
       if (chapterList) chapterList.innerHTML = '<li class="chapter-item" style="color: var(--text-muted); border: none;">Overview is still processing. Reopen this tab shortly.</li>';
+      request.jobId = analysisResult.jobId || request.jobId;
       return;
     }
 
@@ -1655,15 +1686,21 @@ async function triggerAnalysis(retryId) {
     highlightMomentsOnPage(currentAnalysis.keyMoments);
 
     // Save to cache now that we have analysis
-    await saveToCache(currentVideoId);
+    await saveToCache(request.videoId);
+    if (!isCurrentOverviewRequest(request)) return;
+    clearRequest = true;
   } catch (error) {
+    if (!isCurrentOverviewRequest(request)) return;
     console.error("[YouTube Digest Panel] Analysis error:", error);
     if (chapterList)
       chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Error: ${escapeHtml(error.message)}</li>`;
     overviewRetryAvailable = true;
+    clearRequest = true;
   } finally {
+    if (!isCurrentOverviewRequest(request)) return;
     isAnalysisLoading = false;
     updateOverviewRetryButton();
+    if (clearRequest) overviewRequest = null;
   }
 }
 

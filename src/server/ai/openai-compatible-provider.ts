@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   ModelGatewayError,
+  validateOverviewContent,
   type LearningArtifactEvidence,
   type LearningArtifactProvider,
 } from "@/server/ai/provider";
@@ -44,12 +45,14 @@ const GatewayOverviewSchema = z.strictObject({
     summary: z.string(),
     timestampSeconds: z.number(),
     sourceBlockIndex: SegmentIndexSchema,
+    sourceLineIndex: SegmentIndexSchema,
   })),
   keyQuotes: z.array(z.strictObject({
     quote: z.string(),
     englishMeaning: z.string(),
     timestampSeconds: z.number(),
     sourceBlockIndex: SegmentIndexSchema,
+    sourceLineIndex: SegmentIndexSchema,
   })),
 });
 const GatewayTranslationSchema = z.strictObject({
@@ -220,26 +223,26 @@ export function createOpenAiCompatibleLearningArtifactProvider(
       );
       try {
         const gateway = GatewayOverviewSchema.parse(raw);
-        const mapBlockIndex = (blockIndex: number): string[] => {
+        const mapSourceLine = (blockIndex: number, lineIndex: number): string[] => {
           const block = blocks[blockIndex];
           if (!block) throw outputInvalid();
-          return block.segmentIndexes.map((segmentIndex) => {
-            const segment = evidence.segments[segmentIndex];
-            if (!segment) throw outputInvalid();
-            return segment.stableId;
-          });
+          const line = block.lines[lineIndex];
+          if (!line) throw outputInvalid();
+          const segment = evidence.segments[line.segmentIndex];
+          if (!segment) throw outputInvalid();
+          return [segment.stableId];
         };
-        return OverviewContentSchema.parse({
+        return validateOverviewContent(OverviewContentSchema.parse({
           overview: gateway.overview,
-          chapters: gateway.chapters.map(({ sourceBlockIndex, ...chapter }) => ({
+          chapters: gateway.chapters.map(({ sourceBlockIndex, sourceLineIndex, ...chapter }) => ({
             ...chapter,
-            sourceSegmentIds: mapBlockIndex(sourceBlockIndex),
+            sourceSegmentIds: mapSourceLine(sourceBlockIndex, sourceLineIndex),
           })),
-          keyQuotes: gateway.keyQuotes.map(({ sourceBlockIndex, ...quote }) => ({
+          keyQuotes: gateway.keyQuotes.map(({ sourceBlockIndex, sourceLineIndex, ...quote }) => ({
             ...quote,
-            sourceSegmentIds: mapBlockIndex(sourceBlockIndex),
+            sourceSegmentIds: mapSourceLine(sourceBlockIndex, sourceLineIndex),
           })),
-        });
+        }), evidence);
       } catch (error) {
         if (error instanceof ModelGatewayError) throw error;
         throw outputInvalid();

@@ -94,12 +94,14 @@ const gatewayOverview = {
     summary: chapter.summary,
     timestampSeconds: chapter.timestampSeconds,
     sourceBlockIndex: 0,
+    sourceLineIndex: 0,
   })),
-  keyQuotes: validOverview.keyQuotes.map((quote) => ({
+  keyQuotes: validOverview.keyQuotes.map((quote, index) => ({
     quote: quote.quote,
     englishMeaning: quote.englishMeaning,
     timestampSeconds: quote.timestampSeconds,
     sourceBlockIndex: 0,
+    sourceLineIndex: index < 2 ? 0 : 1,
   })),
 };
 
@@ -145,11 +147,12 @@ describe("bounded openai-compatible adapter", () => {
         summary: "The video begins with the first caption.",
         timestampSeconds: 0,
         sourceBlockIndex: 0,
+        sourceLineIndex: 0,
       }],
       keyQuotes: [
-        { quote: "第1条中文内容。", englishMeaning: "The first Chinese caption.", timestampSeconds: 0, sourceBlockIndex: 0 },
-        { quote: "第2条中文内容。", englishMeaning: "The second Chinese caption.", timestampSeconds: 2, sourceBlockIndex: 0 },
-        { quote: "第815条中文内容。", englishMeaning: "The final Chinese caption.", timestampSeconds: 1628, sourceBlockIndex: 33 },
+        { quote: "第1条中文内容。", englishMeaning: "The first Chinese caption.", timestampSeconds: 0, sourceBlockIndex: 0, sourceLineIndex: 0 },
+        { quote: "第2条中文内容。", englishMeaning: "The second Chinese caption.", timestampSeconds: 2, sourceBlockIndex: 0, sourceLineIndex: 1 },
+        { quote: "第815条中文内容。", englishMeaning: "The final Chinese caption.", timestampSeconds: 1628, sourceBlockIndex: 33, sourceLineIndex: 22 },
       ],
     }));
     const provider = createOpenAiCompatibleLearningArtifactProvider({
@@ -167,6 +170,50 @@ describe("bounded openai-compatible adapter", () => {
     expect(requestBody).toContain("第815条中文内容。");
     expect(requestBody).not.toContain(representativeEvidence.segments[0].stableId);
     expect(requestBody).not.toContain(USER_A);
+  });
+
+  test("grounds each Overview anchor to one prompt-visible caption line across timestamp gaps", async () => {
+    const gappedEvidence: LearningArtifactEvidence = {
+      ...evidence,
+      segments: [
+        { stableId: SEGMENT_A, originalChinese: "第一句在开头。", startSeconds: 0, endSeconds: 1 },
+        { stableId: SEGMENT_B, originalChinese: "第二句在空档之后。", startSeconds: 12.5, endSeconds: 13.25 },
+        { stableId: "c".repeat(64), originalChinese: "第三句在更晚的时候。", startSeconds: 48, endSeconds: 49 },
+      ],
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async () => completionResponse({
+      overview: "A complete overview grounded to the timed Chinese captions.",
+      chapters: [{
+        title: "The middle caption",
+        summary: "The chapter starts after a real timestamp gap.",
+        timestampSeconds: 12.5,
+        sourceBlockIndex: 0,
+        sourceLineIndex: 1,
+      }],
+      keyQuotes: [
+        { quote: "第一句在开头。", englishMeaning: "The first sentence is at the beginning.", timestampSeconds: 0, sourceBlockIndex: 0, sourceLineIndex: 0 },
+        { quote: "第二句在空档之后。", englishMeaning: "The second sentence follows the gap.", timestampSeconds: 12.5, sourceBlockIndex: 0, sourceLineIndex: 1 },
+        { quote: "第三句在更晚的时候。", englishMeaning: "The third sentence comes later.", timestampSeconds: 48, sourceBlockIndex: 0, sourceLineIndex: 2 },
+      ],
+    }));
+    const provider = createOpenAiCompatibleLearningArtifactProvider({ config: RUNTIME_CONFIG, fetchImpl });
+
+    const content = await provider.generateOverview(gappedEvidence);
+    const grounded = validateOverviewContent(content, gappedEvidence);
+
+    expect(grounded.chapters[0].sourceSegmentIds).toEqual([SEGMENT_B]);
+    expect(grounded.keyQuotes.map((quote) => quote.sourceSegmentIds)).toEqual([
+      [SEGMENT_A],
+      [SEGMENT_B],
+      ["c".repeat(64)],
+    ]);
+    expect(grounded).toEqual(content);
+    const requestBody = String(fetchImpl.mock.calls[0][1]?.body);
+    expect(requestBody).toContain("0 0-1 第一句在开头。");
+    expect(requestBody).toContain("1 12.5-13.25 第二句在空档之后。");
+    expect(requestBody).toContain("2 48-49 第三句在更晚的时候。");
+    expect(requestBody).not.toContain(SEGMENT_A);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   test("accepts one structured translation group larger than four through Provider and artifact schemas", async () => {

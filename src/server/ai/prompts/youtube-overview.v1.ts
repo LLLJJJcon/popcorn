@@ -33,10 +33,15 @@ type OverviewPromptSegment = {
 
 export type OverviewPromptBlock = {
   readonly blockIndex: number;
-  readonly segmentIndexes: readonly number[];
   readonly startSeconds: number;
   readonly endSeconds: number;
-  readonly originalChinese: string;
+  readonly lines: readonly {
+    readonly lineIndex: number;
+    readonly segmentIndex: number;
+    readonly originalChinese: string;
+    readonly startSeconds: number;
+    readonly endSeconds: number;
+  }[];
 };
 
 export function groupOverviewPromptBlocks(
@@ -50,10 +55,9 @@ export function groupOverviewPromptBlocks(
     if (!first || !last) continue;
     blocks.push({
       blockIndex: blocks.length,
-      segmentIndexes: rows.map((row) => row.segmentIndex),
       startSeconds: first.startSeconds,
       endSeconds: last.endSeconds,
-      originalChinese: rows.map((row) => row.originalChinese).join("\n"),
+      lines: rows.map((row, lineIndex) => ({ ...row, lineIndex })),
     });
   }
   return blocks;
@@ -65,9 +69,9 @@ function compactTime(seconds: number): string {
 
 export function buildOverviewPrompt(title: string, blocks: readonly OverviewPromptBlock[]): string {
   const evidence = blocks.map((block) =>
-    `#${block.blockIndex} ${compactTime(block.startSeconds)}-${compactTime(block.endSeconds)}\n${block.originalChinese}`,
+    `#${block.blockIndex} ${compactTime(block.startSeconds)}-${compactTime(block.endSeconds)}\n${block.lines.map((line) => `${line.lineIndex} ${compactTime(line.startSeconds)}-${compactTime(line.endSeconds)} ${line.originalChinese}`).join("\n")}`,
   ).join("\n\n");
-  return `Create a complete, content-focused English overview for an English-speaking Mandarin learner. Preserve the original Simplified Chinese in key quotes. Cover the whole video with timestamp-grounded chapters and 3-5 key quotes. Each chapter and key quote must return exactly one sourceBlockIndex, referring only to the request-local # block that supports it. Return strict JSON only with sourceBlockIndex.\nTitle: ${title}\nNative transcript blocks:\n${evidence}`;
+  return `Create a complete, content-focused English overview for an English-speaking Mandarin learner. Preserve the original Simplified Chinese in key quotes. Cover the whole video with timestamp-grounded chapters and 3-5 key quotes. Each chapter and key quote must return exactly one sourceBlockIndex and sourceLineIndex, referring only to the request-local # block and its line that support it. Return strict JSON only with sourceBlockIndex and sourceLineIndex.\nTitle: ${title}\nNative transcript blocks:\n${evidence}`;
 }
 
 export type OverviewContent = z.infer<typeof OverviewContentSchema>;
