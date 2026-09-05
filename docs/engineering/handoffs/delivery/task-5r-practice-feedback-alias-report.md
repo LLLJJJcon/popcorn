@@ -2,7 +2,7 @@
 
 Status: implemented. The Practice parser now accepts string `feedback` aliases for `accuracy`, `naturalness`, and `contextualFit`, while producing only the existing `score`/`englishFeedback` evaluation shape. Canonical `englishFeedback` remains accepted, and non-string/missing feedback still fails strict validation.
 
-Commit SHA: 1a50156c5fb493af6c5a2640c9d4c8fe35e83c06
+Implementation commit SHA: 7792f2a0d25d0b234e050917f6a2e5dfe1ad6f7a
 
 ## TDD evidence
 
