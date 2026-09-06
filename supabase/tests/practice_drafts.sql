@@ -98,11 +98,11 @@ select extensions.results_eq(
 );
 select extensions.results_eq(
   $$select
-      (select count(*) from public.user_expressions),
-      (select count(*) from public.practice_tasks),
-      (select count(*) from public.attempts),
-      (select count(*) from public.mastery_events),
-      (select count(*) from public.review_tasks)$$,
+      (select count(*) from public.user_expressions where user_id='0b000000-0000-4000-8000-00000000a001'),
+      (select count(*) from public.practice_tasks where user_id='0b000000-0000-4000-8000-00000000a001'),
+      (select count(*) from public.attempts where user_id='0b000000-0000-4000-8000-00000000a001'),
+      (select count(*) from public.mastery_events where user_id='0b000000-0000-4000-8000-00000000a001'),
+      (select count(*) from public.review_tasks where user_id='0b000000-0000-4000-8000-00000000a001')$$,
   $$values (0::bigint,0::bigint,0::bigint,0::bigint,0::bigint)$$,
   'draft creation produces no canonical Vault, practice, attempt, mastery, or review row'
 );
@@ -307,10 +307,16 @@ select extensions.lives_ok(
     passed,accuracy_score,accuracy_feedback_english,naturalness_score,
     naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
     independent_use,assistance_level,submitted_at
-  ) values (%L::uuid,%L::uuid,%L::uuid,101,'这也太离谱了吧。',true,5,'Accurate.',
+  ) values (%L::uuid,%L::uuid,%L::uuid,101,'这也太离谱了吧。',true,5,'The use of “太离谱了” is accurate.',
     5,'Natural.',5,'Fits.',true,'none','2026-08-20 11:05:30+00')$sql$,
     :'user_a',:'draft_a',:'future_a'),
   'positive attempt revisions are not capped at one hundred'
+);
+select extensions.is(
+  (select accuracy_feedback_english from public.practice_draft_attempts
+    where practice_draft_id=:'draft_a' and revision=101),
+  'The use of “太离谱了” is accurate.',
+  'draft Practice persists English feedback containing quoted Chinese'
 );
 select extensions.throws_ok(
   format($sql$insert into public.practice_draft_attempts (
@@ -465,6 +471,39 @@ select extensions.throws_ok(
     5,'Natural.',5,'Fits.',false,'none','2026-08-20 11:07:00+00')$sql$,
     :'user_a',:'draft_a',:'future_a'),
   '23514',null,'attempt rejects non-English evaluation feedback'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_draft_attempts (
+    user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+    passed,accuracy_score,accuracy_feedback_english,naturalness_score,
+    naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
+    independent_use,assistance_level,submitted_at
+  ) values (%L::uuid,%L::uuid,%L::uuid,201,'这也太离谱了吧。',false,1,'   ',
+    5,'Natural.',5,'Fits.',false,'none','2026-08-20 11:07:00+00')$sql$,
+    :'user_a',:'draft_a',:'future_a'),
+  '23514',null,'attempt rejects blank evaluation feedback'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_draft_attempts (
+    user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+    passed,accuracy_score,accuracy_feedback_english,naturalness_score,
+    naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
+    independent_use,assistance_level,submitted_at
+  ) values (%L::uuid,%L::uuid,%L::uuid,202,'这也太离谱了吧。',false,1,%L,
+    5,'Natural.',5,'Fits.',false,'none','2026-08-20 11:07:00+00')$sql$,
+    :'user_a',:'draft_a',:'future_a','A' || repeat('x',500)),
+  '23514',null,'attempt rejects evaluation feedback over five hundred characters'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_draft_attempts (
+    user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+    passed,accuracy_score,accuracy_feedback_english,naturalness_score,
+    naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
+    independent_use,assistance_level,submitted_at
+  ) values (%L::uuid,%L::uuid,%L::uuid,203,'这也太离谱了吧。',false,1,null,
+    5,'Natural.',5,'Fits.',false,'none','2026-08-20 11:07:00+00')$sql$,
+    :'user_a',:'draft_a',:'future_a'),
+  '23502',null,'attempt rejects null evaluation feedback'
 );
 select extensions.throws_ok(
   format($sql$insert into public.practice_draft_attempts (

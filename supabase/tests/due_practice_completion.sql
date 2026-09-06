@@ -18,6 +18,22 @@ select extensions.has_function(
     'integer','text','timestamp with time zone','text','text','uuid','integer','text'
   ],'atomic due Practice completion RPC exists'
 );
+select extensions.has_function(
+  'private','is_practice_feedback_text',array['text','integer'],
+  'Practice has a dedicated mixed-language feedback predicate'
+);
+select extensions.ok(
+  has_function_privilege(
+    'service_role','private.is_practice_feedback_text(text,integer)','execute'
+  )
+  and not has_function_privilege(
+    'authenticated','private.is_practice_feedback_text(text,integer)','execute'
+  )
+  and not has_function_privilege(
+    'anon','private.is_practice_feedback_text(text,integer)','execute'
+  ),
+  'only the service writer can execute the private Practice feedback predicate'
+);
 
 select extensions.ok(
   has_function_privilege('service_role',
@@ -169,7 +185,7 @@ where id='0e300000-0000-4000-8000-000000000008';
 set local role service_role;
 create temp table tried_result as select * from public.complete_due_practice(
   :'user_a','0e400000-0000-4000-8000-000000000001','0e500000-0000-4000-8000-000000000001',repeat('a',64),
-  '这个票价太离谱了。','none',true,5,'Accurate.',5,'Natural.',5,'Fits.','2026-08-20 12:00+00',null,null,null,null,null
+  '这个票价太离谱了。','none',true,5,'The use of “太离谱了” is accurate.',5,'Natural.',5,'Fits.','2026-08-20 12:00+00',null,null,null,null,null
 );
 select extensions.results_eq(
   $$select prior_state,new_state,interval_days,next_due_at,created from tried_result$$,
@@ -184,10 +200,16 @@ select extensions.results_eq(
   $$values(true,'none'::text,'tried'::text,'reused'::text,'successful_independent_transfer'::text,'completed'::text,'2026-08-20 12:00+00'::timestamptz)$$,
   'completion stores canonical attempt, evidence, and old-review completion atomically'
 );
+select extensions.is(
+  (select a.accuracy_feedback_english from tried_result x
+    join public.attempts a on a.id=x.attempt_id),
+  'The use of “太离谱了” is accurate.',
+  'due Practice persists English feedback containing quoted Chinese'
+);
 select extensions.results_eq(
   $$select attempt_id,mastery_event_id,next_review_task_id,created from public.complete_due_practice(
     '0e000000-0000-4000-8000-00000000a001','0e400000-0000-4000-8000-000000000001','0e500000-0000-4000-8000-000000000001',repeat('a',64),
-    '这个票价太离谱了。','none',true,5,'Accurate.',5,'Natural.',5,'Fits.','2026-08-20 12:00+00',null,null,null,null,null)$$,
+    '这个票价太离谱了。','none',true,5,'The use of “太离谱了” is accurate.',5,'Natural.',5,'Fits.','2026-08-20 12:00+00',null,null,null,null,null)$$,
   $$select attempt_id,mastery_event_id,next_review_task_id,false from tried_result$$,
   'exact replay returns the same graph without new rows'
 );
@@ -200,7 +222,7 @@ select extensions.throws_ok(
 select extensions.throws_ok(
   $$select * from public.complete_due_practice(
     '0e000000-0000-4000-8000-00000000a001','0e400000-0000-4000-8000-000000000001','0e500000-0000-4000-8000-000000000001',repeat('a',64),
-    '同一个键却换了回答。','none',true,5,'Accurate.',5,'Natural.',5,'Fits.','2026-08-20 12:00+00',null,null,null,null,null)$$,
+    '同一个键却换了回答。','none',true,5,'The use of “太离谱了” is accurate.',5,'Natural.',5,'Fits.','2026-08-20 12:00+00',null,null,null,null,null)$$,
   '40001',null,'the same request key with different payload is not an exact replay'
 );
 
@@ -365,6 +387,10 @@ select extensions.throws_ok(
 );
 
 reset role;
-select extensions.is((select count(*) from private.due_practice_completion_receipts),9::bigint,'one immutable receipt exists per completed review');
+select extensions.is(
+  (select count(*) from private.due_practice_completion_receipts where user_id=:'user_a'),
+  9::bigint,
+  'one immutable receipt exists per completed fixture review'
+);
 select * from extensions.finish();
 rollback;
