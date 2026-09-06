@@ -310,14 +310,17 @@ describe("bounded openai-compatible adapter", () => {
 
     const content = await provider.generateOverview(multilineEvidence);
 
-    expect(content).toMatchObject({
-      chapters: [{ timestampSeconds: 7.25, sourceSegmentIds: [SEGMENT_A] }],
-      keyQuotes: [
-        { timestampSeconds: 7.25, sourceSegmentIds: [SEGMENT_A] },
-        { timestampSeconds: 7.25, sourceSegmentIds: [SEGMENT_A] },
-        { timestampSeconds: 12, sourceSegmentIds: [SEGMENT_B] },
-      ],
-    });
+    expect(content.chapters).toMatchObject([
+      { timestampSeconds: 7.25, sourceSegmentIds: [SEGMENT_A] },
+    ]);
+    expect(content.keyQuotes).toEqual([{
+      quote: "第三行保持完整",
+      englishMeaning: "The third line remains complete.",
+      timestampSeconds: 12,
+      sourceSegmentIds: [SEGMENT_B],
+    }]);
+    expect(content.keyQuotes).not.toContainEqual(expect.objectContaining({ quote: "第二行" }));
+    expect(content.keyQuotes).not.toContainEqual(expect.objectContaining({ quote: "路径说\"你好\"" }));
     expect(validateOverviewContent(content, multilineEvidence)).toEqual(content);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const requestBody = String(fetchImpl.mock.calls[0][1]?.body);
@@ -394,7 +397,7 @@ describe("bounded openai-compatible adapter", () => {
         ],
         keyQuotes: [
           { quote: "这个表达", englishMeaning: "This expression.", sourceLineIndex: 0, confidence: 0.94 },
-          { quote: "完全无关", englishMeaning: "Ungrounded text.", sourceLineIndex: 0 },
+          { quote: "完全无关", englishMeaning: "Ungrounded text.", sourceLineIndex: 1 },
           { quote: "很自然", sourceLineIndex: 0 },
         ],
       })),
@@ -641,10 +644,45 @@ describe("bounded openai-compatible adapter", () => {
   });
 
   test("gives an Overview its separate timeout budget while translations keep the generic timeout", async () => {
+    const timeoutGatewayOverview = {
+      overview: "A complete English overview.",
+      chapters: [{
+        title: "Opening",
+        summary: "The speaker introduces the expression.",
+        sourceLineIndex: 0,
+      }],
+      keyQuotes: [
+        { quote: "这个表达", englishMeaning: "This expression.", sourceLineIndex: 0 },
+        { quote: "你可以直接这样说", englishMeaning: "You can say it this way.", sourceLineIndex: 1 },
+      ],
+    };
+    const expectedTimeoutOverview = {
+      overview: "A complete English overview.",
+      chapters: [{
+        title: "Opening",
+        summary: "The speaker introduces the expression.",
+        timestampSeconds: 0,
+        sourceSegmentIds: [SEGMENT_A],
+      }],
+      keyQuotes: [
+        {
+          quote: "这个表达",
+          englishMeaning: "This expression.",
+          timestampSeconds: 0,
+          sourceSegmentIds: [SEGMENT_A],
+        },
+        {
+          quote: "你可以直接这样说",
+          englishMeaning: "You can say it this way.",
+          timestampSeconds: 2,
+          sourceSegmentIds: [SEGMENT_B],
+        },
+      ],
+    };
     const delayedOverviewResponse = vi.fn((_url: URL | RequestInfo, options?: RequestInit) =>
       new Promise<Response>((resolve, reject) => {
         options?.signal?.addEventListener("abort", () => reject(new Error("private timeout detail")));
-        setTimeout(() => resolve(completionResponse(gatewayOverview)), 10);
+        setTimeout(() => resolve(completionResponse(timeoutGatewayOverview)), 10);
       }));
     const overviewOptions = {
       config: RUNTIME_CONFIG,
@@ -654,7 +692,7 @@ describe("bounded openai-compatible adapter", () => {
     } as Parameters<typeof createOpenAiCompatibleLearningArtifactProvider>[0];
     const provider = createOpenAiCompatibleLearningArtifactProvider(overviewOptions);
 
-    await expect(provider.generateOverview(evidence)).resolves.toEqual(validOverview);
+    await expect(provider.generateOverview(evidence)).resolves.toEqual(expectedTimeoutOverview);
 
     const delayedTranslationResponse = vi.fn((_url: URL | RequestInfo, options?: RequestInit) =>
       new Promise<Response>((resolve, reject) => {
