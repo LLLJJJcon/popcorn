@@ -135,6 +135,65 @@ describe("Practice wire normalization and deterministic decisions", () => {
     });
   });
 
+  test("accepts English feedback that quotes Chinese learner text", () => {
+    expect(normalizePracticeEvaluationWire({
+      accuracy: {
+        score: 1,
+        englishFeedback: "The response does not use “起跳”, so it misses the target expression.",
+      },
+      naturalness: {
+        score: 3,
+        englishFeedback: "The phrase “我不会一间一间的逛” is understandable but somewhat awkward.",
+      },
+      contextualFit: {
+        score: 2,
+        englishFeedback: "The answer only partly addresses the shopping situation.",
+      },
+    })).toEqual({
+      success: true,
+      data: {
+        accuracy: {
+          score: 1,
+          englishFeedback: 'The response does not use "起跳", so it misses the target expression.',
+        },
+        naturalness: {
+          score: 3,
+          englishFeedback: 'The phrase "我不会一间一间的逛" is understandable but somewhat awkward.',
+        },
+        contextualFit: {
+          score: 2,
+          englishFeedback: "The answer only partly addresses the shopping situation.",
+        },
+      },
+    });
+  });
+
+  test("accepts the feedback alias when its English explanation contains Chinese", () => {
+    expect(normalizePracticeEvaluationWire({
+      accuracy: { score: 2, feedback: "The response confuses “起跳” with shopping." },
+      naturalness: { score: 3, englishFeedback: "The sentence is understandable." },
+      contextualFit: { score: 2, englishFeedback: "The answer does not fit the question." },
+    })).toEqual({
+      success: true,
+      data: {
+        accuracy: {
+          score: 2,
+          englishFeedback: 'The response confuses "起跳" with shopping.',
+        },
+        naturalness: { score: 3, englishFeedback: "The sentence is understandable." },
+        contextualFit: { score: 2, englishFeedback: "The answer does not fit the question." },
+      },
+    });
+  });
+
+  test("rejects feedback written only in Chinese", () => {
+    expect(normalizePracticeEvaluationWire({
+      accuracy: { score: 2, englishFeedback: "回答没有使用目标表达。" },
+      naturalness: { score: 3, englishFeedback: "The sentence is understandable." },
+      contextualFit: { score: 2, englishFeedback: "The answer does not fit the question." },
+    })).toEqual({ success: false, fieldPath: "accuracy.englishFeedback" });
+  });
+
   test("fails atomically when any mandatory score is absent", () => {
     const decoded = normalizePracticeEvaluationWire({
       accuracy: { englishFeedback: "Missing score." },
