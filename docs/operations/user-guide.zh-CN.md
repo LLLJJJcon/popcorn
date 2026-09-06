@@ -93,7 +93,7 @@ pnpm db:reset
 
 使用每日的一键启动方式：`pnpm popcorn:start` 或 `Start Popcorn.command`。浏览器打开后，在 `http://127.0.0.1:3000/sign-in` 创建本地账号并登录。
 
-登录后进入 `/settings/model-gateway`。这里的 API 密钥只在已登录的 Web 设置中输入，绝不放进 `.env.local`、终端命令、Chrome 扩展、Git 或聊天。OpenAI 并非必需；你可以选择任何你已确认兼容的服务商，并只参考该服务商自己的官方 API 文档与控制台。对这个个人本地项目，保存后的密钥会继续显示在已登录的设置页，方便你核对和修改；不要在共享电脑上保持登录。
+登录后进入 `/settings/model-gateway`。这里的 API 密钥只在已登录的 Web 设置中输入，绝不放进 `.env.local`、终端命令、Chrome 扩展、Git 或聊天。OpenAI 并非必需；你可以选择任何你已确认兼容的服务商，并只参考该服务商自己的官方 API 文档与控制台。网关 base URL 必须是准确的公开 HTTPS DNS origin，可带简单路径；禁止 IP、`localhost`、`.local`、`.internal` 或 metadata 主机名，也禁止端口、credentials、查询参数和片段。保存后当前页面会暂时显示本次输入的密钥以便核对；刷新或离开页面后只显示“Key saved”等已保存状态，不会再次显示密钥；不要在共享电脑上保持登录。
 
 | Web 设置字段 | 填写内容 | 取得方式 | 注意事项 |
 | --- | --- | --- | --- |
@@ -109,6 +109,9 @@ pnpm db:reset
 一键启动已经读取本地配置。若需要重新生成扩展，运行：
 
 ```bash
+set -a
+source .env.local
+set +a
 pnpm extension:local
 ```
 

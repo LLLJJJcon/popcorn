@@ -40,9 +40,12 @@ pnpm install --frozen-lockfile
 ```
 
 The one-time setup copies `.env.example` to `.env.local`, fills the local
-Supabase values and a Supadata key, then creates a local account. Configure the
-model gateway later, only in signed-in Web settings, using its name,
-OpenAI-compatible HTTPS base URL, model ID, and API key.
+Supabase values and a Supadata key obtained from the [Supadata dashboard](https://dash.supadata.ai/)
+using its [official docs](https://docs.supadata.ai/), then creates a local
+account. Configure the model gateway later, only in signed-in Web settings,
+using its name, exact public HTTPS DNS base URL, model ID, and API key. The
+gateway URL cannot use an IP, local/internal hostname, port, credentials,
+query, or fragment.
 
 For a professor demo, start Popcorn, sign in on Web and the extension, open a
 YouTube video with Mandarin captions, save a moment, complete one Practice

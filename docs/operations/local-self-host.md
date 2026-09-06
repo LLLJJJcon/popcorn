@@ -90,6 +90,10 @@ the same value when starting the worker. Never commit `.env.local`.
 The user model gateway API key is deliberately not an environment value. You
 enter it only in the signed-in Web settings described below.
 
+To obtain the Supadata value, create an account in the [Supadata dashboard](https://dash.supadata.ai/)
+and use the provider's [official documentation](https://docs.supadata.ai/) for
+the current API-key instructions. Put only that key in your local `.env.local`.
+
 ### Optional local HTTP proxy
 
 `POPCORN_PROXY_URL` is optional and affects only the local Web app and worker.
@@ -146,8 +150,13 @@ if you intentionally enable email confirmation later.
 
 After you sign in, open `http://127.0.0.1:3000/settings/model-gateway`. Enter
 the gateway display name, its exact OpenAI-compatible HTTPS base URL, the
-model name, and the API key. The API key is entered only in Web settings; do
-not put it in `.env.local`, a shell command, the extension, logs, or a commit.
+model name, and the API key. The base URL must be an exact public HTTPS DNS
+origin with an optional simple path: no IP address, `localhost`, `.local`,
+`.internal`, metadata hostname, port, credentials, query, or fragment. The API
+key is entered only in Web settings; do not put it in `.env.local`, a shell
+command, the extension, logs, or a commit. After saving, the current page can
+show the entered key for checking; after refresh or leaving the page, the UI
+shows only the saved-key status and does not reveal the key.
 
 Review the exact destination shown by Popcorn, grant exact-destination consent,
 and activate the configuration. The worker will use this user-owned gateway;
