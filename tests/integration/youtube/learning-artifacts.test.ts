@@ -308,7 +308,8 @@ describe("bounded openai-compatible adapter", () => {
       fetchImpl,
     });
 
-    const content = await provider.generateOverview(multilineEvidence);
+    const generated = await provider.generateOverview(multilineEvidence);
+    const content = validateOverviewContent(generated, multilineEvidence);
 
     expect(content.chapters).toMatchObject([
       { timestampSeconds: 7.25, sourceSegmentIds: [SEGMENT_A] },
