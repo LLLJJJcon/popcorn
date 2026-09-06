@@ -1,6 +1,6 @@
 # Popcorn Personal Model Gateway UX Design
 
-**Date:** 2026-09-04  
+**Date:** 2026-09-04
 **Status:** Approved by the user on 2026-09-04
 **Scope:** Local, personal/school-project model gateway configuration
 
@@ -85,7 +85,7 @@ rename, key rotation, and revoke controls. Active configurations do not repeat
 the consent fieldset.
 
 For a new or rotated key entered during this mounted page session, the matching
-configuration card shows a labelled password-style field plus a **Show key** / 
+configuration card shows a labelled password-style field plus a **Show key** /
 **Hide key** button. The field is masked by default. Revealing is a local visual
 operation and causes no network request. The UI labels the value **Available
 until you refresh or leave this page**.
