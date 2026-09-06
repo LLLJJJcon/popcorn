@@ -56,7 +56,10 @@ test("the Explain tooltip preserves selection and contains pointer events", () =
 
 test("selection capture retains projected cross-line evidence and never substitutes one active row", () => {
   assert.match(source, /function projectTranscriptSelection\(range, transcriptList\)/);
-  assert.match(source, /function createExplanationMessage\(selectionEvidence, identity\)/);
+  assert.match(
+    source,
+    /function createExplanationMessage\(selectionEvidence, identity, retryId\)/,
+  );
   assert.match(source, /selectedEvidence = projectTranscriptSelection\(range, transcriptList\)/);
   assert.match(source, /await showExplanation\(selectedEvidence\)/);
   assert.doesNotMatch(
