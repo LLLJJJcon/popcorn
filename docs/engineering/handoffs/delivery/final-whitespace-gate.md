@@ -5,9 +5,9 @@
 - Baseline: `40ac11e`.
 - Worktree: `/Users/liangjing/Desktop/Courses/internal capstone/进度/.superpowers/sdd/final-whitespace-gate/worktree`.
 - Only the two specified trailing spaces were removed from the Popcorn UX spec.
-- This handoff file is the only other changed file. No prose, code, configuration,
-  migration, package, lockfile, `.env.local`, credential, or unrelated formatting
-  change was made.
+- This handoff and its task brief are the only other changed files. No product
+  prose, code, configuration, migration, package, lockfile, `.env.local`,
+  credential, or unrelated formatting change was made.
 
 ## Evidence
 
