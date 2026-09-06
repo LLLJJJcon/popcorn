@@ -599,7 +599,32 @@ describe("shared contracts", () => {
     ["accented Spanish", "Una explicación clara."],
     ["Cyrillic", "English intro: Это объяснение."],
     ["Han", "This means 很自然。"],
-  ])("rejects %s in English explanations and feedback", (_label, value) => {
+  ])("rejects %s in Basic Latin English text", (_label, value) => {
+    expect(EnglishTextSchema.safeParse(value).success).toBe(false);
+    expect(
+      CandidateExpressionSchema.safeParse(
+        makeCandidateExpression({ englishExplanation: value }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("accepts mixed Practice feedback byte-for-byte when it contains an ASCII English letter", () => {
+    const mixedFeedback = "The learner wrote “¿qué?” and quoted Это объяснение and 很自然。";
+    const evaluation = makeEvaluationResult({
+      accuracy: {
+        score: 5,
+        englishFeedback: mixedFeedback,
+      },
+    });
+
+    expect(EvaluationResultSchema.parse(evaluation)).toEqual(evaluation);
+  });
+
+  it.each([
+    ["Han", "很自然。"],
+    ["Cyrillic", "Это объяснение."],
+    ["accented-only", "¡ñá!"],
+  ])("rejects Practice feedback without an ASCII English letter: %s", (_label, value) => {
     const evaluation = makeEvaluationResult({
       accuracy: {
         score: 5,
@@ -607,12 +632,6 @@ describe("shared contracts", () => {
       },
     });
 
-    expect(EnglishTextSchema.safeParse(value).success).toBe(false);
-    expect(
-      CandidateExpressionSchema.safeParse(
-        makeCandidateExpression({ englishExplanation: value }),
-      ).success,
-    ).toBe(false);
     expect(EvaluationResultSchema.safeParse(evaluation).success).toBe(false);
   });
 
