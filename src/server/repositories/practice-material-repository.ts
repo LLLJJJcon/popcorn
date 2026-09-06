@@ -9,6 +9,7 @@ import {
   type PracticeMaterialTask,
   type PracticeMaterialView,
 } from "@/features/practice/material-schema";
+import { isReadableActivationPromptVersion } from "@/server/ai/prompts/activate.v1";
 import { isReadableSavedAnalysisPromptVersion } from "@/server/ai/prompts/analyze-saved-item.v1";
 import type { Database } from "@/types/database.generated";
 
@@ -31,6 +32,11 @@ const DraftRowSchema = z.strictObject({
   instructions_english: z.string(),
   goal_english: z.string(),
   status: z.enum(["active", "completed", "abandoned"]),
+  activation_prompt_version: z.string().nullable(),
+  activation_model: z.string().nullable(),
+  activation_gateway_config_id: UuidSchema.nullable(),
+  activation_gateway_revision: z.number().int().positive().nullable(),
+  activation_gateway_fingerprint: z.string().nullable(),
   created_at: IsoDateTimeSchema,
 });
 
@@ -159,6 +165,19 @@ function immediateTask(row: z.infer<typeof DraftRowSchema>): PracticeMaterialTas
   };
 }
 
+function readableImmediateDraft(row: z.infer<typeof DraftRowSchema>): boolean {
+  const metadata = [
+    row.activation_model,
+    row.activation_gateway_config_id,
+    row.activation_gateway_revision,
+    row.activation_gateway_fingerprint,
+  ];
+  return row.activation_prompt_version === null
+    ? metadata.every((value) => value === null)
+    : isReadableActivationPromptVersion(row.activation_prompt_version)
+      && metadata.every((value) => value !== null);
+}
+
 function dueTask(row: z.infer<typeof TaskRowSchema>): PracticeMaterialTask {
   return {
     id: row.id,
@@ -191,11 +210,12 @@ export function createPracticeMaterialRepository(
       const taskId = UuidSchema.safeParse(taskIdValue);
       if (!userId.success || !taskId.success) return null;
       const draft = DraftRowSchema.safeParse(await one(from("practice_drafts")
-        .select("id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,created_at")
+        .select("id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,activation_prompt_version,activation_model,activation_gateway_config_id,activation_gateway_revision,activation_gateway_fingerprint,created_at")
         .eq("user_id", userId.data).eq("id", taskId.data)));
       if (
         !draft.success || !belongs(draft.data, userId.data) ||
-        draft.data.id !== taskId.data || draft.data.status === "abandoned"
+        draft.data.id !== taskId.data || draft.data.status === "abandoned" ||
+        !readableImmediateDraft(draft.data)
       ) return null;
 
       const artifact = ArtifactRowSchema.safeParse(await one(from("generated_artifacts")

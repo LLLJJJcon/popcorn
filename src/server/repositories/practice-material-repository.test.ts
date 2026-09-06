@@ -13,11 +13,14 @@ const EXPRESSION = "88888888-8888-4888-8888-888888888888";
 const SENSE = "99999999-9999-4999-8999-999999999999";
 const REVIEW = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const OCCURRENCE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const GATEWAY = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const CREATED = "2026-09-05T08:00:00.000Z";
+const FINGERPRINT = "a".repeat(64);
 
 type Result = { readonly data: unknown; readonly error: unknown };
 type PracticeMaterialQuery = {
   readonly table: string;
+  columns: string | null;
   filters: [string, unknown][];
   orders: [string, boolean][];
   limit: number | null;
@@ -30,9 +33,18 @@ function scriptedClient(results: readonly Result[]) {
     calls,
     client: {
       from(table: string) {
-        const query: PracticeMaterialQuery = { table, filters: [], orders: [], limit: null };
+        const query: PracticeMaterialQuery = {
+          table,
+          columns: null,
+          filters: [],
+          orders: [],
+          limit: null,
+        };
         return {
-          select() { return this; },
+          select(columns: string) {
+            query.columns = columns;
+            return this;
+          },
           eq(column: string, value: unknown) {
             query.filters.push([column, value]);
             return this;
@@ -71,8 +83,23 @@ function draft(overrides: Record<string, unknown> = {}) {
     instructions_english: "Reply naturally in Mandarin.",
     goal_english: "React to an unreasonable price.",
     status: "active",
+    activation_prompt_version: null,
+    activation_model: null,
+    activation_gateway_config_id: null,
+    activation_gateway_revision: null,
+    activation_gateway_fingerprint: null,
     created_at: CREATED,
     ...overrides,
+  };
+}
+
+function activationProvenance(promptVersion: string) {
+  return {
+    activation_prompt_version: promptVersion,
+    activation_model: "fixture/activation-v2",
+    activation_gateway_config_id: GATEWAY,
+    activation_gateway_revision: 1,
+    activation_gateway_fingerprint: FINGERPRINT,
   };
 }
 
@@ -224,6 +251,53 @@ describe("Practice material repository", () => {
     ]));
     },
   );
+
+  test.each(["activate-practice-v1", "activate-practice-v2"])(
+    "builds immediate material from readable %s activation provenance",
+    async (promptVersion) => {
+      const scripted = scriptedClient(immediateGraph({
+        draft: activationProvenance(promptVersion),
+      }));
+
+      const material = await createPracticeMaterialRepository(scripted.client as never)
+        .findImmediateMaterial(USER, TASK);
+
+      expect(material?.task.id).toBe(TASK);
+      expect(scripted.calls[0]?.columns).toContain("activation_prompt_version");
+      expect(scripted.calls[0]?.columns).toContain("activation_model");
+      expect(scripted.calls[0]?.columns).toContain("activation_gateway_config_id");
+      expect(scripted.calls[0]?.columns).toContain("activation_gateway_revision");
+      expect(scripted.calls[0]?.columns).toContain("activation_gateway_fingerprint");
+    },
+  );
+
+  test("preserves immediate material for an all-null fixture activation provenance", async () => {
+    const scripted = scriptedClient(immediateGraph());
+
+    const material = await createPracticeMaterialRepository(scripted.client as never)
+      .findImmediateMaterial(USER, TASK);
+
+    expect(material?.task.id).toBe(TASK);
+  });
+
+  test.each([
+    {
+      name: "unknown activation prompt version",
+      provenance: activationProvenance("activate-practice-v999"),
+    },
+    {
+      name: "mixed activation provenance",
+      provenance: {
+        ...activationProvenance("activate-practice-v2"),
+        activation_gateway_fingerprint: null,
+      },
+    },
+  ])("fails closed for $name", async ({ provenance }) => {
+    const scripted = scriptedClient(immediateGraph({ draft: provenance }));
+
+    await expect(createPracticeMaterialRepository(scripted.client as never)
+      .findImmediateMaterial(USER, TASK)).resolves.toBeNull();
+  });
 
   test("fails closed for malformed or cross-owner immediate provenance", async () => {
     const crossOwner = scriptedClient([{ data: draft({ user_id: OTHER }), error: null }]);
