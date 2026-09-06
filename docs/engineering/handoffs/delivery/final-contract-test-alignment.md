@@ -3,7 +3,9 @@
 ## Result
 
 - Baseline: `a96edf151a8e3da660cd34588b756f64caffbc51`
-- Implementation commit: pending
+- Implementation commit: `cc66ff822a0af6c47bd78135df423472287779fa`
+- This handoff update is carried by a separate follow-up commit; its SHA is
+  returned with the handoff to avoid a self-reference.
 - Worktree: `/Users/liangjing/Desktop/Courses/internal capstone/进度/.superpowers/sdd/final-contract-test-alignment/worktree`
 - Only `tests/contract/shared-contracts.test.ts` and this handoff are in scope.
 
