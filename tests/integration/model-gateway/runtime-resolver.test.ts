@@ -158,7 +158,7 @@ describe("closed runtime provider registry", () => {
     const resolve = vi.fn(async () => runtime);
     const createRuntimeResolver = vi.fn(() => ({ resolve }));
     const fetchImpl = vi.fn<typeof fetch>(async () => completion({
-      translations: [{ segmentIndex: 0, english: "This expression sounds natural." }],
+      translations: [{ sourceLineIndex: 0, english: "This expression sounds natural." }],
     }));
     const resolver = createLearningArtifactProviderResolver({
       ci: false,
@@ -188,7 +188,7 @@ describe("closed runtime provider registry", () => {
   test("production sends one Provider request for a translation group larger than four", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => completion({
       translations: BULK_SEGMENT_IDS.map((_id, segmentIndex) => ({
-        segmentIndex,
+        sourceLineIndex: segmentIndex,
         english: `English sentence ${segmentIndex + 1}.`,
       })),
     }));
