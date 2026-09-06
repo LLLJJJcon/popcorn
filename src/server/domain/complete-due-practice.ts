@@ -125,7 +125,7 @@ function canonicalInstant(value: string): string {
 
 function safeEvaluation(value: unknown): EvaluationResult {
   const parsed = EvaluationResultSchema.safeParse(value);
-  if (!parsed.success) throw new PracticeError("PROVIDER_FAILED", true);
+  if (!parsed.success) throw practiceErrorFromUnknown(parsed.error);
   return parsed.data;
 }
 

@@ -19,6 +19,12 @@ import {
   type PracticeRepository,
 } from "@/server/domain/create-practice-task";
 import {
+  createDuePracticeCompletionService,
+  createDuePracticeHttpHandler,
+  type DuePracticeCompletionRepository,
+  type DueTransferTask,
+} from "@/server/domain/complete-due-practice";
+import {
   createPracticeAttemptHttpHandlers,
   createPracticeAttemptService,
   createSupabasePracticeRepository,
@@ -1387,6 +1393,82 @@ describe("production Supabase practice repository", () => {
 });
 
 describe("cookie Web mutation boundaries", () => {
+  test("returns a safe retryable 500 when a completed Due evaluation is malformed in persistence", async () => {
+    const reviewTaskId = "88888888-8888-4888-8888-888888888888";
+    const practiceTaskId = "99999999-9999-4999-8999-999999999999";
+    const sentinel = `sentinel-private-persisted-feedback-${"x".repeat(2_000)}`;
+    const dueTask: DueTransferTask = {
+      id: practiceTaskId,
+      userId: USER_A,
+      reviewTaskId,
+      userExpressionId: USER_B,
+      targetExpression: "太离谱了",
+      promptChinese: "朋友说一张普通演出门票要一万元。你会怎么回应？",
+      instructionsEnglish: "Reply with one natural Simplified Chinese sentence.",
+      goalEnglish: "React to an unreasonable ticket price using the target expression.",
+      contextFingerprint: FINGERPRINT,
+      dueAt: "2026-08-20T02:03:04.000Z",
+      masteryState: "tried",
+    };
+    const completeDuePractice = vi.fn();
+    const repository: DuePracticeCompletionRepository = {
+      findTransferTask: vi.fn(async () => dueTask),
+      findCompletionState: vi.fn(async () => ({
+        status: "completed" as const,
+        task: dueTask,
+        attempt: {
+          responseChinese: "这也太离谱了吧。",
+          assistanceLevel: "none" as const,
+          passed: true,
+          accuracyScore: 5,
+          accuracyFeedbackEnglish: sentinel,
+          naturalnessScore: 5,
+          naturalnessFeedbackEnglish: "The response sounds natural.",
+          contextualFitScore: 5,
+          contextualFitFeedbackEnglish: "The response fits the transfer context.",
+          submittedAt: NOW,
+          evaluationPromptVersion: "evaluate-practice-v3",
+          evaluationModel: "persisted-model",
+          evaluationGatewayConfigId: CONFIG,
+          evaluationGatewayRevision: 3,
+          evaluationGatewayFingerprint: FINGERPRINT,
+        },
+      })),
+      resolveActiveGatewayPin: vi.fn(async () => null),
+      completeDuePractice,
+    };
+    const unusedGateway = gateway(providerPassingEvaluation);
+    const service = createDuePracticeCompletionService({
+      repository,
+      gatewayResolver: resolver(unusedGateway),
+      fixtureGateway: unusedGateway,
+      ci: false,
+      now: () => NOW,
+    });
+    const handler = createDuePracticeHttpHandler({
+      authenticate: vi.fn(async () => ({ ok: true as const, userId: USER_A })),
+      complete: service.complete,
+      appUrl: "https://popcorn.example",
+      requestId: () => SAFE_REQUEST_ID,
+    });
+
+    const response = await handler(new Request(
+      `https://popcorn.example/api/v1/practice/due/${reviewTaskId}`,
+      {
+        method: "POST",
+        headers: { Origin: "https://popcorn.example", "Content-Type": "application/json" },
+        body: JSON.stringify({ responseChinese: "这也太离谱了吧。", assistanceLevel: "none" }),
+      },
+    ), { params: Promise.resolve({ reviewTaskId }) });
+
+    await expectPracticeFailureResponse(response, {
+      code: "INTERNAL_ERROR",
+      status: 500,
+      retryable: true,
+    });
+    expect(completeDuePractice).not.toHaveBeenCalled();
+  });
+
   test.each([undefined, "text/plain", "application/problem+json"]) (
     "rejects unsupported Content-Type %s before the task action",
     async (contentType) => {

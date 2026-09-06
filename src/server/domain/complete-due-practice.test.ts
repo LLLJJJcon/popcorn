@@ -505,6 +505,31 @@ describe("complete due Practice", () => {
     expect(store.completeDuePractice).toHaveBeenCalledOnce();
   });
 
+  test("classifies a malformed completed persisted evaluation as a retryable internal failure", async () => {
+    const store = repository();
+    const sentinel = `sentinel-private-persisted-feedback-${"x".repeat(2_000)}`;
+    store.findCompletionState = vi.fn(async () => ({
+      status: "completed" as const,
+      task,
+      attempt: { ...persistedAttempt, accuracyFeedbackEnglish: sentinel },
+    }));
+    const gateway = {
+      model: "model-that-must-not-run",
+      complete: vi.fn(async () => { throw new Error("Provider must be skipped"); }),
+    };
+    const { service: complete } = service(store, { ci: false, gateway });
+
+    const failure = await complete.complete(USER, REVIEW, {
+      responseChinese: persistedAttempt.responseChinese,
+      assistanceLevel: persistedAttempt.assistanceLevel,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ code: "INTERNAL_ERROR", retryable: true });
+    expect(String(failure)).not.toContain(sentinel);
+    expect(gateway.complete).not.toHaveBeenCalled();
+    expect(store.completeDuePractice).not.toHaveBeenCalled();
+  });
+
   test.each(["evaluate-practice-v2", "evaluate-practice-v3"])(
     "replays a completed %s Due evaluation without Provider use",
     async (evaluationPromptVersion) => {
