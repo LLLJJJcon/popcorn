@@ -43,10 +43,20 @@ grep -q 'Saved' docs/operations/local-self-host.md
 grep -q 'Practice' docs/operations/local-self-host.md
 grep -q 'Vault' docs/operations/local-self-host.md
 grep -q 'Progress' docs/operations/local-self-host.md
-grep -q 'Supadata' README.md
+grep -q 'Supadata dashboard' README.md
+grep -q 'set -a' docs/operations/user-guide.zh-CN.md
+grep -q 'source .env.local' docs/operations/user-guide.zh-CN.md
+grep -q 'set +a' docs/operations/user-guide.zh-CN.md
+grep -q '刷新或离开页面后只显示“Key saved”' docs/operations/user-guide.zh-CN.md
+grep -q 'after refresh or leaving the page' docs/operations/local-self-host.md
+grep -q 'exact public HTTPS DNS' docs/operations/local-self-host.md
+grep -q 'port, credentials, query, or fragment' docs/operations/local-self-host.md
+grep -q '禁止 IP' docs/operations/user-guide.zh-CN.md
+grep -q '禁止端口、credentials、查询参数和片段' docs/operations/user-guide.zh-CN.md
 ```
 
-Result: exit `0` (required release items present).
+Result: `REVIEW_FIX_REQUIRED_ITEMS=pass`, exit `0` (all required review items
+present).
 
 ```text
 python3 - <<'PY'
@@ -66,18 +76,29 @@ PY
 
 Result: `MARKDOWN_RELATIVE_LINKS=pass` (all relative links resolved locally).
 
+Baseline-to-HEAD whitespace command:
+
+```text
+git diff --check a96edf151a8e3da660cd34588b756f64caffbc51..HEAD
+```
+
+Result: `BASELINE_DIFF_CHECK_EXIT=0`.
+
+The working-tree whitespace command was also run:
+
 ```text
 git diff --check
 ```
 
-Result: exit `0` (`GIT_DIFF_CHECK=pass`). The same checks were rerun after the
-review fixes, with `FINAL_GREEN=pass` after the final commits.
+Result: exit `0` (`GIT_DIFF_CHECK=pass`). No unsupported `FINAL_GREEN` or
+`FINAL_REVIEW_GREEN` status is asserted here.
 
 ## Changed files
 
 - `README.md`
 - `docs/operations/local-self-host.md`
 - `docs/operations/user-guide.zh-CN.md`
+- `docs/engineering/handoffs/delivery/final-main-release-manuals.md`
 
 The task brief at `docs/engineering/briefs/delivery/final-main-release-manuals.md`
 was not staged or committed.
@@ -85,8 +106,9 @@ was not staged or committed.
 ## Commit
 
 Manual implementation commit: `ac4394179fbb18101f2f4de3d39fc764b3bf842f`.
-Review-fix commit: recorded in the final handoff commit returned with this
-report.
+Review-fix commit: `fb2984b25284f4739e89e008c455bcf8c2c25b9c`.
+This report-only update is committed separately after the review-fix commit;
+the final report commit SHA is returned with this handoff.
 
 ## Residual risks
 
