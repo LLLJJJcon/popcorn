@@ -39,9 +39,16 @@ export const PracticeTaskSchema = z.discriminatedUnion("kind", [
 
 export const AssistanceLevelSchema = z.enum(["none", "hint", "model_answer"]);
 
+export const PracticeFeedbackTextSchema = z
+  .string()
+  .min(1)
+  .max(500)
+  .refine((value) => value.trim().length > 0, "Expected nonblank English feedback")
+  .refine((value) => /[A-Za-z]/u.test(value), "Expected feedback containing English prose");
+
 const EvaluationDimensionSchema = z.strictObject({
   score: z.number().int().min(1).max(5),
-  englishFeedback: EnglishTextSchema.max(2_000),
+  englishFeedback: PracticeFeedbackTextSchema,
 });
 
 export const EvaluationResultSchema = z

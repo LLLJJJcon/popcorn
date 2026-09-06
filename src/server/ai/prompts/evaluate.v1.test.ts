@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { EvaluationResultSchema } from "@/contracts/practice";
 import { extractUniqueSemanticObject } from "@/server/ai/model-output";
 import {
   ACTIVATE_PRACTICE_PROMPT_VERSION,
@@ -184,6 +185,105 @@ describe("Practice wire normalization and deterministic decisions", () => {
         contextualFit: { score: 2, englishFeedback: "The answer does not fit the question." },
       },
     });
+  });
+
+  test("carries mixed English and Chinese feedback through the final Practice parser", () => {
+    const parsed = parsePracticeEvaluationOutput(
+      {
+        accuracy: {
+          score: 1,
+          englishFeedback: "The response does not use “起跳”, so it misses the target expression.",
+        },
+        naturalness: {
+          score: 3,
+          englishFeedback: "The phrase “我不会一间一间的逛” is understandable but somewhat awkward.",
+        },
+        contextualFit: {
+          score: 2,
+          englishFeedback: "The answer only partly addresses the shopping situation.",
+        },
+      },
+      "起跳",
+      "none",
+    );
+
+    expect(parsed.evaluation).toEqual({
+      passed: false,
+      accuracy: {
+        score: 1,
+        englishFeedback: 'The response does not use "起跳", so it misses the target expression.',
+      },
+      naturalness: {
+        score: 3,
+        englishFeedback: 'The phrase "我不会一间一间的逛" is understandable but somewhat awkward.',
+      },
+      contextualFit: {
+        score: 2,
+        englishFeedback: "The answer only partly addresses the shopping situation.",
+      },
+      independentUse: false,
+      assistanceLevel: "none",
+    });
+  });
+
+  test("carries the mixed-language feedback alias through the final Practice parser", () => {
+    const parsed = parsePracticeEvaluationOutput(
+      {
+        accuracy: { score: 2, feedback: "The response confuses “起跳” with shopping." },
+        naturalness: { score: 3, englishFeedback: "The sentence is understandable." },
+        contextualFit: { score: 2, englishFeedback: "The answer does not fit the question." },
+      },
+      "起跳",
+      "none",
+    );
+
+    expect(parsed.evaluation.accuracy).toEqual({
+      score: 2,
+      englishFeedback: 'The response confuses "起跳" with shopping.',
+    });
+  });
+
+  test("the final Practice domain schema accepts mixed English and Chinese feedback", () => {
+    expect(EvaluationResultSchema.safeParse({
+      passed: true,
+      accuracy: { score: 4, englishFeedback: "The learner uses “起跳” correctly." },
+      naturalness: { score: 4, englishFeedback: "The response “我要起跳了” sounds natural." },
+      contextualFit: { score: 4, englishFeedback: "The answer fits the situation." },
+      independentUse: true,
+      assistanceLevel: "none",
+    }).success).toBe(true);
+  });
+
+  test.each([
+    ["blank", "   "],
+    ["over 500 characters", `A${"x".repeat(500)}`],
+    ["non-string", 42],
+    ["pure Chinese", "回答没有使用目标表达。"],
+  ])("the final Practice domain schema rejects %s feedback", (_label, englishFeedback) => {
+    expect(EvaluationResultSchema.safeParse({
+      passed: false,
+      accuracy: { score: 2, englishFeedback },
+      naturalness: { score: 3, englishFeedback: "The sentence is understandable." },
+      contextualFit: { score: 2, englishFeedback: "The answer does not fit the question." },
+      independentUse: false,
+      assistanceLevel: "none",
+    }).success).toBe(false);
+  });
+
+  test("rejects conflicting canonical and alias feedback before final parsing", () => {
+    expect(() => parsePracticeEvaluationOutput(
+      {
+        accuracy: {
+          score: 2,
+          englishFeedback: "The response omits 起跳.",
+          feedback: "The response uses 起跳 correctly.",
+        },
+        naturalness: { score: 3, englishFeedback: "The sentence is understandable." },
+        contextualFit: { score: 2, englishFeedback: "The answer does not fit the question." },
+      },
+      "起跳",
+      "none",
+    )).toThrowError("invalid Practice evaluation output");
   });
 
   test("rejects feedback written only in Chinese", () => {
