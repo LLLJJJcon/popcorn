@@ -22,10 +22,12 @@ RED before the migration:
 
 The first GREEN attempt exposed a necessary permission edge: draft inserts run as `service_role`, so the private check predicate must be executable by that role. The migration now revokes all roles first and grants only `service_role`; `anon` and `authenticated` cannot execute it.
 
+Initial review found that checking the trimmed length allowed a value such as one English letter followed by 500 spaces. A new pgTAP case reproduced that bypass and the predicate now checks the original length separately from trimmed nonblank content.
+
 Final GREEN:
 
 - Due Practice pgTAP: 36/36 PASS.
-- Practice draft pgTAP: 50/50 PASS.
+- Practice draft pgTAP: 51/51 PASS.
 - Existing global-count assertions were scoped to their deterministic fixture owner so the focused tests remain valid against the populated local demo database.
 
 ## Contract
@@ -33,6 +35,7 @@ Final GREEN:
 - New private immutable `private.is_practice_feedback_text(text, integer)` requires non-null, trimmed nonblank content, no more than the supplied 500-character boundary, and at least one ASCII Latin letter.
 - Chinese learning text and Unicode punctuation may coexist with English prose.
 - Only `attempt_feedback_check` and `practice_draft_attempt_feedback_check` now consume the new predicate.
+- Both constraints are installed `NOT VALID`, so they immediately protect new writes without blocking an upgrade that contains historical 501–2000-character feedback. Each constraint is validated during migration when its existing rows already satisfy the new boundary; the checked local database validates both.
 - The global ASCII-only helper is unchanged.
 - Score, response, assistance, independent use, owner, provenance, atomic completion, replay, mastery, and scheduling constraints are unchanged.
 - Existing local data was checked before migration: 5 canonical attempts and 7 draft attempts, with maximum feedback length 238.

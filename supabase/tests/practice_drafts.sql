@@ -500,6 +500,17 @@ select extensions.throws_ok(
     passed,accuracy_score,accuracy_feedback_english,naturalness_score,
     naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
     independent_use,assistance_level,submitted_at
+  ) values (%L::uuid,%L::uuid,%L::uuid,204,'这也太离谱了吧。',false,1,%L,
+    5,'Natural.',5,'Fits.',false,'none','2026-08-20 11:07:00+00')$sql$,
+    :'user_a',:'draft_a',:'future_a','A' || repeat(' ',500)),
+  '23514',null,'attempt counts trailing spaces toward the five-hundred-character boundary'
+);
+select extensions.throws_ok(
+  format($sql$insert into public.practice_draft_attempts (
+    user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+    passed,accuracy_score,accuracy_feedback_english,naturalness_score,
+    naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,
+    independent_use,assistance_level,submitted_at
   ) values (%L::uuid,%L::uuid,%L::uuid,203,'这也太离谱了吧。',false,1,null,
     5,'Natural.',5,'Fits.',false,'none','2026-08-20 11:07:00+00')$sql$,
     :'user_a',:'draft_a',:'future_a'),
