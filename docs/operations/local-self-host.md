@@ -23,6 +23,17 @@ pnpm popcorn:stop
 Or double-click `Stop Popcorn.command` on macOS. The manual commands below are
 the troubleshooting and fallback path when a setup step needs attention.
 
+This is a personal school-project deployment, not a hosted service. It is
+designed for English-speaking learners studying Mandarin and stores learning
+snapshots from the current YouTube video rather than downloading video files.
+
+## 0. Clone the project
+
+```bash
+git clone https://github.com/LLLJJJcon/popcorn.git
+cd popcorn
+```
+
 ## 1. Prerequisites
 
 - Node.js 24.5 or later (Node 24.5 introduced the built-in environment proxy
@@ -205,8 +216,53 @@ the model gateway.
   [recovery guide](job-recovery.md).
 - Extension changed: run `pnpm extension:local` again and select **Reload** in
   `chrome://extensions`.
+- Service unavailable or a save is queued: keep Supabase, Web, worker, and the
+  extension running; confirm the Web session uses the same local account, then
+  wait for the durable retry. Do not repeatedly create the same save.
+- No transcript: confirm the current video has usable captions and that
+  `SUPADATA_API_KEY` is present locally; leave the worker running and retry the
+  save after correcting the key.
+- Model timeout or malformed output: check that the active gateway's exact
+  base URL and model ID are correct, check the optional proxy below, then retry
+  the organization step. The original snapshot remains in Saved.
+- Practice evaluation failure: keep the sentence and source evidence on the
+  page, verify the active gateway and proxy, and submit the same attempt again.
+- Local proxy routing: `POPCORN_PROXY_URL` must be your own exact HTTP/Mixed
+  origin (for example `http://127.0.0.1:8080`), never a SOCKS-only port. Leave
+  it blank for direct access or true TUN/global routing; after changing it,
+  run `pnpm popcorn:stop` and `pnpm popcorn:start`.
 
-## 11. Shutdown and manual fallback
+## 11. End-to-end learning flow
+
+1. Sign in to the Web app and the unpacked extension with the same local
+   account, then open a public YouTube video with Mandarin captions.
+2. In the extension, save the current moment, caption lines, selected text,
+   Key Quote, or AI Explanation. Popcorn keeps a snapshot and processes it in
+   the background; it does not save a video file.
+3. Click **Open Popcorn**, open the video in **Saved**, and review the original
+   evidence and processing state.
+4. Choose a candidate and click **Practice this expression**. Write a new
+   Chinese sentence; if evaluation fails, the input and evidence remain for a
+   retry.
+5. After a valid first attempt, choose **Open in Vault**. Vault groups the
+   expression, source evidence, and attempt history; it is not a duplicate
+   Saved list.
+6. Use **Practice** for due new-context reviews and **Progress** for weekly
+   practice, due completions, independent reuse, and `tried`/`reused`/`owned`
+   distribution. Saving more items alone does not increase mastery.
+
+## 12. Professor-demo checklist
+
+- [ ] `pnpm popcorn:start` opens the local app; show that `pnpm db:reset` is
+      not a daily command.
+- [ ] Sign in on Web and in the extension with one local account.
+- [ ] Save one current-YouTube snapshot, then show it in **Saved**.
+- [ ] Complete one **Practice** attempt and show the expression in **Vault**.
+- [ ] Show the corresponding evidence in **Progress**.
+- [ ] Explain that `.env.local` and all keys stay local, and that the gateway
+      key is entered only in signed-in Web settings.
+
+## 13. Shutdown and manual fallback
 
 For daily one-click use, run `pnpm popcorn:stop` (or double-click `Stop
 Popcorn.command` on macOS). It stops the launcher and local Supabase without

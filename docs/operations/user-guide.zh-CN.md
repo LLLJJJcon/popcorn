@@ -35,12 +35,12 @@ pnpm popcorn:stop
 在终端中进入你想存放项目的位置，然后取得项目并进入它的文件夹：
 
 ```bash
-git clone <项目仓库地址>
-cd <项目文件夹>
+git clone https://github.com/LLLJJJcon/popcorn.git
+cd popcorn
 pnpm install --frozen-lockfile
 ```
 
-请把 `<项目仓库地址>` 和 `<项目文件夹>` 替换为你实际使用的地址和文件夹名。最后一条命令只会按项目锁定的版本安装依赖。
+最后一条命令只会按项目锁定的版本安装依赖。
 
 ### 3. 启动本地 Supabase 并建立本地配置
 
@@ -114,6 +114,9 @@ pnpm extension:local
 
 在 Chrome 打开 `chrome://extensions`，开启“开发者模式”，选择“加载已解压的扩展程序”，并选择仓库中的 `dist/popcorn-extension` 文件夹。使用与 Web 相同的本地账号登录扩展。
 
+若源代码或本地配置发生变化，再运行一次 `pnpm extension:local`，然后在
+`chrome://extensions` 对 Popcorn 选择“重新加载”。
+
 ## 日常学习流程
 
 1. 启动 Popcorn，并在 Web 与扩展中登录同一账号。
@@ -161,3 +164,12 @@ pnpm extension:local
 | 想运行 `pnpm db:reset` | 先停止。它会删除本地数据库的全部账号和学习资料；只在你确认要完整重建本地演示时使用。 |
 
 若一键停止没有完成，可在启动窗口按 `Ctrl-C`，再运行 `pnpm exec supabase stop`。这同样不会删除正常保存的数据或已加载的扩展。
+
+## 教授演示清单
+
+1. 运行 `pnpm popcorn:start`，说明 `pnpm db:reset` 会破坏本地数据、不是日常启动命令。
+2. 在 Web 和扩展中用同一个本地账号登录。
+3. 打开带中文字幕的 YouTube 视频，保存一个当前时刻，并在 **Saved** 展示原始快照。
+4. 从 Saved 进入 **Practice**，提交一个新中文句子，再在 **Vault** 展示表达、来源证据和尝试历史。
+5. 在 **Progress** 展示练习证据和 `tried -> reused -> owned` 掌握度路径。
+6. 明确说明 `.env.local` 被 Git 忽略；任何密钥、密码都不提交、不贴到 issue 或聊天，网关密钥只在已登录的 Web 设置中输入。
