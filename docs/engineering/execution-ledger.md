@@ -12,6 +12,15 @@
 - Approved scope revision: `docs/superpowers/specs/2026-08-22-popcorn-local-first-school-demo-design.md` plus the three 2026-08-22 overlay plans; approved by the user and committed as `60f3888` on 2026-08-22.
 - Approved unified UX spec: `docs/superpowers/specs/2026-09-05-popcorn-unified-learning-workspace-design.md`; implementation plan `docs/superpowers/plans/2026-09-05-popcorn-unified-learning-workspace.md`.
 
+## Final release gate — 2026-09-06
+
+- User acceptance: passed for the current school-demo product.
+- `pnpm verify`: exit 0 — ESLint 0 errors / 4 pre-existing warnings; TypeScript passed; unit 397/397; contract 186/186; integration 505/505; provenance 16/16; Next.js production build passed with 25 generated pages.
+- Extension: official release subset 4/4 and full extension suite 178/178 passed.
+- Documentation: required bilingual content, relative links, and baseline-to-HEAD whitespace checks passed after independent review.
+- Credential gate: `.env.local` remains ignored and has never been tracked; no new-diff secret-pattern matches. Three whole-tree matches were manually confirmed as fixed test fixtures only. No Supadata key, model API key, password, token, or private gateway URL is part of the release commit.
+- Database ruling: no migration or database behavior changed in this final documentation/test-alignment set, so the previously accepted focused pgTAP evidence remains authoritative; no destructive local reset was repeated.
+
 ## Preflight
 
 - Read-only preflight completed: 2026-08-16 Asia/Shanghai.
