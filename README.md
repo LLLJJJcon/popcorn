@@ -14,26 +14,42 @@ Popcorn 是一款面向以英语为辅助语言的中级中文学习者的 AI �
 
 Popcorn 聚焦这一断点：保留让表达产生意义的视频上下文，为它安排主动输出和后续复用，让学习进度有记录可查。
 
-## 用户如何完成一次学习
-
-以“看视频时遇到一句想学会的表达”为例：
-
-1. **观看与捕获**：在 YouTube 侧栏查看字幕、翻译或解释，保存原句与时间戳，继续观看。
-2. **从收藏进入练习**：在 **Saved** 找回原始语境，选择候选表达，进入 **Practice**。
-3. **先表达，再反馈**：在新场景中写出自己的中文回答，获得准确性、自然度和语境适配反馈，按需修改。
-4. **复习与积累**：通过后续 Practice 再次使用；在 **Vault** 回看来源和尝试记录，在 **Progress** 查看复用证据。
-
-`YouTube → Saved → Practice → Vault → Progress`
-
 ## 产品预览
 
-以下截图使用现有演示数据，分别展示不同学习记录；点击图片可查看大图。
+**在 YouTube 理解与保存 → 从 Saved 完成首次练习 → 日后回到 Practice 复习 → 在 Vault / Progress 查看积累。**
 
-| 在观看中理解与保存 | 从原始语境发起练习 |
+截图使用现有演示数据，展示不同学习记录；点击图片可查看大图。
+
+### 1. 看 YouTube 时：理解内容，留下想学的表达
+
+打开侧栏查看中文、英文或双语字幕，按时间戳回到原句；按需生成视频概览、查看章节与关键句，或选段解释。遇到有用的内容，保存字幕行、选段或当前视频片段，继续观看。
+
+| 字幕：双语对照、时间定位与保存 | 概览：先理解内容，再定位关键表达 |
 | :---: | :---: |
-| [![插件字幕：双语对照、时间戳与保存状态](docs/assets/readme/extension-transcript.png)](docs/assets/readme/extension-transcript.png) | [![Saved：原句、候选表达与练习入口](docs/assets/readme/saved-detail.png)](docs/assets/readme/saved-detail.png) |
-| **在新场景中主动表达** | **查看尝试与复用证据** |
-| [![Practice：新场景任务与原始来源](docs/assets/readme/practice-task.png)](docs/assets/readme/practice-task.png) | [![Progress：练习、复用与掌握状态](docs/assets/readme/progress.png)](docs/assets/readme/progress.png) |
+| [![YouTube 侧栏字幕：语言切换、时间戳和 Saved 状态](docs/assets/readme/extension-transcript.png)](docs/assets/readme/extension-transcript.png) | [![YouTube 侧栏概览：总结、章节与带时间戳的关键句](docs/assets/readme/extension-overview.png)](docs/assets/readme/extension-overview.png) |
+
+### 2. 第一次练习：把收藏变成自己写出的一句话
+
+从侧栏打开 Web，在 **Saved** 找回原句和上下文，选择候选表达，点击 **Practice this expression**。进入首次练习后，先在新场景中写出中文回答，再点击 **Check my response**，查看准确性、自然度和语境适配反馈，按需修改。合格的独立首次尝试进入 **Vault**，成为 `tried` 证据，并衔接后续复习。
+
+[![首次练习入口：Saved 保留原始语境，并提供候选表达与 Practice this expression 按钮](docs/assets/readme/saved-detail.png)](docs/assets/readme/saved-detail.png)
+
+### 3. 日后复习：换个场景再用一次，查看积累
+
+再次打开产品时，从 **Home** 的下一步提示或 **Practice** 的到期列表开始。在新场景中重新作答、接收反馈，符合规则的独立复用推动掌握状态；**Vault** 保留来源与尝试历史，**Progress** 汇总练习、复用和当前掌握情况。
+
+| 找到到期表达，开始短时复习 | 在新场景中重新使用，原始来源仍可查看 |
+| :---: | :---: |
+| [![日后复习入口：Practice 展示到期表达与 Start practice 按钮](docs/assets/readme/practice.png)](docs/assets/readme/practice.png) | [![日后复习任务：已有 tried 状态的表达、新场景与原始视频来源](docs/assets/readme/practice-task.png)](docs/assets/readme/practice-task.png) |
+
+<details>
+<summary>查看复习后的表达记录与学习进度</summary>
+
+| Vault：回溯表达来源与练习记录 | Progress：查看练习与独立复用证据 |
+| :---: | :---: |
+| [![Vault 表达详情：原始语境与 reused 状态](docs/assets/readme/vault-detail.png)](docs/assets/readme/vault-detail.png) | [![Progress：到期练习、独立复用与掌握状态](docs/assets/readme/progress.png)](docs/assets/readme/progress.png) |
+
+</details>
 
 ## 关键设计亮点
 
