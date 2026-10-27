@@ -30,9 +30,26 @@ Popcorn 聚焦这一断点：保留让表达产生意义的视频上下文，为
 
 ### 2. 第一次练习：把收藏变成自己写出的一句话
 
-从侧栏打开 Web，在 **Saved** 找回原句和上下文，选择候选表达，点击 **Practice this expression**。进入首次练习后，先在新场景中写出中文回答，再点击 **Check my response**，查看准确性、自然度和语境适配反馈，按需修改。合格的独立首次尝试进入 **Vault**，成为 `tried` 证据，并衔接后续复习。
+从侧栏打开 Web，在 **Saved** 选择候选表达，点击 **Practice this expression**，进入“先作答、再反馈”的练习：
 
-[![首次练习入口：Saved 保留原始语境，并提供候选表达与 Practice this expression 按钮](docs/assets/readme/saved-detail.png)](docs/assets/readme/saved-detail.png)
+1. **用户输入**：面对“一杯普通咖啡卖一百元”的新场景，写下“这个价格也太离谱了。”，点击 **Check my response**。
+2. **模型反馈**：界面分别展示准确性、自然度、语境适配的评分与解释，并提供改进重点和 **Natural revision** 示例。
+3. **修改再试**：根据建议改为“这个价格也太离谱了吧。”，点击 **Check revised response** 再次检查。合格的独立首次尝试进入 **Vault** 成为 `tried` 证据；参考示范后的修改单独记录，不额外算作独立复用。
+
+下方作答与反馈截图由项目实际前端组件加载固定演示数据生成，评分和反馈用于说明交互，非实时模型评测。
+
+| 用户输入：新场景、原始来源与中文回答 | 反馈输出：三维评分、改进建议与自然改写 |
+| :---: | :---: |
+| [![首次作答：用户输入“这个价格也太离谱了。”并准备提交](docs/assets/readme/practice-input.png)](docs/assets/readme/practice-input.png) | [![反馈演示：准确性、自然度、语境适配评分，Natural revision 与再次修改入口](docs/assets/readme/practice-feedback.png)](docs/assets/readme/practice-feedback.png) |
+
+<details>
+<summary>查看 Saved 练习入口与修改后再次检查的结果</summary>
+
+| 从收藏的候选表达进入练习 | 修改回答后再次提交，查看更新反馈 |
+| :---: | :---: |
+| [![首次练习入口：Saved 保留原始语境，并提供候选表达与 Practice this expression 按钮](docs/assets/readme/saved-detail.png)](docs/assets/readme/saved-detail.png) | [![修改演示：用户改为“这个价格也太离谱了吧。”并再次检查，输入与更新反馈同时保留](docs/assets/readme/practice-revision.png)](docs/assets/readme/practice-revision.png) |
+
+</details>
 
 ### 3. 日后复习：换个场景再用一次，查看积累
 
