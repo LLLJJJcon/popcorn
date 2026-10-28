@@ -28,6 +28,15 @@ Popcorn 聚焦这一断点：保留让表达产生意义的视频上下文，为
 
 视频与字幕同屏呈现：边看边定位原句，通过 **Save moment** 保存当前片段，或用 **Save Video** 保存整条视频的学习快照。
 
+**Overview：从理解视频，到发现值得练习的表达。**
+
+- **总结与章节导航**：基于视频字幕概括主要内容，按章节呈现要点与时间戳，帮助快速理解脉络、回到相关片段。
+- **地道表达推荐**：从原始语境提取值得学习的表达，附英文释义与来源时间戳；可直接 **Save** 或 **Copy**，为后续练习留下素材。
+
+| Overview · 总结与章节导航 | Overview · 地道表达推荐 |
+| :---: | :---: |
+| [![Overview 总结：视频内容概要、章节要点与来源时间戳](docs/assets/readme/extension-overview.png)](docs/assets/readme/extension-overview.png) | [![Overview 表达推荐：从视频提取的中文表达、英文释义、时间戳及 Save 和 Copy 入口](docs/assets/readme/extension-overview-expressions.png)](docs/assets/readme/extension-overview-expressions.png) |
+
 ### 2. 第一次练习：把收藏变成自己写出的一句话
 
 从侧栏打开 Web，在 **Saved** 选择候选表达，点击 **Practice this expression**，进入“先作答、再反馈”的练习：
