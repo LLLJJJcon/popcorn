@@ -504,6 +504,32 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
         endSeconds: row.end_seconds,
       }));
     }
+    // Player moments contain a timestamp rather than a stable subtitle ID.
+    // Fetch only their matching lines, with bounded concurrency and owner/snapshot scope.
+    const moments = [...new Map(items
+      .filter((item) => item.kind === "player_moment" && item.snapshotId !== null && item.startSeconds !== null)
+      .map((item) => [`${item.snapshotId}:${item.startSeconds}`, item])).values()];
+    for (let offset = 0; offset < moments.length; offset += 20) {
+      const results = await Promise.all(moments.slice(offset, offset + 20).map((item) =>
+        client.from("transcript_segments")
+          .select("stable_id,user_id,snapshot_id,original_chinese,english_translation,start_seconds,end_seconds")
+          .eq("user_id", userId).eq("snapshot_id", item.snapshotId!)
+          .lte("start_seconds", item.startSeconds!).gt("end_seconds", item.startSeconds!)
+          .order("start_seconds", { ascending: true }).order("stable_id", { ascending: true }).limit(1),
+      ));
+      for (const result of results) {
+        throwQueryError(result.error);
+        evidence.push(...(result.data ?? []).map((row) => ({
+          id: row.stable_id,
+          userId: row.user_id,
+          snapshotId: row.snapshot_id,
+          originalChinese: row.original_chinese,
+          englishTranslation: row.english_translation,
+          startSeconds: row.start_seconds,
+          endSeconds: row.end_seconds,
+        })));
+      }
+    }
     return {
       sources, snapshots, items, jobs, evidence,
       artifacts: (artifactResult.data ?? []).map(mapArtifact),
