@@ -206,13 +206,16 @@ export function createOpenAiCompatibleStructuredJsonClient(
   const endpoint = `${options.config.canonicalOrigin}${options.config.basePath}/chat/completions`;
 
   async function requestAssistantText(
-    _promptVersion: string,
+    promptVersion: string,
     userPrompt: string,
     completionOptions: StructuredTextCompletionOptions,
   ): Promise<string> {
     const body = JSON.stringify({
       model: options.config.model,
       max_tokens: boundedPositiveInteger(completionOptions.maxTokens, 1),
+      ...(options.config.model === "qwen3.8-flash" && /^evaluate-practice-v\d+$/.test(promptVersion)
+        ? { enable_thinking: false }
+        : {}),
       messages: [
         {
           role: "system",

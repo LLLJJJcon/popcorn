@@ -144,6 +144,32 @@ describe("structured JSON model gateway", () => {
     expect(Object.keys(resolved)).toEqual(["model", "complete"]);
   });
 
+  test.each([
+    ["qwen3.8-flash", "evaluate-practice-v3", false],
+    ["qwen3.8-flash", "activate-practice-v3", undefined],
+    ["qwen3.8-flash", "translate-segments-v3", undefined],
+    ["provider/model-v3", "evaluate-practice-v3", undefined],
+  ])("sets thinking for model %s and task %s to %s", async (model, promptVersion, expectedThinking) => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ checked: true }));
+    const resolver = createStructuredJsonGatewayResolver({
+      ci: false,
+      fixture: mockGateway("unused", vi.fn()),
+      createRuntimeResolver: () => ({ resolve: async () => ({ ...runtimeConfig, model }) }),
+      fetchImpl,
+    });
+    const gateway = await resolver.resolve(USER_ID, PIN);
+
+    await expect(gateway.complete(promptVersion, "Evaluate a fixed test sentence.", completionOptions(recordNormalizer)))
+      .resolves.toEqual({ checked: true });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    if (expectedThinking === undefined) {
+      expect(body).not.toHaveProperty("enable_thinking");
+    } else {
+      expect(body.enable_thinking).toBe(expectedThinking);
+    }
+  });
+
   test("unsupported adapters and transport failures fail closed without exposing the key", async () => {
     const unsupported = createStructuredJsonGatewayResolver({
       ci: false,
