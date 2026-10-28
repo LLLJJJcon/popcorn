@@ -18,15 +18,15 @@ Popcorn 聚焦这一断点：保留让表达产生意义的视频上下文，为
 
 **在 YouTube 理解与保存 → 从 Saved 完成首次练习 → 日后回到 Practice 复习 → 在 Vault / Progress 查看积累。**
 
-截图使用现有演示数据，展示不同学习记录；点击图片可查看大图。
+截图展示实际使用场景与不同学习记录；固定数据的练习演示另作说明。点击图片可查看大图。
 
 ### 1. 看 YouTube 时：理解内容，留下想学的表达
 
 打开侧栏查看中文、英文或双语字幕，按时间戳回到原句；按需生成视频概览、查看章节与关键句，或选段解释。遇到有用的内容，保存字幕行、选段或当前视频片段，继续观看。
 
-| 字幕：双语对照、时间定位与保存 | 概览：先理解内容，再定位关键表达 |
-| :---: | :---: |
-| [![YouTube 侧栏字幕：语言切换、时间戳和 Saved 状态](docs/assets/readme/extension-transcript.png)](docs/assets/readme/extension-transcript.png) | [![YouTube 侧栏概览：总结、章节与带时间戳的关键句](docs/assets/readme/extension-overview.png)](docs/assets/readme/extension-overview.png) |
+[![实际观看场景：YouTube 播放器与 Popcorn 字幕侧栏同屏，展示时间定位、Save moment 与 Save Video 入口](docs/assets/readme/youtube-watching.png)](docs/assets/readme/youtube-watching.png)
+
+视频与字幕同屏呈现：边看边定位原句，通过 **Save moment** 保存当前片段，或用 **Save Video** 保存整条视频的学习快照。
 
 ### 2. 第一次练习：把收藏变成自己写出的一句话
 
