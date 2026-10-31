@@ -103,7 +103,7 @@ describe("slim fixture CI", () => {
     expectInOrder(workflow, [
       "pnpm install --frozen-lockfile",
       "pnpm exec supabase start",
-      "pnpm exec supabase status -o env > /tmp/popcorn-supabase.env",
+      "node_modules/.bin/supabase status -o env > /tmp/popcorn-supabase.env",
       "source /tmp/popcorn-supabase.env",
       'echo "APP_URL=http://127.0.0.1:3000"',
       'echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"',
