@@ -175,7 +175,7 @@ async function expectDueFailureResponse(response: Response, expected: DueFailure
 }
 
 describe("complete due Practice", () => {
-  test("pins semantic wire evaluations to the immutable v3 prompt and fixture model", async () => {
+  test("pins semantic wire evaluations to the immutable v4 prompt and existing fixture model", async () => {
     const store = repository();
     const fixture = createEvaluationFixtureGateway();
     const gateway = {
@@ -190,7 +190,7 @@ describe("complete due Practice", () => {
     });
 
     expect(gateway.complete).toHaveBeenCalledWith(
-      "evaluate-practice-v3",
+      "evaluate-practice-v4",
       expect.stringContaining('"task":"evaluation"'),
       expect.objectContaining({
         systemPrompt: expect.stringContaining("naturalRevisionChinese"),
@@ -199,7 +199,7 @@ describe("complete due Practice", () => {
       }),
     );
     expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({
-      evaluationPromptVersion: "evaluate-practice-v3",
+      evaluationPromptVersion: "evaluate-practice-v4",
       evaluationModel: "fixture/evaluation-v3",
     }));
   });
@@ -314,7 +314,7 @@ describe("complete due Practice", () => {
       passed: true, assistanceLevel: "hint",
     }));
     expect(gateway.complete).toHaveBeenCalledWith(
-      "evaluate-practice-v3",
+      "evaluate-practice-v4",
       expect.not.stringContaining("assistanceLevel"),
       expect.objectContaining({ timeoutMs: 30_000, maxTokens: 700 }),
     );

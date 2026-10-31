@@ -743,7 +743,7 @@ describe("evaluation and append-only revisions", () => {
     expect(store.attempts[0]).toMatchObject({ independentUse: false, assistanceLevel: "hint" });
     expect(harness.promote).not.toHaveBeenCalled();
     expect(harness.fixture.complete).toHaveBeenCalledWith(
-      "evaluate-practice-v3",
+      "evaluate-practice-v4",
       expect.not.stringContaining("assistanceLevel"),
       expect.objectContaining({ timeoutMs: 30_000, maxTokens: 700 }),
     );
@@ -1017,7 +1017,7 @@ describe("evaluation and append-only revisions", () => {
       accuracyScore: 5,
       naturalnessScore: 4,
       contextualFitScore: 5,
-      evaluationPromptVersion: "evaluate-practice-v3",
+      evaluationPromptVersion: "evaluate-practice-v4",
       evaluationModel: "mandarin-model",
       evaluationGatewayConfigId: CONFIG,
       evaluationGatewayRevision: 3,
@@ -1187,7 +1187,7 @@ describe("production Supabase practice repository", () => {
   test.each([
     ["candidate", "analyze-saved-item-v2", "analyze-saved-item-v999"],
     ["draft", "activate-practice-v2", "activate-practice-v999"],
-    ["attempt", "evaluate-practice-v3", "evaluate-practice-v999"],
+    ["attempt", "evaluate-practice-v4", "evaluate-practice-v999"],
   ] as const)("%s readers accept the current version and reject an unknown version", async (kind, current, unknown) => {
     const selection = { savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0 };
     const read = async (version: string) => {
