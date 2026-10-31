@@ -58,6 +58,15 @@ describe("Saved library", () => {
     expect(screen.getByRole("article", { name: "Still processing" })).toBeInTheDocument();
   });
 
+  it("keeps the full video title available on hover without a blanket failure notice", () => {
+    const title = "On一雙5千絕不打折！被Nike嫌棄的「醜鞋」，憑什麼讓費德勒砸錢投資？【懂商業看商周】Ep.160";
+    render(<SavedLibrary videos={[video({ title, processingState: "failed" })]} />);
+
+    expect(screen.getByRole("link", { name: title })).toHaveAttribute("title", title);
+    expect(screen.queryByText(/Could not organize this save/)).not.toBeInTheDocument();
+    expect(screen.getByRole("article", { name: title })).toHaveTextContent("3 saved moments");
+  });
+
   it("omits filter controls when every saved video has the same state", () => {
     render(<SavedLibrary videos={[video(), video({ sourceId: "source-2", title: "Another ready video" })]} />);
 

@@ -92,10 +92,10 @@ export function SavedVideoDetailView({
         <img className={styles.detailThumbnail} src={video.thumbnailUrl} alt="" width={320} height={180} />
         <div>
           <p className={styles.eyebrow}>Saved YouTube video</p>
-          <h1>{video.title}</h1>
+          <h1 title={video.title}>{video.title}</h1>
           <p>{video.channel} · {video.savedCount} saved {video.savedCount === 1 ? "moment" : "moments"}</p>
           <p><a href={video.canonicalUrl}>Watch on YouTube</a></p>
-          <ProcessingState state={video.processingState} />
+          {video.processingState !== "failed" ? <ProcessingState state={video.processingState} /> : null}
         </div>
       </header>
 

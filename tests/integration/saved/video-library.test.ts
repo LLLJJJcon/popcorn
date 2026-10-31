@@ -184,6 +184,46 @@ describe("owner-scoped Saved video library", () => {
     expect(JSON.stringify(result)).not.toMatch(/transcript|原文|Translation|payload/i);
   });
 
+  it("uses captured video metadata when the transcript snapshot still has a placeholder title", async () => {
+    const base = rows();
+    const data = {
+      ...base,
+      snapshots: [{ ...base.snapshots[0]!, title: "YouTube video dQw4w9WgXcQ", channel: "YouTube" }],
+      items: [{ ...base.items[0]!, kind: "video", payload: { title: "实际的中文视频标题", channel: "真实频道" } }],
+    };
+    const service = createSavedLibraryService(repository(data));
+
+    expect((await service.list(USER_A))[0]).toMatchObject({ title: "实际的中文视频标题", channel: "真实频道" });
+    expect(await service.detail(USER_A, SOURCE_A)).toMatchObject({ title: "实际的中文视频标题", channel: "真实频道" });
+  });
+
+  it("fills missing historical video titles from public metadata for both list and detail", async () => {
+    const base = rows();
+    const data = { ...base, snapshots: [], evidence: [], items: [{ ...base.items[0]!, kind: "player_moment", snapshotId: null, payload: {} }] };
+    const readMetadata = vi.fn(async () => ({ title: "公开的真实视频名称", channel: "视频频道" }));
+    const service = createSavedLibraryService(repository(data), readMetadata);
+
+    expect((await service.list(USER_A))[0]).toMatchObject({ title: "公开的真实视频名称", channel: "视频频道" });
+    expect(await service.detail(USER_A, SOURCE_A)).toMatchObject({ title: "公开的真实视频名称", channel: "视频频道" });
+    expect(readMetadata).toHaveBeenCalledWith("dQw4w9WgXcQ");
+  });
+
+  it("does not query public metadata when a real title was already captured", async () => {
+    const readMetadata = vi.fn(async () => null);
+    const service = createSavedLibraryService(repository(), readMetadata);
+
+    expect((await service.list(USER_A))[0]?.title).toBe("中文访谈");
+    expect(readMetadata).not.toHaveBeenCalled();
+  });
+
+  it("preserves saves when public title lookup fails", async () => {
+    const base = rows();
+    const data = { ...base, snapshots: [], evidence: [], items: [{ ...base.items[0]!, kind: "player_moment", snapshotId: null, payload: {} }] };
+    const service = createSavedLibraryService(repository(data), async () => { throw new Error("offline"); });
+
+    expect((await service.list(USER_A))[0]).toMatchObject({ title: "Saved YouTube video", savedCount: 1 });
+  });
+
   it("returns only bounded saved evidence and stored artifacts in deterministic timeline order", async () => {
     const detail = await createSavedLibraryService(repository()).detail(USER_A, SOURCE_A);
 

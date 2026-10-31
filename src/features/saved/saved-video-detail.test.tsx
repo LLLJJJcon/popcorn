@@ -75,6 +75,15 @@ describe("Saved video learning bridge", () => {
     expect(screen.getAllByRole("button", { name: "Analyze" })).toHaveLength(1);
   });
 
+  it("keeps the full detail title on hover and removes the blanket header failure", () => {
+    const { container } = render(<SavedVideoDetailView video={detail()} deletionImpact={deletionImpact} />);
+
+    expect(screen.getByRole("heading", { level: 1, name: "中文访谈" })).toHaveAttribute("title", "中文访谈");
+    expect(container.querySelector("header")).not.toHaveTextContent("Could not organize this save");
+    expect(screen.getByTestId("raw-text")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analyze" })).toBeInTheDocument();
+  });
+
   it.each([
     "youtube-overview-v4-simple",
     "youtube-overview-v5-structured",

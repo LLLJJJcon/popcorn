@@ -14,6 +14,7 @@ import {
   createSupabaseSourceDeletionRepository,
 } from "@/server/domain/plan-source-deletion";
 import type { Database, Json } from "@/types/database.generated";
+import { createYouTubeVideoMetadataProvider, type ReadVideoMetadata } from "@/server/youtube/video-metadata";
 
 type SourceRow = {
   readonly id: string;
@@ -136,10 +137,17 @@ const emptyRows = (): SavedLibraryRows => ({
   sources: [], snapshots: [], items: [], artifacts: [], jobs: [], evidence: [],
 });
 
-function newestSnapshot(snapshots: readonly SnapshotRow[], sourceId: string) {
-  return snapshots
+function hasVideoTitle(title: string | undefined, videoId: string) {
+  return Boolean(title?.trim()) && ![
+    `YouTube video ${videoId}`, "Saved YouTube video", "Saved video",
+  ].includes(title!.trim());
+}
+
+function newestSnapshot(snapshots: readonly SnapshotRow[], sourceId: string, videoId: string) {
+  const ordered = snapshots
     .filter((snapshot) => snapshot.sourceId === sourceId)
-    .toSorted((left, right) => right.capturedAt.localeCompare(left.capturedAt))[0];
+    .toSorted((left, right) => right.capturedAt.localeCompare(left.capturedAt));
+  return ordered.find((snapshot) => hasVideoTitle(snapshot.title, videoId)) ?? ordered[0];
 }
 
 function processingState(
@@ -166,7 +174,7 @@ export function groupSavedVideos({
 }: {
   readonly sources: readonly Pick<SourceRow, "id" | "youtubeVideoId" | "canonicalUrl">[];
   readonly snapshots: readonly Pick<SnapshotRow, "id" | "sourceId" | "title" | "channel" | "thumbnailUrl" | "capturedAt">[];
-  readonly items: readonly (SavedItemView & { readonly sourceId: string })[];
+  readonly items: readonly (SavedItemView & { readonly sourceId: string; readonly sourceChannel?: string })[];
   readonly jobs: readonly JobRow[];
 }): SavedVideoSummary[] {
   const summaries = sources.flatMap((source) => {
@@ -175,9 +183,11 @@ export function groupSavedVideos({
     const snapshot = newestSnapshot(
       snapshots.map((value) => ({ ...value, userId: "" })),
       source.id,
+      source.youtubeVideoId,
     );
-    const videoSave = sourceItems.find((item) => item.kind === "video");
-    const title = snapshot?.title ?? videoSave?.rawText ?? "Saved YouTube video";
+    const videoSave = sourceItems.find((item) => item.kind === "video" && hasVideoTitle(item.rawText, source.youtubeVideoId));
+    const title = hasVideoTitle(snapshot?.title, source.youtubeVideoId)
+      ? snapshot!.title : videoSave?.rawText ?? "Saved YouTube video";
     const latestSavedAt = sourceItems.reduce(
       (latest, item) => item.capturedAt > latest ? item.capturedAt : latest,
       sourceItems[0]!.capturedAt,
@@ -190,7 +200,8 @@ export function groupSavedVideos({
       youtubeVideoId: source.youtubeVideoId,
       canonicalUrl: source.canonicalUrl,
       title,
-      channel: snapshot?.channel ?? "YouTube",
+      channel: snapshot?.channel && snapshot.channel !== "YouTube"
+        ? snapshot.channel : videoSave?.sourceChannel ?? "YouTube",
       thumbnailUrl: snapshot?.thumbnailUrl ?? `https://i.ytimg.com/vi/${source.youtubeVideoId}/hqdefault.jpg`,
       savedCount: sourceItems.length,
       latestSavedAt,
@@ -308,15 +319,25 @@ function listRows(rows: SavedLibraryRows): SavedVideoSummary[] {
   const items = rows.items.map((item) => ({
     ...itemView(item, rows.sources.find(({ id }) => id === item.sourceId)!, rows.evidence),
     sourceId: item.sourceId,
+    sourceChannel: item.kind === "video" ? text(objectPayload(item.payload), "channel") ?? undefined : undefined,
   }));
   return groupSavedVideos({ sources: rows.sources, snapshots: rows.snapshots, items, jobs: rows.jobs });
 }
 
-export function createSavedLibraryService(repository: SavedLibraryRepository) {
+export function createSavedLibraryService(repository: SavedLibraryRepository, readVideoMetadata?: ReadVideoMetadata) {
+  async function withVideoMetadata(video: SavedVideoSummary): Promise<SavedVideoSummary> {
+    if (!readVideoMetadata || hasVideoTitle(video.title, video.youtubeVideoId)) return video;
+    try {
+      const metadata = await readVideoMetadata(video.youtubeVideoId);
+      return metadata ? { ...video, ...metadata } : video;
+    } catch {
+      return video;
+    }
+  }
   return {
     async list(userId: string): Promise<SavedVideoSummary[]> {
       const rows = await repository.list(userId);
-      return rowsBelongTo(userId, rows) ? listRows(rows) : [];
+      return rowsBelongTo(userId, rows) ? Promise.all(listRows(rows).map(withVideoMetadata)) : [];
     },
     async detail(userId: string, sourceId: string): Promise<SavedVideoDetail | null> {
       const rows = await repository.detail(userId, sourceId);
@@ -327,7 +348,7 @@ export function createSavedLibraryService(repository: SavedLibraryRepository) {
       const items = sortSavedTimeline(rows.items.map((row) => itemView(row, source, rows.evidence)));
       const savedItemIds = new Set(rows.items.map(({ id }) => id));
       return {
-        ...summary,
+        ...await withVideoMetadata(summary),
         items,
         artifacts: rows.artifacts
           .filter(({ savedItemId }) => savedItemId === null || savedItemIds.has(savedItemId))
@@ -566,7 +587,7 @@ export function createSavedLibraryRuntime() {
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
   return {
-    service: createSavedLibraryService(createSavedLibraryRepository(client)),
+    service: createSavedLibraryService(createSavedLibraryRepository(client), createYouTubeVideoMetadataProvider()),
   };
 }
 
@@ -587,7 +608,7 @@ export async function createSavedRuntime() {
   const deletionRepository = createSupabaseSourceDeletionRepository(client);
   return {
     authenticate,
-    service: createSavedLibraryService(createSavedLibraryRepository(client)),
+    service: createSavedLibraryService(createSavedLibraryRepository(client), createYouTubeVideoMetadataProvider()),
     deletionRepository,
     deletionPlanner: createSourceDeletionPlanner(deletionRepository),
     appUrl: environment.APP_URL,
