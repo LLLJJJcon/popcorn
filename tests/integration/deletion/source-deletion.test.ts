@@ -99,6 +99,7 @@ describe("source deletion preview and sole-RPC commit", () => {
         const query = {
           select(columns: string, options?: unknown) { calls.push(["select", table, columns, options]); return query; },
           eq(column: string, value: unknown) { calls.push(["eq", table, column, value]); return query; },
+          is(column: string, value: null) { calls.push(["is", table, column, value]); return query; },
           order(column: string, options: unknown) { calls.push(["order", table, column, options]); return query; },
           async limit(value: number) {
             calls.push(["limit", table, value]);
@@ -122,6 +123,7 @@ describe("source deletion preview and sole-RPC commit", () => {
       ["eq", "video_snapshots", "video_source_id", SOURCE],
       ["eq", "saved_items", "user_id", USER],
       ["eq", "saved_items", "video_source_id", SOURCE],
+      ["is", "saved_items", "removed_from_saved_at", null],
       ["eq", "user_expressions", "user_id", USER],
       ["eq", "user_expressions", "expression_senses.user_id", USER],
       ["eq", "user_expressions", "expression_senses.video_source_id", SOURCE],

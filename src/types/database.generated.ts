@@ -1177,6 +1177,7 @@ export type Database = {
       }
       saved_items: {
         Row: {
+          removed_from_saved_at: string | null
           captured_at: string
           client_event_id: string
           created_at: string
@@ -1192,6 +1193,7 @@ export type Database = {
           youtube_video_id: string
         }
         Insert: {
+          removed_from_saved_at?: string | null
           captured_at: string
           client_event_id: string
           created_at?: string
@@ -1207,6 +1209,7 @@ export type Database = {
           youtube_video_id: string
         }
         Update: {
+          removed_from_saved_at?: string | null
           captured_at?: string
           client_event_id?: string
           created_at?: string

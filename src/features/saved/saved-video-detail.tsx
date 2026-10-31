@@ -86,16 +86,30 @@ export function SavedVideoDetailView({
 }): React.JSX.Element {
   return (
     <main className={styles.workspace}>
-      <p><Link className={styles.backLink} href="/saved">Back to Saved</Link></p>
+      <p>
+        <Link className={styles.backLink} href="/saved">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m12 5-7 7 7 7M5 12h14" />
+          </svg>
+          Back to Saved
+        </Link>
+      </p>
       <header className={styles.detailHeader}>
         {/* eslint-disable-next-line @next/next/no-img-element -- this is the persisted, source-owned YouTube thumbnail URL. */}
         <img className={styles.detailThumbnail} src={video.thumbnailUrl} alt="" width={320} height={180} />
-        <div>
+        <div className={styles.detailInfo}>
           <p className={styles.eyebrow}>Saved YouTube video</p>
           <h1 title={video.title}>{video.title}</h1>
           <p>{video.channel} · {video.savedCount} saved {video.savedCount === 1 ? "moment" : "moments"}</p>
-          <p><a href={video.canonicalUrl}>Watch on YouTube</a></p>
           {video.processingState !== "failed" ? <ProcessingState state={video.processingState} /> : null}
+          <p className={styles.detailAction}>
+            <a className={styles.youtubeAction} href={video.canonicalUrl}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              Watch on YouTube
+            </a>
+          </p>
         </div>
       </header>
 
@@ -107,6 +121,7 @@ export function SavedVideoDetailView({
         <p className={styles.eyebrow}>Your source material</p>
         <h2 id="saved-moments-heading">Saved moments</h2>
         <SavedTimeline
+          videoSourceId={video.sourceId}
           items={video.items}
           renderAfter={(item) => (
             <CandidateList

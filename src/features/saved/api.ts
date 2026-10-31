@@ -15,6 +15,7 @@ import {
 } from "@/server/domain/plan-source-deletion";
 import type { Database, Json } from "@/types/database.generated";
 import { createYouTubeVideoMetadataProvider, type ReadVideoMetadata } from "@/server/youtube/video-metadata";
+import { createSavedMomentRemover } from "@/server/domain/delete-saved-moment";
 
 type SourceRow = {
   readonly id: string;
@@ -474,8 +475,9 @@ function segmentIds(items: readonly SavedItemRow[]) {
 
 export function createSavedLibraryRepository(client: SupabaseClient<Database>): SavedLibraryRepository {
   async function readSources(userId: string, sourceId?: string) {
-    let query = client.from("video_sources").select("id,user_id,youtube_video_id,canonical_url")
-      .eq("user_id", userId);
+    let query = client.from("video_sources")
+      .select("id,user_id,youtube_video_id,canonical_url,saved_items!inner(id)")
+      .eq("user_id", userId).is("saved_items.removed_from_saved_at", null);
     if (sourceId) query = query.eq("id", sourceId);
     const result = await query.order("created_at", { ascending: false }).limit(sourceId ? 1 : 100);
     throwQueryError(result.error);
@@ -491,6 +493,7 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
         .order("captured_at", { ascending: false }).limit(100),
       client.from("saved_items").select("id,user_id,video_source_id,snapshot_id,youtube_video_id,kind,status,captured_at,start_seconds,payload")
         .eq("user_id", userId).in("video_source_id", sourceIds)
+        .is("removed_from_saved_at", null)
         .order("captured_at", { ascending: false }).limit(500),
       client.from("knowledge_jobs").select("id,user_id,video_source_id,saved_item_id,job_type,status,last_error_code,created_at")
         .eq("user_id", userId).in("video_source_id", sourceIds)
@@ -499,7 +502,9 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
     throwQueryError(snapshotResult.error ?? itemResult.error ?? jobResult.error);
     const snapshots = (snapshotResult.data ?? []).map(mapSnapshot);
     const items = (itemResult.data ?? []).map(mapItem);
-    const jobs = (jobResult.data ?? []).map(mapJob);
+    const visibleItemIds = new Set(items.map(({ id }) => id));
+    const jobs = (jobResult.data ?? []).map(mapJob)
+      .filter(({ savedItemId }) => savedItemId === null || visibleItemIds.has(savedItemId));
     if (!includeDetail) return { sources, snapshots, items, jobs, artifacts: [], evidence: [] };
 
     const artifactResult = await client.from("generated_artifacts")
@@ -571,7 +576,8 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
         client.from("review_tasks").select("id", { count: "exact", head: true })
           .eq("user_id", userId).eq("status", "pending").lte("due_at", now),
         client.from("saved_items").select("id", { count: "exact", head: true })
-          .eq("user_id", userId).in("status", ["saved", "resolving_source", "organizing"]),
+          .eq("user_id", userId).is("removed_from_saved_at", null)
+          .in("status", ["saved", "resolving_source", "organizing"]),
       ]);
       throwQueryError(due.error ?? unsorted.error);
       return { duePracticeCount: due.count ?? 0, unsortedSaveCount: unsorted.count ?? 0 };
@@ -611,6 +617,7 @@ export async function createSavedRuntime() {
     service: createSavedLibraryService(createSavedLibraryRepository(client), createYouTubeVideoMetadataProvider()),
     deletionRepository,
     deletionPlanner: createSourceDeletionPlanner(deletionRepository),
+    removeSavedMoment: createSavedMomentRemover(client),
     appUrl: environment.APP_URL,
   };
 }

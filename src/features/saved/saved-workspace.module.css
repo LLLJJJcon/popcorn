@@ -97,11 +97,41 @@
   line-height: 1.25;
 }
 
-.videoCard h2 a,
-.backLink {
+.videoCard h2 a {
   color: inherit;
   text-decoration-thickness: 0.08em;
   text-underline-offset: 0.18em;
+}
+
+.backLink {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--cocoa) 18%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.7rem;
+  background: var(--paper);
+  color: var(--cocoa);
+  font-size: 0.85rem;
+  font-weight: 650;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+.backLink svg {
+  flex-shrink: 0;
+}
+
+.backLink:hover {
+  border-color: var(--coral-active);
+  background: color-mix(in srgb, var(--coral) 8%, var(--paper));
+  color: var(--coral-active);
+}
+
+.backLink:focus-visible {
+  outline: 3px solid var(--coral-active);
+  outline-offset: 3px;
 }
 
 .videoCard h2 a {
@@ -152,6 +182,53 @@
   border-radius: var(--radius-sm);
 }
 
+.detailInfo {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  align-self: stretch;
+}
+
+.workspace .detailAction {
+  margin: auto 0 0;
+  padding-top: 0.75rem;
+}
+
+.youtubeAction {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--cocoa) 22%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.65rem;
+  background: var(--cream);
+  color: var(--cocoa);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1.25;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.youtubeAction svg {
+  flex-shrink: 0;
+}
+
+.youtubeAction:hover {
+  border-color: var(--coral-active);
+  background: color-mix(in srgb, var(--coral) 10%, var(--paper));
+  color: var(--coral-active);
+}
+
+.youtubeAction:focus-visible {
+  outline: 3px solid var(--coral-active);
+  outline-offset: 3px;
+}
+
 .alert {
   border-left: 0.3rem solid var(--danger);
   padding: 0.85rem 1rem;
@@ -179,6 +256,103 @@
 .moment:first-child {
   border-top: 0;
   padding-top: 0;
+}
+
+.momentHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.momentDelete {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.momentDeleteTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 2rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.5rem;
+  background: transparent;
+  color: color-mix(in srgb, var(--cocoa) 70%, var(--paper));
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.momentDeleteTrigger:hover,
+.momentDeleteTrigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--danger) 7%, var(--paper));
+  color: var(--danger);
+}
+
+.momentDeleteTrigger:focus-visible,
+.momentDeleteActions button:focus-visible {
+  outline: 2px solid var(--coral-active);
+  outline-offset: 2px;
+}
+
+.momentDeleteConfirm {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 2;
+  width: min(20rem, calc(100vw - 4.5rem));
+  border: 1px solid color-mix(in srgb, var(--cocoa) 18%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+  background: var(--paper);
+  box-shadow: var(--shadow-paper);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.momentDeleteConfirm p {
+  margin-bottom: 0.65rem;
+}
+
+.momentDeleteTitle {
+  font-weight: 750;
+}
+
+.momentDeleteActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.momentDeleteActions button {
+  min-height: 2rem;
+  border: 1px solid color-mix(in srgb, var(--cocoa) 20%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.65rem;
+  background: var(--paper);
+  color: var(--cocoa);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.momentDeleteActions button:last-child {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--paper);
+}
+
+.momentDelete button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.momentDeleteConfirm [role="alert"] {
+  margin: 0.65rem 0 0;
+  color: var(--danger);
 }
 
 .rawText {

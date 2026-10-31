@@ -81,6 +81,7 @@ export function createSupabaseSourceDeletionRepository(
     from(table: string): {
       select(columns: string, options?: { readonly count: "exact"; readonly head: true }): ReturnType<typeof db["from"]>;
       eq(column: string, value: unknown): ReturnType<typeof db["from"]>;
+      is(column: string, value: null): ReturnType<typeof db["from"]>;
       order(column: string, options: { readonly ascending: boolean }): ReturnType<typeof db["from"]>;
       limit(value: number): Promise<QueryResult>;
     };
@@ -113,7 +114,8 @@ export function createSupabaseSourceDeletionRepository(
     async countSavedItems(userId, videoSourceId) {
       return queryCount(await db.from("saved_items")
         .select("id", { count: "exact", head: true })
-        .eq("user_id", userId).eq("video_source_id", videoSourceId).limit(1));
+        .eq("user_id", userId).eq("video_source_id", videoSourceId)
+        .is("removed_from_saved_at", null).limit(1));
     },
     async countPromotedExpressions(userId, videoSourceId) {
       return queryCount(await db.from("user_expressions")
