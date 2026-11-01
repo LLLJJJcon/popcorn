@@ -65,8 +65,10 @@ At final freeze, two concurrent unassigned working-tree edits appeared: `src/ser
 
 ## Task D: Independent acceptance and checkpoint
 
-- [ ] Record baseline failures and environment constraints separately from introduced regressions.
-- [ ] Run lint, typecheck, unit, contract, integration, provenance, build, complete extension tests, relevant rollback SQL/RLS tests and both named E2E suites.
-- [ ] Independently review the integrated diff against every 4.13 criterion, exact prompt text and 15.4. Return failures to the original implementer; recheck fixes independently.
-- [ ] Write `docs/engineering/group-1-acceptance.md` with pass/fail/blocked and concrete test/log/screenshot evidence. Missing infrastructure is not a pass.
+- [x] Record baseline failures and environment constraints separately from introduced regressions.
+- [x] Run lint, typecheck, unit, contract, integration, provenance, build, complete extension tests, relevant rollback SQL/RLS tests and both named E2E suites. Independent `verify` at dd94c62 passed; unit 483, contract 186, integration 525, prompts 28, provenance 16; full extension 180, SQL 736 and production E2E 4 passed.
+- [x] Independently review the integrated diff against every 4.13 criterion, exact prompt text and 15.4. Return failures to the original implementer; recheck fixes independently.
+- [x] Write `docs/engineering/group-1-acceptance.md` with pass/fail/blocked and concrete test/log/screenshot evidence. Missing infrastructure is not a pass.
 - [ ] Controller appends `docs/engineering/execution-ledger.md`, records deviations/remaining work, creates implementation and acceptance commits and pushes authorized checkpoints. Never claim group 1 accepted unless required gates pass.
+
+Independent engineering/fixture acceptance is PASS. A full-range CI whitespace check flags the inherited blank EOF line in applied migration 021; section 15.3 prohibits editing existing migrations. An exact one-blank-line patch is prepared at `/private/tmp/popcorn-group1-migration021-eof.patch`, and explicit user exception authorization is pending. No SQL in that file has been changed. Final PR/process completion remains pending that decision and the controller's final records.
