@@ -57,11 +57,11 @@ Files: create `src/server/domain/legacy-learning-card-upgrade-source.ts/.test.ts
 
 Produces `planLegacyLearningCardUpgrade(context): LegacyUpgradePlanRow`, `buildLegacyUpgradePromptInput(context,request): {lines,highlights}`, and `createLegacyLearningCardUpgradeService(dependencies)` with `plan(owner,page):Promise<LegacyUpgradePlanPage>` and `upgrade(owner,request):Promise<LegacyUpgradeOutcome>`.
 
-- [ ] RED→GREEN source proof: exact original occurrence/snapshot/ordered segments, h1 line binding, bounded context; repeated/foreign/missing/deleted/ambiguous/mismatched evidence blocked; same word/different senses stay separate.
-- [ ] RED→GREEN zero-cost canonical no-op and exact existing-card copy, partial preservation and not_expression needs_review with complete card retained.
-- [ ] RED→GREEN one claimant before model, exact unchanged v3 input projection/2458 budget/30s/shared4 attempts, valid examples or final examples-only policy, never source/answer leakage into instruction fields.
-- [ ] RED→GREEN same-ID replay, unknown-commit receipt lookup/boolean failure fences, stale-source/manual/pin outcomes; never automatically mint another request or reopen failed prepare work.
-- [ ] Run owned and complete application tests/types/lint; coordinate actual repository integration with A without overlapping edits.
+- [x] RED→GREEN source proof: exact original occurrence/snapshot/ordered segments, h1 line binding, bounded context; repeated/foreign/missing/deleted/ambiguous/mismatched evidence blocked; same word/different senses stay separate.
+- [x] RED→GREEN zero-cost canonical no-op and exact existing-card copy, partial preservation and not_expression needs_review with complete card retained.
+- [x] RED→GREEN one claimant before model, exact unchanged v3 input projection/2458 budget/30s/shared4 attempts, valid examples or final examples-only policy, never source/answer leakage into instruction fields.
+- [x] RED→GREEN same-ID replay, unknown-commit receipt lookup/boolean failure fences, stale-source/manual/pin outcomes; never automatically mint another request or reopen failed prepare work.
+- [x] Run owned and complete application tests/types/lint; coordinate actual repository integration with A without overlapping edits.
 
 ### Task 3 — Controller: explicit CLI and authorized application
 
@@ -69,7 +69,7 @@ Files: create `scripts/upgrade-legacy-learning-cards.ts` and `tests/contract/leg
 
 CLI: `--user UUID` dry-runs all pages by default. `--plan PATH` writes a0600 private manifest with stable UUIDs and no raw source text; `--apply --plan PATH --user UUID` validates owner/version/unique requests and invokes exact per-sense requests serially. It does not regenerate manifest IDs on retry. Export injectable parsing/runner helpers for behavioral CLI tests; direct execution constructs A's runtime. Output only safe counts/IDs/status/reasons, no cards/source/answers/credentials. No implicit all-owner mode or automatic retry loop.
 
-- [ ] RED→GREEN parser/manifest validation, dry-run0 mutations/model calls, multi-page uncapped planning, private file mode, exact apply/resume IDs and redacted error output.
+- [x] RED→GREEN parser/manifest validation, dry-run0 mutations/model calls, multi-page uncapped planning, private file mode, exact apply/resume IDs and redacted error output.
 - [x] Record human20/20 approval with original reviewed-file hash; leave raw trial files unchanged. Save the authorization/design checkpoint; PR stays draft until new engineering/data work passes.
 - [ ] After independent D acceptance: revalidate selected actual owner, port and current migration state; create private backup/protected before snapshots; audit/apply ordered confirmed schema prerequisites without reset; verify protected historical projections before any model call.
 - [ ] Actual dry-run manifest first, then authorized apply using original retained sources and active consented gateway. Verify only eligible modern metadata/private receipts changed, repeat same manifest with0 further calls, record aggregate counts/provenance/hash evidence without personal content in GitHub.
