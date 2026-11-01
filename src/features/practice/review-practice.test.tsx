@@ -1,7 +1,9 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { PracticeMaterialView } from "./material-schema";
+import { completedReviewFixture, reviewTransferFixture } from "./review-fixtures.test-support";
 import { ReviewPractice } from "./review-practice";
+import type { Completion } from "@/contracts/review-practice";
 const ids = {
   first: "11111111-1111-4111-8111-111111111111",
   second: "22222222-2222-4222-8222-222222222222",
@@ -39,18 +41,10 @@ function apiResponse(data: unknown, status = 200) {
 }
 function transfer(reviewTaskId: string, expression: string) {
   const view = material(reviewTaskId, expression);
-  return {
-    id: view.task.id,
-    reviewTaskId,
-    targetExpression: view.task.targetExpression,
-    promptChinese: view.task.promptChinese,
-    instructionsEnglish: view.task.instructionsEnglish,
-    goalEnglish: view.task.goalEnglish,
-    material: view,
-  };
+  return reviewTransferFixture(reviewTaskId, view);
 }
-function completion(reviewTaskId: string) {
-  return {
+function completion(reviewTaskId: string, responseChinese = "这真的太夸张了。"): Completion {
+  const result: Completion = {
     reviewTaskId, practiceTaskId: reviewTaskId, attemptId: ids.fourth, masteryEventId: ids.third,
     nextReviewTaskId: ids.second, priorState: "tried", newState: "reused",
     nextDueAt: "2026-08-29T12:00:00.000Z", intervalDays: 7, created: true,
@@ -64,10 +58,13 @@ function completion(reviewTaskId: string) {
     },
     coaching: { naturalRevisionChinese: "这件事也太夸张了吧。" },
   };
+  const expression = reviewTaskId === ids.second ? "第二" : "第一";
+  return { ...result, reviewState: completedReviewFixture(transfer(reviewTaskId, expression), result, responseChinese).reviewState };
 }
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  sessionStorage.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -77,12 +74,12 @@ test("single Review reuses recorded examples, official completion and fixed Next
   const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一"))).mockResolvedValueOnce(apiResponse(completion(ids.first), 201));
   vi.stubGlobal("fetch", fetcher);
   render(<ReviewPractice reviewTaskId={ids.first} mode="session" nextLabel="Finish" onNext={next} onCompleted={done}/>);
-  await screen.findByRole("heading", { name: "第一" });
-  fireEvent.change(screen.getByLabelText("Your Chinese response"), { target: { value: "这真的太夸张了。" } });
-  fireEvent.click(screen.getByRole("button", { name: "Check my response" }));
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "这真的太夸张了。" } });
+  fireEvent.click(screen.getByRole("button", { name: "Check my answer" }));
   await screen.findByRole("heading", { name: "Feedback" });
   expect(done).toHaveBeenCalledOnce();
-  expect(JSON.parse(String(fetcher.mock.calls[1]![1].body))).toEqual({ responseChinese: "这真的太夸张了。" });
+  expect(JSON.parse(String(fetcher.mock.calls[1]![1].body))).toMatchObject({ responseChinese: "这真的太夸张了。", taskId: ids.first, scenarioVersion: 1, scenarioFingerprint: "a".repeat(64) });
   expect(screen.queryByText("Stop for now")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Finish" }));
@@ -92,11 +89,11 @@ test("Review provider failure retains unsent text and retry, standalone returns 
   const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一"))).mockResolvedValueOnce(Response.json({ ok: false, requestId: "x", error: { code: "PROVIDER_UNAVAILABLE", message: "Unavailable", retryable: true } }, { status: 503 })).mockResolvedValueOnce(apiResponse(completion(ids.first), 201));
   vi.stubGlobal("fetch", fetcher);
   render(<ReviewPractice reviewTaskId={ids.first}/>);
-  await screen.findByRole("heading", { name: "第一" });
-  fireEvent.change(screen.getByLabelText("Your Chinese response"), { target: { value: "这真的太夸张了。" } });
-  fireEvent.click(screen.getByRole("button", { name: "Check my response" }));
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "这真的太夸张了。" } });
+  fireEvent.click(screen.getByRole("button", { name: "Check my answer" }));
   await screen.findByRole("alert");
-  expect(screen.getByLabelText("Your Chinese response")).toHaveValue("这真的太夸张了。");
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这真的太夸张了。");
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await screen.findByRole("heading", { name: "Feedback" });
   expect(screen.getByRole("link", { name: "Back to Today's practice" })).toHaveAttribute("href", "/practice");
@@ -113,7 +110,7 @@ test("slow Review preparation preserves the request and gateway setup is explici
   await act(async () => {
     vi.advanceTimersByTime(8000);
   });
-  expect(screen.getByText(/configured model is still working/)).toBeInTheDocument();
+  expect(screen.getByText("Preparing a new situation…")).toBeInTheDocument();
   expect(fetcher).toHaveBeenCalledOnce();
   await act(async () => {
     resolve(Response.json({ ok: false, requestId: "x", error: { code: "MODEL_GATEWAY_CONFIGURATION_REQUIRED", message: "Connect", retryable: false } }, { status: 409 }));
@@ -129,13 +126,333 @@ test.each(["get", "post"] as const)("standalone Review %s conflict keeps origina
   vi.stubGlobal("fetch", fetcher);
   render(<ReviewPractice reviewTaskId={ids.first} onUnavailable={onUnavailable}/>);
   if (stage === "post") {
-    await screen.findByLabelText("Your Chinese response");
-    fireEvent.change(screen.getByLabelText("Your Chinese response"), { target: { value: "保留这份原始回答。" } });
-    fireEvent.click(screen.getByRole("button", { name: "Check my response" }));
+    await screen.findByLabelText("Your answer in Chinese");
+    fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "保留这份原始回答。" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check my answer" }));
   }
   await screen.findByRole("alert");
   expect(onUnavailable).not.toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   if (stage === "post")
-    expect(screen.getByLabelText("Your Chinese response")).toHaveValue("保留这份原始回答。");
+    expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("保留这份原始回答。");
+});
+
+// Catches a hidden answer leaking through header, context, About or source labels.
+test("Review keeps the target out of visible and accessible text before explicit reveal", async () => {
+  const item = transfer(ids.first, "第一");
+  item.material.expression.englishMeaning = "Use 第一 to identify the first option.";
+  item.material.expression.englishExplanation = "第一 fits an ordered choice.";
+  item.material.expression.tone = "第一 is neutral";
+  item.material.expression.register = "Use 第一 in everyday speech";
+  item.material.source.videoTitle = "Learn 第一 in context";
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(apiResponse(item)));
+  const view = render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.click(screen.getByRole("button", { name: "About this expression" }));
+  expect(view.container.textContent).not.toContain("第一");
+  for (const element of view.container.querySelectorAll("[title],[aria-label],[aria-description],[aria-describedby]")) {
+    for (const name of ["title", "aria-label", "aria-description", "aria-describedby"])
+      expect(element.getAttribute(name) ?? "").not.toContain("第一");
+  }
+  expect(screen.getByRole("button", { name: "Show the expression" })).toBeEnabled();
+});
+
+test("reveal and examples persist the exact scenario before displaying the expression", async () => {
+  const item = transfer(ids.first, "第一");
+  let release!: (value: Response) => void;
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(item)).mockImplementationOnce(() => new Promise<Response>(resolve => { release = resolve; }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.click(screen.getByRole("button", { name: "Show the expression" }));
+  expect(screen.queryByRole("heading", { name: "第一" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Check my answer" })).toBeDisabled();
+  const body = JSON.parse(String(fetcher.mock.calls[1]![1].body));
+  expect(body).toMatchObject({ taskId: ids.first, scenarioVersion: 1, scenarioFingerprint: "a".repeat(64) });
+  expect(body.requestId).toMatch(/^[a-f0-9-]{36}$/);
+  expect(body).not.toHaveProperty("assistanceLevel");
+  await act(async () => { release(apiResponse({ reviewState: { ...item.reviewState, expressionRevealedAt: "2026-11-01T00:00:00.000Z" } })); });
+  expect(screen.getByRole("heading", { name: "第一" })).toBeInTheDocument();
+});
+
+test("failed regeneration retains question, draft and allowance and retries unknown outcome with one request id", async () => {
+  const item = transfer(ids.first, "第一");
+  const regenerated = reviewTransferFixture(ids.first, { ...item.material, task: { ...item.material.task, promptChinese: "朋友想改变计划，请你回应。" } }, 2);
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(item)).mockRejectedValueOnce(Error("Network outcome unknown")).mockResolvedValueOnce(apiResponse(regenerated));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "保留我还没发出的文字。" } });
+  fireEvent.click(screen.getByRole("button", { name: "Try a different situation" }));
+  await screen.findByRole("alert");
+  expect(screen.getByText(item.promptChinese)).toBeInTheDocument();
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("保留我还没发出的文字。");
+  expect(screen.getByRole("button", { name: "Try a different situation" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await screen.findByText("朋友想改变计划，请你回应。");
+  expect(JSON.parse(fetcher.mock.calls[1]![1].body).requestId).toBe(JSON.parse(fetcher.mock.calls[2]![1].body).requestId);
+  expect(screen.queryByRole("button", { name: "Try a different situation" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("");
+  const oldKey = `popcorn:due-answer:${ids.first}:${ids.first}:1:${"a".repeat(64)}`;
+  expect(localStorage.getItem(oldKey)).toBe("保留我还没发出的文字。");
+});
+
+test("restored official first and latest revision render without completing this session again", async () => {
+  const item = completedReviewFixture(transfer(ids.first, "第一"), completion(ids.first), "第一份正式回答。");
+  item.reviewState.latestRevision = { id: ids.third, requestId: ids.second, attemptId: ids.fourth, taskId: ids.first, scenarioVersion: 1, scenarioFingerprint: "a".repeat(64), responseChinese: "这是最新修订。", evaluation: { ...completion(ids.first).evaluation, naturalness: { score: 5, englishFeedback: "Fully natural." } }, coaching: null, naturalVersion: null, createdAt: "2026-11-01T01:00:00.000Z" };
+  const done = vi.fn();
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(item));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first} mode="session" onCompleted={done}/>);
+  await screen.findByRole("heading", { name: "Feedback" });
+  expect(screen.getByRole("heading", { name: "Your first answer" }).parentElement).toHaveTextContent("第一份正式回答。");
+  expect(screen.getByRole("heading", { name: "Your revision" }).parentElement).toHaveTextContent("这是最新修订。");
+  expect(screen.getByText("Naturalness 4 → 5")).toBeInTheDocument();
+  expect(screen.getByText(/Nice — tried → reused\. Next practice/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "First feedback" })).toBeInTheDocument();
+  expect(done).not.toHaveBeenCalled();
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+test("preparing GET polls the same operation and shows exact slow preparation status", async () => {
+  vi.useFakeTimers();
+  const pending = { status: "preparing", reviewTaskId: ids.first, requestId: ids.second, retryAfterMs: 1000 };
+  const fetcher = vi.fn().mockImplementation(async () => apiResponse(pending));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await act(async () => {});
+  for (let n = 0; n < 8; n++) await act(async () => { vi.advanceTimersByTime(1000); });
+  expect(screen.getByText("Preparing a new situation…")).toBeInTheDocument();
+  expect(String(fetcher.mock.calls[1]![0])).toContain(`retryRequestId=${ids.second}`);
+  expect(fetcher.mock.calls[1]![1].headers).toMatchObject({ "X-Popcorn-Review-Retry": "1" });
+  expect(screen.queryByLabelText("Your answer in Chinese")).not.toBeInTheDocument();
+});
+
+test("unknown preparation network outcome retries the same id, known failure starts a new deliberate cycle", async () => {
+  const fetcher = vi.fn().mockRejectedValueOnce(Error("Unknown outcome")).mockImplementationOnce(async () => {
+    return Response.json({ ok: false, requestId: "fixture", error: { code: "PROVIDER_UNAVAILABLE", message: "Fixture failed", retryable: true, details: { operation: { kind: "prepare", requestId: ids.second, state: "failed" } } } }, { status: 503 });
+  }).mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一")));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByRole("alert");
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await screen.findByRole("alert");
+  const idAt = (index: number) => new URL(String(fetcher.mock.calls[index]![0]), "http://fixture.test").searchParams.get("retryRequestId");
+  expect(idAt(0)).toBeNull();
+  expect(idAt(1)).toBe(idAt(0));
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await screen.findByLabelText("Your answer in Chinese");
+  expect(idAt(2)).toMatch(/^[a-f0-9-]{36}$/);
+  expect(idAt(2)).not.toBe(ids.second);
+});
+
+test("scenario conflict refreshes in place and never retries an old answer on the replacement question", async () => {
+  const item = transfer(ids.first, "第一");
+  const current = reviewTransferFixture(ids.first, { ...item.material, task: { ...item.material.task, promptChinese: "现在朋友想换个话题，请你回应。" } }, 2);
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(item)).mockResolvedValueOnce(Response.json({ ok: false, requestId: "fixture", error: { code: "SCENARIO_CHANGED", message: "Scenario changed", retryable: false, details: { current } } }, { status: 409 }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "这是上一题的回答。" } });
+  fireEvent.click(screen.getByRole("button", { name: "Check my answer" }));
+  await screen.findByText("现在朋友想换个话题，请你回应。");
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("");
+  expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  expect(localStorage.getItem(`popcorn:due-answer:${ids.first}:${ids.first}:1:${"a".repeat(64)}`)).toBe("这是上一题的回答。");
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+test("gateway preparation failure exposes deliberate retry after setup without automatic model cycles", async () => {
+  const fetcher = vi.fn().mockImplementationOnce(async () => {
+    return Response.json({ ok: false, requestId: "fixture", error: { code: "MODEL_GATEWAY_CONFIGURATION_REQUIRED", message: "Connect", retryable: false, details: { operation: { kind: "prepare", requestId: ids.second, state: "failed" } } } }, { status: 409 });
+  }).mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一")));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByRole("link", { name: "Set up model gateway" });
+  expect(fetcher).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await screen.findByLabelText("Your answer in Chinese");
+  expect(fetcher.mock.calls[1]![0]).not.toBe(fetcher.mock.calls[0]![0]);
+});
+
+test("failed preparation reload reads its old cycle and only explicit retry supplies a fresh id", async () => {
+  const failed = () => Response.json({ ok: false, requestId: "fixture", error: { code: "PROVIDER_UNAVAILABLE", message: "Failed", retryable: true, details: { operation: { kind: "prepare", requestId: ids.second, state: "failed" } } } }, { status: 503 });
+  const fetcher = vi.fn().mockImplementationOnce(async () => failed()).mockImplementationOnce(async () => failed()).mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一")));
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByRole("alert");
+  view.unmount();
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByRole("alert");
+  const resumed = new URL(String(fetcher.mock.calls[1]![0]), "http://fixture.test").searchParams.get("retryRequestId");
+  expect(resumed === null || resumed === ids.second).toBe(true);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await screen.findByLabelText("Your answer in Chinese");
+  const newId = new URL(String(fetcher.mock.calls[2]![0]), "http://fixture.test").searchParams.get("retryRequestId");
+  expect(newId).toMatch(/^[a-f0-9-]{36}$/);
+  expect(newId).not.toBe(ids.second);
+});
+
+test("gateway setup return can load with plain GET after a preclaim configuration failure", async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ ok: false, requestId: "fixture", error: { code: "MODEL_GATEWAY_CONFIGURATION_REQUIRED", message: "Connect", retryable: false } }, { status: 409 })).mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一")));
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByRole("link", { name: "Set up model gateway" });
+  view.unmount();
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByLabelText("Your answer in Chinese");
+  expect(fetcher.mock.calls[0]![0]).toBe(`/api/v1/practice/due/${ids.first}`);
+  expect(fetcher.mock.calls[1]![0]).toBe(`/api/v1/practice/due/${ids.first}`);
+});
+
+test("uncertain revision survives reload and retries its one action id without re-completing the review", async () => {
+  const item = completedReviewFixture(transfer(ids.first, "第一"), completion(ids.first), "这是第一份回答。");
+  const done = vi.fn();
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(item)).mockRejectedValueOnce(Error("Unknown revision outcome")).mockResolvedValueOnce(apiResponse(item)).mockImplementationOnce(async (_url: string, options: RequestInit) => {
+    const body = JSON.parse(String(options.body));
+    const revision = { id: ids.third, requestId: body.requestId, attemptId: ids.fourth, taskId: ids.first, scenarioVersion: 1, scenarioFingerprint: "a".repeat(64), responseChinese: body.responseChinese, evaluation: completion(ids.first).evaluation, coaching: null, naturalVersion: null, createdAt: "2026-11-01T01:00:00.000Z" };
+    return apiResponse({ revision, reviewState: { ...item.reviewState, latestRevision: revision } });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(<ReviewPractice reviewTaskId={ids.first} onCompleted={done}/>);
+  fireEvent.click(await screen.findByRole("button", { name: "Revise this answer" }));
+  fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "这是要保留的修订。" } });
+  fireEvent.click(screen.getByRole("button", { name: "Check my revision" }));
+  await screen.findByRole("alert");
+  view.unmount();
+  render(<ReviewPractice reviewTaskId={ids.first} onCompleted={done}/>);
+  await screen.findByRole("button", { name: "Check my revision" });
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这是要保留的修订。");
+  fireEvent.click(screen.getByRole("button", { name: "Check my revision" }));
+  await screen.findByRole("heading", { name: "Your revision" });
+  expect(JSON.parse(fetcher.mock.calls[1]![1].body).requestId).toBe(JSON.parse(fetcher.mock.calls[3]![1].body).requestId);
+  expect(done).not.toHaveBeenCalled();
+  expect(screen.getByText(/Nice — tried → reused\. Next practice/)).toBeInTheDocument();
+});
+
+test("regeneration in progress retries the same POST, blocks conflicting actions and retains revealed examples", async () => {
+  vi.useFakeTimers();
+  const item = transfer(ids.first, "第一");
+  item.reviewState.expressionRevealedAt = "2026-11-01T00:00:00.000Z";
+  item.reviewState.examplesOpenedAt = "2026-11-01T00:00:00.000Z";
+  item.expressionRevealed = true;
+  const next = reviewTransferFixture(ids.first, { ...item.material, task: { ...item.material.task, promptChinese: "新情境里的朋友需要你的回应。" } }, 2);
+  next.reviewState.expressionRevealedAt = item.reviewState.expressionRevealedAt; next.reviewState.examplesOpenedAt = item.reviewState.examplesOpenedAt; next.expressionRevealed = true;
+  let release!: (response: Response) => void;
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(item)).mockImplementationOnce(async (_url: string, options: RequestInit) => Response.json({ ok: false, requestId: "fixture", error: { code: "REQUEST_IN_PROGRESS", message: "Pending", retryable: true, details: { operation: { kind: "regenerate", requestId: JSON.parse(String(options.body)).requestId, state: "in_progress" } } } }, { status: 409 })).mockImplementationOnce(() => new Promise<Response>(resolve => { release = resolve; }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("button", { name: "Try a different situation" }));
+  await act(async () => {});
+  await act(async () => { vi.advanceTimersByTime(1000); });
+  expect(screen.getByLabelText("Your answer in Chinese")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Check my answer" })).toBeDisabled();
+  expect(fetcher.mock.calls[1]![0]).toBe(fetcher.mock.calls[2]![0]);
+  expect(fetcher.mock.calls[1]![1].body).toBe(fetcher.mock.calls[2]![1].body);
+  await act(async () => { vi.advanceTimersByTime(7000); });
+  expect(screen.getByText("Preparing a new situation…")).toBeInTheDocument();
+  await act(async () => { release(apiResponse(next)); });
+  expect(screen.getByRole("heading", { name: "第一" })).toBeInTheDocument();
+  expect(screen.getByText("原来的第一例句。")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Try a different situation" })).not.toBeInTheDocument();
+});
+
+test("opening persisted examples while editing a revision preserves the unsent revision", async () => {
+  const item = completedReviewFixture(transfer(ids.first, "第一"), completion(ids.first), "这是正式首答。");
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(item)).mockResolvedValueOnce(apiResponse({ reviewState: { ...item.reviewState, expressionRevealedAt: "2026-11-01T01:00:00.000Z", examplesOpenedAt: "2026-11-01T01:00:00.000Z" } }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  fireEvent.click(await screen.findByRole("button", { name: "Revise this answer" }));
+  fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "这份修订还没有提交。" } });
+  fireEvent.click(screen.getByRole("button", { name: "Show examples" }));
+  await screen.findByText("原来的第一例句。");
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这份修订还没有提交。");
+});
+
+test("inconsistent task text is rejected before an answer can be graded against another question", async () => {
+  const item = transfer(ids.first, "第一");
+  item.promptChinese = "这是另一道题，请你回应。";
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(apiResponse(item)));
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByRole("alert");
+  expect(screen.queryByLabelText("Your answer in Chinese")).not.toBeInTheDocument();
+});
+
+test("current completion HTTP must return official state rather than rebuilding it from local text", async () => {
+  const flat = { ...completion(ids.first) };
+  delete flat.reviewState;
+  const done = vi.fn();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一"))).mockResolvedValueOnce(apiResponse(flat, 201)));
+  render(<ReviewPractice reviewTaskId={ids.first} onCompleted={done}/>);
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "这份本地文字不能代替服务端首答。" } });
+  fireEvent.click(screen.getByRole("button", { name: "Check my answer" }));
+  await screen.findByRole("alert");
+  expect(done).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这份本地文字不能代替服务端首答。");
+});
+
+test("an official first answer restored after a lost success response opens its feedback", async () => {
+  const item = completedReviewFixture(transfer(ids.first, "第一"), completion(ids.first), "这份首答已经成功保存。");
+  localStorage.setItem(`popcorn:due-answer:${ids.first}:${ids.first}:1:${"a".repeat(64)}`, "这份首答已经成功保存。");
+  const done = vi.fn();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(apiResponse(item)));
+  render(<ReviewPractice reviewTaskId={ids.first} onCompleted={done}/>);
+  await screen.findByRole("heading", { name: "Feedback" });
+  expect(screen.queryByLabelText("Your answer in Chinese")).not.toBeInTheDocument();
+  expect(done).not.toHaveBeenCalled();
+});
+
+test("a foreign current-question conflict is rejected without losing the owned draft", async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一"))).mockResolvedValueOnce(Response.json({ ok: false, requestId: "fixture", error: { code: "SCENARIO_CHANGED", message: "Changed", retryable: false, details: { current: transfer(ids.second, "第二") } } }, { status: 409 }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "请保留这份属于当前题目的回答。" } });
+  fireEvent.click(screen.getByRole("button", { name: "Check my answer" }));
+  await screen.findByRole("alert");
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("请保留这份属于当前题目的回答。");
+  expect(screen.queryByText("Second")).not.toBeInTheDocument();
+});
+
+test("a successful marker envelope without persisted markers cannot reveal the target", async () => {
+  const item = transfer(ids.first, "第一");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(apiResponse(item)).mockResolvedValueOnce(apiResponse({ reviewState: item.reviewState })));
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.click(screen.getByRole("button", { name: "Show examples" }));
+  await screen.findByText("Examples couldn't open. Try again.");
+  expect(screen.queryByRole("heading", { name: "第一" })).not.toBeInTheDocument();
+  expect(screen.queryByText("原来的第一例句。")).not.toBeInTheDocument();
+});
+
+test("regeneration cannot erase markers for examples the learner has already seen", async () => {
+  const item = transfer(ids.first, "第一");
+  item.reviewState.expressionRevealedAt = "2026-11-01T00:00:00.000Z"; item.reviewState.examplesOpenedAt = "2026-11-01T00:00:00.000Z"; item.expressionRevealed = true;
+  const bad = reviewTransferFixture(ids.first, { ...item.material, task: { ...item.material.task, promptChinese: "错误响应里的新题。" } }, 2);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(apiResponse(item)).mockResolvedValueOnce(apiResponse(bad)));
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.click(screen.getByRole("button", { name: "Try a different situation" }));
+  await screen.findByRole("alert");
+  expect(screen.getByRole("heading", { name: "第一" })).toBeInTheDocument();
+  expect(screen.getByText("原来的第一例句。")).toBeInTheDocument();
+  expect(screen.queryByText("错误响应里的新题。")).not.toBeInTheDocument();
+});
+
+test("an old unsent draft restores only into the retained legacy first question and keeps its old key", async () => {
+  const oldKey = `popcorn:answer:review:${ids.first}`;
+  localStorage.setItem(oldKey, "这是升级之前还没有发出的回答。");
+  const first = transfer(ids.first, "第一");
+  const next = reviewTransferFixture(ids.first, { ...first.material, task: { ...first.material.task, promptChinese: "这是换过情境之后的问题。" } }, 2);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(apiResponse(first)).mockResolvedValueOnce(apiResponse(next)));
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByLabelText("Your answer in Chinese");
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这是升级之前还没有发出的回答。");
+  fireEvent.click(screen.getByRole("button", { name: "Try a different situation" }));
+  await screen.findByText("这是换过情境之后的问题。");
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("");
+  expect(localStorage.getItem(oldKey)).toBe("这是升级之前还没有发出的回答。");
 });

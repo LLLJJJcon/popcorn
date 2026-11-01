@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, expect, test, vi } from "vitest";
 import type { ComponentProps } from "react";
 import type { ReviewPractice } from "./review-practice";
+import { completedReviewFixture, reviewTransferFixture } from "./review-fixtures.test-support";
+import type { Completion } from "@/contracts/review-practice";
 import type { TodayPracticeItem } from "@/contracts/today-practice";
 import type { PracticeSession } from "./practice-session";
 import type { PracticeMaterialView } from "./material-schema";
@@ -208,7 +210,7 @@ function setupReview(deferred: "get" | "post") {
     resolve = r;
   });
   const dueMaterial: PracticeMaterialView = { ...material(201), task: { ...material(201).task, kind: "due_practice", dueAt: "2026-10-01T00:00:00.000Z" }, masteryState: "tried" };
-  const transfer = { id: id(201), reviewTaskId: id(10), targetExpression: dueMaterial.task.targetExpression, promptChinese: dueMaterial.task.promptChinese, instructionsEnglish: dueMaterial.task.instructionsEnglish, goalEnglish: dueMaterial.task.goalEnglish, material: dueMaterial };
+  const transfer = reviewTransferFixture(id(10), dueMaterial);
   const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
     if (url.endsWith("/today"))
       return ok({ summary, items: queue });
@@ -217,7 +219,7 @@ function setupReview(deferred: "get" | "post") {
       const eligible = queue.filter(i => !body.exclude.includes(i.id));
       return ok({ summary, item: eligible[0] ?? null, remainingCount: eligible.length, resumed: false });
     }
-    if (url.endsWith(`/due/${id(10)}`)) {
+    if (url.split("?")[0]!.endsWith(`/due/${id(10)}`)) {
       if (options?.method === "POST")
         return pending;
       return deferred === "get" ? pending : ok(transfer);
@@ -225,19 +227,19 @@ function setupReview(deferred: "get" | "post") {
     return ok(material(202));
   });
   vi.stubGlobal("fetch", fetcher);
-  return { fetcher, resolve: (value: Response) => resolve(value), advance: () => {
+  return { fetcher, transfer, resolve: (value: Response) => resolve(value), advance: () => {
       queue = [candidate(2)];
     } };
 }
 async function submitReview() {
-  await screen.findByLabelText("Your Chinese response");
-  fireEvent.change(screen.getByLabelText("Your Chinese response"), { target: { value: "这是我为复习写的原始回答。" } });
-  fireEvent.click(screen.getByRole("button", { name: "Check my response" }));
+  await screen.findByLabelText("Your answer in Chinese");
+  fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "这是我为复习写的原始回答。" } });
+  fireEvent.click(screen.getByRole("button", { name: "Check my answer" }));
 }
 test("real Review GET404 advances only after fresh today confirms another tab completed it", async () => {
   const request = setupReview("get");
   render(<main><TodaySession userId={id(999)}/></main>);
-  await waitFor(() => expect(request.fetcher.mock.calls.some(([url]) => url.endsWith(`/due/${id(10)}`))).toBe(true));
+  await waitFor(() => expect(request.fetcher.mock.calls.some(([url]) => url.split("?")[0]!.endsWith(`/due/${id(10)}`))).toBe(true));
   request.advance();
   await act(async () => {
     request.resolve(failure("FORBIDDEN", 404));
@@ -268,8 +270,8 @@ test.each(["CONFLICT", "PROVIDER_UNAVAILABLE"])("Review %s while still eligible 
     request.resolve(failure(code, code === "CONFLICT" ? 409 : 503));
   });
   await screen.findByRole("alert");
-  expect(screen.getByLabelText("Your Chinese response")).toHaveValue("这是我为复习写的原始回答。");
-  expect(screen.getByRole("heading", { name: "表达201" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这是我为复习写的原始回答。");
+  expect(screen.getByRole("heading", { name: "▢▢▢▢▢" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "表达202" })).not.toBeInTheDocument();
   expect(readSession(id(999)).results).toEqual([]);
@@ -278,7 +280,7 @@ test.each(["CONFLICT", "PROVIDER_UNAVAILABLE"])("Review %s while still eligible 
 test("Review GET404 still eligible preserves the item and explicit retry", async () => {
   const request = setupReview("get");
   render(<main><TodaySession userId={id(999)}/></main>);
-  await waitFor(() => expect(request.fetcher.mock.calls.some(([url]) => url.endsWith(`/due/${id(10)}`))).toBe(true));
+  await waitFor(() => expect(request.fetcher.mock.calls.some(([url]) => url.split("?")[0]!.endsWith(`/due/${id(10)}`))).toBe(true));
   await act(async () => {
     request.resolve(failure("FORBIDDEN", 404));
   });
@@ -291,7 +293,7 @@ test("Review GET404 still eligible preserves the item and explicit retry", async
 test("late Review conflict and obsolete unavailable callback cannot advance current B", async () => {
   const request = setupReview("post");
   render(<main><TodaySession userId={id(999)}/></main>);
-  await screen.findByLabelText("Your Chinese response");
+  await screen.findByLabelText("Your answer in Chinese");
   const origin = captured.reviewProps.at(-1)!;
   await submitReview();
   request.advance();
@@ -313,7 +315,8 @@ test("same-answer Review 201 replay remains a normal official completion", async
   const request = setupReview("post");
   render(<main><TodaySession userId={id(999)}/></main>);
   await submitReview();
-  const replay = { reviewTaskId: id(10), practiceTaskId: id(201), attemptId: id(800), masteryEventId: id(801), nextReviewTaskId: id(802), priorState: "tried", newState: "reused", nextDueAt: "2026-11-08T00:00:00.000Z", intervalDays: 7, created: false, transition: { from: "tried", to: "reused" }, evaluation: { ...evaluation, passed: true, independentUse: true, accuracy: { score: 4, englishFeedback: "Accurate." }, naturalness: { score: 4, englishFeedback: "Natural." }, contextualFit: { score: 4, englishFeedback: "Fits." } }, coaching: null };
+  const replay: Completion = { reviewTaskId: id(10), practiceTaskId: id(201), attemptId: id(800), masteryEventId: id(801), nextReviewTaskId: id(802), priorState: "tried", newState: "reused", nextDueAt: "2026-11-08T00:00:00.000Z", intervalDays: 7, created: false, transition: { from: "tried", to: "reused" }, evaluation: { ...evaluation, passed: true, independentUse: true, accuracy: { score: 4, englishFeedback: "Accurate." }, naturalness: { score: 4, englishFeedback: "Natural." }, contextualFit: { score: 4, englishFeedback: "Fits." } }, coaching: null };
+  replay.reviewState = completedReviewFixture(request.transfer, replay, "这是我为复习写的原始回答。").reviewState;
   await act(async () => {
     request.resolve(ok(replay));
   });
@@ -337,7 +340,7 @@ test("late fresh-review confirmation cannot advance B after a queued item change
     return original(url, options);
   });
   render(<main><TodaySession userId={id(999)}/></main>);
-  await screen.findByLabelText("Your Chinese response");
+  await screen.findByLabelText("Your answer in Chinese");
   const origin = captured.reviewProps.at(-1)!;
   await submitReview();
   await act(async () => {
