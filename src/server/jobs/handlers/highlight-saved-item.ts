@@ -1,7 +1,7 @@
 import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 import { z } from 'zod';
 import { ModelGatewayError } from '@/server/ai/provider';
-import { buildHighlightExpressionsPrompt, HIGHLIGHT_EXPRESSIONS_PROMPT_VERSION, normalizeHighlightExpressionsWire, type AnalysisLine } from '@/server/ai/prompts/highlight-expressions.v1';
+import { buildHighlightExpressionsPrompt, HIGHLIGHT_EXPRESSIONS_PROMPT_VERSION, normalizeHighlightExpressionsWire, type AnalysisLine } from '@/server/ai/prompts/highlight-expressions.v2';
 import { completeWithFormatRetries, type StructuredJsonGatewayResolver } from '@/server/ai/structured-json-gateway';
 import { groundSuggestedHighlights } from '@/server/domain/saved-item-target';
 import type { DurableJobStore, JobHandler } from '@/server/jobs/process-jobs';
@@ -38,10 +38,10 @@ export function createHighlightSavedItemHandler({ store, gatewayResolver }: {
       for (const text of evidence.contextAfter ?? [])
         lines.push({ line: lines.length + 1, role: 'context', text });
       const prompt = buildHighlightExpressionsPrompt({ lines });
-      let userPrompt = prompt.userPrompt;
+      let systemPrompt = prompt.systemPrompt;
       let highlights: ReturnType<typeof groundSuggestedHighlights> = [];
-      await completeWithFormatRetries(() => gateway.complete(HIGHLIGHT_EXPRESSIONS_PROMPT_VERSION, userPrompt, {
-        systemPrompt: prompt.systemPrompt,
+      await completeWithFormatRetries(() => gateway.complete(HIGHLIGHT_EXPRESSIONS_PROMPT_VERSION, prompt.userPrompt, {
+        systemPrompt,
         timeoutMs: 20000,
         maxTokens: MODEL_OUTPUT_TOKENS.highlightExpressions,
         normalize: normalizeHighlightExpressionsWire
@@ -58,7 +58,7 @@ export function createHighlightSavedItemHandler({ store, gatewayResolver }: {
         catch {
           // A fresh request with the same prompt can repeat a reconstructed idiom.
           // Keep the evidence intact and explain the grounding failure on retry.
-          userPrompt = `${prompt.userPrompt}\nCorrection: The previous suggestions could not be located in the TARGET text. Each text must be an exact contiguous substring of a single TARGET line. Never join separated words, remove intervening names or particles, or rewrite an idiom. Choose a shorter reusable span that occurs literally, or return {"highlights":[]} if none fits.`;
+          systemPrompt = `${prompt.systemPrompt}\nCorrection: The previous suggestions could not be located in the TARGET text. Each text must be an exact contiguous substring of a single TARGET line. Never join separated words, remove intervening names or particles, or rewrite an idiom. Choose a shorter reusable span that occurs literally, or return {"highlights":[]} if none fits.`;
           throw new ModelGatewayError('PROVIDER_OUTPUT_INVALID', 'grounding', 'highlights');
         }
       });

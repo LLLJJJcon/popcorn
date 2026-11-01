@@ -19,7 +19,7 @@ const job = {
   nextAttemptAt: null,
   lastErrorCode: null
 };
-function setup(run: (version: string, prompt: string) => Promise<unknown>, target = '这咖啡高得要命') {
+function setup(run: (version: string, prompt: string, options: { readonly systemPrompt: string }) => Promise<unknown>, target = '这咖啡高得要命') {
   const complete = vi.fn(run);
   const finish = vi.fn<NonNullable<DurableJobStore['completeSavedItemHighlights']>>(async () => true);
   const store = { readPrivateInput: async () => ({
@@ -70,14 +70,26 @@ test('valid suggestion only references target and server-computed offsets', asyn
 test('empty suggestions is a valid ready result', async () => { const f = setup(async () => ({ highlights: [] })); expect(await f.handler(job, userId, job.updatedAt)).toBe('completed'); expect(f.finish).toHaveBeenLastCalledWith(userId, job, [], false, job.updatedAt); });
 
 test('corrects a noncontiguous suggestion on retry without inventing source offsets', async () => {
-  const f = setup(async (_version, prompt) => ({ highlights: [{
-    text: prompt.includes('contiguous substring') ? '回頭路' : '走回頭路', occurrence: 1
+  const f = setup(async (_version, _prompt, options) => ({ highlights: [{
+    text: options.systemPrompt.includes('Correction:') ? '回頭路' : '走回頭路', occurrence: 1
   }] }), 'On為何要走Nike的回頭路');
   expect(await f.handler(job, userId, job.updatedAt)).toBe('completed');
   expect(f.complete).toHaveBeenCalledTimes(2);
   expect(f.finish).toHaveBeenLastCalledWith(userId, job, [expect.objectContaining({
     text: '回頭路', startOffset: 11, endOffset: 14
   })], false, job.updatedAt);
+});
+
+test('starts with strict v2 source constraints and puts retry correction in system instructions', async () => {
+  const f = setup(async () => ({ highlights: [{ text: '走回頭路', occurrence: 1 }] }), 'On為何要走Nike的回頭路');
+  expect(await f.handler(job, userId, job.updatedAt)).toBe('failed');
+  const calls = f.complete.mock.calls as unknown[][];
+  expect(calls[0]?.[0]).toBe('highlight-expressions-v2');
+  expect(calls[0]?.[2]).toMatchObject({ systemPrompt: expect.stringContaining('exact contiguous substring') });
+  expect(calls[1]?.[2]).toMatchObject({ systemPrompt: expect.stringContaining('Correction:') });
+  // Learner data stays in its original JSON envelope, including during retries.
+  expect(calls[1]?.[1]).toBe(calls[0]?.[1]);
+  expect(f.finish).toHaveBeenLastCalledWith(userId, job, [], true, job.updatedAt);
 });
 
 test('suggestion transport uses the confirmed twenty-second deadline', async () => {

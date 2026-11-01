@@ -162,7 +162,7 @@ export function createAnalyzeSavedItemFixtureGateway(): StructuredJsonGateway {
         readonly lines?: readonly { readonly role: string; readonly text: string }[];
         readonly highlights?: readonly { readonly id: string; readonly text: string }[];
       };
-      if (_promptVersion === "highlight-expressions-v1") {
+      if (_promptVersion === "highlight-expressions-v1" || _promptVersion === "highlight-expressions-v2") {
         return createHighlightExpressionsFixtureGateway().complete(_promptVersion, userPrompt, options);
       }
       if (_promptVersion === "analyze-saved-item-v3") {
