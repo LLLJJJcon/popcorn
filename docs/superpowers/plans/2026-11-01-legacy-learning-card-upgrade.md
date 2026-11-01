@@ -24,7 +24,7 @@
 - Legacy l-key and new h-key happen to contain the same expression: do not merge; use a separately proven original occurrence or block.
 - Model returns not_expression, malformed examples, wrong/missing/duplicate IDs or input instructions: retain real classification, obey the shared attempt budget, never leak untrusted data into system instructions.
 - A response is lost after commit or two commands overlap: one stored result/model claimant; same manifest replays without new calls.
-- Actual local schema is only023 and other activity may exist: audit ordered prerequisite migrations, private backup, protected old-field snapshots and selected owner/ports; no reset, original checkout rewrite or service shutdown.
+- Initial local schema audit was023; fresh2026-11-02 audit is024. Audit ordered prerequisites, private backup and protected old-field snapshots for all owners. No reset or original checkout rewrite. The existing old app cannot process038 jobs: use the reviewed reversible maintenance/claim gate and compatible application switch, keeping Supabase running. All6 new outbox items currently belong to the authorized owner; recheck immediately before writes.
 
 ## Stable contracts and ownership
 
