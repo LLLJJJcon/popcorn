@@ -71,14 +71,20 @@ CLI: `--user UUID` dry-runs all pages by default. `--plan PATH` writes a0600 pri
 
 - [x] RED→GREEN parser/manifest validation, dry-run0 mutations/model calls, multi-page uncapped planning, private file mode, exact apply/resume IDs and redacted error output.
 - [x] Record human20/20 approval with original reviewed-file hash; leave raw trial files unchanged. Save the authorization/design checkpoint; PR stays draft until new engineering/data work passes.
-- [ ] After independent D acceptance: revalidate selected actual owner, port and current migration state; create private backup/protected before snapshots; audit/apply ordered confirmed schema prerequisites without reset; verify protected historical projections before any model call.
-- [ ] Actual dry-run manifest first, then authorized apply using original retained sources and active consented gateway. Verify only eligible modern metadata/private receipts changed, repeat same manifest with0 further calls, record aggregate counts/provenance/hash evidence without personal content in GitHub.
+- [x] After independent D acceptance: revalidate selected actual owner, port and current migration state; create private backup/protected before snapshots; audit/apply ordered confirmed schema prerequisites without reset; verify protected historical projections before any model call.
+- [x] Actual dry-run manifest first, then authorized apply using original retained sources and active consented gateway. Verify only eligible modern metadata/private receipts changed, repeat same manifest with0 further calls, record aggregate counts/provenance/hash evidence without personal content in GitHub.
 
 ### Task 4 — D: independent final acceptance, serial after implementation freeze
 
 Files: independent engineering acceptance report only; no product/tests/fixtures/seed repair by D.
 
-- [ ] Independently verify source/card/owner/CAS/lease/consent/classification/idempotence/CLI cases, actual SQL/concurrency and unchanged learning graph; read implementation differences from accepted4591.
-- [ ] Run complete relevant application/types/lint/provenance/build and required production browser regressions. Do not rerun actual modern20: prompt/raw outputs stay unchanged and human approval is explicit.
-- [ ] Review ordered deployment/data-preservation checks before actual application; after controller application, independently read-only confirm safe aggregate outcomes/unchanged protected data.
-- [ ] Record engineer verdict, actual synchronization outcome and any genuinely blocked records separately. Only then save final GitHub evidence and merge using the user's existing main-merge authorization; no unapproved raw legacy prompt or fabricated data completion.
+- [x] Independently verify source/card/owner/CAS/lease/consent/classification/idempotence/CLI cases, actual SQL/concurrency and unchanged learning graph; read implementation differences from accepted4591.
+- [x] Run complete relevant application/types/lint/provenance/build and required production browser regressions. Do not rerun actual modern20: prompt/raw outputs stay unchanged and human approval is explicit.
+- [x] Review ordered deployment/data-preservation checks before actual application; after controller application, independently read-only confirm safe aggregate outcomes/unchanged protected data.
+- [x] Record engineering, actual synchronization and operating verdicts separately; all three PASS with0 blocked records. Final GitHub evidence is ready for the user's already-authorized main merge; the pull request records the actual merge status/SHA. No unapproved raw legacy prompt or fabricated data completion.
+
+## Accepted outcome, 2026-11-02
+
+Frozen production source3f43ec7e includes concurrent main1143e39 and additive045–048 removal fences. D freshly reset only the owned synthetic stack and accepted50 migrations in standard order,1833 application tests,1188 SQL assertions,15 real lock races,16 provenance/180 extension checks,55-route production build,5 E2E and near/far/removed-history browser observations. Human20/20 approval and unchanged real trial artifacts remain separately recorded.
+
+The actual local database used its existing031+235900 history. After private backup and claim/app quiescence, standard `--include-all` applied exactly17 missing migrations without reset/reapplying existing files. Original25-table old-column projections and10 upstream function definitions remained equal;6 pending outbox rows retained attempt0 until resumption. All6 eligible old cards were successfully generated from proven original sources; the1 existing modern card remained unchanged. Metadata dry-run/apply/same-manifest replay observed0/6/0 HTTP fetch attempts; first apply and replay have identical29-table snapshots. D independently returned DATA PASS, then OPERATING PASS after the compatible actual-env release took over port3000 and the exact original ACL was restored. All6 normal background preparations subsequently succeeded through the modern path. Original checkout/user changes and all existing official learning data were preserved. Evidence: `docs/engineering/group-4-main-integration-acceptance.md`.
