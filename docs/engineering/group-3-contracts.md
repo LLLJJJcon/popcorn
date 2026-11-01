@@ -1,6 +1,6 @@
 # Group 3 frozen interface document
 
-2026-11-01, Task3A. **Document freeze only:** no group3 functional code is authorized until the controller confirms group2 is merged. The controller is reconciling newer main; these DTO names are independent of prompt/token/runtime merge details. Once released, A writes the schemas and contract tests before B/C code against them.
+2026-11-01, Task3A. Controller released implementation on the separate `codex/phase1-group3-confirmed` branch after independent merged-source group2 verification PASS (1387 plus107 focused), while its PR waits only for GitHub CI/publication. Group2 remote head remains isolated. This controller engineering-flow adjustment does not change the product acceptance gate. Shared schemas are now being implemented against this frozen document before B/C parallel consumers.
 
 Authority: confirmed specification §5.2/5.13/5.14, full §6/16.3, the plan, and the explicit rulings below. Group2's accepted material/round-state/error/activation contracts remain unchanged. §6.12 has **nine** acceptance items, not six.
 
