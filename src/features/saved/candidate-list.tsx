@@ -417,7 +417,13 @@ export function CandidateList({
       : "Mark an expression to get started.";
     return (
       <section aria-label="Expression learning workspace">
-        <HighlightEditor savedItemId={savedItemId} segments={item.targetSegments} highlights={highlights} highlightStatus={highlightStatus} gatewayAvailable={item.gatewayAvailable} onChange={(next, status) => { setHighlights(next); setHighlightStatus(status); router.refresh(); }} />
+        <HighlightEditor savedItemId={savedItemId} segments={item.targetSegments} highlights={highlights} highlightStatus={highlightStatus} gatewayAvailable={item.gatewayAvailable} onChange={(next, status) => {
+          setHighlights(next); setHighlightStatus(status);
+          if (status === "pending" && (recoveryState === "terminal" || recoveryState === "error")) {
+            setRecoveryState("idle"); setFailureCategory(null);
+          }
+          router.refresh();
+        }} />
         {item.englishTranslation ? <p className={styles.translation}>{item.englishTranslation}</p> : null}
         <div className={styles.analysisPanel} aria-label="Analysis status">
           <div className={styles.analysisMessage}>{pending ? <span className={styles.activityIndicator} role="progressbar" aria-label="Analysis in progress" /> : null}<p role="status">{message}</p></div>

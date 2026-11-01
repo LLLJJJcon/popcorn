@@ -19,7 +19,7 @@ const job = {
   nextAttemptAt: null,
   lastErrorCode: null
 };
-function setup(run: (version: string, prompt: string) => Promise<unknown>) {
+function setup(run: (version: string, prompt: string) => Promise<unknown>, target = '这咖啡高得要命') {
   const complete = vi.fn(run);
   const finish = vi.fn<NonNullable<DurableJobStore['completeSavedItemHighlights']>>(async () => true);
   const store = { readPrivateInput: async () => ({
@@ -40,7 +40,7 @@ function setup(run: (version: string, prompt: string) => Promise<unknown>) {
       contextAfter: ['之后的话'],
       segments: [{
           stableId: 's1',
-          originalChinese: '这咖啡高得要命',
+          originalChinese: target,
           startSeconds: 0,
           endSeconds: 3
         }]
@@ -68,6 +68,17 @@ test('valid suggestion only references target and server-computed offsets', asyn
   }) => v.role)).toEqual(['context', 'TARGET', 'context']);
 });
 test('empty suggestions is a valid ready result', async () => { const f = setup(async () => ({ highlights: [] })); expect(await f.handler(job, userId, job.updatedAt)).toBe('completed'); expect(f.finish).toHaveBeenLastCalledWith(userId, job, [], false, job.updatedAt); });
+
+test('corrects a noncontiguous suggestion on retry without inventing source offsets', async () => {
+  const f = setup(async (_version, prompt) => ({ highlights: [{
+    text: prompt.includes('contiguous substring') ? '回頭路' : '走回頭路', occurrence: 1
+  }] }), 'On為何要走Nike的回頭路');
+  expect(await f.handler(job, userId, job.updatedAt)).toBe('completed');
+  expect(f.complete).toHaveBeenCalledTimes(2);
+  expect(f.finish).toHaveBeenLastCalledWith(userId, job, [expect.objectContaining({
+    text: '回頭路', startOffset: 11, endOffset: 14
+  })], false, job.updatedAt);
+});
 
 test('suggestion transport uses the confirmed twenty-second deadline', async () => {
   const f = setup(async () => ({ highlights: [] }));

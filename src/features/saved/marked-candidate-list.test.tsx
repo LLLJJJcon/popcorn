@@ -24,6 +24,19 @@ describe("marked-expression Analyze", () => {
     expect(screen.getByRole("button", { name: "Analyze" })).toBeDisabled();
     expect(screen.getByTitle("Mark at least one expression")).toBeInTheDocument();
   });
+  it("clears an old analysis error when requesting fresh suggestions", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(success(
+      url.endsWith('/highlights/suggest')
+        ? { highlights: [], highlightStatus: 'pending' }
+        : { state: 'failed', jobId: artifactId, failureCategory: 'model_unavailable' }
+    )));
+    vi.stubGlobal('fetch', fetchMock);
+    renderList({ highlights: [], highlightStatus: 'unavailable' });
+    expect(await screen.findByRole('alert')).toHaveTextContent('The model is unavailable right now.');
+    await userEvent.click(screen.getByRole('button', { name: 'Suggest again' }));
+    expect(await screen.findByText('Finding expressions…')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
   it("keeps Analyze disabled for an already analyzed location even after a mark gets a new id", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(success(ready([card]))));
     renderList({ highlights: [{ ...highlight, id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" }] }, [card]);
