@@ -213,4 +213,3 @@ begin
   return v_artifact_id;
 end
 $$;
-
