@@ -46,4 +46,22 @@ GitHub checkpoint push was initially rejected by automatic approval review becau
 
 ## Final disposition
 
-The separate acceptance agent completed the final engineering/fixture gates and all 11 criteria; see `group-1-acceptance.md`. Draft PR #1 contains the acceptance matrix. The user explicitly approved the only exception to 15.3: deleting the inherited blank final line from migration 021, with no SQL-content or database change (`95de382`). Unassigned concurrent provider/token edits are preserved outside the committed/tested scope. Real-model semantic review remains unrun. This run stops after group 1.
+The separate acceptance agent completed the final engineering/fixture gates and all 11 criteria; see `group-1-acceptance.md`. Draft PR #1 contains the acceptance matrix. The user explicitly approved the only exception to 15.3: deleting the inherited blank final line from migration 021, with no SQL-content or database change (`95de382`). Unassigned concurrent provider/token edits are preserved outside the committed/tested scope. Real-model semantic review remains unrun. That execution stopped after group 1.
+
+## Follow-up group 2 preflight — 2026-11-01
+
+The user's next instruction authorized merging group 1 and executing confirmed groups 2–4, with parallel workers and independent gates. PR #1 merged at `72cd51f`; GitHub checks and fresh full verification passed. The continuation uses isolated branch `codex/phase1-groups2-4`, excluding original-checkout concurrent edits.
+
+| Section 5.16 check | Conclusion and evidence | Impact |
+| --- | --- | --- |
+| Scenario/candidate storage | Drafts hold pre-Vault situations; promotion creates canonical tasks. Modern identity uses saved item + highlightKey, legacy artifact/index. Full evidence: `preflight-phase1/group-2-rounds.md`, check 1. | Add draft scenario/round fields, copy at promotion; candidate-level locks and uniqueness cannot rely on artifact/index alone. |
+| Revision-1 checks | TS and private SQL already scope revisions to each draft; exact references in check 2. | Preserve revision2 rejection; new rounds naturally have their own revision1. Add candidate not-already-promoted fencing. |
+| Receipts | Private attempt-keyed receipts/public source-deletion replay wrapper; effective private SQL includes 022/023 patches. | Preserve replay, long-expression/no-confidence compatibility and grants. Add candidate-level protection in a new migration. |
+| Versions/coaching | Existing strings activate-v2/evaluate-v4; coaching object nullable, natural version not persisted. | New v3/v5 modules with legacy v4 fallback, persistent first/latest coaching and full-score suppression. |
+| Backfill | Read-only projection: 7 promoted, 1 retry_scheduled, 3 open from 11 live drafts. No personal DB writes. | Run actual migration/backfill in new isolated project `popcorn-phase1-groups24` (54331/54332), preserving the personal stack. |
+
+User-approved resolutions: model failure uses approved fallback before final error; unanswered open first round stays New and resumes; exhausted fixed templates error while preserving state, with unused-first fixtures and no round limit. Five-second Undo and Show-examples-only assistance follow the specific group 2 instructions. Existing mastery context-hash algorithm/history remains unchanged; scenario de-duplication is separate.
+
+Exact client/API contracts are in `group-2-contracts.md`; six contract tests were independently rerun and passed before UI work. Backend owns shared schemas/routes/wiring, Prompt and UI own disjoint pure/client paths. Detailed baseline reports under `preflight-phase1/` are historical observations superseded by these explicit decisions.
+
+Twenty fixed templates have a canonical draft and readable product-review version. Their content is awaiting product approval and is absent from runtime/fixtures/seed. Groups 3/4 remain gated on the preceding group's independent acceptance. See the continuation plan for complete file ownership, dependencies and tests.

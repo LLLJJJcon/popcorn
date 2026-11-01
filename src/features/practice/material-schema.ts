@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { MasteryStateSchema } from "@/contracts/memory";
+import { LearningCardFieldsSchema } from "@/contracts/knowledge";
+import { PracticeRoundStateSchema, PracticeSituationSchema } from "@/contracts/practice";
 import {
   EnglishTextSchema,
   NativeLanguageSchema,
@@ -23,6 +25,7 @@ const publicTaskBase = {
   instructionsEnglish: EnglishTextSchema.max(1_000),
   goalEnglish: EnglishTextSchema.max(1_000),
   createdAt: IsoDateTimeSchema,
+  situation: PracticeSituationSchema.nullable().optional(),
 };
 
 export const PracticeMaterialTaskSchema = z.discriminatedUnion("kind", [
@@ -32,7 +35,10 @@ export const PracticeMaterialTaskSchema = z.discriminatedUnion("kind", [
 
 export const PracticeMaterialViewSchema = z.strictObject({
   task: PracticeMaterialTaskSchema,
-  masteryState: MasteryStateSchema,
+  masteryState: MasteryStateSchema.nullable(),
+  roundState: PracticeRoundStateSchema.optional(),
+  learningCard: LearningCardFieldsSchema.nullable().optional(),
+  examplesOpened: z.boolean().optional(),
   source: z.strictObject({
     videoTitle: z.string().min(1).max(300),
     youtubeUrl: z.string().url().max(240),
