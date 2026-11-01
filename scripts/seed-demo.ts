@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { highlightIdentity } from "../src/server/jobs/handlers/marked-learning-cards";
 import type { Database } from "../src/types/database.generated";
 import artifacts from "../tests/fixtures/demo/generated-artifacts.json";
 import transcript from "../tests/fixtures/demo/transcript.zh-CN.json";
@@ -14,6 +15,7 @@ export const DEMO_TABLES = [
   "video_snapshots",
   "transcript_segments",
   "saved_items",
+  "saved_item_highlights",
   "generated_artifacts",
   "expression_senses",
   "expression_occurrences",
@@ -289,6 +291,68 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
     },
   );
 
+  // Separate saves retain the original demo's mastery and review graph unchanged.
+  const groupOneSave = (name: string, segmentIndex: number, highlightStatus: string) => {
+    const segment = transcript[segmentIndex];
+    const saveId = id(`group1:save:${name}`);
+    tables.saved_items.push({
+      id: saveId, user_id: ownerId, video_source_id: sourceId, snapshot_id: snapshotId,
+      client_event_id: id(`group1:event:${name}`), youtube_video_id: DEMO_VIDEO.youtubeVideoId,
+      kind: "subtitle_row", status: "ready", highlight_status: highlightStatus,
+      captured_at: FIXED_AT, start_seconds: segment.startSeconds,
+      payload: { segmentId: segment.stableId, originalChinese: segment.originalChinese,
+        englishTranslation: segment.englishTranslation, startSeconds: segment.startSeconds,
+        endSeconds: segment.endSeconds, contextBefore: transcript.slice(Math.max(0, segmentIndex - 3), segmentIndex).map(row => row.originalChinese),
+        contextAfter: transcript.slice(segmentIndex + 1, segmentIndex + 3).map(row => row.originalChinese) },
+      created_at: FIXED_AT, updated_at: FIXED_AT,
+    });
+    return saveId;
+  };
+  const mark = (saveId: string, name: string, text: string, segmentIndex: number, origin: "model" | "user") => {
+    const segment = transcript[segmentIndex];
+    const startOffset = segment.originalChinese.indexOf(text);
+    const highlightId = id(`group1:mark:${name}`);
+    tables.saved_item_highlights.push({ id: highlightId, user_id: ownerId, saved_item_id: saveId,
+      start_segment_id: segment.stableId, end_segment_id: segment.stableId,
+      start_offset: startOffset, end_offset: startOffset + text.length, text, origin,
+      reason_en: origin === "model" ? "A useful phrase for everyday conversation." : null,
+      status: "active", removed_at: null, created_at: FIXED_AT });
+    return highlightId;
+  };
+  const card = (saveId: string, highlightId: string, text: string, segmentIndex: number, notExpression = false) => {
+    const segment = transcript[segmentIndex];
+    const fields = {
+      meaningHere: notExpression ? "We: the speaker and their companions." : "The speaker thinks this approach is dependable.",
+      useItWhen: notExpression ? "When referring to yourself together with other people." : "When you want to reassure someone that an idea is dependable.",
+      comparedWith: notExpression ? "咱们 explicitly includes the listener; 我们 may not." : "可靠 is more neutral; 挺靠谱 sounds conversational and reassuring.",
+      howItFits: notExpression ? "Use it as the subject before a verb." : "Place it after the idea or person you are describing.",
+      toneAndWho: "Casual; natural with friends and classmates.", watchOut: null,
+      examples: notExpression ? [{ zh: "我们一起吃饭吧。", en: "Let's eat together." }, { zh: "我们明天去公园。", en: "We will go to the park tomorrow." }]
+        : [{ zh: "他推荐的医生挺靠谱。", en: "The doctor he recommended is reliable." }, { zh: "这个修车师傅挺靠谱。", en: "This mechanic is dependable." }],
+      functionCategories: [notExpression ? "other" : "praise"], usageSettings: ["casual_chat"],
+      suitability: notExpression ? "not_expression" : "expression",
+      notExpressionReasonEn: notExpression ? "This is a basic pronoun most intermediate learners already know." : null,
+    };
+    tables.generated_artifacts.push({ id: id(`group1:artifact:${highlightId}`), user_id: ownerId,
+      video_source_id: sourceId, saved_item_id: saveId, artifact_type: "saved_item_analysis",
+      native_language: "en", target_language: "zh-CN", prompt_version: "analyze-saved-item-v3",
+      model: "fixture/demo-group1-v1", result_key: sha256(`${ownerId}:group1:${highlightId}`), created_at: FIXED_AT,
+      content: { candidates: [{ expression: text, ...fields, highlightId,
+        highlightKey: highlightIdentity({ text, startSegmentId: segment.stableId, endSegmentId: segment.stableId,
+          startOffset: segment.originalChinese.indexOf(text), endOffset: segment.originalChinese.indexOf(text) + text.length }),
+        englishMeaning: fields.meaningHere, englishExplanation: fields.useItWhen,
+        tone: fields.toneAndWho, communicativeFunction: fields.functionCategories.join(", "), register: "casual_chat",
+        evidenceText: segment.originalChinese, segmentIds: [segment.stableId], startSeconds: segment.startSeconds, endSeconds: segment.endSeconds }],
+        highlightStates: [{ highlightId, text, status: "ready" }] } });
+  };
+  const successSave = groupOneSave("automatic-success", 0, "ready");
+  card(successSave, mark(successSave, "analyzed", "挺靠谱", 0, "model"), "挺靠谱", 0);
+  mark(successSave, "not-analyzed", "试试看", 0, "user");
+  groupOneSave("automatic-empty", 3, "ready");
+  groupOneSave("automatic-unavailable", 1, "unavailable");
+  const basicSave = groupOneSave("not-expression", 0, "ready");
+  card(basicSave, mark(basicSave, "basic-word", "我们", 0, "user"), "我们", 0, true);
+
   const states = ["tried", "reused", "owned"] as const;
   const originalDayOffsets = [-1, -2, -10] as const;
   const completedReviewPlaceholders: DemoSeedRow[] = [];
@@ -390,7 +454,7 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
   return { tables, completedReviewPlaceholders };
 }
 
-async function write(repository: DemoSeedRepository, ownerId: string, table: DemoTable, rows: readonly DemoSeedRow[], insertOnly = false) {
+async function write(repository: DemoSeedRepository, ownerId: string, table: DemoTable, rows: readonly DemoSeedRow[], insertOnly = true) {
   if (rows.length === 0) return;
   if (rows.some((row) => row.user_id !== ownerId)) {
     throw new DemoSeedCliError("database_write", "demo fixture owner mismatch");
@@ -423,7 +487,7 @@ export async function seedDemo(input: {
 
   for (const table of [
     "video_sources", "video_snapshots", "transcript_segments", "saved_items",
-    "generated_artifacts", "expression_senses", "expression_occurrences", "user_expressions",
+    "saved_item_highlights", "generated_artifacts", "expression_senses", "expression_occurrences", "user_expressions",
   ] as const) await write(input.repository, account.id, table, plan.tables[table]);
   await write(input.repository, account.id, "practice_tasks", plan.tables.practice_tasks.filter((row) => originalTaskIds.has(row.id)));
   await write(input.repository, account.id, "attempts", plan.tables.attempts.filter((row) => originalAttemptIds.has(row.id)));
@@ -438,11 +502,12 @@ export async function seedDemo(input: {
     if (!finalReview || !dueTask || !dueAttempt || !dueEvent) {
       throw new DemoSeedCliError("database_verification", "Demo completed review graph is incomplete");
     }
+    const existed = (await input.repository.readOwned({ ownerId: account.id, table: "review_tasks", ids: [placeholder.id] })).length > 0;
     await write(input.repository, account.id, "review_tasks", [placeholder], true);
     await write(input.repository, account.id, "practice_tasks", [dueTask]);
     await write(input.repository, account.id, "attempts", [dueAttempt]);
     await write(input.repository, account.id, "mastery_events", [dueEvent]);
-    await write(input.repository, account.id, "review_tasks", [finalReview]);
+    if (!existed) await write(input.repository, account.id, "review_tasks", [finalReview], false);
   }
   await write(input.repository, account.id, "review_tasks", plan.tables.review_tasks.filter((row) => row.status === "pending"));
 

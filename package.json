@@ -7,7 +7,7 @@
     "node": ">=24.5.0"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "demo:seed": "tsx scripts/seed-demo.ts",
     "extension:local": "node scripts/build-local-extension.mjs",
     "extension:package": "bash scripts/package-extension.sh",
@@ -17,16 +17,18 @@
     "build": "next build --webpack",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm test:unit && pnpm test:contract && pnpm test:integration",
+    "test": "pnpm test:unit && pnpm test:contract && pnpm test:integration && pnpm test:prompts",
     "test:unit": "vitest run src --passWithNoTests",
     "test:contract": "vitest run tests/contract",
     "test:integration": "vitest run tests/integration --passWithNoTests",
     "test:provenance": "vitest run tests/provenance --passWithNoTests",
-    "test:extension": "node --test --test-name-pattern='^(?:notes filters preserve selected contrast and expose pressed state|runtime has no source-file credential dependency or retired model|retired Remix and reader files are absent|published prompt files contain runtime sections)$' extension/tests/release.test.js",
+    "test:extension": "node --test extension/tests/*.test.js",
     "test:e2e": "playwright test --pass-with-no-tests",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:provenance && pnpm build",
     "db:reset": "supabase db reset",
-    "db:test": "supabase test db"
+    "db:test": "supabase test db",
+    "prompts:try": "node --import tsx scripts/try-prompts.ts",
+    "test:prompts": "vitest run tests/prompt-golden"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",

@@ -1,11 +1,16 @@
 import { timingSafeEqual } from "node:crypto";
 
 import {
+  CandidateExpressionSchema,
   KnowledgeJobSchema,
   type KnowledgeJob,
   type KnowledgeJobStatus,
   type KnowledgeJobType,
 } from "@/contracts/knowledge";
+import type { SavedHighlight } from "@/contracts/highlights";
+import { resolveSavedItemTarget } from "@/server/domain/saved-item-target";
+import { highlightView } from "@/server/repositories/highlight-repository";
+import { createHighlightSavedItemHandler } from "@/server/jobs/handlers/highlight-saved-item";
 import { SavedItemKindSchema } from "@/contracts/source";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -79,6 +84,13 @@ export interface DurableJobStore {
     sourceId: string,
     snapshotId: string,
   ): Promise<SavedItemAnalysisEvidence | null>;
+  completeSavedItemHighlights?(
+    expectedUserId: string,
+    expectedLease: Extract<KnowledgeJob, { status: "leased" }>,
+    highlights: readonly Pick<SavedHighlight,"startSegmentId"|"startOffset"|"endSegmentId"|"endOffset"|"text"|"reasonEn">[],
+    unavailable: boolean,
+    completedAt: string,
+  ): Promise<boolean>;
   transitionLearningArtifactFailure(
     expectedUserId: string,
     expectedLease: Extract<KnowledgeJob, { status: "leased" }>,
@@ -119,6 +131,7 @@ export function createProcessorHandlers({
   readonly analysisGatewayResolver: StructuredJsonGatewayResolver;
 }) {
   return {
+    highlight_saved_item: createHighlightSavedItemHandler({store,gatewayResolver:analysisGatewayResolver}),
     resolve_snapshot: createResolveSnapshotHandler({ store, provider: transcriptProvider }),
     generate_overview: createGenerateOverviewHandler({
       store,
@@ -385,16 +398,6 @@ function optionalNumber(value: Json | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function savedItemSegmentIds(payload: Json): readonly string[] | null {
-  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return [];
-  const one = typeof payload.segmentId === "string" ? [payload.segmentId] : [];
-  const many = Array.isArray(payload.segmentIds)
-    ? payload.segmentIds.filter((value): value is string => typeof value === "string")
-    : [];
-  const ids = [...new Set([...one, ...many])];
-  return ids.length <= 32 ? ids : null;
-}
-
 function savedItemRawText(payload: Json, fallback: string): string {
   const direct = ["originalChinese", "exactQuote", "selectedChinese", "title"]
     .map((key) => objectValue(payload, key))
@@ -410,6 +413,7 @@ export type SavedItemAnalysisRegistration = {
   readonly transcriptHash: string;
   readonly promptVersion: string;
   readonly retryId?: string;
+  readonly highlightIds?: readonly string[];
   readonly now: string;
 };
 
@@ -445,6 +449,7 @@ export function createSupabaseSavedItemAnalysisRegistrar(client: SupabaseClient<
         gatewayConfigId: pin.config_id,
         gatewayRevision: pin.revision,
         gatewayFingerprint: pin.config_fingerprint,
+        ...(registration.highlightIds ? {highlightIds:[...registration.highlightIds]} : {}),
       });
       const dedupeKey = createSavedItemAnalysisJobKey({
         sourceHash: input.transcriptHash,
@@ -453,6 +458,7 @@ export function createSupabaseSavedItemAnalysisRegistrar(client: SupabaseClient<
         promptVersion: input.promptVersion,
         gatewayFingerprint: input.gatewayFingerprint,
         ...(registration.retryId ? { retryId: registration.retryId } : {}),
+        ...(registration.highlightIds ? {highlightIds:[...registration.highlightIds]} : {}),
       });
       const result = await client.rpc("register_gateway_learning_artifact_job", {
         p_user_id: userId,
@@ -683,6 +689,7 @@ export function createSupabaseDurableJobStore(
         .eq("user_id", expectedUserId)
         .eq("video_source_id", sourceId)
         .eq("id", savedItemId)
+        .is("removed_from_saved_at", null)
         .maybeSingle();
       if (item.error) throw item.error;
       const kind = SavedItemKindSchema.safeParse(item.data?.kind);
@@ -708,51 +715,47 @@ export function createSupabaseDurableJobStore(
         snapshot.data.video_source_id !== sourceId
       ) return null;
 
-      const exactIds = savedItemSegmentIds(item.data.payload);
-      if (exactIds === null) return null;
-      let segmentQuery = client.from("transcript_segments")
-        .select("stable_id,user_id,snapshot_id,original_chinese,start_seconds,end_seconds,position")
-        .eq("user_id", expectedUserId)
-        .eq("snapshot_id", snapshotId);
-      if (exactIds.length > 0) {
-        segmentQuery = segmentQuery.in("stable_id", [...exactIds]);
-      } else if (item.data.start_seconds !== null) {
-        segmentQuery = segmentQuery
-          .gte("end_seconds", Math.max(0, item.data.start_seconds - 30))
-          .lte("start_seconds", item.data.start_seconds + 30);
+      const allSegments = [];
+      for (let from=0;;from+=TRANSCRIPT_SEGMENT_PAGE_SIZE) {
+        const page=await client.from("transcript_segments")
+          .select("stable_id,user_id,snapshot_id,original_chinese,start_seconds,end_seconds,position")
+          .eq("user_id",expectedUserId).eq("snapshot_id",snapshotId)
+          .order("position",{ascending:true}).range(from,from+TRANSCRIPT_SEGMENT_PAGE_SIZE-1);
+        if(page.error)throw page.error;
+        if(page.data.some(segment=>segment.user_id!==expectedUserId||segment.snapshot_id!==snapshotId))throw new Error("saved-item transcript owner mismatch");
+        allSegments.push(...page.data);
+        if(page.data.length<TRANSCRIPT_SEGMENT_PAGE_SIZE)break;
       }
-      const segments = await segmentQuery
-        .order("position", { ascending: true })
-        .limit(exactIds.length > 0 ? 32 : 12);
-      if (segments.error) throw segments.error;
-      if (segments.data.some((segment) =>
-        segment.user_id !== expectedUserId || segment.snapshot_id !== snapshotId
-      )) throw new Error("saved-item transcript owner mismatch");
-      if (exactIds.length > 0) {
-        const found = new Set(segments.data.map((segment) => segment.stable_id));
-        if (exactIds.some((id) => !found.has(id))) return null;
-      }
-      if (segments.data.length === 0) return null;
-      const mappedSegments = segments.data.map((segment) => ({
-        stableId: segment.stable_id,
-        originalChinese: segment.original_chinese,
-        startSeconds: segment.start_seconds,
-        endSeconds: segment.end_seconds,
-      }));
+      const target=resolveSavedItemTarget(kind.data,item.data.payload,allSegments.map(segment=>({id:segment.stable_id,text:segment.original_chinese,startSeconds:segment.start_seconds,endSeconds:segment.end_seconds})),item.data.start_seconds);
+      if(target.targetSegments.length===0)return null;
+      const [marks,artifact]=await Promise.all([
+        client.from("saved_item_highlights").select("*").eq("user_id",expectedUserId).eq("saved_item_id",savedItemId).eq("status","active").order("created_at",{ascending:true}),
+        client.from("generated_artifacts").select("content").eq("user_id",expectedUserId).eq("saved_item_id",savedItemId).eq("video_source_id",sourceId).eq("artifact_type","saved_item_analysis").order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1).maybeSingle(),
+      ]);
+      if(marks.error||artifact.error)throw marks.error??artifact.error;
+      const artifactContent=artifact.data?.content;
+      const rawCandidates=artifactContent&&typeof artifactContent==="object"&&!Array.isArray(artifactContent)&&Array.isArray(artifactContent.candidates)?artifactContent.candidates:[];
+      const existingCandidates=rawCandidates.flatMap(candidate=>{const parsed=CandidateExpressionSchema.safeParse(candidate);return parsed.success?[parsed.data]:[];});
       return {
-        userId: expectedUserId,
-        sourceId,
-        savedItemId,
-        snapshotId,
-        transcriptHash: snapshot.data.transcript_hash,
-        kind: kind.data,
-        rawText: savedItemRawText(
-          item.data.payload,
-          mappedSegments.map((segment) => segment.originalChinese).join("\n"),
-        ),
-        startSeconds: item.data.start_seconds,
-        segments: mappedSegments,
+        userId:expectedUserId,sourceId,savedItemId,snapshotId,transcriptHash:snapshot.data.transcript_hash,
+        kind:kind.data,
+        rawText:savedItemRawText(item.data.payload,target.targetSegments.map(segment=>segment.text).join("\n")),
+        startSeconds:target.targetSegments[0]!.startSeconds,
+        contextBefore:target.contextBefore,contextAfter:target.contextAfter,
+        highlights:marks.data.map(highlightView),existingCandidates,
+        segments:target.targetSegments.map(segment=>({stableId:segment.id,originalChinese:segment.text,startSeconds:segment.startSeconds,endSeconds:segment.endSeconds})),
       };
+    },
+
+    async completeSavedItemHighlights(expectedUserId,expectedLease,highlights,unavailable,completedAt) {
+      if(expectedUserId!==expectedLease.userId)throw new Error("highlight owner mismatch");
+      const result=await client.rpc("complete_saved_item_highlights",{
+        p_user_id:expectedUserId,p_job_id:expectedLease.id,p_expected_lease_expires_at:expectedLease.leaseExpiresAt,
+        p_expected_attempt_count:expectedLease.attemptCount,p_highlights:highlights as unknown as Json,
+        p_unavailable:unavailable,p_now:completedAt,
+      });
+      if(result.error)throw result.error;
+      return result.data;
     },
 
     async transitionLearningArtifactFailure(expectedUserId, expectedLease, state, clearInput) {

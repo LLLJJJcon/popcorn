@@ -29,7 +29,7 @@ export type PracticePromotionRepository = {
 };
 
 function normalizeTarget(value: string): string {
-  return TargetChineseTextSchema.max(200).parse(value.normalize("NFKC").trim());
+  return TargetChineseTextSchema.max(10_000).parse(value.normalize("NFKC").trim());
 }
 
 function canonicalizePersistedInstant(value: string): string {

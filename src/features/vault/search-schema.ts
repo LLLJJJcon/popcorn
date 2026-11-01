@@ -39,8 +39,8 @@ export const ExpressionSearchQuerySchema = z.strictObject({
 export const ExpressionSearchResultSchema = z.strictObject({
   userExpressionId: z.string().uuid(),
   expressionSenseId: z.string().uuid(),
-  expressionText: z.string().min(1).max(200),
-  englishMeaning: z.string().min(1).max(500),
+  expressionText: z.string().min(1).max(10_000),
+  englishMeaning: z.string().min(1).max(2_000),
   communicativeFunction: z.string().min(1).max(300),
   register: z.string().min(1).max(200),
   masteryState: z.enum(["tried", "reused", "owned"]),

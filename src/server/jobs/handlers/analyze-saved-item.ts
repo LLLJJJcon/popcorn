@@ -9,6 +9,8 @@ import {
   buildAnalyzeSavedItemPrompt,
   normalizeSavedItemAnalysisWire,
 } from "@/server/ai/prompts/analyze-saved-item.v1";
+import { ANALYZE_MARKED_EXPRESSIONS_PROMPT_VERSION } from "@/server/ai/prompts/analyze-saved-item.v3";
+import { generateMarkedLearningCards } from "./marked-learning-cards";
 import type { StructuredJsonGatewayResolver } from "@/server/ai/structured-json-gateway";
 import {
   SavedItemAnalysisJobInputSchema,
@@ -83,33 +85,38 @@ export function createAnalyzeSavedItemHandler({ store, gatewayResolver }: {
       fallbackFailure = new ModelGatewayError("PROVIDER_UNAVAILABLE", "transport");
       const gateway = await gatewayResolver.resolve(expectedUserId, gatewayPin);
       const promptVersion = input.promptVersion;
-      if (promptVersion !== ANALYZE_SAVED_ITEM_PROMPT_VERSION) {
+      if (promptVersion !== ANALYZE_SAVED_ITEM_PROMPT_VERSION && promptVersion !== ANALYZE_MARKED_EXPRESSIONS_PROMPT_VERSION) {
         throw new ModelGatewayError("PROVIDER_OUTPUT_INVALID");
       }
-      const prompt = buildAnalyzeSavedItemPrompt({
-        kind: evidence.kind,
-        rawText: evidence.rawText,
-        sourceLines: evidence.segments.map((segment, sourceLineIndex) => ({
-          sourceLineIndex,
-          originalChinese: segment.originalChinese,
-        })),
-      });
-      const raw = await gateway.complete(
-        promptVersion,
-        prompt.userPrompt,
-        {
-          systemPrompt: prompt.systemPrompt,
-          timeoutMs: 30_000,
-          maxTokens: 900,
-          normalize: normalizeSavedItemAnalysisWire,
-        },
-      );
-      fallbackFailure = new ModelGatewayError(
-        "PROVIDER_OUTPUT_INVALID",
-        "grounding",
-        "sourceLineIndices",
-      );
-      const content = groundSavedItemAnalysisContent(raw, evidence);
+      let content;
+      if (promptVersion === ANALYZE_MARKED_EXPRESSIONS_PROMPT_VERSION) {
+        content = await generateMarkedLearningCards({ gateway, evidence, highlightIds: input.highlightIds });
+      } else {
+        const prompt = buildAnalyzeSavedItemPrompt({
+          kind: evidence.kind,
+          rawText: evidence.rawText,
+          sourceLines: evidence.segments.map((segment, sourceLineIndex) => ({
+            sourceLineIndex,
+            originalChinese: segment.originalChinese,
+          })),
+        });
+        const raw = await gateway.complete(
+          promptVersion,
+          prompt.userPrompt,
+          {
+            systemPrompt: prompt.systemPrompt,
+            timeoutMs: 30_000,
+            maxTokens: 900,
+            normalize: normalizeSavedItemAnalysisWire,
+          },
+        );
+        fallbackFailure = new ModelGatewayError(
+          "PROVIDER_OUTPUT_INVALID",
+          "grounding",
+          "sourceLineIndices",
+        );
+        content = groundSavedItemAnalysisContent(raw, evidence);
+      }
       if (new TextEncoder().encode(JSON.stringify(content)).byteLength > 262_144) {
         throw new RangeError("saved-item analysis artifact is too large");
       }

@@ -51,7 +51,7 @@ function rawEnvironmentValue(contents, expectedName) {
   return value;
 }
 
-function optionalProxyUrl(contents) {
+export function optionalProxyUrl(contents) {
   const rawValue = rawEnvironmentValue(contents, "POPCORN_PROXY_URL");
   if (rawValue === undefined || rawValue.trim() === "") return undefined;
   if (/\s/.test(rawValue) || rawValue.includes("\\")) {

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import { CandidateExpressionListSchema } from "@/contracts/knowledge";
+import { CandidateExpressionListSchema, HighlightAnalysisStateSchema } from "@/contracts/knowledge";
 import { MasteryStateSchema } from "@/contracts/memory";
 import { CanonicalYouTubeUrlSchema } from "@/contracts/source";
 import {
@@ -15,7 +15,7 @@ import type { Database } from "@/types/database.generated";
 
 const UuidSchema = z.string().uuid();
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
-const CandidateContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema });
+const CandidateContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema, highlightStates: z.array(HighlightAnalysisStateSchema).optional() });
 
 const DraftRowSchema = z.strictObject({
   id: UuidSchema,
@@ -23,7 +23,7 @@ const DraftRowSchema = z.strictObject({
   video_source_id: UuidSchema,
   saved_item_id: UuidSchema,
   candidate_artifact_id: UuidSchema,
-  candidate_index: z.number().int().min(0).max(2),
+  candidate_index: z.number().int().min(0).max(100_000),
   future_user_expression_id: UuidSchema,
   native_language: z.literal("en"),
   target_language: z.literal("zh-CN"),

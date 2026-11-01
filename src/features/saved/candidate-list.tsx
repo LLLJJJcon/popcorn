@@ -5,16 +5,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 
-import { CandidateExpressionListSchema, type CandidateExpression } from "@/contracts/knowledge";
+import { CandidateExpressionListSchema, HighlightAnalysisStateSchema, type HighlightAnalysisState, type CandidateExpression } from "@/contracts/knowledge";
 import { PracticeTaskSchema } from "@/contracts/practice";
 import { apiSuccessSchema } from "@/contracts/api";
 import { CandidateExpressionCard } from "./candidate-expression";
+import { HighlightEditor } from "./highlight-editor";
+import type { HighlightStatus, SavedHighlight } from "@/contracts/highlights";
+import type { SavedItemView } from "./api";
 import styles from "./saved-workspace.module.css";
 
 export type CandidateArtifact = {
   readonly artifactId: string;
   readonly savedItemId: string;
   readonly candidates: readonly CandidateExpression[];
+  readonly promptVersion?: string;
+  readonly highlightStates?: readonly HighlightAnalysisState[];
 };
 
 export type CandidateAnalysis =
@@ -29,6 +34,8 @@ const ReadyRecoverySchema = z.strictObject({
   youtubeVideoId: z.string().regex(/^[A-Za-z0-9_-]{11}$/),
   canonicalUrl: z.url(),
   candidates: CandidateExpressionListSchema,
+  promptVersion: z.string().optional(),
+  highlightStates: z.array(HighlightAnalysisStateSchema).optional(),
 });
 
 const PublicFailureCategorySchema = z.enum(["model_unavailable", "model_output", "internal"]);
@@ -38,27 +45,34 @@ const FailedRecoverySchema = z.strictObject({
   state: z.literal("failed"),
   jobId: z.string().uuid(),
   failureCategory: PublicFailureCategorySchema,
+  highlightStates: z.array(HighlightAnalysisStateSchema).optional(),
 });
 
 const RecoverySchema = apiSuccessSchema(z.discriminatedUnion("state", [
   z.strictObject({ state: z.literal("gateway_required") }),
+  z.strictObject({ state: z.literal("idle"), highlightStates: z.array(HighlightAnalysisStateSchema).optional() }),
   ReadyRecoverySchema,
   z.strictObject({
     state: z.literal("processing"),
     jobId: z.string().uuid(),
     status: ProcessingStatusSchema,
     created: z.boolean(),
+    artifact: z.object({ artifactId: z.string().uuid(), savedItemId: z.string().uuid(), candidates: CandidateExpressionListSchema, promptVersion: z.string().optional() }).nullable().optional(),
+    highlightStates: z.array(HighlightAnalysisStateSchema).optional(),
   }),
   FailedRecoverySchema,
 ]));
 
 const PollSchema = apiSuccessSchema(z.discriminatedUnion("state", [
   z.strictObject({ state: z.literal("gateway_required") }),
+  z.strictObject({ state: z.literal("idle"), highlightStates: z.array(HighlightAnalysisStateSchema).optional() }),
   ReadyRecoverySchema,
   z.strictObject({
     state: z.literal("processing"),
     jobId: z.string().uuid(),
     status: ProcessingStatusSchema,
+    artifact: z.object({ artifactId: z.string().uuid(), savedItemId: z.string().uuid(), candidates: CandidateExpressionListSchema, promptVersion: z.string().optional() }).nullable().optional(),
+    highlightStates: z.array(HighlightAnalysisStateSchema).optional(),
   }),
   FailedRecoverySchema,
 ]));
@@ -82,14 +96,26 @@ export function CandidateList({
   videoSourceId,
   youtubeUrl,
   analysis,
+  item,
 }: {
   readonly savedItemId: string;
   readonly videoSourceId: string;
   readonly youtubeUrl: string;
   readonly analysis: CandidateAnalysis;
+  readonly item?: SavedItemView;
 }) {
   const router = useRouter();
   const [hydrationReady, setHydrationReady] = useState(false);
+  const [highlights, setHighlights] = useState<readonly SavedHighlight[]>(item?.highlights ?? []);
+  const [highlightStatus, setHighlightStatus] = useState<HighlightStatus | null>(item?.highlightStatus ?? null);
+  const [highlightSource, setHighlightSource] = useState({ values: item?.highlights, status: item?.highlightStatus });
+  const [highlightStates, setHighlightStates] = useState<readonly HighlightAnalysisState[]>(analysis.state === "ready" ? analysis.artifact.highlightStates ?? [] : []);
+  const [activationError, setActivationError] = useState(false);
+  const editingEnabled = Boolean(item?.status === "ready" && item.kind !== "video" && item.targetSegments?.length);
+  if (item?.highlights !== highlightSource.values || item?.highlightStatus !== highlightSource.status) {
+    setHighlightSource({ values: item?.highlights, status: item?.highlightStatus });
+    setHighlights(item?.highlights ?? []); setHighlightStatus(item?.highlightStatus ?? null);
+  }
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const [recoveryState, setRecoveryState] = useState<RecoveryState>("idle");
   const [failureCategory, setFailureCategory] = useState<FailureCategory | null>(null);
@@ -102,7 +128,7 @@ export function CandidateList({
   const jobId = useRef<string | null>(null);
   const requestInFlight = useRef(false);
   const mounted = useRef(false);
-  const artifact = analysis.state === "ready" ? analysis.artifact : recoveredArtifact;
+  const artifact = recoveredArtifact ?? (analysis.state === "ready" ? analysis.artifact : null);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setHydrationReady(true), 0);
@@ -119,13 +145,48 @@ export function CandidateList({
     };
   }, []);
 
-  if (analysis.state === "unavailable") {
+  useEffect(() => {
+    if (!editingEnabled || highlightStatus !== "pending") return;
+    const timer = window.setInterval(() => router.refresh(), 1_500);
+    return () => window.clearInterval(timer);
+  }, [editingEnabled, highlightStatus, router]);
+
+  useEffect(() => {
+    if (!editingEnabled) return;
+    const controller = new AbortController();
+    retryController.current = controller;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/v1/saved-items/${savedItemId}/candidates`, { credentials: "same-origin", cache: "no-store", signal: controller.signal });
+        const parsed = PollSchema.safeParse(await response.json());
+        if (!response.ok || !parsed.success || !isCurrent(controller)) return;
+        const data = parsed.data.data;
+        if (data.state === "ready") showReady(data, controller);
+        else if (data.state === "processing") {
+          if (data.artifact) setRecoveredArtifact(data.artifact);
+          if (data.highlightStates) setHighlightStates(data.highlightStates);
+          jobId.current = data.jobId; setRecoveryState("pending");
+          startProcessingDeadlines(controller); schedulePoll(controller, data.jobId);
+        } else if (data.state === "failed") {
+          jobId.current = data.jobId;
+          if (data.highlightStates) setHighlightStates(data.highlightStates);
+          showTerminal(data.failureCategory, controller);
+        }
+      } catch { /* Initial recovery is progressive; explicit actions expose recoverable errors. */ }
+    })();
+    return () => controller.abort();
+    // Recover once per saved item; highlight edits do not start analysis by themselves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedItemId, editingEnabled]);
+
+  if (analysis.state === "unavailable" && !editingEnabled) {
     return <p>Candidate analysis is unavailable.</p>;
   }
 
   async function activate(candidateIndex: number) {
     if (!artifact || artifact.savedItemId !== savedItemId) return;
     setPendingIndex(candidateIndex);
+    setActivationError(false);
     try {
       const response = await fetch("/api/v1/practice/tasks", {
         method: "POST",
@@ -141,6 +202,7 @@ export function CandidateList({
       const returnTo = `/saved/${videoSourceId}#saved-item-${savedItemId}`;
       router.push(`/practice/${body.data.data.id}?returnTo=${encodeURIComponent(returnTo)}`);
     } catch {
+      setActivationError(true);
       setPendingIndex(null);
     }
   }
@@ -188,7 +250,10 @@ export function CandidateList({
       artifactId: data.artifactId,
       savedItemId: data.savedItemId,
       candidates: data.candidates,
+      promptVersion: data.promptVersion,
+      highlightStates: data.highlightStates,
     });
+    setHighlightStates(data.highlightStates ?? []);
     setRecoveryState("idle");
   }
 
@@ -234,6 +299,7 @@ export function CandidateList({
         showReady(data, controller);
         return;
       }
+      if (data.state === "idle") { clearRecoveryTimers(); setRecoveryState("idle"); return; }
       if (data.state === "gateway_required") {
         clearRecoveryTimers();
         setRecoveryState("gateway");
@@ -241,6 +307,7 @@ export function CandidateList({
       }
       if (data.state === "failed") {
         if (data.jobId !== ownerBoundJobId) throw new Error("candidate job mismatch");
+        if (data.highlightStates) setHighlightStates(data.highlightStates);
         showTerminal(data.failureCategory, controller);
         return;
       }
@@ -251,7 +318,7 @@ export function CandidateList({
     }
   }
 
-  async function requestAnalysis(terminalRetry: boolean) {
+  async function requestAnalysis(terminalRetry: boolean, retryHighlightId?: string) {
     if (requestInFlight.current) return;
     requestInFlight.current = true;
     clearRecoveryTimers();
@@ -264,7 +331,7 @@ export function CandidateList({
       const response = await fetch(`/api/v1/saved-items/${savedItemId}/candidates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: terminalRetry ? JSON.stringify({ retryId: crypto.randomUUID() }) : "{}",
+        body: retryHighlightId ? JSON.stringify({ highlightId: retryHighlightId, retryId: crypto.randomUUID() }) : terminalRetry ? JSON.stringify({ retryId: crypto.randomUUID() }) : editingEnabled ? undefined : "{}",
         credentials: "same-origin",
         signal: controller.signal,
       });
@@ -276,6 +343,7 @@ export function CandidateList({
         showReady(data, controller);
         return;
       }
+      if (data.state === "idle") { clearRecoveryTimers(); setRecoveryState("idle"); return; }
       if (data.state === "gateway_required") {
         clearRecoveryTimers();
         setRecoveryState("gateway");
@@ -283,10 +351,13 @@ export function CandidateList({
       }
       if (data.state === "failed") {
         jobId.current = data.jobId;
+        if (data.highlightStates) setHighlightStates(data.highlightStates);
         showTerminal(data.failureCategory, controller);
         return;
       }
       jobId.current = data.jobId;
+      if (data.artifact) setRecoveredArtifact(data.artifact);
+      if (data.highlightStates) setHighlightStates(data.highlightStates);
       startProcessingDeadlines(controller);
       schedulePoll(controller, data.jobId);
     } catch {
@@ -315,8 +386,10 @@ export function CandidateList({
       const data = parsedResponse.data.data;
       if (data.state === "ready") showReady(data, controller);
       else if (data.state === "gateway_required") setRecoveryState("gateway");
+      else if (data.state === "idle") setRecoveryState("idle");
       else if (data.state === "failed") {
         if (data.jobId !== ownerBoundJobId) throw new Error("candidate job mismatch");
+        if (data.highlightStates) setHighlightStates(data.highlightStates);
         showTerminal(data.failureCategory, controller);
       } else {
         if (data.jobId !== ownerBoundJobId) throw new Error("candidate job mismatch");
@@ -327,6 +400,43 @@ export function CandidateList({
     } finally {
       if (retryController.current === controller) requestInFlight.current = false;
     }
+  }
+
+  if (editingEnabled && item?.targetSegments) {
+    const pending = ["pending", "background", "checking"].includes(recoveryState);
+    const queued = recoveryState === "queued" || recoveryState === "checking";
+    const analyzed = (highlight: SavedHighlight) => artifact?.candidates.some(candidate => candidate.highlightId === highlight.id || candidate.highlightKey === JSON.stringify([highlight.startSegmentId, highlight.startOffset, highlight.endSegmentId, highlight.endOffset, highlight.text]));
+    const remaining = highlights.filter(highlight => !analyzed(highlight)).length;
+    const disabledReason = highlights.length === 0 ? "Mark at least one expression" : remaining === 0 ? "All marked expressions are analyzed" : undefined;
+    const message = recoveryState === "background" ? "Still analyzing in the background"
+      : queued ? "Still queued"
+      : pending ? "Creating your learning cards…"
+      : remaining ? `${remaining} marked ${remaining === 1 ? "expression is" : "expressions are"} ready to analyze.`
+      : highlights.length ? "Your marked expressions have learning cards."
+      : artifact?.candidates.length ? "Learning cards ready. Mark more words to add expressions."
+      : "Mark an expression to get started.";
+    return (
+      <section aria-label="Expression learning workspace">
+        <HighlightEditor savedItemId={savedItemId} segments={item.targetSegments} highlights={highlights} highlightStatus={highlightStatus} gatewayAvailable={item.gatewayAvailable} onChange={(next, status) => { setHighlights(next); setHighlightStatus(status); router.refresh(); }} />
+        {item.englishTranslation ? <p className={styles.translation}>{item.englishTranslation}</p> : null}
+        <div className={styles.analysisPanel} aria-label="Analysis status">
+          <div className={styles.analysisMessage}>{pending ? <span className={styles.activityIndicator} role="progressbar" aria-label="Analysis in progress" /> : null}<p role="status">{message}</p></div>
+          <span title={disabledReason} tabIndex={disabledReason ? 0 : undefined} aria-label={disabledReason}><button className={styles.analysisAction} type="button" disabled={!hydrationReady || pending || Boolean(disabledReason)} onClick={() => { void requestAnalysis(recoveryState === "terminal" || recoveryState === "error"); }}>Analyze</button></span>
+        </div>
+        {queued ? <button type="button" className={styles.inlineAction} onClick={() => void checkStatus()} disabled={recoveryState === "checking"}>{recoveryState === "checking" ? "Checking…" : "Check status"}</button> : null}
+        {recoveryState === "gateway" ? <p className={styles.analysisMessage}>An active gateway is needed to create cards. <Link href="/settings/model-gateway">Set up model gateway</Link></p> : null}
+        {recoveryState === "terminal" || recoveryState === "error" ? <p className={styles.editorError} role="alert">{recoveryState === "terminal" && failureCategory ? terminalFailureMessage(failureCategory) : "Analysis is taking longer than expected. Try again."}</p> : null}
+        {artifact?.candidates.length ? <div className={styles.expressionGroup}><div className={styles.expressionGroupHeading}><h3>Learning cards</h3><span>{artifact.candidates.length} {artifact.candidates.length === 1 ? "expression" : "expressions"}</span></div><div className={styles.expressionGrid}>{artifact.candidates.map((candidate, index) => <CandidateExpressionCard key={`${candidate.highlightKey ?? candidate.expression}-${index}`} candidate={candidate} canonicalUrl={youtubeUrl} disabled={!hydrationReady || pendingIndex !== null} activating={pendingIndex === index} onUse={() => void activate(index)} />)}</div></div> : null}
+        {highlightStates.filter(state => state.status === "failed" && highlights.some(highlight => highlight.id === state.highlightId)).map(state => <div className={styles.failedHighlight} key={state.highlightId}><div><strong lang="zh-CN">{state.text}</strong><p>Couldn&apos;t analyze this one</p></div><button className={styles.inlineAction} type="button" disabled={pending} onClick={() => void requestAnalysis(true, state.highlightId)}>Try again</button></div>)}
+        {activationError ? <p className={styles.editorError} role="alert">Couldn&apos;t open practice. Please try again.</p> : null}
+      </section>
+    );
+  }
+
+  if (item && !editingEnabled && !artifact) {
+    if (item.kind === "video") return <p className={styles.sourceGuidance}>Save a subtitle or expression from this video to create a learning card.</p>;
+    if (item.status !== "ready") return <p className={styles.sourceGuidance}>Learning cards will be available when the subtitles are ready.</p>;
+    return <section className={styles.analysisPanel} aria-label="Analysis status"><p className={styles.analysisMessage}>The source subtitle is unavailable. Open this moment on YouTube to save the line again.</p><span title="Mark at least one expression"><button className={styles.analysisAction} type="button" disabled>Analyze</button></span></section>;
   }
 
   if (analysis.state === "missing" && !recoveredArtifact) {
@@ -396,6 +506,7 @@ export function CandidateList({
         <h3>Learning cards</h3>
         <span>{artifact!.candidates.length} {artifact!.candidates.length === 1 ? "expression" : "expressions"}</span>
       </div>
+      {activationError ? <p className={styles.editorError} role="alert">Couldn&apos;t open practice. Please try again.</p> : null}
       <div className={styles.expressionGrid}>
         {artifact!.candidates.map((candidate, index) => (
           <CandidateExpressionCard

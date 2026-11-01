@@ -195,13 +195,13 @@ insert into public.practice_draft_attempts (
 
 select extensions.results_eq(
   $$select
-      (select count(*) from public.expression_senses),
-      (select count(*) from public.expression_occurrences),
-      (select count(*) from public.user_expressions),
-      (select count(*) from public.practice_tasks),
-      (select count(*) from public.attempts),
-      (select count(*) from public.mastery_events),
-      (select count(*) from public.review_tasks)$$,
+      (select count(*) from public.expression_senses where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.expression_occurrences where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.user_expressions where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.practice_tasks where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.attempts where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.mastery_events where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.review_tasks where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002'))$$,
   $$values (0::bigint,0::bigint,0::bigint,0::bigint,0::bigint,0::bigint,0::bigint)$$,
   'saves, drafts, failed output, and staged attempts alone create no canonical graph'
 );
@@ -215,9 +215,29 @@ insert into public.expression_senses (
   'reacting to an unreasonable event','informal'
 );
 
+-- Add v3 learning fields to the candidate while retaining the legacy projection.
+update public.generated_artifacts
+set content = jsonb_set(content, '{candidates,0}', content #> '{candidates,0}' ||
+  '{"meaningHere":"Outrageous in this situation.","useItWhen":"Complain about something unreasonable.","comparedWith":"Compared with 不合理, this sounds more emotional.","howItFits":"Use it as a reaction to a statement.","toneAndWho":"Casual conversation with friends.","watchOut":null,"examples":[{"zh":"这价格太离谱了。","en":"This price is outrageous."},{"zh":"这个规定太离谱了。","en":"This rule is outrageous."}],"functionCategories":["complain","react"],"usageSettings":["casual_chat"]}'::jsonb)
+where id = :'artifact_a';
+
 create temp table promotion_result on commit drop as
 select * from public.promote_valid_practice_draft_attempt(
   :'user_a',:'attempt_valid','太离谱了','2026-08-21 11:04:00+00',1
+);
+
+select extensions.results_eq(
+  $$select meaning_here,use_it_when,compared_with,how_it_fits,tone_and_who,watch_out,
+      function_categories,usage_settings,jsonb_array_length(examples)
+    from public.expression_senses
+    where id=(select expression_sense_id from promotion_result)$$,
+  $$values ('Outrageous in this situation.'::text,
+    'Complain about something unreasonable.'::text,
+    'Compared with 不合理, this sounds more emotional.'::text,
+    'Use it as a reaction to a statement.'::text,
+    'Casual conversation with friends.'::text,null::text,
+    array['complain','react']::text[],array['casual_chat']::text[],2)$$,
+  'promotion preserves the exact v3 learning card and controlled categories'
 );
 
 select extensions.results_eq(
@@ -373,14 +393,14 @@ reset role;
 
 select extensions.results_eq(
   $$select
-      (select count(*) from public.expression_senses),
-      (select count(*) from public.expression_occurrences),
-      (select count(*) from public.user_expressions),
-      (select count(*) from public.practice_tasks),
-      (select count(*) from public.attempts),
-      (select count(*) from public.mastery_events),
-      (select count(*) from public.review_tasks),
-      (select count(*) from private.practice_promotion_receipts)$$,
+      (select count(*) from public.expression_senses where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.expression_occurrences where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.user_expressions where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.practice_tasks where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.attempts where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.mastery_events where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.review_tasks where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from private.practice_promotion_receipts where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002'))$$,
   $$values (2::bigint,1::bigint,1::bigint,1::bigint,1::bigint,1::bigint,1::bigint,1::bigint)$$,
   'exact replay creates no duplicate learning graph row'
 );
@@ -470,14 +490,14 @@ select extensions.results_eq(
   $$select
       (select status from public.practice_drafts where id='0c800000-0000-4000-8000-000000000004'),
       (select count(*) from public.practice_draft_attempts where id='0ca00000-0000-4000-8000-000000000004'),
-      (select count(*) from public.expression_senses),
-      (select count(*) from public.expression_occurrences),
-      (select count(*) from public.user_expressions),
-      (select count(*) from public.practice_tasks),
-      (select count(*) from public.attempts),
-      (select count(*) from public.mastery_events),
-      (select count(*) from public.review_tasks),
-      (select count(*) from private.practice_promotion_receipts)$$,
+      (select count(*) from public.expression_senses where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.expression_occurrences where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.user_expressions where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.practice_tasks where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.attempts where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.mastery_events where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from public.review_tasks where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
+      (select count(*) from private.practice_promotion_receipts where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002'))$$,
   $$values ('active'::text,1::bigint,2::bigint,1::bigint,1::bigint,1::bigint,
     1::bigint,1::bigint,1::bigint,1::bigint)$$,
   'late failure preserves the staged attempt and rolls back every new canonical row and receipt'

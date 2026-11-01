@@ -88,14 +88,16 @@ describe("Saved analysis v2 prompt contract", () => {
     expect(prompt.userPrompt).not.toContain("transcriptHash");
   });
 
-  test("publishes a literal finite v1/v2 readable-version predicate", () => {
+  test("publishes a finite readable-version predicate including v3 cards", () => {
     expect(ANALYZE_SAVED_ITEM_READABLE_PROMPT_VERSIONS).toEqual([
       "analyze-saved-item-v1",
       "analyze-saved-item-v2",
+      "analyze-saved-item-v3",
     ]);
     expect(isReadableSavedAnalysisPromptVersion("analyze-saved-item-v1")).toBe(true);
     expect(isReadableSavedAnalysisPromptVersion("analyze-saved-item-v2")).toBe(true);
-    expect(isReadableSavedAnalysisPromptVersion("analyze-saved-item-v3")).toBe(false);
+    expect(isReadableSavedAnalysisPromptVersion("analyze-saved-item-v3")).toBe(true);
+    expect(isReadableSavedAnalysisPromptVersion("analyze-saved-item-v4")).toBe(false);
   });
 });
 

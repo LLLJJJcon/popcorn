@@ -94,7 +94,8 @@ export const YouTubeThumbnailUrlSchema = z
 const getYouTubeThumbnailVideoId = (value: string) =>
   youtubeThumbnailUrlPattern.exec(value)?.[1] ?? null;
 const SegmentIdsSchema = z.array(StableSegmentIdSchema).min(1).max(32);
-const ContextSchema = z.array(TargetChineseTextSchema.max(2_000)).max(3);
+export const ContextBeforeSchema = z.array(TargetChineseTextSchema.max(2_000)).max(3);
+export const ContextAfterSchema = z.array(TargetChineseTextSchema.max(2_000)).max(2);
 
 export const VideoSourceSchema = z
   .strictObject({
@@ -193,8 +194,8 @@ const saveVariants = {
     englishTranslation: EnglishTextSchema.optional(),
     startSeconds: SecondSchema,
     endSeconds: SecondSchema,
-    contextBefore: ContextSchema,
-    contextAfter: ContextSchema,
+    contextBefore: ContextBeforeSchema,
+    contextAfter: ContextAfterSchema,
   },
   subtitleSelection: {
     kind: z.literal("subtitle_selection"),
@@ -205,14 +206,16 @@ const saveVariants = {
     endSeconds: SecondSchema,
     startOffset: OffsetSchema,
     endOffset: OffsetSchema,
-    contextBefore: ContextSchema,
-    contextAfter: ContextSchema,
+    contextBefore: ContextBeforeSchema,
+    contextAfter: ContextAfterSchema,
   },
   keyQuote: {
     kind: z.literal("key_quote"),
     exactQuote: TargetChineseTextSchema,
     quoteSeconds: SecondSchema,
     segmentIds: SegmentIdsSchema,
+    contextBefore: ContextBeforeSchema.optional(),
+    contextAfter: ContextAfterSchema.optional(),
   },
   aiExplanation: {
     kind: z.literal("ai_explanation"),
@@ -221,8 +224,8 @@ const saveVariants = {
     segmentIds: SegmentIdsSchema,
     startSeconds: SecondSchema,
     endSeconds: SecondSchema,
-    contextBefore: ContextSchema,
-    contextAfter: ContextSchema,
+    contextBefore: ContextBeforeSchema,
+    contextAfter: ContextAfterSchema,
   },
 };
 

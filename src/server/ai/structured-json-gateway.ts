@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FORMAT_RETRY_MAX } from "@/server/domain/learning-config";
 
 import {
   createOpenAiCompatibleStructuredJsonClient,
@@ -115,4 +116,21 @@ export function createStructuredJsonGatewayResolver(
       });
     },
   };
+}
+
+/** Retry only malformed/ungrounded model output. Transport policy stays in the provider. */
+export async function completeWithFormatRetries<T>(
+  complete: () => Promise<T>,
+  validate: (value: T) => T = (value) => value,
+  maxRetries = FORMAT_RETRY_MAX,
+): Promise<T> {
+  if (!Number.isInteger(maxRetries) || maxRetries < 0 || maxRetries > FORMAT_RETRY_MAX) throw new RangeError("Invalid format retry count");
+  for (let attempt = 0; ; attempt += 1) {
+    try { return validate(await complete()); }
+    catch (error) {
+      const formatError = error instanceof ModelGatewayError &&
+        ["json_extract", "wire_schema", "grounding"].includes(error.stage);
+      if (!formatError || attempt >= maxRetries) throw error;
+    }
+  }
 }

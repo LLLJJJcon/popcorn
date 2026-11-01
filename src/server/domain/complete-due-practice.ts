@@ -106,7 +106,7 @@ export type DuePracticeCompletionRepository = {
 const UserIdSchema = z.string().uuid();
 const ExplicitInstantSchema = z.string().datetime({ offset: true });
 const DueInputSchema = z.strictObject({
-  responseChinese: TargetChineseTextSchema.max(5_000),
+  responseChinese: TargetChineseTextSchema.max(10_000),
   assistanceLevel: AssistanceLevelSchema,
 });
 
@@ -332,7 +332,7 @@ const PersistedAttemptRowSchema = z.strictObject({
   user_id: z.string().uuid(),
   user_expression_id: z.string().uuid(),
   practice_task_id: z.string().uuid(),
-  response_chinese: TargetChineseTextSchema.max(5_000),
+  response_chinese: TargetChineseTextSchema.max(10_000),
   assistance_level: AssistanceLevelSchema,
   passed: z.boolean(),
   independent_use: z.boolean(),

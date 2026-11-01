@@ -71,8 +71,8 @@ describe("Saved video learning bridge", () => {
     expect(screen.getByTestId("raw-text")).toHaveTextContent("这个想法挺有意思的");
     expect(screen.getByText("This idea is pretty interesting.")).toBeInTheDocument();
     expect(screen.getAllByRole("alert")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Analyze" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Analyze" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Analyze" })).not.toBeInTheDocument();
+    expect(screen.getByText("Learning cards will be available when the subtitles are ready.")).toBeInTheDocument();
   });
 
   it("keeps the full detail title on hover and removes the blanket header failure", () => {
@@ -81,7 +81,7 @@ describe("Saved video learning bridge", () => {
     expect(screen.getByRole("heading", { level: 1, name: "中文访谈" })).toHaveAttribute("title", "中文访谈");
     expect(container.querySelector("header")).not.toHaveTextContent("Could not organize this save");
     expect(screen.getByTestId("raw-text")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Analyze" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Analyze" })).not.toBeInTheDocument();
   });
 
   it.each([

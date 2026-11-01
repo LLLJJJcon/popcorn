@@ -197,6 +197,14 @@ export type Database = {
         Args: { maximum_length: number; value: string }
         Returns: boolean
       }
+      is_learning_card_prose: {
+        Args: { maximum: number; value: string }
+        Returns: boolean
+      }
+      is_practice_feedback_text: {
+        Args: { max_length: number; value: string }
+        Returns: boolean
+      }
       is_safe_model_gateway_origin: {
         Args: { value: string }
         Returns: boolean
@@ -245,6 +253,11 @@ export type Database = {
           review_task_id: string
           user_expression_id: string
         }[]
+      }
+      utf16_length: { Args: { p_text: string }; Returns: number }
+      utf16_slice: {
+        Args: { p_end: number; p_start: number; p_text: string }
+        Returns: string
       }
     }
     Enums: {
@@ -449,51 +462,78 @@ export type Database = {
       expression_senses: {
         Row: {
           communicative_function: string
+          compared_with: string | null
           created_at: string
           english_explanation: string
           english_meaning: string
+          examples: Json | null
           expression_text: string
+          function_categories: string[]
+          how_it_fits: string | null
           id: string
+          meaning_here: string | null
           normalized_expression_text: string
           register: string
           saved_item_id: string | null
           source_deleted_at: string | null
           tone: string
+          tone_and_who: string | null
           updated_at: string
+          usage_settings: string[]
+          use_it_when: string | null
           user_id: string
           video_source_id: string | null
+          watch_out: string | null
         }
         Insert: {
           communicative_function: string
+          compared_with?: string | null
           created_at?: string
           english_explanation: string
           english_meaning: string
+          examples?: Json | null
           expression_text: string
+          function_categories?: string[]
+          how_it_fits?: string | null
           id?: string
+          meaning_here?: string | null
           normalized_expression_text: string
           register: string
           saved_item_id?: string | null
           source_deleted_at?: string | null
           tone: string
+          tone_and_who?: string | null
           updated_at?: string
+          usage_settings?: string[]
+          use_it_when?: string | null
           user_id: string
           video_source_id?: string | null
+          watch_out?: string | null
         }
         Update: {
           communicative_function?: string
+          compared_with?: string | null
           created_at?: string
           english_explanation?: string
           english_meaning?: string
+          examples?: Json | null
           expression_text?: string
+          function_categories?: string[]
+          how_it_fits?: string | null
           id?: string
+          meaning_here?: string | null
           normalized_expression_text?: string
           register?: string
           saved_item_id?: string | null
           source_deleted_at?: string | null
           tone?: string
+          tone_and_who?: string | null
           updated_at?: string
+          usage_settings?: string[]
+          use_it_when?: string | null
           user_id?: string
           video_source_id?: string | null
+          watch_out?: string | null
         }
         Relationships: [
           {
@@ -1175,15 +1215,72 @@ export type Database = {
           },
         ]
       }
+      saved_item_highlights: {
+        Row: {
+          created_at: string
+          end_offset: number
+          end_segment_id: string
+          id: string
+          origin: string
+          reason_en: string | null
+          removed_at: string | null
+          saved_item_id: string
+          start_offset: number
+          start_segment_id: string
+          status: string
+          text: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          end_offset: number
+          end_segment_id: string
+          id?: string
+          origin: string
+          reason_en?: string | null
+          removed_at?: string | null
+          saved_item_id: string
+          start_offset: number
+          start_segment_id: string
+          status?: string
+          text: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          end_offset?: number
+          end_segment_id?: string
+          id?: string
+          origin?: string
+          reason_en?: string | null
+          removed_at?: string | null
+          saved_item_id?: string
+          start_offset?: number
+          start_segment_id?: string
+          status?: string
+          text?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "saved_item_highlight_owner_fk"
+            columns: ["saved_item_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "saved_items"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
       saved_items: {
         Row: {
-          removed_from_saved_at: string | null
           captured_at: string
           client_event_id: string
           created_at: string
+          highlight_status: string | null
           id: string
           kind: string
           payload: Json
+          removed_from_saved_at: string | null
           snapshot_id: string | null
           start_seconds: number | null
           status: string
@@ -1193,13 +1290,14 @@ export type Database = {
           youtube_video_id: string
         }
         Insert: {
-          removed_from_saved_at?: string | null
           captured_at: string
           client_event_id: string
           created_at?: string
+          highlight_status?: string | null
           id?: string
           kind: string
           payload: Json
+          removed_from_saved_at?: string | null
           snapshot_id?: string | null
           start_seconds?: number | null
           status: string
@@ -1209,13 +1307,14 @@ export type Database = {
           youtube_video_id: string
         }
         Update: {
-          removed_from_saved_at?: string | null
           captured_at?: string
           client_event_id?: string
           created_at?: string
+          highlight_status?: string | null
           id?: string
           kind?: string
           payload?: Json
+          removed_from_saved_at?: string | null
           snapshot_id?: string | null
           start_seconds?: number | null
           status?: string
@@ -1611,6 +1710,18 @@ export type Database = {
         }
         Returns: boolean
       }
+      complete_saved_item_highlights: {
+        Args: {
+          p_expected_attempt_count: number
+          p_expected_lease_expires_at: string
+          p_highlights: Json
+          p_job_id: string
+          p_now: string
+          p_unavailable: boolean
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       create_user_model_gateway_config:
         | {
             Args: {
@@ -1659,6 +1770,21 @@ export type Database = {
       }
       has_user_model_gateway_secret: {
         Args: { p_config_id: string; p_user_id: string }
+        Returns: boolean
+      }
+      mutate_saved_item_highlight: {
+        Args: {
+          p_action: string
+          p_end_offset: number | null
+          p_end_segment_id: string | null
+          p_highlight_id: string | null
+          p_now: string
+          p_saved_item_id: string
+          p_start_offset: number | null
+          p_start_segment_id: string | null
+          p_text: string | null
+          p_user_id: string
+        }
         Returns: boolean
       }
       promote_valid_practice_draft_attempt: {
@@ -1726,6 +1852,19 @@ export type Database = {
           knowledge_job_id: string
           status: string
         }[]
+      }
+      register_saved_item_highlight_suggestion: {
+        Args: {
+          p_config_id: string
+          p_dedupe_key: string
+          p_expected_config_fingerprint: string
+          p_expected_config_revision: number
+          p_input: Json
+          p_now: string
+          p_saved_item_id: string
+          p_user_id: string
+        }
+        Returns: boolean
       }
       rename_user_model_gateway_config: {
         Args: {

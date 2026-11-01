@@ -14,6 +14,7 @@ const SAVE_LIMITS = Object.freeze({
   maxOffset: 100_000,
   maxSegments: 32,
   maxContextItems: 3,
+  maxContextAfterItems: 2,
 });
 const SAVE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const SAVE_UUID_PATTERN =
@@ -93,10 +94,10 @@ function stableSegmentIds(value) {
   return [...value];
 }
 
-function boundedContext(value, name) {
+function boundedContext(value, name, maximum = SAVE_LIMITS.maxContextItems) {
   if (
     !Array.isArray(value) ||
-    value.length > SAVE_LIMITS.maxContextItems
+    value.length > maximum
   ) {
     return failSave(`Invalid ${name}`);
   }
@@ -195,7 +196,7 @@ function buildSubtitleRowSaveInput(values, identity = createSaveIdentity()) {
     startSeconds,
     endSeconds,
     contextBefore: boundedContext(values.contextBefore, "context before"),
-    contextAfter: boundedContext(values.contextAfter, "context after"),
+    contextAfter: boundedContext(values.contextAfter, "context after", SAVE_LIMITS.maxContextAfterItems),
   };
 }
 
@@ -253,7 +254,7 @@ function buildSubtitleSelectionSaveInput(
     startOffset: projected.start,
     endOffset: projected.end,
     contextBefore: boundedContext(values.contextBefore, "context before"),
-    contextAfter: boundedContext(values.contextAfter, "context after"),
+    contextAfter: boundedContext(values.contextAfter, "context after", SAVE_LIMITS.maxContextAfterItems),
   };
 }
 
@@ -269,6 +270,8 @@ function buildKeyQuoteSaveInput(values, identity = createSaveIdentity()) {
       "quote time",
     ),
     segmentIds: stableSegmentIds(values?.quote?.sourceSegmentIds),
+    contextBefore: boundedContext(values.contextBefore ?? [], "context before"),
+    contextAfter: boundedContext(values.contextAfter ?? [], "context after", SAVE_LIMITS.maxContextAfterItems),
   };
 }
 
@@ -299,7 +302,7 @@ function buildAiExplanationSaveInput(values, identity = createSaveIdentity()) {
     startSeconds,
     endSeconds,
     contextBefore: boundedContext(values.contextBefore, "context before"),
-    contextAfter: boundedContext(values.contextAfter, "context after"),
+    contextAfter: boundedContext(values.contextAfter, "context after", SAVE_LIMITS.maxContextAfterItems),
   };
 }
 
@@ -308,7 +311,7 @@ const EXACT_SAVE_KEYS = Object.freeze({
   player_moment: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "capturedSecond"],
   subtitle_row: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "segmentId", "originalChinese", "englishTranslation", "startSeconds", "endSeconds", "contextBefore", "contextAfter"],
   subtitle_selection: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "originalChinese", "englishTranslation", "segmentIds", "startSeconds", "endSeconds", "startOffset", "endOffset", "contextBefore", "contextAfter"],
-  key_quote: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "exactQuote", "quoteSeconds", "segmentIds"],
+  key_quote: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "exactQuote", "quoteSeconds", "segmentIds", "contextBefore", "contextAfter"],
   ai_explanation: ["clientEventId", "youtubeVideoId", "capturedAt", "kind", "selectedChinese", "englishExplanation", "segmentIds", "startSeconds", "endSeconds", "contextBefore", "contextAfter"],
 });
 
@@ -1429,7 +1432,11 @@ function renderAnalysisResults(analysis) {
 async function saveQuoteAsNote(quote, btn) {
   if (!currentVideoId) return;
   try {
-    const input = buildKeyQuoteSaveInput({ videoId: currentVideoId, quote });
+    const input = buildKeyQuoteSaveInput({
+      videoId: currentVideoId,
+      quote,
+      ...saveContextForSegmentIds(quote.sourceSegmentIds),
+    });
     await saveWithButton(input, btn, "Save");
   } catch (error) {
     console.error("[Popcorn] Save key quote failed:", error);
@@ -1489,7 +1496,7 @@ function saveContextForSegmentIds(segmentIds) {
       .slice(Math.max(0, first - SAVE_LIMITS.maxContextItems), first)
       .map((segment) => segment.text),
     contextAfter: segments
-      .slice(last + 1, last + 1 + SAVE_LIMITS.maxContextItems)
+      .slice(last + 1, last + 1 + SAVE_LIMITS.maxContextAfterItems)
       .map((segment) => segment.text),
   };
 }

@@ -1,0 +1,208 @@
+[
+  {
+    "id": "highlight-1",
+    "input": {
+      "task": "highlight",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "说白了，这边的房价高得要命"
+        }
+      ]
+    },
+    "expect": {
+      "mustInclude": [
+        "高得要命"
+      ],
+      "mayInclude": [
+        "说白了"
+      ],
+      "mustNotInclude": [
+        "房价"
+      ],
+      "allowEmpty": false,
+      "fields": {
+        "maxHighlights": 2,
+        "singleTargetLine": true,
+        "exactSubstring": true,
+        "notWholeLine": true,
+        "validOccurrence": true,
+        "reasonMaxWords": 40
+      },
+      "manualReview": [
+        "Natural reusable expression boundaries and explanation quality."
+      ]
+    }
+  },
+  {
+    "id": "highlight-2",
+    "input": {
+      "task": "highlight",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "我叫李明，在北京工作三年了"
+        }
+      ]
+    },
+    "expect": {
+      "mustInclude": [],
+      "mustNotInclude": [
+        "李明",
+        "北京",
+        "三年"
+      ],
+      "allowEmpty": true,
+      "fields": {
+        "maxHighlights": 2,
+        "singleTargetLine": true,
+        "exactSubstring": true,
+        "notWholeLine": true,
+        "validOccurrence": true,
+        "reasonMaxWords": 40
+      },
+      "manualReview": [
+        "Natural reusable expression boundaries and explanation quality."
+      ]
+    }
+  },
+  {
+    "id": "highlight-3",
+    "input": {
+      "task": "highlight",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "这件事你就别管了，我心里有数"
+        }
+      ]
+    },
+    "expect": {
+      "mustInclude": [
+        "心里有数"
+      ],
+      "mustNotInclude": [],
+      "allowEmpty": false,
+      "fields": {
+        "maxHighlights": 2,
+        "singleTargetLine": true,
+        "exactSubstring": true,
+        "notWholeLine": true,
+        "validOccurrence": true,
+        "reasonMaxWords": 40
+      },
+      "manualReview": [
+        "Natural reusable expression boundaries and explanation quality."
+      ]
+    }
+  },
+  {
+    "id": "highlight-4",
+    "input": {
+      "task": "highlight",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "他这个人吧"
+        },
+        {
+          "line": 2,
+          "role": "TARGET",
+          "text": "还真有两把刷子"
+        }
+      ]
+    },
+    "expect": {
+      "mustInclude": [
+        "有两把刷子"
+      ],
+      "mustNotInclude": [],
+      "allowEmpty": false,
+      "fields": {
+        "maxHighlights": 2,
+        "singleTargetLine": true,
+        "exactSubstring": true,
+        "notWholeLine": true,
+        "validOccurrence": true,
+        "reasonMaxWords": 40
+      },
+      "manualReview": [
+        "Natural reusable expression boundaries and explanation quality."
+      ]
+    }
+  },
+  {
+    "id": "highlight-5",
+    "input": {
+      "task": "highlight",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "好的好的，那就这么定了"
+        }
+      ]
+    },
+    "expect": {
+      "mustInclude": [],
+      "mayInclude": [
+        "就这么定了"
+      ],
+      "mustNotInclude": [],
+      "allowEmpty": true,
+      "repeatedText": "好的",
+      "fields": {
+        "maxHighlights": 2,
+        "singleTargetLine": true,
+        "exactSubstring": true,
+        "notWholeLine": true,
+        "validOccurrence": true,
+        "reasonMaxWords": 40
+      },
+      "manualReview": [
+        "Natural reusable expression boundaries and explanation quality."
+      ]
+    }
+  },
+  {
+    "id": "highlight-6",
+    "input": {
+      "task": "highlight",
+      "lines": [
+        {
+          "line": 1,
+          "role": "context",
+          "text": "话虽如此"
+        },
+        {
+          "line": 2,
+          "role": "TARGET",
+          "text": "我们明天去"
+        }
+      ]
+    },
+    "expect": {
+      "mustInclude": [],
+      "mustNotInclude": [
+        "话虽如此"
+      ],
+      "allowEmpty": true,
+      "contextForbidden": true,
+      "fields": {
+        "maxHighlights": 2,
+        "singleTargetLine": true,
+        "exactSubstring": true,
+        "notWholeLine": true,
+        "validOccurrence": true,
+        "reasonMaxWords": 40
+      },
+      "manualReview": [
+        "Natural reusable expression boundaries and explanation quality."
+      ]
+    }
+  }
+]

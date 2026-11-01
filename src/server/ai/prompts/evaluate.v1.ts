@@ -132,7 +132,7 @@ export const normalizePracticeEvaluationWire: WireNormalizer<PracticeEvaluationW
   const contextualFit = normalizeDimension(value.contextualFit, "contextualFit");
   if (!contextualFit.success) return contextualFit;
 
-  const revision = TargetChineseTextSchema.max(300).safeParse(value.naturalRevisionChinese);
+  const revision = TargetChineseTextSchema.max(10_000).safeParse(value.naturalRevisionChinese);
   return {
     success: true,
     data: {

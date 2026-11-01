@@ -1,3 +1,5 @@
+import { createHighlightExpressionsFixtureGateway } from "./highlight-expressions.v1";
+import { createAnalyzeMarkedExpressionsFixtureGateway } from "./analyze-saved-item.v3";
 import { z } from "zod";
 
 import { normalizeEnglishPunctuation, type WireDecodeResult } from "@/server/ai/model-output";
@@ -16,6 +18,7 @@ export const ANALYZE_SAVED_ITEM_PROMPT_VERSION = "analyze-saved-item-v2";
 export const ANALYZE_SAVED_ITEM_READABLE_PROMPT_VERSIONS = [
   "analyze-saved-item-v1",
   "analyze-saved-item-v2",
+  "analyze-saved-item-v3",
 ] as const;
 
 export function isReadableSavedAnalysisPromptVersion(value: string): boolean {
@@ -156,7 +159,15 @@ export function createAnalyzeSavedItemFixtureGateway(): StructuredJsonGateway {
         : userPrompt;
       const parsed = JSON.parse(serialized) as {
         readonly sourceLines?: readonly IndexedSourceLine[];
+        readonly lines?: readonly { readonly role: string; readonly text: string }[];
+        readonly highlights?: readonly { readonly id: string; readonly text: string }[];
       };
+      if (_promptVersion === "highlight-expressions-v1") {
+        return createHighlightExpressionsFixtureGateway().complete(_promptVersion, userPrompt, options);
+      }
+      if (_promptVersion === "analyze-saved-item-v3") {
+        return createAnalyzeMarkedExpressionsFixtureGateway().complete(_promptVersion, userPrompt, options);
+      }
       const line = parsed.sourceLines?.[0];
       if (
         !line || !Number.isInteger(line.sourceLineIndex) ||

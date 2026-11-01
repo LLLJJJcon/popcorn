@@ -56,12 +56,12 @@ import {
 const UserIdSchema = z.string().uuid();
 const OriginalAttemptInputSchema = z.strictObject({
   taskId: z.string().uuid(),
-  responseChinese: TargetChineseTextSchema.max(5_000),
+  responseChinese: TargetChineseTextSchema.max(10_000),
   assistanceLevel: AssistanceLevelSchema.default("none"),
 });
 const AttemptIdSchema = z.string().uuid();
 const RevisionInputSchema = z.strictObject({
-  responseChinese: TargetChineseTextSchema.max(5_000),
+  responseChinese: TargetChineseTextSchema.max(10_000),
   assistanceLevel: AssistanceLevelSchema.default("none"),
 });
 
@@ -278,7 +278,7 @@ export function createPracticeAttemptService(dependencies: {
     ) {
       const userId = UserIdSchema.safeParse(userIdValue);
       const attemptId = AttemptIdSchema.safeParse(attemptIdValue);
-      const responseChinese = TargetChineseTextSchema.max(5_000).safeParse(responseChineseValue);
+      const responseChinese = TargetChineseTextSchema.max(10_000).safeParse(responseChineseValue);
       const assistanceLevel = AssistanceLevelSchema.safeParse(assistanceLevelValue);
       if (!userId.success || !attemptId.success || !responseChinese.success || !assistanceLevel.success) {
         throw new PracticeError("VALIDATION_FAILED");
