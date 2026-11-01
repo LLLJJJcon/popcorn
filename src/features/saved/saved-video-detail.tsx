@@ -10,7 +10,7 @@ import type { DeletionImpact as SourceDeletionImpact } from "@/server/domain/pla
 import type { SavedArtifactView, SavedVideoDetail } from "./api";
 import { isReadableSavedAnalysisPromptVersion } from "@/server/ai/prompts/analyze-saved-item.v1";
 import { CandidateList, type CandidateAnalysis } from "./candidate-list";
-import { DeleteSourceDialog } from "./delete-source-dialog";
+import { DeleteSavedSource } from "./delete-saved-source";
 import { ProcessingState } from "./processing-state";
 import { SavedTimeline } from "./saved-timeline";
 import styles from "./saved-workspace.module.css";
@@ -81,7 +81,6 @@ function PersistedOverview({ video }: { readonly video: SavedVideoDetail }) {
 
 export function SavedVideoDetailView({
   video,
-  deletionImpact,
 }: {
   readonly video: SavedVideoDetail;
   readonly deletionImpact: SourceDeletionImpact;
@@ -96,6 +95,7 @@ export function SavedVideoDetailView({
           Back to Saved
         </Link>
       </p>
+      <div className={styles.detailToolbar}><span>Manage saved video</span><DeleteSavedSource sourceId={video.sourceId} title={video.title}/></div>
       <header className={styles.detailHeader}>
         {/* eslint-disable-next-line @next/next/no-img-element -- this is the persisted, source-owned YouTube thumbnail URL. */}
         <img className={styles.detailThumbnail} src={video.thumbnailUrl} alt="" width={320} height={180} />
@@ -140,9 +140,7 @@ export function SavedVideoDetailView({
 
       <PersistedOverview video={video} />
 
-      <div className={styles.deleteSection}>
-        <DeleteSourceDialog impact={deletionImpact} />
-      </div>
+
     </main>
   );
 }

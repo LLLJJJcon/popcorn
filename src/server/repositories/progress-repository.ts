@@ -405,7 +405,7 @@ export function createSupabaseProgressEvidenceSource(
     },
     async listUserExpressions({ userId, limit }) {
       const result = await client.from("user_expressions").select("id,user_id,mastery_state")
-        .eq("user_id", userId).order("id", { ascending: true }).limit(limit);
+        .eq("user_id", userId).is("removed_from_vault_at", null).order("id", { ascending: true }).limit(limit);
       return records(result).map((row) => ({
         id: row.id,
         userId: row.user_id,

@@ -1,3 +1,4 @@
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -243,4 +244,21 @@ describe("VaultSearch", () => {
     ]);
     expect(screen.getByText("太离谱了")).toBeInTheDocument();
   });
+  test("refreshes sibling search after a main-list deletion without clearing filters", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>(async () => apiResponse([result()]));
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<VaultSearch refreshKey="entry-a,entry-b" />);
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "离谱" } });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    fetchMock.mockResolvedValueOnce(apiResponse([]));
+    view.rerender(<VaultSearch refreshKey="entry-b" />);
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    expect(screen.getByRole("searchbox")).toHaveValue("离谱");
+    expect(screen.queryByRole("link", {name:/太离谱了/})).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(new URL(String(fetchMock.mock.calls.at(-1)![0]), "http://localhost").searchParams.get("q")).toBe("离谱");
+  });
+
 });

@@ -1,3 +1,4 @@
+import { DeleteSavedSource } from "./delete-saved-source";
 import type { SavedVideoSummary } from "./api";
 import { ProcessingState } from "./processing-state";
 import styles from "./saved-workspace.module.css";
@@ -15,9 +16,9 @@ export function SavedVideoCard({ video }: { readonly video: SavedVideoSummary })
       {/* eslint-disable-next-line @next/next/no-img-element -- persisted YouTube thumbnail URL is already constrained by the frozen source contract. */}
       <img className={styles.videoThumbnail} src={video.thumbnailUrl} alt={`${video.title} thumbnail`} width={480} height={270} />
       <div className={styles.videoCardBody}>
-        <h2 id={`saved-video-${video.sourceId}`}>
+        <div className={styles.cardHeading}><h2 id={`saved-video-${video.sourceId}`}>
           <a href={`/saved/${video.sourceId}`} title={video.title}>{video.title}</a>
-        </h2>
+        </h2><DeleteSavedSource sourceId={video.sourceId} title={video.title}/></div>
         <p className={styles.videoMeta}>{video.channel}</p>
         <p className={styles.videoMeta}>{video.savedCount} saved {video.savedCount === 1 ? "moment" : "moments"}</p>
         <p className={styles.latestActivity}>Latest activity {dateFormatter.format(new Date(video.latestSavedAt))}</p>

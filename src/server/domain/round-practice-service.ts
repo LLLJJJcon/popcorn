@@ -1,3 +1,4 @@
+import { expressionRemovalKey } from "@/features/saved/expression-removal-key";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -39,16 +40,18 @@ export function createRoundPracticeServices(deps:{client:SupabaseClient<Database
     const result=await deps.client.from("practice_drafts").select("*").eq("user_id",userId).eq("id",taskId).maybeSingle();
     if(result.error)throw new PracticeError("INTERNAL_ERROR",true);if(!result.data)throw new PracticeError("NOT_FOUND");return result.data as unknown as RawDraft;
   }
-  async function candidate(userId:string,selection:CandidateSelection):Promise<{card:CandidateExpression;videoSourceId:string}>{
+  async function candidate(userId:string,selection:CandidateSelection):Promise<{card:CandidateExpression;videoSourceId:string;removed:boolean}>{
     const artifact=await deps.repository.findCandidate(userId,selection);
     if(!artifact||artifact.userId!==userId)throw new PracticeError("NOT_FOUND");
     const content=z.object({candidates:CandidateExpressionListSchema}).safeParse(artifact.content);
     const card=content.success?content.data.candidates[selection.candidateIndex]:null;
-    if(!card)throw new PracticeError("NOT_FOUND");return {card,videoSourceId:artifact.videoSourceId};
+    if(!card)throw new PracticeError("NOT_FOUND");return {card,videoSourceId:artifact.videoSourceId,removed:artifact.removedExpressionKeys?.includes(expressionRemovalKey(card))??false};
   }
   async function activate(userId:string,selectionValue:CandidateSelection,requestId:string|null=null):Promise<PracticeActivationResponse>{
-    const selection=CandidateSelectionSchema.parse(selectionValue);const {card,videoSourceId}=await candidate(userId,selection);
+    const selection=CandidateSelectionSchema.parse(selectionValue);const {card,videoSourceId,removed}=await candidate(userId,selection);
+    if(removed)throw new PracticeError("NOT_FOUND");
     const key=practiceCandidateKey(selection,card);const state=await store.candidate(userId,key);
+    if(state.promotion?.removedFromVault)throw new PracticeError("NOT_FOUND");
     if(state.promotion)return {redirect:`/vault/${state.promotion.userExpressionId}`};
     if(requestId){
       const replay=await store.request(userId,key,requestId);
@@ -122,7 +125,11 @@ export function createRoundPracticeServices(deps:{client:SupabaseClient<Database
     },
     async startRound(userId:string,taskId:string,requestId:string){
       if(!z.string().uuid().safeParse(requestId).success)throw new PracticeError("VALIDATION_FAILED");
-      const d=await rawDraft(userId,taskId);const before=await store.candidate(userId,d.candidate_key);
+      const d=await rawDraft(userId,taskId);
+      const selected=await candidate(userId,{savedItemId:d.saved_item_id,candidateArtifactId:d.candidate_artifact_id,candidateIndex:d.candidate_index});
+      if(selected.removed)throw new PracticeError("NOT_FOUND");
+      const before=await store.candidate(userId,d.candidate_key);
+      if(before.promotion?.removedFromVault)throw new PracticeError("NOT_FOUND");
       if(before.promotion)throw new PracticeError("ALREADY_PROMOTED",false,{userExpressionId:before.promotion.userExpressionId});
       const replay=await store.request(userId,d.candidate_key,requestId) as RawDraft|null;
       if(replay)return {taskId:replay.id,roundNumber:replay.round_number,created:false};

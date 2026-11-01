@@ -782,8 +782,9 @@ function productionClient(artifact: Record<string, unknown> | null) {
       text: "挺有意思的", origin: "user", reason_en: null, status: "active" }],
     user_model_gateway_configs: { id: CONFIG_ID },
   };
-  const rpc = vi.fn(async (name: string) => {
+  const rpc = vi.fn(async (name: string, args?: Record<string,unknown>) => {
     calls.push(`rpc:${name}`);
+    if(name === "get_practice_candidate_projection") return {data:(args!.p_candidate_keys as string[]).map(candidate_key=>({candidate_key,task_id:null,round_number:null,status:null,user_expression_id:null})),error:null};
     if (name === "resolve_active_user_model_gateway_pin") {
       return {
         data: [{
@@ -854,7 +855,7 @@ describe("production candidate route exports and assembly", () => {
 
     expect(response.status).toBe(200);
     expect((await response.json()).data).toMatchObject({ state: "ready", artifactId: ARTIFACT_ID });
-    expect(fake.rpc).not.toHaveBeenCalled();
+    expect(fake.rpc).toHaveBeenCalledExactlyOnceWith("get_practice_candidate_projection", {p_user_id:USER_A,p_candidate_keys:[`l:${SAVE_ID}:${ARTIFACT_ID}:0`]});
     expect(fake.calls.some((entry) => /insert|update|delete|upsert/i.test(entry))).toBe(false);
   });
 

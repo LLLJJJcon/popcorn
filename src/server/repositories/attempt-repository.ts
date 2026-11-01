@@ -460,7 +460,7 @@ export function createSupabasePracticeRepository(client: SupabaseClient<Database
   return {
     async findCandidate(userId: string, selection: CandidateSelection) {
       const result = await client.from("generated_artifacts")
-        .select("id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,content")
+        .select("id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,content,savedItem:saved_items!generated_artifact_save_owner_fk(removed_expression_keys)")
         .eq("user_id", userId)
         .eq("id", selection.candidateArtifactId)
         .eq("saved_item_id", selection.savedItemId)
@@ -479,6 +479,7 @@ export function createSupabasePracticeRepository(client: SupabaseClient<Database
         videoSourceId: row.video_source_id,
         savedItemId: row.saved_item_id,
         artifactType: row.artifact_type,
+        removedExpressionKeys: (result.data as unknown as {savedItem?: {removed_expression_keys?: string[]}}).savedItem?.removed_expression_keys ?? [],
         content: row.content,
       } satisfies CandidateArtifactRecord;
     },

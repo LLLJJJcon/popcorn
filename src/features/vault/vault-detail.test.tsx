@@ -11,6 +11,7 @@ const USER = "11111111-1111-4111-8111-111111111111";
 const EXPRESSION = "33333333-3333-4333-8333-333333333333";
 
 const navigation = vi.hoisted(() => ({
+  useRouter: () => ({push: vi.fn(), refresh: vi.fn()}),
   redirect: vi.fn((href: string): never => { throw new Error(`redirect:${href}`); }),
   notFound: vi.fn((): never => { throw new Error("not-found"); }),
 }));

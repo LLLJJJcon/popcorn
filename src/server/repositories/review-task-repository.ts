@@ -193,6 +193,7 @@ export function createSupabaseReviewTaskRepository(
   const db = client as unknown as {
     from(table: string): {
       select(columns: string): ReturnType<typeof db["from"]>;
+      is(column: string, value: null): ReturnType<typeof db["from"]>;
       eq(column: string, value: unknown): ReturnType<typeof db["from"]>;
       in(column: string, values: readonly string[]): ReturnType<typeof db["from"]>;
       lte(column: string, value: string): ReturnType<typeof db["from"]>;
@@ -204,7 +205,7 @@ export function createSupabaseReviewTaskRepository(
   async function queryVault(userId: string, userExpressionId?: string): Promise<ExpressionCardView[]> {
     let expressionQuery = db.from("user_expressions")
       .select("id,user_id,expression_sense_id,mastery_state,created_at")
-      .eq("user_id", userId);
+      .eq("user_id", userId).is("removed_from_vault_at", null);
     if (userExpressionId) expressionQuery = expressionQuery.eq("id", userExpressionId);
     const expressions = rows(await expressionQuery.order("created_at", { ascending: false })
       .order("id", { ascending: true }).limit(100));

@@ -10,3 +10,5 @@ test("practicing shows status and Continue",()=>{card({status:"practicing",taskI
 test("removed shows Practice",()=>{card({status:"removed",taskId:id,roundNumber:2});expect(screen.getByText("Removed from practice")).toBeInTheDocument();expect(screen.getByRole("button",{name:"Practice"})).toBeInTheDocument();});
 test("promoted links directly to Vault",()=>{card({status:"promoted",userExpressionId:id});expect(screen.getByRole("link",{name:"In your Vault"})).toHaveAttribute("href",`/vault/${id}`);expect(screen.queryByRole("button",{name:/Practice/})).not.toBeInTheDocument();});
 test("unpracticed retains Practice this expression",()=>{card({status:"unpracticed"});expect(screen.getByRole("button",{name:"Practice this expression"})).toBeInTheDocument();});
+
+test("archived promotion retains history without a dead Vault link",()=>{card({status:"promoted",userExpressionId:id,removedFromVault:true});expect(screen.getByText("Removed from Vault")).toBeInTheDocument();expect(screen.queryByRole("link",{name:"In your Vault"})).not.toBeInTheDocument();expect(screen.queryByRole("button",{name:/Practice/})).not.toBeInTheDocument();});

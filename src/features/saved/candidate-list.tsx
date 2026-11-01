@@ -9,6 +9,8 @@ import { CandidateExpressionListSchema, HighlightAnalysisStateSchema, type Highl
 import { postPractice, PracticeRequestError } from "@/features/practice/api";
 import { PracticeActivationResponseSchema } from "@/contracts/practice";
 import { apiSuccessSchema } from "@/contracts/api";
+import { DeleteSavedExpression } from "./delete-saved-expression";
+import { expressionRemovalKey } from "./expression-removal-key";
 import { CandidateExpressionCard } from "./candidate-expression";
 import { HighlightEditor } from "./highlight-editor";
 import type { HighlightStatus, SavedHighlight } from "@/contracts/highlights";
@@ -119,6 +121,8 @@ export function CandidateList({
     setHighlightSource({ values: item?.highlights, status: item?.highlightStatus });
     setHighlights(item?.highlights ?? []); setHighlightStatus(item?.highlightStatus ?? null);
   }
+  const [locallyRemovedKeys, setLocallyRemovedKeys] = useState<readonly string[]>([]);
+  const isRemoved = (candidate: CandidateExpression) => [...(item?.removedExpressionKeys ?? []), ...locallyRemovedKeys].includes(expressionRemovalKey(candidate));
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const [recoveryState, setRecoveryState] = useState<RecoveryState>("idle");
   const [failureCategory, setFailureCategory] = useState<FailureCategory | null>(null);
@@ -133,6 +137,7 @@ export function CandidateList({
   const activationInFlight = useRef(false);
   const mounted = useRef(false);
   const artifact = recoveredArtifact ?? (analysis.state === "ready" ? analysis.artifact : null);
+  const visibleCandidateCount = artifact?.candidates.filter(candidate => !isRemoved(candidate)).length ?? 0;
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setHydrationReady(true), 0);
@@ -423,7 +428,7 @@ export function CandidateList({
         {queued ? <button type="button" className={styles.inlineAction} onClick={() => void checkStatus()} disabled={recoveryState === "checking"}>{recoveryState === "checking" ? "Checking…" : "Check status"}</button> : null}
         {recoveryState === "gateway" ? <p className={styles.analysisMessage}>An active gateway is needed to create cards. <Link href="/settings/model-gateway">Set up model gateway</Link></p> : null}
         {recoveryState === "terminal" || recoveryState === "error" ? <p className={styles.editorError} role="alert">{recoveryState === "terminal" && failureCategory ? terminalFailureMessage(failureCategory) : "Analysis is taking longer than expected. Try again."}</p> : null}
-        {artifact?.candidates.length ? <div className={styles.expressionGroup}><div className={styles.expressionGroupHeading}><h3>Learning cards</h3><span>{artifact.candidates.length} {artifact.candidates.length === 1 ? "expression" : "expressions"}</span></div><div className={styles.expressionGrid}>{artifact.candidates.map((candidate, index) => <CandidateExpressionCard key={`${candidate.highlightKey ?? candidate.expression}-${index}`} candidate={candidate} canonicalUrl={youtubeUrl} disabled={!hydrationReady || pendingIndex !== null} activating={pendingIndex === index} onUse={() => void activate(index)} />)}</div></div> : null}
+        {artifact?.candidates.length ? <div className={styles.expressionGroup}><div className={styles.expressionGroupHeading}><h3>Learning cards</h3><span>{visibleCandidateCount} {visibleCandidateCount === 1 ? "expression" : "expressions"}</span></div><div className={styles.expressionGrid}>{visibleCandidateCount===0?<p className={styles.sourceGuidance}>No learning cards here. Mark another expression to keep learning.</p>:null}{artifact.candidates.map((candidate, index) => isRemoved(candidate) ? null : <CandidateExpressionCard key={`${candidate.highlightKey ?? candidate.expression}-${index}`} candidate={candidate} canonicalUrl={youtubeUrl} disabled={!hydrationReady || pendingIndex !== null} activating={pendingIndex === index} onUse={() => void activate(index)} deleteAction={<DeleteSavedExpression savedItemId={savedItemId} artifactId={artifact!.artifactId} index={index} expression={candidate.expression} disabled={!hydrationReady || pendingIndex !== null} onDeleted={key=>setLocallyRemovedKeys(current=>[...current,key])}/>} />)}</div></div> : null}
         {highlightStates.filter(state => state.status === "failed" && highlights.some(highlight => highlight.id === state.highlightId)).map(state => <div className={styles.failedHighlight} key={state.highlightId}><div><strong lang="zh-CN">{state.text}</strong><p>Couldn&apos;t analyze this one</p></div><button className={styles.inlineAction} type="button" disabled={pending} onClick={() => void requestAnalysis(true, state.highlightId)}>Try again</button></div>)}
         {activationError ? <p className={styles.editorError} role="alert">{activationGateway ? <>Connect a model to continue. <Link href="/settings/model-gateway">Set up model gateway</Link></> : <>We couldn&apos;t prepare a situation. <button type="button" className={styles.inlineAction} disabled={pendingIndex !== null} onClick={() => { if (lastActivationIndex.current !== null) void activate(lastActivationIndex.current); }}>Try again</button></>}</p> : null}
       </section>
@@ -501,18 +506,19 @@ export function CandidateList({
     <section className={styles.expressionGroup} aria-label="Candidate expressions">
       <div className={styles.expressionGroupHeading}>
         <h3>Learning cards</h3>
-        <span>{artifact!.candidates.length} {artifact!.candidates.length === 1 ? "expression" : "expressions"}</span>
+        <span>{visibleCandidateCount} {visibleCandidateCount === 1 ? "expression" : "expressions"}</span>
       </div>
       {activationError ? <p className={styles.editorError} role="alert">{activationGateway ? <>Connect a model to continue. <Link href="/settings/model-gateway">Set up model gateway</Link></> : <>We couldn&apos;t prepare a situation. <button type="button" className={styles.inlineAction} disabled={pendingIndex !== null} onClick={() => { if (lastActivationIndex.current !== null) void activate(lastActivationIndex.current); }}>Try again</button></>}</p> : null}
       <div className={styles.expressionGrid}>
-        {artifact!.candidates.map((candidate, index) => (
+        {visibleCandidateCount===0?<p className={styles.sourceGuidance}>No learning cards here. Mark another expression to keep learning.</p>:null}
+        {artifact!.candidates.map((candidate, index) => isRemoved(candidate) ? null : (
           <CandidateExpressionCard
             key={`${candidate.expression}-${index}`}
             candidate={candidate}
             canonicalUrl={youtubeUrl}
             disabled={!hydrationReady || pendingIndex !== null}
             activating={pendingIndex === index}
-            onUse={() => void activate(index)}
+            onUse={() => void activate(index)} deleteAction={<DeleteSavedExpression savedItemId={savedItemId} artifactId={artifact!.artifactId} index={index} expression={candidate.expression} disabled={!hydrationReady || pendingIndex !== null} onDeleted={key=>setLocallyRemovedKeys(current=>[...current,key])}/>}
           />
         ))}
       </div>

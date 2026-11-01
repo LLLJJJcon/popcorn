@@ -89,5 +89,10 @@ select extensions.throws_ok(
   format('select * from public.get_practice_candidate_projection(%L,array[%L])',:'owner_a',:'key_a'),
   '42501',null,'anonymous role cannot inspect the projection');
 reset role;
+select extensions.ok(public.remove_vault_expression(:'owner_a',:'expression_a'),'owner archives the promoted library entry');
+select extensions.is((select status from public.get_practice_candidate_projection(:'owner_a',array[:'key_a'])),'vault_removed','Saved projection marks archived promotion without losing receipt identity');
+select extensions.is(public.get_practice_candidate_state(:'owner_a',:'key_a')#>>'{promotion,removedFromVault}','true','activation sees archived promotion');
+select extensions.is(public.get_practice_round_state(:'owner_a',:'draft_a')#>>'{promotion,removedFromVault}','true','round history marks archived promotion');
+select extensions.is(public.get_practice_round_state(:'owner_a',:'draft_a')#>>'{firstAnswer,text}','这也太离谱了。','archiving retains the original round answer');
 select * from extensions.finish();
 rollback;

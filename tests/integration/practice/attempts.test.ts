@@ -43,7 +43,7 @@ const ATTEMPT = "77777777-7777-4777-8777-777777777777";
 const NOW = "2026-08-21T02:03:04.000Z";
 const FINGERPRINT = "a".repeat(64);
 const SAFE_REQUEST_ID = "safe-request";
-const CANDIDATE_SELECT = "id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,content";
+const CANDIDATE_SELECT = "id,user_id,video_source_id,saved_item_id,artifact_type,prompt_version,content,savedItem:saved_items!generated_artifact_save_owner_fk(removed_expression_keys)";
 const DRAFT_SELECT = "id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,activation_prompt_version,activation_model,activation_gateway_config_id,activation_gateway_revision,activation_gateway_fingerprint,created_at,updated_at";
 const ATTEMPT_SELECT = "id,user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at,evaluation_prompt_version,evaluation_model,evaluation_gateway_config_id,evaluation_gateway_revision,evaluation_gateway_fingerprint,created_at";
 
@@ -528,6 +528,14 @@ describe("learner-first practice activation", () => {
     expect(resumed.id).toBe(first.id);
     expect(resumed.userExpressionId).toBe(first.userExpressionId);
     expect(store.drafts).toHaveLength(1);
+  });
+
+  test("rejects deleted Saved cards before model calls or draft creation", async () => {
+    const store = memoryRepository(artifact({ removedExpressionKeys: [`legacy:${candidate.expression}`] }));
+    const fixture = gateway(activationWire);
+    await expect(activate(store, { fixture })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(fixture.complete).not.toHaveBeenCalled();
+    expect(store.drafts).toHaveLength(0);
   });
 
   test("rejects malformed candidate content before Provider use", async () => {
@@ -1112,7 +1120,7 @@ describe("production Supabase practice repository", () => {
 
     await expect(repository.findCandidate(USER_A, {
       savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0,
-    })).resolves.toEqual(artifact());
+    })).resolves.toEqual({ ...artifact(), removedExpressionKeys: [] });
     await expect(repository.findDraftBySelection(USER_A, {
       savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0,
     })).resolves.toEqual({

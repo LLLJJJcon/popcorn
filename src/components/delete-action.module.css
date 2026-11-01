@@ -1,0 +1,16 @@
+.action { display: flex; align-items: center; flex: 0 0 auto; min-width: 0; }
+.trigger { display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; min-height: 2.75rem; padding: 0; border: 1px solid transparent; border-radius: 0.55rem; background: transparent; color: color-mix(in srgb, var(--cocoa) 63%, var(--paper)); font: inherit; font-size: 0.78rem; font-weight: 650; cursor: pointer; white-space: nowrap; }
+.trigger:hover { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 20%, var(--paper)); background: color-mix(in srgb, var(--danger) 5%, var(--paper)); }
+.trigger:focus-visible,.actions button:focus-visible { outline: 3px solid var(--coral-active); outline-offset: 3px; }
+.trigger:disabled,.actions button:disabled { opacity: 0.55; cursor: wait; }
+.dialog { position: fixed; inset: 0; width: min(29rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); margin: auto; padding: clamp(1.25rem, 4vw, 2rem); border: 1px solid color-mix(in srgb, var(--cocoa) 15%, var(--paper)); border-radius: var(--radius-lg); background: var(--paper); color: var(--cocoa); box-shadow: 0 1.5rem 5rem #34221c33; overflow: auto; }
+.dialog::backdrop { background: #34221c66; backdrop-filter: blur(3px); }
+.dialog h2 { margin: 0 0 1rem; font-size: 1.4rem; line-height: 1.4; overflow-wrap: anywhere; }
+.eyebrow { margin: 0 0 0.5rem; color: var(--coral-active); font-size: 0.72rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
+.description { color: color-mix(in srgb, var(--cocoa) 78%, var(--paper)); font-size: 0.92rem; line-height: 1.65; overflow-wrap: anywhere; }
+.description p { margin: 0 0 0.75rem; }
+.actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 0.65rem; margin-top: 1.5rem; }
+.actions button { min-height: 2.75rem; border-radius: 0.65rem; padding: 0.6rem 1rem; font: inherit; font-size: 0.88rem; font-weight: 700; cursor: pointer; }
+.cancel { border: 1px solid color-mix(in srgb, var(--cocoa) 25%, var(--paper)); background: transparent; color: var(--cocoa); }
+.confirm { border: 1px solid var(--danger); background: var(--danger); color: var(--paper); }
+.error { margin: 0.75rem 0 0; font-size: 0.85rem; color: var(--danger); }

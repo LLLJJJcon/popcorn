@@ -35,7 +35,7 @@ export function PracticeMaterial({ material, onExamplesOpen, onExamplesPendingCh
   }
   const Heading = headingLevel === 2 ? "h2" : "h1";
   const roundNumber = material.roundState?.roundNumber ?? 1;
-  const phaseLabel = due ? `Current mastery: ${material.masteryState}` : material.roundState?.promotion ? "In your Vault" : roundNumber > 1 ? `Round ${roundNumber} · Not in your Vault yet` : "New · Not in your Vault yet";
+  const phaseLabel = due ? `Current mastery: ${material.masteryState}` : material.roundState?.promotion ? material.roundState.promotion.removedFromVault ? "Removed from Vault" : "In your Vault" : roundNumber > 1 ? `Round ${roundNumber} · Not in your Vault yet` : "New · Not in your Vault yet";
   return <article className={headingLevel === 2 ? styles.embeddedWorkspace : styles.workspace}>
     {navigation}
     <header className={styles.practiceHeader}><Heading lang="zh-CN">{display(material.task.targetExpression)}</Heading>{hidden && onExpressionReveal ? <button className={styles.tertiaryButton} type="button" disabled={actionsDisabled || revealPending || pending} onClick={() => void revealExpression()}>{revealPending ? "Showing the expression…" : "Show the expression"}</button> : null}{revealFailed ? <p role="alert">The expression couldn&apos;t open. Try again.</p> : null}<p className={styles.meaning}>{display(card?.meaningHere ?? material.expression.englishMeaning)}</p><div className={styles.metaRow}><span className={styles.mastery}>{phaseLabel}</span>{sessionStatus}</div></header>

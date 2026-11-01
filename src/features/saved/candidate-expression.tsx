@@ -23,6 +23,7 @@ const settingLabels: Record<string, string> = { casual_chat: "Casual chat", dail
 
 function CandidatePracticeAction({candidate,disabled,activating,onUse}:{readonly candidate:CandidateExpression;readonly disabled:boolean;readonly activating:boolean;readonly onUse:()=>void}) {
   const state=candidate.practiceState;
+  if(state?.status==="promoted" && state.removedFromVault) return <span className={styles.subtleMessage}>Removed from Vault</span>;
   if(state?.status==="promoted") return <Link className={styles.practiceAction} href={`/vault/${state.userExpressionId}`}>In your Vault</Link>;
   const label=state?.status==="practicing"?"Continue":state?.status==="removed"?"Practice":candidate.suitability==="not_expression"?"Practice anyway":"Practice this expression";
   return <>{state?.status==="practicing"?<span className={styles.subtleMessage}>Practicing · Not in Vault yet</span>:state?.status==="removed"?<span className={styles.subtleMessage}>Removed from practice</span>:null}<button className={styles.practiceAction} type="button" disabled={disabled} onClick={onUse}>{activating?"Opening practice…":label}</button></>;
@@ -34,21 +35,24 @@ export function CandidateExpressionCard({
   disabled,
   activating,
   onUse,
+  deleteAction,
 }: {
   readonly candidate: CandidateExpression;
   readonly canonicalUrl: string;
   readonly disabled: boolean;
   readonly activating: boolean;
   readonly onUse: () => void;
+  readonly deleteAction?: React.ReactNode;
 }) {
   if (candidate.meaningHere !== undefined) {
     return (
       <article className={`${styles.candidateCard} ${styles.learningCard}`}>
+        <p className={styles.candidateEyebrow}>Your learning card</p>
         <div className={styles.learningCardHeading}>
-          <div><p className={styles.candidateEyebrow}>Your learning card</p><h4 lang="zh-CN">{candidate.expression}</h4></div>
-          <a className={styles.sourceTimestamp} href={youtubeTimeUrl(canonicalUrl, candidate.startSeconds)} aria-label={`Watch at ${timestamp(candidate.startSeconds)} on YouTube`}>
+          <h4 lang="zh-CN">{candidate.expression}</h4>
+          <div className={styles.cardHeadingActions}><a className={styles.sourceTimestamp} href={youtubeTimeUrl(canonicalUrl, candidate.startSeconds)} aria-label={`Watch at ${timestamp(candidate.startSeconds)} on YouTube`}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m8 5 11 7-11 7z" /></svg>{timestamp(candidate.startSeconds)}
-          </a>
+          </a>{deleteAction}</div>
         </div>
         <div className={styles.learningTags}>
           <div><span className={styles.tagLabel}>Used to:</span>{candidate.functionCategories?.map(category => <span className={styles.functionTag} key={category}>{functionLabels[category] ?? category}</span>)}</div>
@@ -81,7 +85,7 @@ export function CandidateExpressionCard({
   return (
     <article className={styles.candidateCard}>
       <p className={styles.candidateEyebrow}>Chinese expression to practice</p>
-      <h4 lang="zh-CN">{candidate.expression}</h4>
+      <div className={styles.learningCardHeading}><h4 lang="zh-CN">{candidate.expression}</h4>{deleteAction}</div>
       <p className={styles.candidateMeaning}>{candidate.englishMeaning}</p>
       <p className={styles.candidateExplanation}>{candidate.englishExplanation}</p>
       <dl className={styles.candidateDetails}>

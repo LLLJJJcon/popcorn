@@ -49,6 +49,7 @@ type SavedItemRow = {
   readonly capturedAt: string;
   readonly startSeconds: number | null;
   readonly payload: Json;
+  readonly removedExpressionKeys?: readonly string[];
   readonly highlightStatus?: HighlightStatus | null;
 };
 
@@ -109,6 +110,7 @@ export type SavedItemView = {
   readonly contextBefore?: readonly string[];
   readonly contextAfter?: readonly string[];
   readonly highlights?: readonly SavedHighlight[];
+  readonly removedExpressionKeys?: readonly string[];
   readonly highlightStatus?: HighlightStatus | null;
   readonly gatewayAvailable?: boolean;
 };
@@ -309,6 +311,7 @@ function itemView(row: SavedItemRow, source: SourceRow, evidence: readonly Evide
     targetSegments,
     contextBefore: context("contextBefore", 3), contextAfter: context("contextAfter", 2),
     highlights: highlights.filter(highlight => highlight.savedItemId === row.id && highlight.status === "active").map(({ userId: owner, ...highlight }) => { void owner; return highlight; }),
+    removedExpressionKeys: row.removedExpressionKeys ?? [],
     highlightStatus: row.highlightStatus ?? (row.kind === "video" ? null : "unavailable"),
     gatewayAvailable,
   };
@@ -456,7 +459,7 @@ function throwQueryError(error: unknown) {
 
 type VideoSourceDbRow = Pick<Database["public"]["Tables"]["video_sources"]["Row"], "id" | "user_id" | "youtube_video_id" | "canonical_url">;
 type VideoSnapshotDbRow = Pick<Database["public"]["Tables"]["video_snapshots"]["Row"], "id" | "user_id" | "video_source_id" | "title" | "channel" | "thumbnail_url" | "captured_at">;
-type SavedItemDbRow = Pick<Database["public"]["Tables"]["saved_items"]["Row"], "id" | "user_id" | "video_source_id" | "snapshot_id" | "youtube_video_id" | "kind" | "status" | "captured_at" | "start_seconds" | "payload" | "highlight_status">;
+type SavedItemDbRow = Pick<Database["public"]["Tables"]["saved_items"]["Row"], "id" | "user_id" | "video_source_id" | "snapshot_id" | "youtube_video_id" | "kind" | "status" | "captured_at" | "start_seconds" | "payload" | "highlight_status" | "removed_expression_keys">;
 type ArtifactDbRow = Pick<Database["public"]["Tables"]["generated_artifacts"]["Row"], "id" | "user_id" | "video_source_id" | "saved_item_id" | "artifact_type" | "prompt_version" | "content" | "created_at">;
 type JobDbRow = Pick<Database["public"]["Tables"]["knowledge_jobs"]["Row"], "id" | "user_id" | "video_source_id" | "saved_item_id" | "job_type" | "status" | "last_error_code" | "created_at">;
 
@@ -469,7 +472,7 @@ function mapSnapshot(row: VideoSnapshotDbRow): SnapshotRow {
 }
 
 function mapItem(row: SavedItemDbRow): SavedItemRow {
-  return { id: row.id, userId: row.user_id, sourceId: row.video_source_id, snapshotId: row.snapshot_id, youtubeVideoId: row.youtube_video_id, kind: row.kind, status: row.status, capturedAt: row.captured_at, startSeconds: row.start_seconds, payload: row.payload, highlightStatus: row.highlight_status as HighlightStatus | null };
+  return { id: row.id, userId: row.user_id, sourceId: row.video_source_id, snapshotId: row.snapshot_id, youtubeVideoId: row.youtube_video_id, kind: row.kind, status: row.status, capturedAt: row.captured_at, startSeconds: row.start_seconds, payload: row.payload, removedExpressionKeys: row.removed_expression_keys ?? [], highlightStatus: row.highlight_status as HighlightStatus | null };
 }
 
 function mapArtifact(row: ArtifactDbRow): ArtifactRow {
@@ -508,7 +511,7 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
       client.from("video_snapshots").select("id,user_id,video_source_id,title,channel,thumbnail_url,captured_at")
         .eq("user_id", userId).in("video_source_id", sourceIds)
         .order("captured_at", { ascending: false }).limit(100),
-      client.from("saved_items").select("id,user_id,video_source_id,snapshot_id,youtube_video_id,kind,status,captured_at,start_seconds,payload,highlight_status")
+      client.from("saved_items").select("id,user_id,video_source_id,snapshot_id,youtube_video_id,kind,status,captured_at,start_seconds,payload,highlight_status,removed_expression_keys")
         .eq("user_id", userId).in("video_source_id", sourceIds)
         .is("removed_from_saved_at", null)
         .order("captured_at", { ascending: false }).limit(500),

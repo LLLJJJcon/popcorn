@@ -19,7 +19,7 @@ describe("DeleteSavedMoment", () => {
     expect(screen.getByText(/practice history, mastery, and reviews will stay/i)).toBeVisible();
     expect(request).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("group", { name: "Delete this saved moment?" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Delete this saved moment?" })).not.toBeInTheDocument();
   });
 
   it.each([0, 2])("refreshes after removal with %i remaining moments and returns to Saved when empty", async (remainingCount) => {

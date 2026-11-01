@@ -24,11 +24,22 @@ function harness(){
   const client={rpc,from(table:string){const filters=new Map<string,unknown>();return {select(){return this;},eq(k:string,v:unknown){filters.set(k,v);return this;},async maybeSingle(){return {data:table==="practice_drafts"?d:table==="practice_draft_attempts"?persisted:null,error:null};},async single(){return this.maybeSingle();}};}};
   const complete=vi.fn(async(_version:string,_input:string,options:{maxTokens:number;normalize:(v:unknown)=>{success:boolean;data?:unknown}})=>{const decoded=options.normalize({...dimensions,naturalRevisionChinese:"这件事也太离谱了。"});if(!decoded.success)throw new Error("invalid fixture");return decoded.data;});
   const gateway={model:"fixture/test",complete};
-  const services=createRoundPracticeServices({client:client as never,repository:{findCandidate:async()=>({id:artifact,userId:user,videoSourceId:future,savedItemId:save,artifactType:"saved_item_analysis",content:{candidates:[card]}})} as never,ci:true,gatewayResolver:{} as never,activationFixture:gateway as never,evaluationFixture:gateway as never,now:()=>now,uuid:()=>attempt});
-  return {services,complete,rpc,setState(value:PracticeRoundState){state=value;},setDraftStatus(value:string){d.status=value;},setLegacy(){d.situation_en="";},getState:()=>state,getPersisted:()=>persisted};
+  let removed=false;
+  const services=createRoundPracticeServices({client:client as never,repository:{findCandidate:async()=>({id:artifact,userId:user,videoSourceId:future,savedItemId:save,artifactType:"saved_item_analysis",removedExpressionKeys:removed?[`legacy:${card.expression}`]:[],content:{candidates:[card]}})} as never,ci:true,gatewayResolver:{} as never,activationFixture:gateway as never,evaluationFixture:gateway as never,now:()=>now,uuid:()=>attempt});
+  return {services,complete,rpc,removeCard(){removed=true;},setState(value:PracticeRoundState){state=value;},setDraftStatus(value:string){d.status=value;},setLegacy(){d.situation_en="";},getState:()=>state,getPersisted:()=>persisted};
 }
 
 describe("round service persistence boundary",()=>{
+  test("deleted Saved cards cannot activate a new round or call the model",async()=>{
+    const h=harness();h.removeCard();
+    await expect(h.services.taskService.activate(user,{savedItemId:save,candidateArtifactId:artifact,candidateIndex:0})).rejects.toMatchObject({code:"NOT_FOUND"});
+    expect(h.complete).not.toHaveBeenCalled();
+  });
+  test("archived Vault promotions do not redirect to unavailable entries",async()=>{
+    const h=harness();h.setState({...h.getState(),promotion:{userExpressionId:future,nextDueAt:now,removedFromVault:true}});
+    await expect(h.services.taskService.activate(user,{savedItemId:save,candidateArtifactId:artifact,candidateIndex:0})).rejects.toMatchObject({code:"NOT_FOUND"});
+    expect(h.complete).not.toHaveBeenCalled();
+  });
   test("a new-situation attempt uses the shared activation budget before a generation failure",async()=>{
     const h=harness();h.setDraftStatus("retry_scheduled");h.complete.mockRejectedValueOnce(new Error("Synthetic generation stop"));
     await expect(h.services.taskService.activate(user,{savedItemId:save,candidateArtifactId:artifact,candidateIndex:0})).rejects.toThrow();
