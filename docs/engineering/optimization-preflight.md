@@ -50,6 +50,8 @@ The separate acceptance agent completed the final engineering/fixture gates and 
 
 ## Follow-up group 2 preflight — 2026-11-01
 
+Final status: independent group2 engineering acceptance passed at515de29, followed by separate merged-source acceptance atf1a739b after retaining main867da055. See `group-2-acceptance.md` and `group-2-merge-acceptance.md`. The newer upstream budget/reasoning controls do not retroactively turn the historical mixed live trials into a semantic pass; those limitations remain recorded. Only the dedicated test stack received migrations024–028.
+
 The user's next instruction authorized merging group 1 and executing confirmed groups 2–4, with parallel workers and independent gates. PR #1 merged at `72cd51f`; GitHub checks and fresh full verification passed. The continuation uses isolated branch `codex/phase1-groups2-4`, excluding original-checkout concurrent edits.
 
 | Section 5.16 check | Conclusion and evidence | Impact |
