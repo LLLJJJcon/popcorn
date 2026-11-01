@@ -64,3 +64,9 @@ Executed2026-11-01 06:52UTC using the already-installed worktree dependencies an
 Machine-readable exit evidence: `/private/tmp/popcorn-phase1-test-stack/ui-verification-results.json`; final logs `ui-verification-tests.log`, `ui-verification-types.log`, `ui-verification-lint.log`.
 
 No final whole-project build/SQL/browser/semantic model acceptance is claimed by this UI report. Another agent will run those group gates after backend/prompt/seed integration stabilizes. No user confirmation is needed for the completed UI scope; no fallback content is waiting on UI approval.
+
+## Final context-display correction (controller confirmed, 2026-11-01 07:14 UTC)
+
+Visual inspection found that the pre-answer5.6 warning could contradict an already recorded/promotion result. The controller confirmed that the original warning is shown only while `roundState.firstAnswer` is absent. The implementation now gates that paragraph on exactly that field; the original English copy, About/examples buttons, model decisions, assistance, promotion, retry schedule and schemas are unchanged. A dedicated RED→GREEN regression covers visible before first answer and hidden after recorded answer/promotion, while both controls remain.
+
+Fresh post-correction self-verification: combined practice/Saved/seed/cleanup **20 files,166 tests passed**, plus `tsc --noEmit` and targeted UI/demo/E2E eslint all exit0. Exact commands/exit codes are in `/private/tmp/popcorn-phase1-test-stack/ui-context-final-results.json`, with corresponding `ui-context-final-*.log`. The separate acceptance agent will rerun production E2E after backend integration. No additional backend/Saved aggregation edit was made by this implementer.

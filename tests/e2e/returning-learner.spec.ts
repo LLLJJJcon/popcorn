@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
 import { buildAnalyzeMarkedExpressionsPrompt, createAnalyzeMarkedExpressionsFixtureGateway, normalizeMarkedAnalysisWire } from "../../src/server/ai/prompts/analyze-saved-item.v3";
-import { runSavedLearningLoopCleanup } from "./saved-learning-loop-cleanup";
+import { cleanupDatabasePortForApi, runSavedLearningLoopCleanup } from "./saved-learning-loop-cleanup";
 
 const USER_ID = "53000000-0000-4000-8000-000000000001";
 const SOURCE_ID = "53000000-0000-4000-8000-000000000002";
@@ -91,6 +91,7 @@ async function cleanupFixture() {
   await runSavedLearningLoopCleanup({
     cleanupSql: CLEANUP_SQL,
     databaseUrl: requiredEnvironment("POPCORN_E2E_DATABASE_URL"),
+    expectedDatabasePort: cleanupDatabasePortForApi(supabaseUrl),
   });
 }
 
@@ -474,7 +475,7 @@ test("a returning learner completes due Practice without increasing saved volume
     page.getByRole("button", { name: "Check my response" }).click(),
   ]);
   expect(completionResponse.status(), `Due completion: ${await completionResponse.text()}`).toBe(201);
-  await expect(page.getByText("Mastery moved from tried to reused.", { exact: false })).toBeVisible();
+  await expect(page.getByText(/^Nice — tried → reused\. Next practice/)).toBeVisible();
 
   await page.goto("/progress");
   await expect(metric(page, "Weekly learning evidence", "Attempts this week")).toHaveText("1");

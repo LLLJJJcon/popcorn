@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { expect, test, type BrowserContext } from "@playwright/test";
 
 import { completeFixtureAnalysis, selectUnmarkedText } from "./group-one-fixtures";
-import { runSavedLearningLoopCleanup } from "./saved-learning-loop-cleanup";
+import { cleanupDatabasePortForApi, runSavedLearningLoopCleanup } from "./saved-learning-loop-cleanup";
 
 const USER_ID = "52000000-0000-4000-8000-000000000001";
 const SOURCE_ID = "52000000-0000-4000-8000-000000000002";
@@ -174,6 +174,7 @@ async function cleanupFixture() {
   await runSavedLearningLoopCleanup({
     cleanupSql: CLEANUP_SQL,
     databaseUrl: requiredEnvironment("POPCORN_E2E_DATABASE_URL"),
+    expectedDatabasePort: cleanupDatabasePortForApi(supabaseUrl),
   });
 }
 
@@ -427,8 +428,7 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
     `POST /api/v1/practice/tasks returned ${activationResponse.status()}: ${activationBody}`,
   ).toBe(201);
   const practicePath = new URL(practiceNavigation.url()).pathname;
-  if (new URL(page.url()).pathname !== practicePath) await page.goto(practicePath);
-  await expect(page).toHaveURL(new RegExp(`${practicePath}$`));
+  await expect(page).toHaveURL(new RegExp(practicePath));
   await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
 
   const draft = await admin.from("practice_drafts")
@@ -446,119 +446,92 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   ]);
   expect(beforeAttempt.map((result) => result.count)).toEqual([0, 0, 0]);
 
-  const original = "这个表达真的很常见。";
-  await page.getByLabel("Your Chinese response").fill(original);
-  await page.route("**/api/v1/practice/attempts", async (route) => {
-    await route.fulfill({
-      status: 503,
-      contentType: "application/json",
-      body: JSON.stringify({
-        ok: false,
-        error: { code: "PROVIDER_UNAVAILABLE", message: "Practice is temporarily unavailable", retryable: true },
-        requestId: "fixture-provider-failure",
-      }),
-    });
-  });
-  await page.getByRole("button", { name: "Check my response" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "Your response is still here" }))
-    .toContainText("Your response is still here");
-  await expect(page.getByLabel("Your Chinese response")).toHaveValue(original);
-  await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: /E2E 中文学习示例 · 0:04/ })).toBeVisible();
-  await page.getByRole("button", { name: "Show original evidence" }).click();
-  await expect(page.getByText(EVIDENCE_TEXT, { exact: true })).toBeVisible();
+  await expect(page.getByText("New · Not in your Vault yet", {exact:true})).toBeVisible();
+  await expect(page.getByRole("link", {name:"← Back to Saved"})).toHaveAttribute("href",`/saved/${SOURCE_ID}#saved-item-${ACTION_SAVE_ID}`);
+  await page.getByRole("button",{name:"About this expression",exact:true}).click();
+  await expect(page.getByText("How it fits",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"EN",exact:true}).click();
+  const original="这个表达真的很常见。";
+  await page.getByLabel("Your answer in Chinese").fill(original);
+  await expect.poll(()=>page.evaluate(id=>localStorage.getItem(`popcorn:answer:${id}`),draft.data!.id)).toBe(original);
+  await page.reload();
+  await expect(page.getByLabel("Your answer in Chinese")).toHaveValue(original);
+  await expect(page.getByText("Restored your unsent answer.")).toBeVisible();
+  await page.route("**/api/v1/practice/attempts",route=>route.fulfill({status:503,contentType:"application/json",body:JSON.stringify({ok:false,error:{code:"PROVIDER_UNAVAILABLE",message:"Unavailable",retryable:true},requestId:"fixture-provider-failure"})}));
+  await page.getByRole("button",{name:"Check my answer",exact:true}).click();
+  await expect(page.getByRole("alert").filter({hasText:"The model didn't respond."})).toContainText("The model didn't respond. Your answer is still here.");
+  await expect(page.getByLabel("Your answer in Chinese")).toHaveValue(original);
   await page.unroute("**/api/v1/practice/attempts");
-  const [originalResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/practice/attempts",
-    ),
-    page.getByRole("button", { name: "Check my response" }).click(),
-  ]);
-  expect(originalResponse.status()).toBe(201);
-  await expect(page.getByText("Practice recorded")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Natural revision" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open in Vault" })).toBeVisible();
-
-  const revision = "我觉得这个表达在口语里很自然。";
-  await page.getByLabel("Your Chinese response").fill(revision);
-  const [revisionResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/revisions"),
-    ),
-    page.getByRole("button", { name: "Check revised response" }).click(),
-  ]);
-  expect(revisionResponse.status()).toBe(201);
-  await expect.poll(async () => {
-    const attempts = await admin.from("practice_draft_attempts")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", USER_ID).eq("practice_draft_id", draft.data!.id);
-    return attempts.count;
-  }).toBe(2);
-
-  await page.getByRole("link", { name: "Open in Vault" }).click();
-  await expect(page).toHaveURL(/\/vault$/);
-  await expect(page.getByRole("heading", { name: "Attempt history" })).toHaveCount(0);
-  await page.getByLabel("Search expressions").fill(EXPRESSION);
-  const searchResult = page.getByRole("list", { name: "Vault search results" })
-    .getByRole("link", { name: new RegExp(EXPRESSION) });
-  await expect(searchResult).toHaveAttribute("href", `/vault/${futureUserExpressionId}`);
-  await searchResult.click();
-  await expect(page).toHaveURL(new RegExp(`/vault/${futureUserExpressionId}$`));
-  await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
-  await expect(page.getByText("tried", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "E2E 中文学习示例" })).toBeVisible();
-  await expect(page.getByText(EVIDENCE_TEXT, { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Attempt history" })).toBeVisible();
-  await expect(page.getByText(original, { exact: true })).toBeVisible();
-  await expect(page.getByText(revision, { exact: true })).toBeVisible();
-
-  const review = await admin.from("review_tasks").select("id")
-    .eq("user_id", USER_ID).eq("user_expression_id", futureUserExpressionId).single();
+  const [examplesResponse]=await Promise.all([page.waitForResponse(r=>r.request().method()==="POST"&&new URL(r.url()).pathname.endsWith("/examples-opened")),page.getByRole("button",{name:"Show examples",exact:true}).click()]);
+  expect(examplesResponse.status()).toBe(200);
+  await expect(page.getByText(EVIDENCE_TEXT,{exact:true})).toBeVisible();
+  await page.reload();
+  await expect(page.getByText(EVIDENCE_TEXT,{exact:true})).toBeVisible();
+  const [originalResponse]=await Promise.all([page.waitForResponse(r=>r.request().method()==="POST"&&new URL(r.url()).pathname==="/api/v1/practice/attempts"),page.getByRole("button",{name:"Check my answer",exact:true}).click()]);
+  expect(originalResponse.status(),await originalResponse.text()).toBe(201);
+  await expect(page.getByText("You got it with an example. Now try a new situation on your own.")).toBeVisible();
+  await expect(page.getByRole("link",{name:"Open in Vault"})).toHaveCount(0);
+  await page.screenshot({path:test.info().outputPath("group2-assisted-feedback.png"),fullPage:true});
+  const firstState=await admin.rpc("get_practice_round_state",{p_user_id:USER_ID,p_task_id:draft.data!.id});
+  expect(firstState.error).toBeNull();
+  expect(firstState.data.status).toBe("retry_scheduled");
+  expect(firstState.data.examplesOpened).toBe(true);
+  expect(Date.parse(firstState.data.retryDueAt)-Date.parse((await admin.from("practice_draft_attempts").select("submitted_at").eq("practice_draft_id",draft.data!.id).eq("revision",1).single()).data!.submitted_at)).toBe(86400000);
+  await expect.poll(()=>page.evaluate(id=>localStorage.getItem(`popcorn:answer:${id}`),draft.data!.id)).toBeNull();
+  await page.reload();
+  await expect(page.getByText("You got it with an example. Now try a new situation on your own.")).toBeVisible();
+  await page.getByRole("button",{name:"Show a natural version",exact:true}).click();
+  await expect(page.getByText("A natural version",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Revise this answer",exact:true}).click();
+  const revision="我觉得这个表达在口语里很自然。";
+  await page.getByLabel("Your answer in Chinese").fill(revision);
+  await page.getByRole("button",{name:"Check my revision",exact:true}).click();
+  await expect(page.getByText("Nice fix. To add it to your Vault, try once more in a new situation without examples.")).toBeVisible();
+  await expect(page.getByText("Naturalness 4 → 4",{exact:true})).toBeVisible();
+  const afterRevision=await admin.rpc("get_practice_round_state",{p_user_id:USER_ID,p_task_id:draft.data!.id});
+  expect(afterRevision.data.retryDueAt).toBe(firstState.data.retryDueAt);
+  expect(afterRevision.data.promotion).toBeNull();
+  const [removeResponse]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname.endsWith("/remove")),page.getByRole("button",{name:"Remove from practice",exact:true}).click()]);
+  expect(removeResponse.status()).toBe(200);
+  await page.getByRole("button",{name:"Undo",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Try a new situation",exact:true})).toBeVisible();
+  const [roundResponse]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname.endsWith("/rounds")),page.getByRole("button",{name:"Try a new situation",exact:true}).click()]);
+  expect(roundResponse.status(),await roundResponse.text()).toBe(201);
+  const second=await roundResponse.json();
+  await expect(page).toHaveURL(new RegExp(`/practice/${second.data.taskId}`));
+  await expect(page.getByText("Round 2 · Not in your Vault yet",{exact:true})).toBeVisible();
+  await page.screenshot({path:test.info().outputPath("group2-round2.png"),fullPage:true});
+  await expect(page.getByText(EVIDENCE_TEXT,{exact:true})).toHaveCount(0);
+  await page.getByLabel("Your answer in Chinese").fill("这个表达用起来很自然。");
+  const [promotionResponse]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname==="/api/v1/practice/attempts"),page.getByRole("button",{name:"Check my answer",exact:true}).click()]);
+  expect(promotionResponse.status(),await promotionResponse.text()).toBe(201);
+  await expect(page.getByRole("link",{name:"Open in Vault",exact:true})).toBeVisible();
+  await page.screenshot({path:test.info().outputPath("group2-promoted-feedback.png"),fullPage:true});
+  const promoted=await promotionResponse.json();
+  const expressionId=promoted.data.roundState.promotion.userExpressionId;
+  const entry=await admin.from("attempts").select("entry_round,submitted_at").eq("user_id",USER_ID).eq("id",promoted.data.attempt.id).single();
+  expect(entry.error).toBeNull();expect(entry.data!.entry_round).toBe(2);
+  expect(Date.parse(promoted.data.roundState.promotion.nextDueAt)-Date.parse(entry.data!.submitted_at)).toBe(86400000);
+  await page.getByRole("link",{name:"Open in Vault",exact:true}).click();
+  await expect(page).toHaveURL(new RegExp(`/vault/${expressionId}$`));
+  await expect(page.getByRole("heading",{name:EXPRESSION,exact:true})).toBeVisible();
+  const review=await admin.from("review_tasks").select("id").eq("user_id",USER_ID).eq("user_expression_id",expressionId).eq("status","pending").single();
   expect(review.error).toBeNull();
-  const due = await admin.from("review_tasks")
-    .update({ due_at: new Date(Date.now() - 60_000).toISOString() })
-    .eq("id", review.data!.id).eq("user_id", USER_ID);
-  expect(due.error).toBeNull();
-
+  expect((await admin.from("review_tasks").update({due_at:new Date(Date.now()-60000).toISOString()}).eq("id",review.data!.id).eq("user_id",USER_ID)).error).toBeNull();
   await page.goto("/practice");
-  await expect(page.getByRole("heading", { name: "Practice" })).toBeVisible();
-  await expect(page.getByRole("main").getByRole("listitem")).toHaveCount(1);
-  await expect(page.getByText(EXPRESSION, { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Start practice" })).toBeVisible();
-  await expect(page.getByText(/tried/)).toBeVisible();
-
-  const [transferResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === "GET"
-      && new URL(response.url()).pathname === `/api/v1/practice/due/${review.data!.id}`,
-    ),
-    page.getByRole("button", { name: "Start practice" }).click(),
-  ]);
-  expect(transferResponse.status()).toBe(200);
-  await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
-  const dueResponseChinese = "大家都同意，这个结果也太离谱了。";
-  await page.getByLabel("Your Chinese response").fill(dueResponseChinese);
-  const [dueResponse] = await Promise.all([
-    page.waitForResponse((response) =>
-      response.request().method() === "POST"
-      && new URL(response.url()).pathname === `/api/v1/practice/due/${review.data!.id}`,
-    ),
-    page.getByRole("button", { name: "Check my response" }).click(),
-  ]);
-  expect(dueResponse.status(), `Due completion: ${await dueResponse.text()}`).toBe(201);
-  await expect(page.getByText("Practice recorded")).toBeVisible();
-  await expect(page.getByText(/Mastery moved from tried to reused/)).toBeVisible();
-
-  await page.goto(`/vault/${futureUserExpressionId}`);
-  await expect(page.getByRole("heading", { name: "Attempt history" })).toBeVisible();
-  await expect(page.getByText(dueResponseChinese, { exact: true })).toBeVisible();
-
-  await page.goto("/progress");
-  await expect(page.getByRole("heading", { name: "Your Mandarin in use" })).toBeVisible();
-  await expect(page.getByRole("list", { name: "Weekly learning evidence" })
-    .getByRole("listitem").filter({ hasText: "Due Practice completed" }).locator("strong")).toHaveText("1");
-  await expect(page.getByRole("list", { name: "Current mastery distribution" })
-    .getByRole("listitem").filter({ hasText: "Reused" }).locator("strong")).toHaveText("1");
+  await page.getByRole("button",{name:"Start practice",exact:true}).click();
+  await expect(page.getByRole("heading",{name:EXPRESSION,exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"About this expression",exact:true}).click();
+  await expect(page.getByText("How it fits",{exact:true})).toBeVisible();
+  const [dueExamples]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname===`/api/v1/practice/due/${review.data!.id}/examples-opened`),page.getByRole("button",{name:"Show examples",exact:true}).click()]);
+  expect(dueExamples.status()).toBe(200);
+  const marker=await admin.from("review_tasks").select("examples_opened_at").eq("id",review.data!.id).single();expect(marker.data!.examples_opened_at).toBeTruthy();
+  await page.getByLabel("Your Chinese response").fill("我觉得这个表达很适合这个情境。");
+  const [dueResponse]=await Promise.all([page.waitForResponse(r=>r.request().method()==="POST"&&new URL(r.url()).pathname===`/api/v1/practice/due/${review.data!.id}`),page.getByRole("button",{name:"Check my response",exact:true}).click()]);
+  expect(dueResponse.status(),await dueResponse.text()).toBe(201);
+  await expect(page.getByText("You got it with an example. We'll check again tomorrow — on your own.")).toBeVisible();
+  const dueResult=await dueResponse.json();expect(dueResult.data.newState).toBe("tried");expect(dueResult.data.intervalDays).toBe(1);
+  expect(dueResult.data.evaluation.assistanceLevel).toBe("model_answer");
 
   const ignoredAfter = await admin.from("saved_items")
     .select("status,payload,start_seconds,snapshot_id,updated_at")

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   runSavedLearningLoopCleanup,
+  cleanupDatabasePortForApi,
   type CleanupExecutor,
 } from "../../e2e/saved-learning-loop-cleanup";
 
@@ -48,6 +49,8 @@ describe("saved learning-loop cleanup subprocess", () => {
 
   it.each([
     "postgresql://postgres:secret@db.example.com:54322/postgres",
+    "postgresql://postgres:secret@127.0.0.1:54332/postgres",
+    "postgresql://postgres:secret@127.0.0.1:55432/postgres",
     "postgresql://postgres@127.0.0.1:54322/postgres",
     "postgresql://postgres:secret@127.0.0.1:54322/postgres?service=remote",
     "postgresql://postgres:secret@127.0.0.1:54322/postgres#remote",
@@ -62,4 +65,18 @@ describe("saved learning-loop cleanup subprocess", () => {
     })).rejects.toThrow("Local E2E database cleanup failed");
     expect(execute).not.toHaveBeenCalled();
   });
+  it("explicit isolated target supports54332 while rejecting a personal54322 URL",async()=>{
+    const execute=vi.fn<CleanupExecutor>().mockResolvedValue(undefined);
+    await runSavedLearningLoopCleanup({cleanupSql:"select1",databaseUrl:LOCAL_DATABASE_URL.replace(":54322/",":54332/"),expectedDatabasePort:"54332",execute});
+    expect(execute.mock.calls[0]?.[2].env.PGPORT).toBe("54332");execute.mockClear();
+    await expect(runSavedLearningLoopCleanup({cleanupSql:"select1",databaseUrl:LOCAL_DATABASE_URL,expectedDatabasePort:"54332",execute})).rejects.toThrow("Local E2E database cleanup failed");
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it.each(["postgresql://postgres:secret@db.example.com:54332/postgres","postgresql://postgres@127.0.0.1:54332/postgres","postgresql://postgres:secret@127.0.0.1:55432/postgres","postgresql://postgres:secret@127.0.0.1:54332/postgres?service=remote","postgresql://postgres:secret@127.0.0.1:54332/postgres#remote"])("isolated mode rejects unsafe target %s before any subprocess",async(databaseUrl)=>{
+    const execute=vi.fn<CleanupExecutor>().mockResolvedValue(undefined);
+    await expect(runSavedLearningLoopCleanup({cleanupSql:"select1",databaseUrl,expectedDatabasePort:"54332",execute})).rejects.toThrow("Local E2E database cleanup failed");
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it.each([["http://127.0.0.1:54321","54322"],["http://localhost:54321/","54322"],["http://127.0.0.1:54331","54332"],["http://localhost:54331/","54332"]])("maps approved test API %s to explicit DB target %s",(api,port)=>{expect(cleanupDatabasePortForApi(api)).toBe(port);});
+  it.each(["http://remote.example:54331","http://127.0.0.1:55431","http://user:secret@127.0.0.1:54331","http://127.0.0.1:54331/rest/v1","http://127.0.0.1:54331?service=remote","http://127.0.0.1:54331#remote","file://127.0.0.1:54331","not-a-url"])("rejects unapproved API selector %s",api=>{expect(()=>cleanupDatabasePortForApi(api)).toThrow("Expected an approved local Supabase test API");});
 });

@@ -34,7 +34,7 @@ export function PracticeMaterial({ material, onExamplesOpen, onExamplesPendingCh
       <DisclosureButton expanded={about} onClick={() => setAbout(!about)}>About this expression</DisclosureButton>
       {about ? <div className={styles.hintPanel}><dl><div><dt>How it fits</dt><dd>{card?.howItFits ?? material.expression.englishExplanation}</dd></div><div><dt>Tone &amp; who</dt><dd>{card?.toneAndWho ?? `${material.expression.tone} · ${material.expression.register}`}</dd></div>{card?.watchOut ? <div><dt>Watch out</dt><dd>{card.watchOut}</dd></div> : null}</dl></div> : null}
       <button className={styles.tertiaryButton} type="button" aria-expanded={visible} disabled={pending || visible} onClick={() => void revealExamples()}><span aria-hidden="true">▤</span>{pending ? "Opening examples…" : "Show examples"}</button>
-      <p className={styles.muted}>{due ? "Seeing an example helps, but this review won't move your progress." : "Seeing an example helps, but this round won't go into your Vault."}</p>
+      {!material.roundState?.firstAnswer ? <p className={styles.muted}>{due ? "Seeing an example helps, but this review won't move your progress." : "Seeing an example helps, but this round won't go into your Vault."}</p> : null}
       {failed ? <p role="alert" className={styles.alert}>Examples couldn&apos;t open. Try again.</p> : null}
       {visible ? <div className={styles.hintPanel}>{card?.examples?.map((example, i) => <div key={i}><p lang="zh-CN">{example.zh}</p><p lang="en">{example.en}</p></div>)}<blockquote lang="zh-CN">{material.source.evidenceText}</blockquote></div> : null}
     </div>{children}</section>

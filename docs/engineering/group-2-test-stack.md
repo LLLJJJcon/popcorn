@@ -78,3 +78,7 @@ After startup, checked 2026-11-01T06:30:14Z:
 - Original app still PID42640 on127.0.0.1:3000; Docker still PID63683 on54321/54322; personal containers still four days uptime. The separate new API/DB listeners are54331/54332.
 
 Non-sensitive machine-readable evidence: `/private/tmp/popcorn-phase1-test-stack/setup-baseline.json` and `health.json`. This proves isolated infrastructure availability and no observed interruption of the original services; it is not a claim that Group2 product acceptance has passed.
+
+## Portable E2E cleanup selection
+
+The repository cleanup helper retains the standard local54322 default for ordinary54321-based checkouts. This task's two browser suites explicitly choose54332 from their validated54331 API origin, and reject a database URL that instead points to54322. The temporary launcher additionally verifies54331/54332 before starting Playwright. Only mock subprocess tests exercised standard54322 compatibility; actual integration remains exclusively on54332. No global workflow or production configuration was changed for this machine.

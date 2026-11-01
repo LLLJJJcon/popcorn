@@ -10,7 +10,10 @@ export type CleanupExecutor = (
   },
 ) => Promise<unknown>;
 
+export type CleanupDatabasePort = "54322" | "54332";
+
 type CleanupOptions = {
+  expectedDatabasePort?: CleanupDatabasePort;
   cleanupSql: string;
   databaseUrl: string;
   inheritedEnvironment?: Readonly<Record<string, string | undefined>>;
@@ -26,8 +29,21 @@ const defaultExecutor: CleanupExecutor = async (file, args, options) => {
   });
 };
 
+export function cleanupDatabasePortForApi(rawUrl: string): CleanupDatabasePort {
+  let url: URL;
+  try { url = new URL(rawUrl); } catch { throw new Error("Expected an approved local Supabase test API"); }
+  if (!["http:", "https:"].includes(url.protocol) || !["127.0.0.1", "localhost"].includes(url.hostname)
+    || url.username || url.password || (rawUrl !== url.origin && rawUrl !== `${url.origin}/`)) {
+    throw new Error("Expected an approved local Supabase test API");
+  }
+  if (url.port === "54321") return "54322";
+  if (url.port === "54331") return "54332";
+  throw new Error("Expected an approved local Supabase test API");
+}
+
 function localCleanupConnection(
   rawUrl: string,
+  expectedDatabasePort: CleanupDatabasePort,
   inheritedEnvironment: Readonly<Record<string, string | undefined>>,
 ): Record<string, string | undefined> {
   let databaseUrl: URL;
@@ -43,7 +59,8 @@ function localCleanupConnection(
   if (
     !["postgres:", "postgresql:"].includes(databaseUrl.protocol)
     || !["127.0.0.1", "localhost"].includes(databaseUrl.hostname)
-    || databaseUrl.port !== "54322"
+    || !["54322", "54332"].includes(expectedDatabasePort)
+    || databaseUrl.port !== expectedDatabasePort
     || databaseUrl.pathname !== "/postgres"
     || databaseUrl.username !== "postgres"
     || databasePassword.length === 0
@@ -51,7 +68,7 @@ function localCleanupConnection(
     || databaseUrl.hash.length > 0
   ) {
     throw new Error(
-      "POPCORN_E2E_DATABASE_URL must target postgres on local port 54322 database postgres exactly",
+      "POPCORN_E2E_DATABASE_URL must match the selected local test database exactly",
     );
   }
 
@@ -77,12 +94,13 @@ function localCleanupConnection(
 export async function runSavedLearningLoopCleanup({
   cleanupSql,
   databaseUrl,
+  expectedDatabasePort = "54322",
   inheritedEnvironment = process.env,
   execute = defaultExecutor,
 }: CleanupOptions): Promise<void> {
   try {
     await execute("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-c", cleanupSql], {
-      env: localCleanupConnection(databaseUrl, inheritedEnvironment),
+      env: localCleanupConnection(databaseUrl, expectedDatabasePort, inheritedEnvironment),
       maxBuffer: 1024 * 1024,
     });
   } catch {

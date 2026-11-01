@@ -41,6 +41,28 @@ class MemoryRepository implements DemoSeedRepository {
     this.accounts = accounts;
   }
 
+  async createPracticeRound(ownerId:string,draft:DemoSeedRow) {
+    const rows=this.rows.get("practice_drafts")!;
+    const previous=[...rows.values()].find(row=>row.user_id===ownerId&&row.candidate_key===draft.candidate_key&&["open","retry_scheduled"].includes(String(row.status)));
+    if(previous)rows.set(previous.id,{...previous,status:"superseded"});
+    await this.writeOwned({ownerId,table:"practice_drafts",rows:[{...draft,previous_draft_id:previous?.id??null,retry_due_at:previous?.retry_due_at??null}]});
+  }
+  async recordPracticeAttempt(ownerId:string,attempt:DemoSeedRow) {
+    const drafts=this.rows.get("practice_drafts")!,draft=drafts.get(String(attempt.practice_draft_id))!;
+    await this.writeOwned({ownerId,table:"practice_draft_attempts",rows:[attempt]});
+    if(attempt.revision===1) {
+      if(attempt.independent_use) {
+        drafts.set(draft.id,{...draft,status:"promoted"});
+        await this.writeOwned({ownerId,table:"attempts",rows:[{...attempt,practice_task_id:draft.id,user_expression_id:draft.future_user_expression_id,entry_round:draft.round_number}]});
+      } else drafts.set(draft.id,{...draft,status:"retry_scheduled",retry_due_at:new Date(Date.parse(String(attempt.submitted_at))+86400000).toISOString()});
+    }
+  }
+  async removePracticeRound(ownerId:string,taskId:string) {
+    const rows=this.rows.get("practice_drafts")!,draft=rows.get(taskId)!;
+    if(draft.user_id!==ownerId)throw Error("wrong owner");
+    rows.set(taskId,{...draft,status_before_remove:draft.status,status:"removed"});
+  }
+
   async findAccounts(selector: string): Promise<readonly DemoAccount[]> {
     return this.accounts.filter((account) =>
       account.id === selector || account.email === selector,
@@ -553,5 +575,24 @@ describe("deterministic classroom demo seed", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+  it("seeds group2 multi-round retry, removed, assisted refresh and second-round entry through repository transactions",async()=>{
+    const repository=new MemoryRepository([{id:OWNER_A,email:"owner@example.com"}]);
+    await seedDemo({repository,userSelector:OWNER_A,referenceNow:REFERENCE_NOW});
+    const drafts=[...(repository.rows.get("practice_drafts" as DemoTable)?.values()??[])];
+    const staged=[...(repository.rows.get("practice_draft_attempts" as DemoTable)?.values()??[])];
+    expect(drafts.length).toBeGreaterThanOrEqual(4);
+    expect(drafts.some(row=>row.status==="retry_scheduled"&&row.examples_opened_at)).toBe(true);
+    expect(drafts.some(row=>row.status==="removed")).toBe(true);
+    expect(drafts.some(row=>row.round_number===2&&row.status==="promoted")).toBe(true);
+    const retry=drafts.find(row=>row.status==="retry_scheduled"&&staged.filter(a=>a.practice_draft_id===row.id).length>1)!;
+    const first=staged.find(a=>a.practice_draft_id===retry.id&&a.revision===1)!;
+    expect(retry.retry_due_at).toBe(new Date(Date.parse(String(first.submitted_at))+86400000).toISOString());
+    expect([...repository.rows.get("attempts")!.values()].some(row=>row.entry_round===2)).toBe(true);
+    const before=idsByTable(repository);
+    const edited={...retry,status:"removed",removed_at:"2027-01-01T00:00:00Z"};repository.rows.get("practice_drafts" as DemoTable)!.set(retry.id,edited);
+    await seedDemo({repository,userSelector:OWNER_A,referenceNow:"2026-11-01T12:00:00Z"});
+    expect(idsByTable(repository)).toEqual(before);
+    expect(repository.rows.get("practice_drafts" as DemoTable)!.get(retry.id)).toEqual(edited);
   });
 });
