@@ -43,3 +43,7 @@ GitHub checkpoint push was initially rejected by automatic approval review becau
 - The local database already contains migrations 019–022. No reset is permitted or needed.
 - Required E2E baseline: 2/4 passed. Saved loop raw-text locator matches active and ignored saves; returning-learner completion returns 409 under the existing server. Tooling implementer owns fixture/selector diagnosis; preserve current practice and review rules.
 - Baseline logs: `/private/tmp/popcorn-group1-baseline-{unit,contract,integration,extension,typecheck,sql,e2e}.log`. Final acceptance must rerun updated suites; these baseline results are not final acceptance.
+
+## Final disposition
+
+The separate acceptance agent completed the final engineering/fixture gates and all 11 criteria; see `group-1-acceptance.md`. Draft PR #1 contains the acceptance matrix. The user explicitly approved the only exception to 15.3: deleting the inherited blank final line from migration 021, with no SQL-content or database change (`95de382`). Unassigned concurrent provider/token edits are preserved outside the committed/tested scope. Real-model semantic review remains unrun. This run stops after group 1.

@@ -2,11 +2,13 @@
 
 ## Decision and independent role
 
-**Confirmed group 1 behavior and automated engineering/fixture gates: PASS. Full release completion: pending the migration-021 whitespace exception and the controller's final process records.** Real-model semantic quality was not run and is not represented as accepted.
+**Confirmed group 1 behavior, automated engineering/fixture gates and delivery-format gates: PASS. The section 15.4 PR description has been delivered.** Real-model semantic quality was not run and is not represented as accepted.
 
 The acceptance agent `/root/acceptance` did not implement or fix product, seed, prompt, test, migration or configuration changes. Backend, Saved UI and tooling were implemented by different agents. Findings were returned to the controller and original implementer; this agent only ran independent checks and wrote this report.
 
 Initial integrated freeze: `aa8ec40f8325c18f269bfee3e07ffa5268c2e396`. The subsequent freeze `dd94c621dc2e2c7147b578f2cc2b5de6cf08c55f` changes only the obsolete provenance test expectation and the tooling report. Final whole-range review covers `ab9737f..dd94c62`, including the original implementation checkpoint `4f61021`, backend/UI checkpoint `2179245`, and tooling checkpoint `aa8ec40`.
+
+Final formatting checkpoint: `95de382a976cf91685f51b8ee45343785f04d21b`. After explicit user authorization for this narrow exception, the backend execution agent removed only migration 021's final blank line. Independent review extends through `ab9737f..95de382`; the SQL's non-trailing-newline bytes and every application/test source remain unchanged from the verified version.
 
 Tests ran from fresh `git archive` copies at `/private/tmp/popcorn-group1-acceptance-aa8ec40` and `/private/tmp/popcorn-group1-acceptance-dd94c62`, with the existing `node_modules` symlinked. A temporary empty Git repository supplies ignore-rule inspection for provenance tests. No secret dotenv file was copied; the committed `.env.example` is the only environment file in either archive. Existing local settings were loaded into child-process environments without printing their contents. Node: `v24.13.1`; pnpm: `11.25.0`; installed Next.js: `16.3.1`.
 
@@ -33,7 +35,9 @@ The exact E2E invocation was `node node_modules/@playwright/test/cli.js test -c 
 | `pnpm --config.verify-deps-before-run=false test:extension` | Complete `extension/tests/*.test.js`: **180 passed**, 0 failed/skipped, exit 0 | `/private/tmp/popcorn-group1-final-extension-aa8ec40.log` |
 | `pnpm exec supabase test db` | All **13 files / 736 assertions passed**, exit 0; existing local migrations through 023, transactional rollback tests | `/private/tmp/popcorn-group1-final-sql-aa8ec40.log` |
 | Both required E2E files via the frozen copy's temporary Playwright config | **4 passed**, exit 0, against the frozen production build on `127.0.0.1:3102` | `/private/tmp/popcorn-group1-final-e2e-aa8ec40.log` |
-| `git diff --check ab9737f dd94c62` | **Pending disposition:** reports a new blank EOF line in applied migration 021:216 | Controller has requested an explicit exception before any change to this applied migration |
+| `git diff --check ab9737f dd94c62` | Historical format failure: extra blank EOF line in applied migration 021:216 | Resolved by the user-authorized formatting checkpoint below |
+| `git diff --check ab9737f 95de382` | **PASS, exit 0** | `/private/tmp/popcorn-group1-final-diffcheck-95de382.log` (empty successful output) |
+| Independent byte comparison of migration 021 at `2187c7c` and `95de382` | **PASS:** exactly one final LF removed; 7848 → 7847 bytes; bytes excluding trailing CR/LF are identical | Normalized SQL SHA-256: `b1f6f65a9a37d95f1f92f8cbe06491251b00437488c5ae818e48d4340fa84889` |
 
 The first complete-extension invocation encountered pnpm's automatic install check refusing a symlink target outside the temporary root. Re-running with dependency prechecking disabled ran the full unchanged test script. This was an archive/runtime restriction, not an extension failure. The first baseline integration run also required allowed loopback listening; the unrestricted baseline and both frozen full verification runs passed.
 
@@ -66,22 +70,24 @@ PASS below means engineering behavior established by deterministic tests, real l
 - **PASS — product scope:** no group 2–4 behavior, new mastery/independence rules, altered 1/7/30-day schedule, Vault filters, draft or phase-2 functionality was introduced in the reconciliation. Existing long-selection compatibility projections carry cards into current practice and promotion without changing learning decisions.
 - **PASS — real-call tooling boundary:** CLI requires explicit `--real` and owner UUID before configuration/network work, resolves the owner's existing local gateway, reuses validated proxy handling and omits provider error details. No real calls were made. Mechanical fixture checks are explicitly separate from semantic acceptance.
 
-## Section 15.4 and remaining release work
+## Section 15.4 delivery status
 
 | Requirement | Status |
 | --- | --- |
 | Four execution-preflight checks documented with evidence and impact | **PASS:** `optimization-preflight.md` |
-| Every section 4.13 criterion mapped to evidence | **PASS:** matrix above; controller can reuse it in the PR description |
+| Every section 4.13 criterion mapped to evidence | **PASS:** matrix above and the 11-item matrix delivered in [draft PR #1](https://github.com/LLLJJJcon/popcorn/pull/1) |
 | Relevant unit/integration/SQL and both required E2E suites | **PASS:** fresh independent results above |
 | Extension filter includes new save tests | **PASS:** full extension command and 180 passing tests |
-| Group execution ledger and final GitHub/PR acceptance evidence | **Controller-owned finalization:** append this independent result, preserve remaining limitations, and save/push the report. A branch checkpoint alone is not an actual PR description; no PR was created by this role. |
-| Required full-range whitespace CI check | **Pending:** applied migration 021 EOF exception; no silent edit to an applied migration was made |
+| Group execution ledger and GitHub/PR acceptance evidence | **PASS:** the controller saved the independent report and execution records, created [draft PR #1](https://github.com/LLLJJJcon/popcorn/pull/1) with the 11-item acceptance matrix, and attached it to the current chat. Recorded PR head: `2187c7c`; scope remains group 1 only. This acceptance role did not create the PR. |
+| Required full-range whitespace CI check | **PASS:** explicit user-authorized one-blank-line exception in `95de382`; full-range check exits 0 |
+
+Process-record update: the draft PR and its acceptance description are delivered. The user explicitly authorized only removal of migration 021's final blank line. `git diff --name-only 2187c7c 95de382` independently showed only `supabase/migrations/202611010021_learning_card_analysis.sql`; its diff is one deleted blank line. The independent byte check established `before == after + b"\n"` and equal `rstrip(b"\r\n")` content. Application sources, tests and executable SQL are unchanged, so the already passing functional/SQL/E2E gates were not needlessly repeated. The controller owns saving this final report update and updating the PR head.
 
 ## Deviations, review findings and known limits
 
 There is no identified change to the confirmed product behavior in this reconciliation. Internal compatibility choices are documented in preflight/backend reports: transactional snapshot-resolution trigger, modern-to-existing practice projection, long-selection bounds already present at checkpoint, and numeric occurrence confidence retained only inside the legacy canonical table.
 
-Review found a missing stable identity in newly seeded modern cards; the original tooling implementer fixed demo/returning-learner keys and added a recreated-ID matcher assertion before freeze. Independent review confirmed the fix. The final verify then exposed the obsolete provenance extension-command assertion; the same implementer updated that assertion without removing dependency drift checks, and full independent verify passed at dd94c62. No unresolved important implementation finding remains. The applied migration's final blank line remains an explicit release-format gate pending user authorization.
+Review found a missing stable identity in newly seeded modern cards; the original tooling implementer fixed demo/returning-learner keys and added a recreated-ID matcher assertion before freeze. Independent review confirmed the fix. The final verify then exposed the obsolete provenance extension-command assertion; the same implementer updated that assertion without removing dependency drift checks, and full independent verify passed at dd94c62. The applied migration's final blank line was subsequently removed under explicit user authorization and independently checked at 95de382. No unresolved important implementation or delivery-format finding remains.
 
 Real-model semantic quality, naturalness, different-situation quality and live selection quality remain **NOT RUN / NOT ACCEPTED**. The opt-in sample runner is available for a separate product review. Section 4.14's already-in-Vault question, section 4.9 downstream behavior, groups 2–4 and all draft/phase-2 work remain outside this execution.
 
