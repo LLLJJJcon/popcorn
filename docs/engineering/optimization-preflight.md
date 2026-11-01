@@ -52,6 +52,8 @@ The separate acceptance agent completed the final engineering/fixture gates and 
 
 After independent group2 acceptance and PR#2 main merge, exact current-state findings for all §6.11 checks are in `group-3-preflight.md`; interfaces/rulings/ownership are frozen in `group-3-contracts.md`. No group4 implementation is authorized before group3's independent gate.
 
+Final group3 gate passed independently atdabf1dc, with all nine criteria and bounded inherited/fresh evidence in `group-3-acceptance.md`. Four actual session findings were returned to the original implementation owner and independently verified after repair. Group4 may now begin its own confirmed preflight/contract work.
+
 ## Follow-up group 2 preflight — 2026-11-01
 
 Final status: independent group2 engineering acceptance passed at515de29, followed by separate merged-source acceptance atf1a739b after retaining main867da055. See `group-2-acceptance.md` and `group-2-merge-acceptance.md`. The newer upstream budget/reasoning controls do not retroactively turn the historical mixed live trials into a semantic pass; those limitations remain recorded. Only the dedicated test stack received migrations024–028.
