@@ -210,10 +210,14 @@ export function createOpenAiCompatibleStructuredJsonClient(
     promptVersion: string,
     userPrompt: string,
     completionOptions: StructuredTextCompletionOptions,
+    structuredJson = false,
   ): Promise<string> {
     const body = JSON.stringify({
       model: options.config.model,
       max_tokens: boundedPositiveInteger(completionOptions.maxTokens, 1),
+      ...(structuredJson && options.config.model === "claude-haiku-5-5"
+        ? { thinking: { type: "disabled" } }
+        : {}),
       ...(options.config.model === "qwen3.8-flash" && /^evaluate-practice-v\d+$/.test(promptVersion)
         ? { enable_thinking: false }
         : {}),
@@ -285,6 +289,7 @@ export function createOpenAiCompatibleStructuredJsonClient(
       promptVersion,
       userPrompt,
       completionOptions,
+      true,
     );
     const extracted = extractUniqueSemanticObject(assistantText, completionOptions.normalize);
     if (extracted.ok) return extracted.value;

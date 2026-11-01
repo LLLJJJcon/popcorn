@@ -18,7 +18,7 @@ import {
 import type { Database, Json } from "@/types/database.generated";
 import { createYouTubeVideoMetadataProvider, type ReadVideoMetadata } from "@/server/youtube/video-metadata";
 import { createSavedMomentRemover } from "@/server/domain/delete-saved-moment";
-import { CandidateExpressionListSchema } from "@/contracts/knowledge";
+import { CandidateExpressionListSchema, type CandidateExpression } from "@/contracts/knowledge";
 import { createPracticeRoundStore,practiceCandidateKey } from "@/server/domain/practice-rounds";
 
 type SourceRow = {
@@ -571,21 +571,31 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
       status: row.status as SavedHighlight["status"],
     }));
 
-    const artifacts=await Promise.all((artifactResult.data??[]).map(async raw=>{
-      const artifact=mapArtifact(raw);
-      if(artifact.type!=="saved_item_analysis"||!artifact.savedItemId||typeof client.rpc!=="function")return artifact;
-      const content=objectPayload(artifact.content);const parsed=CandidateExpressionListSchema.safeParse(content.candidates);
-      if(!parsed.success)return artifact;
-      const candidates=await Promise.all(parsed.data.map(async(card,candidateIndex)=>{
-        const key=practiceCandidateKey({savedItemId:artifact.savedItemId!,candidateArtifactId:artifact.id,candidateIndex},card);
-        const state=await createPracticeRoundStore(client as never).candidate(userId,key);
-        const practiceState=state.promotion?{status:"promoted",userExpressionId:state.promotion.userExpressionId}
-          :state.draft?{status:state.draft.status==="removed"?"removed":"practicing",taskId:state.draft.id,roundNumber:state.draft.round_number}
-          :{status:"unpracticed"};
-        return {...card,practiceState};
-      }));
-      return {...artifact,content:{...content,candidates} as Json};
-    }));
+    let artifacts = (artifactResult.data ?? []).map(mapArtifact);
+    // Legacy scripted clients lack RPC support. Real clients always take this
+    // path, and projection failures propagate rather than masking saved state.
+    if (typeof client.rpc === "function") {
+      const cardsByArtifact = new Map<string, CandidateExpression[]>();
+      const candidateKeys = new Set<string>();
+      for (const artifact of artifacts) {
+        if (artifact.type !== "saved_item_analysis" || !artifact.savedItemId) continue;
+        const parsed = CandidateExpressionListSchema.safeParse(objectPayload(artifact.content).candidates);
+        if (!parsed.success) continue;
+        cardsByArtifact.set(artifact.id, parsed.data);
+        for (const [candidateIndex, card] of parsed.data.entries()) {
+          candidateKeys.add(practiceCandidateKey({ savedItemId: artifact.savedItemId, candidateArtifactId: artifact.id, candidateIndex }, card));
+        }
+      }
+      const states = await createPracticeRoundStore(client as never).candidatePracticeStates(userId, [...candidateKeys]);
+      artifacts = artifacts.map(artifact => {
+        const cards = cardsByArtifact.get(artifact.id);
+        if (!cards || !artifact.savedItemId) return artifact;
+        const candidates = cards.map((card, candidateIndex) => ({
+          ...card, practiceState: states.get(practiceCandidateKey({ savedItemId: artifact.savedItemId!, candidateArtifactId: artifact.id, candidateIndex }, card)),
+        }));
+        return { ...artifact, content: { ...objectPayload(artifact.content), candidates } as Json };
+      });
+    }
     return {
       sources, snapshots, items, jobs, evidence, highlights, gatewayAvailable: Boolean(gatewayResult.data?.length),
       artifacts,

@@ -1906,6 +1906,16 @@ export type Database = {
         Args: { p_review_task_id: string; p_user_id: string }
         Returns: string
       }
+      get_practice_candidate_projection: {
+        Args: { p_candidate_keys: string[]; p_user_id: string }
+        Returns: {
+          candidate_key: string
+          round_number: number | null
+          status: string | null
+          task_id: string | null
+          user_expression_id: string | null
+        }[]
+      }
       get_practice_candidate_state: {
         Args: { p_candidate_key: string; p_user_id: string }
         Returns: Json
