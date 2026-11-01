@@ -420,6 +420,8 @@ describe("Saved candidate expressions", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/practice/tasks", {
       method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         savedItemId: SAVED_ITEM_ID,
@@ -881,5 +883,15 @@ describe("Saved candidate expressions", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Analysis is taking longer than expected. Try again.");
     expect(screen.getByRole("button", { name: "Retry analysis" })).toBeEnabled();
     expect(screen.queryByText(/500|recovery failed|stack/i)).not.toBeInTheDocument();
+  });
+  it("keeps a failed first preparation available with the specified retry action", async () => {
+    const fetcher=vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ok:false,requestId:"x",error:{code:"PROVIDER_OUTPUT_INVALID",message:"Unavailable",retryable:true}},{status:503})).mockResolvedValueOnce(Response.json({ok:true,requestId:"x",data:{redirect:`/vault/${EXPRESSION_ID}`}}));vi.stubGlobal("fetch",fetcher);
+    render(<CandidateList savedItemId={SAVED_ITEM_ID} videoSourceId={VIDEO_SOURCE_ID} youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ" analysis={artifact([candidate()])}/>);
+    await waitFor(()=>expect(screen.getByRole("button",{name:"Practice this expression"})).toBeEnabled());
+    await userEvent.click(screen.getByRole("button",{name:"Practice this expression"}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't prepare a situation.");
+    expect(screen.getByRole("article")).toHaveTextContent("挺有意思的");
+    await userEvent.click(screen.getByRole("button",{name:"Try again"}));
+    await waitFor(()=>expect(push).toHaveBeenCalledWith(`/vault/${EXPRESSION_ID}`));
   });
 });

@@ -18,6 +18,8 @@ import {
 import type { Database, Json } from "@/types/database.generated";
 import { createYouTubeVideoMetadataProvider, type ReadVideoMetadata } from "@/server/youtube/video-metadata";
 import { createSavedMomentRemover } from "@/server/domain/delete-saved-moment";
+import { CandidateExpressionListSchema } from "@/contracts/knowledge";
+import { createPracticeRoundStore,practiceCandidateKey } from "@/server/domain/practice-rounds";
 
 type SourceRow = {
   readonly id: string;
@@ -569,9 +571,24 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
       status: row.status as SavedHighlight["status"],
     }));
 
+    const artifacts=await Promise.all((artifactResult.data??[]).map(async raw=>{
+      const artifact=mapArtifact(raw);
+      if(artifact.type!=="saved_item_analysis"||!artifact.savedItemId||typeof client.rpc!=="function")return artifact;
+      const content=objectPayload(artifact.content);const parsed=CandidateExpressionListSchema.safeParse(content.candidates);
+      if(!parsed.success)return artifact;
+      const candidates=await Promise.all(parsed.data.map(async(card,candidateIndex)=>{
+        const key=practiceCandidateKey({savedItemId:artifact.savedItemId!,candidateArtifactId:artifact.id,candidateIndex},card);
+        const state=await createPracticeRoundStore(client as never).candidate(userId,key);
+        const practiceState=state.promotion?{status:"promoted",userExpressionId:state.promotion.userExpressionId}
+          :state.draft?{status:state.draft.status==="removed"?"removed":"practicing",taskId:state.draft.id,roundNumber:state.draft.round_number}
+          :{status:"unpracticed"};
+        return {...card,practiceState};
+      }));
+      return {...artifact,content:{...content,candidates} as Json};
+    }));
     return {
       sources, snapshots, items, jobs, evidence, highlights, gatewayAvailable: Boolean(gatewayResult.data?.length),
-      artifacts: (artifactResult.data ?? []).map(mapArtifact),
+      artifacts,
     };
   }
 

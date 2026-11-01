@@ -99,7 +99,7 @@ insert into public.practice_drafts (
 ) values (
   :'draft',:'user_a',:'practiced_source',:'practiced_save',:'artifact',0,
   :'future_expression','en','zh-CN','太离谱了','朋友告诉你一件很夸张的事。',
-  'Reply naturally in Mandarin.','Use the target expression.','active',
+  'Reply naturally in Mandarin.','Use the target expression.','open',
   '2026-08-22 09:04:00+00','2026-08-22 09:04:00+00'
 );
 insert into public.practice_draft_attempts (

@@ -1,204 +1,37 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, test, vi } from "vitest";
-
-import type { PracticeMaterialView } from "@/features/practice/material-schema";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { EvaluationResult, PracticeRoundState } from "@/contracts/practice";
+import type { PracticeMaterialView } from "./material-schema";
 import { PracticeSession } from "./practice-session";
-
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
-
-const material: PracticeMaterialView = {
-  task: {
-    id: "11111111-1111-4111-8111-111111111111", userExpressionId: "33333333-3333-4333-8333-333333333333",
-    kind: "use_it_now", nativeLanguage: "en", targetLanguage: "zh-CN", targetExpression: "太离谱了",
-    promptChinese: "朋友告诉你一杯普通咖啡卖一百元。你会怎么回应？",
-    instructionsEnglish: "Reply with one natural Simplified Chinese sentence.",
-    goalEnglish: "React critically to the unreasonable price.", dueAt: null, createdAt: "2026-08-21T02:03:04.000Z",
-  },
-  masteryState: "tried",
-  source: {
-    videoTitle: "Street Mandarin: prices", youtubeUrl: "https://www.youtube.com/watch?v=abcdefghijk&t=62s",
-    evidenceText: "这个价格也太离谱了吧。", startSeconds: 62,
-  },
-  expression: {
-    englishMeaning: "That is outrageous.", englishExplanation: "A strong reaction when something feels unreasonable.",
-    tone: "surprised and critical", communicativeFunction: "reacting to an unreasonable situation",
-    register: "informal spoken Mandarin",
-  },
-};
-
-const evaluation = {
-  passed: true,
-  accuracy: { score: 5, englishFeedback: "The expression conveys the intended reaction." },
-  naturalness: { score: 4, englishFeedback: "The sentence sounds natural in casual speech." },
-  contextualFit: { score: 5, englishFeedback: "It fits the situation directly." },
-  independentUse: true, assistanceLevel: "none" as const,
-};
-
-function attemptResponse(overrides: Record<string, unknown> = {}) {
-  return {
-    attempt: {
-      id: "44444444-4444-4444-8444-444444444444", userId: "22222222-2222-4222-8222-222222222222",
-      practiceTaskId: material.task.id, userExpressionId: material.task.userExpressionId,
-      responseChinese: "这个价格也太离谱了。", evaluation,
-      submittedAt: material.task.createdAt, createdAt: material.task.createdAt, ...overrides,
-    },
-    coaching: { naturalRevisionChinese: "这个价格也太离谱了吧。" },
-  };
-}
-
-function apiResponse(data: unknown) {
-  return Response.json({ ok: true, data, requestId: "safe-request" });
-}
-
-afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
-});
-
-describe("PracticeSession", () => {
-  test("shows grounded material while withholding a complete answer before submit", () => {
-    render(<PracticeSession material={material} savedReturnTarget={null} />);
-    const main = screen.getByRole("main");
-    expect(screen.getAllByRole("main")).toHaveLength(1);
-    expect(main).toContainElement(screen.getByRole("heading", { name: "太离谱了" }));
-    expect(screen.getByRole("heading", { name: "太离谱了" })).toBeInTheDocument();
-    expect(screen.getByText("That is outrageous.")).toBeInTheDocument();
-    expect(screen.getByText(/current mastery: tried/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Street Mandarin: prices.*1:02/i })).toHaveAttribute("href", material.source.youtubeUrl);
-    expect(screen.getByText(material.task.promptChinese)).toBeInTheDocument();
-    expect(screen.getByText(material.task.instructionsEnglish)).toBeInTheDocument();
-    expect(screen.getByText(material.task.goalEnglish)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show original evidence" })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByLabelText("Your Chinese response")).toHaveValue("");
-    expect(document.body).not.toHaveTextContent(/model answer|example response/i);
-  });
-
-  test("reveals existing hint metadata without fetching and submits the hint assistance level", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => apiResponse(attemptResponse({
-      evaluation: { ...evaluation, independentUse: false, assistanceLevel: "hint" },
-    })));
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<PracticeSession material={material} savedReturnTarget={null} />);
-
-    await user.click(screen.getByRole("button", { name: "Need a hint?" }));
-    expect(screen.getByText(material.expression.englishExplanation)).toBeInTheDocument();
-    expect(screen.getByText(/surprised and critical/i)).toBeInTheDocument();
-    expect(screen.getByText(/reacting to an unreasonable situation/i)).toBeInTheDocument();
-    expect(screen.getByText(/informal spoken Mandarin/i)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    await user.type(screen.getByLabelText("Your Chinese response"), "这个价格太离谱了。");
-    await user.click(screen.getByRole("button", { name: "Check my response" }));
-    await screen.findByRole("heading", { name: "Feedback" });
-    expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toMatchObject({ assistanceLevel: "hint" });
-  });
-
-  test("prevents duplicate submission while the configured model is working", async () => {
-    let resolveRequest!: (value: Response) => void;
-    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { resolveRequest = resolve; }));
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<PracticeSession material={material} savedReturnTarget={null} />);
-
-    await user.type(screen.getByLabelText("Your Chinese response"), "这个价格太离谱了。");
-    await user.click(screen.getByRole("button", { name: "Check my response" }));
-    const checking = screen.getByRole("button", { name: "Checking your Chinese…" });
-    expect(checking).toBeDisabled();
-    await user.click(checking);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    resolveRequest(apiResponse(attemptResponse()));
-    expect(await screen.findByRole("heading", { name: "Feedback" })).toBeInTheDocument();
-  });
-
-  test("retains learner Chinese on recoverable error", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: false }, { status: 503 })));
-    const user = userEvent.setup();
-    render(<PracticeSession material={material} savedReturnTarget={null} />);
-    const response = screen.getByLabelText("Your Chinese response");
-    await user.type(response, "这个价格也太离谱了！");
-    await user.click(screen.getByRole("button", { name: "Check my response" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/response is still here/i);
-    expect(response).toHaveValue("这个价格也太离谱了！");
-  });
-
-  test("adds a calm explanation after eight seconds without cancelling the request", async () => {
-    vi.useFakeTimers();
-    const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<PracticeSession material={material} savedReturnTarget={null} />);
-    fireEvent.change(screen.getByLabelText("Your Chinese response"), { target: { value: "这个价格太离谱了。" } });
-    fireEvent.click(screen.getByRole("button", { name: "Check my response" }));
-
-    expect(screen.getByRole("status")).toHaveTextContent("Checking your Chinese…");
-    expect(screen.queryByText(/configured model is still working/i)).not.toBeInTheDocument();
-    await act(async () => { vi.advanceTimersByTime(8_000); });
-    expect(screen.getByText(/configured model is still working/i)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("never claims Vault evidence for a hint-assisted original", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => apiResponse(attemptResponse({
-      evaluation: { ...evaluation, independentUse: false, assistanceLevel: "hint" },
-    }))));
-    const user = userEvent.setup();
-    render(<PracticeSession material={material} savedReturnTarget={null} />);
-    await user.click(screen.getByRole("button", { name: "Need a hint?" }));
-    await user.type(screen.getByLabelText("Your Chinese response"), "这个价格也太离谱了。");
-    await user.click(screen.getByRole("button", { name: "Check my response" }));
-
-    expect(await screen.findByText(/not added to your Vault/i)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Open in Vault" })).not.toBeInTheDocument();
-  });
-
-  test("links a passing independent first attempt to its internal Vault destination", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => apiResponse(attemptResponse())));
-    const user = userEvent.setup();
-    render(<PracticeSession material={material} savedReturnTarget={null} />);
-
-    await user.type(screen.getByLabelText("Your Chinese response"), "这个价格也太离谱了。");
-    await user.click(screen.getByRole("button", { name: "Check my response" }));
-
-    expect(await screen.findByText(/added to your Vault as learning evidence/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open in Vault" })).toHaveAttribute("href", "/vault");
-  });
-
-  test("preserves a non-passing response and submits one real revision request", async () => {
-    const nonPass = attemptResponse({
-      evaluation: {
-        ...evaluation,
-        passed: false,
-        accuracy: { score: 2, englishFeedback: "The meaning is only partly clear." },
-        naturalness: { score: 4, englishFeedback: "The response sounds natural." },
-        contextualFit: { score: 1, englishFeedback: "The response does not fit the situation." },
-        independentUse: false,
-      },
-    });
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(apiResponse(nonPass))
-      .mockResolvedValueOnce(apiResponse(attemptResponse()));
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<PracticeSession material={material} savedReturnTarget={null} />);
-
-    const response = screen.getByLabelText("Your Chinese response");
-    await user.type(response, "第一版回应。");
-    await user.click(screen.getByRole("button", { name: "Check my response" }));
-
-    expect(await screen.findByRole("heading", { name: "Keep practising - 2 areas need work" })).toBeInTheDocument();
-    expect(response).toHaveValue("第一版回应。");
-    await user.click(screen.getByRole("button", { name: "Revise and check again" }));
-    await user.clear(response);
-    await user.type(response, "这个价格也太离谱了。");
-    await user.click(screen.getByRole("button", { name: "Check revised response" }));
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/practice/attempts");
-    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/practice/attempts/44444444-4444-4444-8444-444444444444/revisions");
-  });
+const taskId="11111111-1111-4111-8111-111111111111", attemptId="44444444-4444-4444-8444-444444444444", expressionId="33333333-3333-4333-8333-333333333333";
+const evaluated: EvaluationResult={passed:false,independentUse:false,assistanceLevel:"none",accuracy:{score:4,englishFeedback:"The meaning is accurate."},naturalness:{score:2,englishFeedback:"Use a natural word order."},contextualFit:{score:4,englishFeedback:"The intention fits."}};
+const open:PracticeRoundState={roundNumber:1,status:"open",firstAnswer:null,latestRevision:null,examplesOpened:false,promotion:null,retryDueAt:null};
+const failed:PracticeRoundState={...open,status:"retry_scheduled",firstAnswer:{attemptId,revision:1,text:"这个价格太离谱了。",evaluation:evaluated,naturalVersion:"这个价格也太离谱了吧。"},retryDueAt:"2026-11-02T08:00:00.000Z"};
+const material:PracticeMaterialView={task:{id:taskId,userExpressionId:expressionId,kind:"use_it_now",nativeLanguage:"en",targetLanguage:"zh-CN",targetExpression:"太离谱了",promptChinese:"朋友说咖啡卖一百元。你怎么想？",instructionsEnglish:"Complain to your friend about the price.",goalEnglish:"Use the intention naturally.",dueAt:null,createdAt:"2026-11-01T08:00:00.000Z",situation:{situationZh:"朋友说咖啡卖一百元。你怎么想？",situationEn:"Your friend says coffee costs one hundred yuan. What do you think?",interlocutor:"朋友",taskEn:"Complain to your friend about the price.",targetFunction:"complain",targetSetting:"casual_chat"}},masteryState:null,roundState:open,source:{videoTitle:"Street Mandarin",youtubeUrl:"https://www.youtube.com/watch?v=abcdefghijk&t=62s",evidenceText:"这个房价也太离谱了吧。",startSeconds:62},expression:{englishMeaning:"That is outrageous.",englishExplanation:"Express dissatisfaction.",tone:"Casual",communicativeFunction:"Complain",register:"Informal"},learningCard:{meaningHere:"That is outrageous.",useItWhen:"A price is unreasonable.",comparedWith:"Stronger than expensive.",howItFits:"Use it after the price.",toneAndWho:"Casual, with friends.",watchOut:"Avoid formal reports.",examples:[{zh:"这个价格太离谱了。",en:"This price is outrageous."},{zh:"这要求太离谱了。",en:"This request is outrageous."}],functionCategories:["complain"],usageSettings:["casual_chat"],suitability:"expression",notExpressionReasonEn:null}};
+const ok=(data:unknown)=>Response.json({ok:true,data,requestId:"test"});
+function result(roundState:PracticeRoundState){const a=(roundState.latestRevision??roundState.firstAnswer)!;return{attempt:{id:a.attemptId,userId:"22222222-2222-4222-8222-222222222222",practiceTaskId:taskId,userExpressionId:expressionId,responseChinese:a.text,evaluation:a.evaluation,submittedAt:"2026-11-01T08:00:00.000Z",createdAt:"2026-11-01T08:00:00.000Z"},coaching:null,roundState};}
+beforeEach(()=>{push.mockReset();localStorage.clear();});
+afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals();vi.restoreAllMocks();});
+function answer(text="这个价格太离谱了。"){fireEvent.change(screen.getByLabelText("Your answer in Chinese"),{target:{value:text}});fireEvent.click(screen.getByRole("button",{name:"Check my answer"}));}
+describe("first practice group 2",()=>{
+ test("round and bilingual context with source, no evidence bypass",async()=>{render(<PracticeSession material={material} savedReturnTarget={null}/>);await act(async()=>{});expect(screen.getByText("New · Not in your Vault yet")).toBeInTheDocument();expect(screen.getByText("You're talking to: 朋友 · Casual chat")).toBeInTheDocument();expect(screen.queryByText(material.source.evidenceText)).not.toBeInTheDocument();expect(screen.queryByText(/current mastery/i)).not.toBeInTheDocument();fireEvent.click(screen.getByRole("button",{name:"EN"}));expect(screen.getByText(material.task.situation!.situationEn)).toBeInTheDocument();expect(screen.getByRole("link",{name:/Back to Saved/})).toHaveAttribute("href","/saved");});
+ test("About is free; examples await persistence and block submission",async()=>{let resolve!:(r:Response)=>void;const fetcher=vi.fn<typeof fetch>(()=>new Promise<Response>(r=>{resolve=r;}));vi.stubGlobal("fetch",fetcher);render(<PracticeSession material={material} savedReturnTarget={null}/>);await act(async()=>{});fireEvent.click(screen.getByRole("button",{name:"About this expression"}));expect(screen.getByText("Use it after the price.")).toBeInTheDocument();expect(fetcher).not.toHaveBeenCalled();fireEvent.click(screen.getByRole("button",{name:"Show examples"}));expect(screen.getByRole("button",{name:"Check my answer"})).toBeDisabled();expect(screen.queryByText(material.source.evidenceText)).not.toBeInTheDocument();await act(async()=>{resolve(ok({examplesOpened:true}));});expect(screen.getByText(material.source.evidenceText)).toBeInTheDocument();expect(fetcher.mock.calls[0]![0]).toContain("/examples-opened");});
+ test("failed examples recording stays hidden",async()=>{vi.stubGlobal("fetch",vi.fn<typeof fetch>(async()=>Response.json({ok:false},{status:503})));render(<PracticeSession material={material} savedReturnTarget={null}/>);await act(async()=>{});fireEvent.click(screen.getByRole("button",{name:"Show examples"}));await screen.findByRole("alert");expect(screen.queryByText(material.source.evidenceText)).not.toBeInTheDocument();expect(screen.getByRole("button",{name:"Show examples"})).toBeEnabled();});
+ test("English blocked, missing expression nonblocking, no client assistance",async()=>{const fetcher=vi.fn<typeof fetch>(async()=>ok(result(failed)));vi.stubGlobal("fetch",fetcher);render(<PracticeSession material={material} savedReturnTarget={null}/>);await act(async()=>{});answer("Too expensive");expect(fetcher).not.toHaveBeenCalled();expect(screen.getByRole("alert")).toHaveTextContent("Write your answer in Chinese.");fireEvent.change(screen.getByLabelText("Your answer in Chinese"),{target:{value:"这个价格太贵了。"}});expect(screen.getByText("Your answer doesn't include 太离谱了 yet.")).toBeInTheDocument();fireEvent.click(screen.getByRole("button",{name:"Check my answer"}));await screen.findByText(/Naturalness needs work/);expect(JSON.parse(String(fetcher.mock.calls[0]![1]!.body))).toEqual({taskId,responseChinese:"这个价格太贵了。"});});
+ test("draft restoration, 500ms writes and success clear",async()=>{vi.useFakeTimers();localStorage.setItem(`popcorn:answer:${taskId}`,"这个价格太离谱了。");vi.stubGlobal("fetch",vi.fn<typeof fetch>(async()=>ok(result(failed))));render(<PracticeSession material={material} savedReturnTarget={null}/>);await act(async()=>{});await act(async()=>{});expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这个价格太离谱了。");expect(screen.getByText("Restored your unsent answer.")).toBeInTheDocument();fireEvent.change(screen.getByLabelText("Your answer in Chinese"),{target:{value:"这咖啡太离谱了。"}});await act(async()=>{vi.advanceTimersByTime(499);});expect(localStorage.getItem(`popcorn:answer:${taskId}`)).toBe("这个价格太离谱了。");await act(async()=>{vi.advanceTimersByTime(1);});expect(localStorage.getItem(`popcorn:answer:${taskId}`)).toBe("这咖啡太离谱了。");await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Check my answer"}));});expect(localStorage.getItem(`popcorn:answer:${taskId}`)).toBeNull();});
+ test("blocked storage still allows answering",async()=>{vi.spyOn(Storage.prototype,"getItem").mockImplementation(()=>{throw Error("blocked");});vi.spyOn(Storage.prototype,"setItem").mockImplementation(()=>{throw Error("blocked");});vi.stubGlobal("fetch",vi.fn<typeof fetch>(async()=>ok(result(failed))));render(<PracticeSession material={material} savedReturnTarget={null}/>);await act(async()=>{});answer();expect(await screen.findByText(/Naturalness needs work/)).toBeInTheDocument();});
+ test("refresh restores feedback; natural diff initially hidden",async()=>{render(<PracticeSession material={{...material,roundState:failed}} savedReturnTarget={null}/>);await act(async()=>{});expect(screen.getByText("Not in your Vault yet — Naturalness needs work.")).toBeInTheDocument();expect(screen.queryByRole("button",{name:"Check my answer"})).not.toBeInTheDocument();expect(screen.queryByText("A natural version")).not.toBeInTheDocument();fireEvent.click(screen.getByRole("button",{name:"Show a natural version"}));expect(screen.getByText("A natural version")).toBeInTheDocument();expect(document.querySelectorAll("mark").length).toBeGreaterThan(0);});
+ test("409 first-answer conflict renders authoritative feedback",async()=>{vi.stubGlobal("fetch",vi.fn<typeof fetch>(async()=>Response.json({ok:false,requestId:"x",error:{code:"FIRST_ANSWER_EXISTS",message:"Already answered",retryable:false,details:{roundState:failed}}},{status:409})));render(<PracticeSession material={material} savedReturnTarget={null}/>);await act(async()=>{});answer();expect(await screen.findByText("You already answered this round. Here's your feedback.")).toBeInTheDocument();expect(screen.getByText(/Naturalness needs work/)).toBeInTheDocument();});
+ test("revision retains first feedback and score changes without promotion",async()=>{const revised:PracticeRoundState={...failed,latestRevision:{...failed.firstAnswer!,attemptId:"55555555-5555-4555-8555-555555555555",revision:2,text:"这个价格也太离谱了吧。",evaluation:{...evaluated,passed:true,independentUse:true,naturalness:{score:4,englishFeedback:"Natural now."}},naturalVersion:null}};const fetcher=vi.fn<typeof fetch>(async()=>ok(result(revised)));vi.stubGlobal("fetch",fetcher);render(<PracticeSession material={{...material,roundState:failed}} savedReturnTarget={null}/>);await act(async()=>{});fireEvent.click(screen.getByRole("button",{name:"Revise this answer"}));expect(screen.getByText("Your first answer")).toBeInTheDocument();fireEvent.change(screen.getByLabelText("Your answer in Chinese"),{target:{value:revised.latestRevision!.text}});fireEvent.click(screen.getByRole("button",{name:"Check my revision"}));expect(await screen.findByText(/Nice fix. To add it/)).toBeInTheDocument();expect(screen.getByText("Naturalness 2 → 4")).toBeInTheDocument();expect(screen.queryByRole("button",{name:"Revise this answer"})).not.toBeInTheDocument();expect(screen.queryByRole("link",{name:"Open in Vault"})).not.toBeInTheDocument();expect(fetcher.mock.calls[0]![0]).toContain(`/attempts/${attemptId}/revisions`);});
+ test("all-five has no revision or natural version",async()=>{const full={...evaluated,passed:true,independentUse:true,accuracy:{...evaluated.accuracy,score:5},naturalness:{...evaluated.naturalness,score:5},contextualFit:{...evaluated.contextualFit,score:5}};const promoted:PracticeRoundState={...failed,status:"promoted",firstAnswer:{...failed.firstAnswer!,evaluation:full},promotion:{userExpressionId:expressionId,nextDueAt:failed.retryDueAt!}};render(<PracticeSession material={{...material,roundState:promoted}} savedReturnTarget={null}/>);await act(async()=>{});expect(screen.getByText("Nothing to fix.")).toBeInTheDocument();expect(screen.queryByText("New · Not in your Vault yet")).not.toBeInTheDocument();expect(screen.queryByRole("button",{name:/natural version|Revise/})).not.toBeInTheDocument();expect(screen.getByRole("link",{name:"Open in Vault"})).toHaveAttribute("href",`/vault/${expressionId}`);});
+ test("new-round transport retry keeps request id and source return",async()=>{const fetcher=vi.fn().mockRejectedValueOnce(Error("network")).mockResolvedValueOnce(ok({taskId:"66666666-6666-4666-8666-666666666666",roundNumber:2}));vi.stubGlobal("fetch",fetcher);render(<PracticeSession material={{...material,roundState:failed}} savedReturnTarget="/home"/>);await act(async()=>{});fireEvent.click(screen.getByRole("button",{name:"Try a new situation"}));expect(await screen.findByRole("alert")).toHaveTextContent("We couldn\'t prepare a situation.");fireEvent.click(screen.getByRole("button",{name:"Try a new situation"}));await waitFor(()=>expect(push).toHaveBeenCalled());expect(JSON.parse(fetcher.mock.calls[0]![1].body).requestId).toBe(JSON.parse(fetcher.mock.calls[1]![1].body).requestId);expect(push.mock.calls[0]![0]).toContain("returnTo=%2Fhome");});
+ test("remove undo and five-second expiry",async()=>{vi.useFakeTimers();vi.setSystemTime(new Date("2026-11-01T08:00:00Z"));const removed={...failed,status:"removed"};const fetcher=vi.fn().mockResolvedValueOnce(ok({roundState:removed,undoUntil:"2026-11-01T08:00:05Z"})).mockResolvedValueOnce(ok({roundState:failed})).mockResolvedValueOnce(ok({roundState:removed,undoUntil:"2026-11-01T08:00:05Z"}));vi.stubGlobal("fetch",fetcher);render(<PracticeSession material={{...material,roundState:failed}} savedReturnTarget="/home"/>);await act(async()=>{});await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Remove from practice"}));});await act(async()=>{vi.advanceTimersByTime(4_000);});expect(push).not.toHaveBeenCalled();await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Undo"}));});expect(screen.getByRole("button",{name:"Try a new situation"})).toBeInTheDocument();await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Remove from practice"}));});await act(async()=>{vi.advanceTimersByTime(1_000);});expect(push).toHaveBeenCalledWith("/home");});
+ test("unsent revision restores after refresh without losing first feedback",async()=>{localStorage.setItem(`popcorn:answer:${taskId}`,"这个价格也太离谱了吧。");render(<PracticeSession material={{...material,roundState:failed}} savedReturnTarget={null}/>);await act(async()=>{});await act(async()=>{});expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这个价格也太离谱了吧。");expect(screen.getByRole("button",{name:"Check my revision"})).toBeInTheDocument();expect(screen.getByText("Your first answer")).toBeInTheDocument();});
+ test("provider retry resubmits preserved answer",async()=>{const fetcher=vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ok:false,requestId:"x",error:{code:"PROVIDER_UNAVAILABLE",message:"Unavailable",retryable:true}},{status:503})).mockResolvedValueOnce(ok(result(failed)));vi.stubGlobal("fetch",fetcher);render(<PracticeSession material={material} savedReturnTarget={null}/>);await act(async()=>{});answer();expect(await screen.findByRole("alert")).toHaveTextContent("The model didn't respond. Your answer is still here.");expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这个价格太离谱了。");fireEvent.click(screen.getByRole("button",{name:"Try again"}));await screen.findByText(/Naturalness needs work/);expect(fetcher).toHaveBeenCalledTimes(2);});
+ test("gateway failure after eight seconds keeps answer and offers settings",async()=>{vi.useFakeTimers();let resolve!:(r:Response)=>void;const fetcher=vi.fn<typeof fetch>(()=>new Promise<Response>(r=>{resolve=r;}));vi.stubGlobal("fetch",fetcher);render(<PracticeSession material={material} savedReturnTarget={null}/>);await act(async()=>{});answer();await act(async()=>{vi.advanceTimersByTime(8000);});expect(screen.getByText(/configured model is still working/)).toBeInTheDocument();expect(fetcher).toHaveBeenCalledTimes(1);await act(async()=>{resolve(Response.json({ok:false,requestId:"x",error:{code:"MODEL_GATEWAY_CONFIGURATION_REQUIRED",message:"Connect",retryable:false}},{status:409}));});expect(screen.getByRole("alert")).toHaveTextContent("Connect a model to continue.");expect(screen.getByRole("link",{name:"Set up model gateway"})).toHaveAttribute("href","/settings/model-gateway");expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这个价格太离谱了。");});
+ test("session injection owns Next without implementing a queue",async()=>{const onNext=vi.fn();render(<PracticeSession material={{...material,roundState:failed}} savedReturnTarget="/practice?session=active" mode="session" onNext={onNext}/>);await act(async()=>{});fireEvent.click(screen.getByRole("button",{name:"Next"}));expect(onNext).toHaveBeenCalledOnce();expect(screen.queryByRole("button",{name:"Stop for now"})).not.toBeInTheDocument();});
+ test("refresh restores examples and assisted pass without a Vault claim",async()=>{const assisted:PracticeRoundState={...failed,examplesOpened:true,firstAnswer:{...failed.firstAnswer!,evaluation:{...evaluated,passed:true,independentUse:false,assistanceLevel:"model_answer",naturalness:{score:4,englishFeedback:"Natural with help."}}}};const fetcher=vi.fn<typeof fetch>();vi.stubGlobal("fetch",fetcher);render(<PracticeSession material={{...material,roundState:assisted}} savedReturnTarget={null}/>);await act(async()=>{});expect(screen.getByText(material.source.evidenceText)).toBeInTheDocument();expect(screen.getByText("You got it with an example. Now try a new situation on your own.")).toBeInTheDocument();expect(screen.queryByRole("link",{name:"Open in Vault"})).not.toBeInTheDocument();expect(fetcher).not.toHaveBeenCalled();});
+ test("already-promoted conflict opens the exact Vault detail",async()=>{vi.stubGlobal("fetch",vi.fn<typeof fetch>(async()=>Response.json({ok:false,requestId:"x",error:{code:"ALREADY_PROMOTED",message:"Already promoted",retryable:false,details:{userExpressionId:expressionId}}},{status:409})));render(<PracticeSession material={{...material,roundState:failed}} savedReturnTarget={null}/>);await act(async()=>{});fireEvent.click(screen.getByRole("button",{name:"Try a new situation"}));await waitFor(()=>expect(push).toHaveBeenCalledWith(`/vault/${expressionId}`));});
 });

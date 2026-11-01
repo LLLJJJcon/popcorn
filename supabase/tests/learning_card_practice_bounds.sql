@@ -66,7 +66,7 @@ begin
           'functionCategories',jsonb_build_array('describe'),'usageSettings',jsonb_build_array('casual_chat'),'suitability','expression'))),
         'analyze-saved-item-v3','fixture/bounds',repeat(md5(artifact_id::text),2));
     insert into public.practice_drafts(id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,created_at,updated_at)
-      values (draft_id,owner_id,source_id,save_id,artifact_id,0,future_id,'en','zh-CN',target_text,'朋友请你描述一下。','Respond naturally.','Use the target expression.','active',submitted_at,submitted_at);
+      values (draft_id,owner_id,source_id,save_id,artifact_id,0,future_id,'en','zh-CN',target_text,'朋友请你描述一下。','Respond naturally.','Use the target expression.','open',submitted_at,submitted_at);
     insert into public.practice_draft_attempts(id,user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at,created_at)
       values (staged_attempt_id,owner_id,draft_id,future_id,1,response_text,true,5,'Accurate.',5,'Natural.',5,'Fits.',true,'none',submitted_at,submitted_at);
     select * into receipt from public.promote_valid_practice_draft_attempt(owner_id,staged_attempt_id,target_text,submitted_at + interval '1 day',1);

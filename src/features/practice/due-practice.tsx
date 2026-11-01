@@ -9,9 +9,10 @@ import { MasteryStateSchema } from "@/contracts/memory";
 import {
   EvaluationResultSchema,
   PracticeCoachingSchema,
-  type AssistanceLevel,
 } from "@/contracts/practice";
 import { EnglishTextSchema, TargetChineseTextSchema } from "@/contracts/source";
+import { openPracticeExamples } from "@/features/practice/api";
+import { formatPracticeDate } from "@/features/practice/practice-controls";
 import { EvaluationPanel } from "@/features/practice/evaluation-panel";
 import { PracticeMaterialViewSchema, type PracticeMaterialView } from "@/features/practice/material-schema";
 import { PracticeMaterial } from "@/features/practice/practice-material";
@@ -83,7 +84,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
   const [material, setMaterial] = useState<PracticeMaterialView | null>(null);
   const [responseChinese, setResponseChinese] = useState("");
-  const [assistanceLevel, setAssistanceLevel] = useState<AssistanceLevel>("none");
+  const [examplesPending, setExamplesPending] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [slow, setSlow] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -119,7 +120,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
     setLocalComparisonUsed(false);
     setComparedLocally(false);
     setResponseChinese("");
-    setAssistanceLevel("none");
+    setExamplesPending(false);
     try {
       const transfer = await responseData(await fetch(
         `/api/v1/practice/due/${encodeURIComponent(reviewTaskId)}`,
@@ -150,7 +151,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
       setFeedbackVisible(true);
       return;
     }
-    if (!activeReviewId || inFlight.current || completion) return;
+    if (!activeReviewId || inFlight.current || examplesPending || completion) return;
     inFlight.current = true;
     setSubmitting(true);
     setSlow(false);
@@ -165,7 +166,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
           credentials: "same-origin",
           cache: "no-store",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ responseChinese, assistanceLevel }),
+          body: JSON.stringify({ responseChinese }),
         },
       ), DueCompletionSuccessSchema);
       if (result.reviewTaskId !== activeReviewId || result.practiceTaskId !== material?.task.id) {
@@ -269,7 +270,8 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
     <PracticeMaterial
       key={material.task.id}
       material={material}
-      onHintUsed={() => setAssistanceLevel("hint")}
+      onExamplesPendingChange={setExamplesPending}
+      onExamplesOpen={async () => { if (!activeReviewId) throw new Error("No active review"); await openPracticeExamples(activeReviewId, true); }}
       sessionStatus={`${Math.max(0, queue.length - (completion ? 0 : 1))} left in this session`}
     >
       <form className={styles.responseForm} onSubmit={submit}>
@@ -282,7 +284,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
           ) : completion && !feedbackVisible ? (
             <button className={styles.primaryButton} type="button" onClick={() => void continueSession()}>Continue</button>
           ) : completion ? null : (
-            <button className={styles.primaryButton} type="submit" disabled={submitting}>
+            <button className={styles.primaryButton} type="submit" disabled={submitting || examplesPending}>
               {submitting ? "Checking your Chinese…" : "Check my response"}
             </button>
           )}
@@ -316,6 +318,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
       {completion && feedbackVisible ? (
         <EvaluationPanel
           evaluation={completion.evaluation}
+          resultLine={!completion.evaluation.passed ? "Keep going — we'll bring this back tomorrow." : !completion.evaluation.independentUse ? "You got it with an example. We'll check again tomorrow — on your own." : `Nice — ${completion.priorState !== completion.newState ? `${completion.priorState} → ${completion.newState}` : `still ${completion.newState}`}. Next practice ${formatPracticeDate(completion.nextDueAt)}`}
           coaching={comparedLocally ? null : completion.coaching}
           evidenceMessage={completion.evaluation.passed && completion.evaluation.independentUse
             ? "This independent attempt was added to your Vault as learning evidence."

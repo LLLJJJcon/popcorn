@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 
 import { CandidateExpressionListSchema, HighlightAnalysisStateSchema, type HighlightAnalysisState, type CandidateExpression } from "@/contracts/knowledge";
-import { PracticeTaskSchema } from "@/contracts/practice";
+import { postPractice, PracticeRequestError } from "@/features/practice/api";
+import { PracticeActivationResponseSchema } from "@/contracts/practice";
 import { apiSuccessSchema } from "@/contracts/api";
 import { CandidateExpressionCard } from "./candidate-expression";
 import { HighlightEditor } from "./highlight-editor";
@@ -111,6 +112,8 @@ export function CandidateList({
   const [highlightSource, setHighlightSource] = useState({ values: item?.highlights, status: item?.highlightStatus });
   const [highlightStates, setHighlightStates] = useState<readonly HighlightAnalysisState[]>(analysis.state === "ready" ? analysis.artifact.highlightStates ?? [] : []);
   const [activationError, setActivationError] = useState(false);
+  const [activationGateway, setActivationGateway] = useState(false);
+  const lastActivationIndex = useRef<number | null>(null);
   const editingEnabled = Boolean(item?.status === "ready" && item.kind !== "video" && item.targetSegments?.length);
   if (item?.highlights !== highlightSource.values || item?.highlightStatus !== highlightSource.status) {
     setHighlightSource({ values: item?.highlights, status: item?.highlightStatus });
@@ -127,6 +130,7 @@ export function CandidateList({
   const processingStartedAt = useRef<number | null>(null);
   const jobId = useRef<string | null>(null);
   const requestInFlight = useRef(false);
+  const activationInFlight = useRef(false);
   const mounted = useRef(false);
   const artifact = recoveredArtifact ?? (analysis.state === "ready" ? analysis.artifact : null);
 
@@ -184,27 +188,20 @@ export function CandidateList({
   }
 
   async function activate(candidateIndex: number) {
-    if (!artifact || artifact.savedItemId !== savedItemId) return;
+    if (!artifact || artifact.savedItemId !== savedItemId || activationInFlight.current) return;
+    activationInFlight.current = true;
     setPendingIndex(candidateIndex);
     setActivationError(false);
     try {
-      const response = await fetch("/api/v1/practice/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          savedItemId,
-          candidateArtifactId: artifact.artifactId,
-          candidateIndex,
-        }),
-      });
-      const body = apiSuccessSchema(PracticeTaskSchema).safeParse(await response.json());
-      if (!response.ok || !body.success) throw new Error("activation failed");
+      lastActivationIndex.current = candidateIndex;
+      const activated = await postPractice("/api/v1/practice/tasks", { savedItemId, candidateArtifactId: artifact.artifactId, candidateIndex }, PracticeActivationResponseSchema);
       const returnTo = `/saved/${videoSourceId}#saved-item-${savedItemId}`;
-      router.push(`/practice/${body.data.data.id}?returnTo=${encodeURIComponent(returnTo)}`);
-    } catch {
+      router.push("redirect" in activated ? activated.redirect : `/practice/${activated.id}?returnTo=${encodeURIComponent(returnTo)}`);
+    } catch (caught) {
+      setActivationGateway(caught instanceof PracticeRequestError && caught.code === "MODEL_GATEWAY_CONFIGURATION_REQUIRED");
       setActivationError(true);
       setPendingIndex(null);
-    }
+    } finally { activationInFlight.current = false; }
   }
 
   function isCurrent(controller: AbortController) {
@@ -428,7 +425,7 @@ export function CandidateList({
         {recoveryState === "terminal" || recoveryState === "error" ? <p className={styles.editorError} role="alert">{recoveryState === "terminal" && failureCategory ? terminalFailureMessage(failureCategory) : "Analysis is taking longer than expected. Try again."}</p> : null}
         {artifact?.candidates.length ? <div className={styles.expressionGroup}><div className={styles.expressionGroupHeading}><h3>Learning cards</h3><span>{artifact.candidates.length} {artifact.candidates.length === 1 ? "expression" : "expressions"}</span></div><div className={styles.expressionGrid}>{artifact.candidates.map((candidate, index) => <CandidateExpressionCard key={`${candidate.highlightKey ?? candidate.expression}-${index}`} candidate={candidate} canonicalUrl={youtubeUrl} disabled={!hydrationReady || pendingIndex !== null} activating={pendingIndex === index} onUse={() => void activate(index)} />)}</div></div> : null}
         {highlightStates.filter(state => state.status === "failed" && highlights.some(highlight => highlight.id === state.highlightId)).map(state => <div className={styles.failedHighlight} key={state.highlightId}><div><strong lang="zh-CN">{state.text}</strong><p>Couldn&apos;t analyze this one</p></div><button className={styles.inlineAction} type="button" disabled={pending} onClick={() => void requestAnalysis(true, state.highlightId)}>Try again</button></div>)}
-        {activationError ? <p className={styles.editorError} role="alert">Couldn&apos;t open practice. Please try again.</p> : null}
+        {activationError ? <p className={styles.editorError} role="alert">{activationGateway ? <>Connect a model to continue. <Link href="/settings/model-gateway">Set up model gateway</Link></> : <>We couldn&apos;t prepare a situation. <button type="button" className={styles.inlineAction} disabled={pendingIndex !== null} onClick={() => { if (lastActivationIndex.current !== null) void activate(lastActivationIndex.current); }}>Try again</button></>}</p> : null}
       </section>
     );
   }
@@ -506,7 +503,7 @@ export function CandidateList({
         <h3>Learning cards</h3>
         <span>{artifact!.candidates.length} {artifact!.candidates.length === 1 ? "expression" : "expressions"}</span>
       </div>
-      {activationError ? <p className={styles.editorError} role="alert">Couldn&apos;t open practice. Please try again.</p> : null}
+      {activationError ? <p className={styles.editorError} role="alert">{activationGateway ? <>Connect a model to continue. <Link href="/settings/model-gateway">Set up model gateway</Link></> : <>We couldn&apos;t prepare a situation. <button type="button" className={styles.inlineAction} disabled={pendingIndex !== null} onClick={() => { if (lastActivationIndex.current !== null) void activate(lastActivationIndex.current); }}>Try again</button></>}</p> : null}
       <div className={styles.expressionGrid}>
         {artifact!.candidates.map((candidate, index) => (
           <CandidateExpressionCard

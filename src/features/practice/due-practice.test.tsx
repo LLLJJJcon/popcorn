@@ -109,7 +109,7 @@ describe("DuePractice", () => {
 
     await user.type(screen.getByLabelText("Your Chinese response"), "这真的太夸张了。");
     await user.click(screen.getByRole("button", { name: "Check my response" }));
-    expect(await screen.findByText("Practice recorded")).toBeInTheDocument();
+    expect(await screen.findByText(/^Nice —|^You got it with an example\.|^Keep going/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByRole("heading", { name: "第二" })).toBeInTheDocument();
     expect(screen.getByText("1 left in this session")).toBeInTheDocument();
@@ -156,7 +156,7 @@ describe("DuePractice", () => {
     expect(response).toHaveValue("这也太夸张了吧。");
 
     await user.click(screen.getByRole("button", { name: "Check my response" }));
-    expect(await screen.findByText("Practice recorded")).toBeInTheDocument();
+    expect(await screen.findByText(/^Nice —|^You got it with an example\.|^Keep going/)).toBeInTheDocument();
   });
 
   test("resets the hint disclosure and assistance before the next queued item", async () => {
@@ -165,11 +165,12 @@ describe("DuePractice", () => {
       evaluation: {
         ...completion(ids.first).evaluation,
         independentUse: false,
-        assistanceLevel: "hint",
+        assistanceLevel: "model_answer",
       },
     };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一")))
+      .mockResolvedValueOnce(apiResponse({ examplesOpened: true }))
       .mockResolvedValueOnce(apiResponse(hinted, 201))
       .mockResolvedValueOnce(apiResponse(transfer(ids.second, "第二")))
       .mockResolvedValueOnce(apiResponse(completion(ids.second), 201));
@@ -179,21 +180,23 @@ describe("DuePractice", () => {
 
     await user.click(screen.getByRole("button", { name: "Start practice" }));
     await screen.findByRole("heading", { name: "第一" });
-    await user.click(screen.getByRole("button", { name: "Need a hint?" }));
+    await user.click(screen.getByRole("button", { name: "About this expression" }));
     expect(screen.getByText("Use it as a conversational reaction.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Show examples" }));
     await user.type(screen.getByLabelText("Your Chinese response"), "第一种回应。");
     await user.click(screen.getByRole("button", { name: "Check my response" }));
     await user.click(await screen.findByRole("button", { name: "Continue" }));
 
     await screen.findByRole("heading", { name: "第二" });
-    expect(screen.getByRole("button", { name: "Need a hint?" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "About this expression" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("Use it as a conversational reaction.")).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("Your Chinese response"), "第二种回应。");
     await user.click(screen.getByRole("button", { name: "Check my response" }));
-    await screen.findByText("Practice recorded");
+    await screen.findByText(/^Nice —|^You got it with an example\.|^Keep going/);
 
-    expect(JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))).toMatchObject({ assistanceLevel: "hint" });
-    expect(JSON.parse(String((fetchMock.mock.calls[3]?.[1] as RequestInit).body))).toMatchObject({ assistanceLevel: "none" });
+    expect(fetchMock.mock.calls[1]?.[0]).toContain("/examples-opened");
+    expect(JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit).body))).not.toHaveProperty("assistanceLevel");
+    expect(JSON.parse(String((fetchMock.mock.calls[4]?.[1] as RequestInit).body))).not.toHaveProperty("assistanceLevel");
   });
 
   test("compares one local rewrite with the recorded feedback without another due POST", async () => {
@@ -249,9 +252,9 @@ describe("DuePractice", () => {
     await user.type(response, "这份回答需要修改。");
     await user.click(screen.getByRole("button", { name: "Check my response" }));
 
-    expect(await screen.findByRole("heading", { name: "Keep practising - 2 areas need work" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Feedback" })).toBeInTheDocument();
     expect(response).toHaveValue("这份回答需要修改。");
-    expect(screen.getByText(/not added to your Vault/i)).toBeInTheDocument();
+    expect(screen.getByText("Keep going — we\'ll bring this back tomorrow.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Compare with suggested revision" })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -304,7 +307,7 @@ describe("DuePractice", () => {
       expect(await screen.findByRole("heading", { name: expression })).toBeInTheDocument();
       await user.type(screen.getByLabelText("Your Chinese response"), `${expression}次回答。`);
       await user.click(screen.getByRole("button", { name: "Check my response" }));
-      await screen.findByText("Practice recorded");
+      await screen.findByText(/^Nice —|^You got it with an example\.|^Keep going/);
       if (position < 2) await user.click(screen.getByRole("button", { name: "Continue" }));
     }
     await user.click(screen.getAllByRole("button", { name: "Stop for now" }).at(-1)!);

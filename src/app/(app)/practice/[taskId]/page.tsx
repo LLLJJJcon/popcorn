@@ -2,13 +2,12 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
+import { resolvePracticeReturnTarget } from "@/features/practice/return-target";
 import { PracticeSession } from "@/features/practice/practice-session";
 import { createNextCookieAdapter, createWebSessionAuthenticator } from "@/server/auth/web-session";
 import { getModelGatewaySettingsEnv } from "@/server/env";
 import { createPracticeMaterialRepository } from "@/server/repositories/practice-material-repository";
 import type { Database } from "@/types/database.generated";
-
-const savedReturnTargetPattern = /^\/saved\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}#saved-item-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default async function PracticeTaskPage({
   params,
@@ -37,9 +36,6 @@ export default async function PracticeTaskPage({
   );
   if (!material) notFound();
   const requestedReturnTarget = (await searchParams).returnTo;
-  const savedReturnTarget = typeof requestedReturnTarget === "string"
-    && savedReturnTargetPattern.test(requestedReturnTarget)
-    ? requestedReturnTarget
-    : null;
-  return <PracticeSession material={material} savedReturnTarget={savedReturnTarget} />;
+  const savedReturnTarget = resolvePracticeReturnTarget(requestedReturnTarget).href;
+  return <PracticeSession key={material.task.id} material={material} savedReturnTarget={savedReturnTarget} />;
 }

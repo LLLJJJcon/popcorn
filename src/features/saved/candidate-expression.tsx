@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { CandidateExpression } from "@/contracts/knowledge";
 import styles from "./saved-workspace.module.css";
 
@@ -19,6 +20,13 @@ function youtubeTimeUrl(canonicalUrl: string, seconds: number) {
 
 const functionLabels: Record<string, string> = { emphasize: "Emphasize", complain: "Complain", praise: "Praise", react: "React", explain_sum_up: "Explain · Sum up", concede_contrast: "Concede · Contrast", suggest: "Suggest", connect_ideas: "Connect ideas", describe: "Describe", other: "Other" };
 const settingLabels: Record<string, string> = { casual_chat: "Casual chat", daily_errands: "Daily errands", work_school: "Work & school", formal_writing: "Formal writing & speeches", online_social: "Online posts" };
+
+function CandidatePracticeAction({candidate,disabled,activating,onUse}:{readonly candidate:CandidateExpression;readonly disabled:boolean;readonly activating:boolean;readonly onUse:()=>void}) {
+  const state=candidate.practiceState;
+  if(state?.status==="promoted") return <Link className={styles.practiceAction} href={`/vault/${state.userExpressionId}`}>In your Vault</Link>;
+  const label=state?.status==="practicing"?"Continue":state?.status==="removed"?"Practice":candidate.suitability==="not_expression"?"Practice anyway":"Practice this expression";
+  return <>{state?.status==="practicing"?<span className={styles.subtleMessage}>Practicing · Not in Vault yet</span>:state?.status==="removed"?<span className={styles.subtleMessage}>Removed from practice</span>:null}<button className={styles.practiceAction} type="button" disabled={disabled} onClick={onUse}>{activating?"Opening practice…":label}</button></>;
+}
 
 export function CandidateExpressionCard({
   candidate,
@@ -65,8 +73,7 @@ export function CandidateExpressionCard({
         </details>
         {candidate.suitability === "not_expression" ? <p className={styles.suitabilityNotice}>{candidate.notExpressionReasonEn}</p> : null}
         <div className={styles.learningCardFooter}>
-          <span className={styles.subtleMessage}>Try it in a new situation.</span>
-          <button className={styles.practiceAction} type="button" disabled={disabled} onClick={onUse}>{activating ? "Opening practice…" : candidate.suitability === "not_expression" ? "Practice anyway" : "Practice this expression"}<span aria-hidden="true"> →</span></button>
+          <CandidatePracticeAction candidate={candidate} disabled={disabled} activating={activating} onUse={onUse} />
         </div>
       </article>
     );
@@ -91,9 +98,7 @@ export function CandidateExpressionCard({
         <a className={styles.watchAction} href={youtubeTimeUrl(canonicalUrl, candidate.startSeconds)}>
           Watch at {timestamp(candidate.startSeconds)} on YouTube
         </a>
-        <button className={styles.practiceAction} type="button" disabled={disabled} onClick={onUse}>
-          {activating ? "Opening practice…" : "Practice this expression"}
-        </button>
+        <CandidatePracticeAction candidate={candidate} disabled={disabled} activating={activating} onUse={onUse} />
       </div>
       <p className={styles.legacyNotice}>Analyzed with an older version</p>
     </article>

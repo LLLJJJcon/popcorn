@@ -15,16 +15,15 @@ import { TargetChineseTextSchema } from "@/contracts/source";
 import {
   EVALUATE_PRACTICE_PROMPT_VERSION,
   buildEvaluatePracticePrompt,
-  createEvaluationFixtureGateway,
   derivePracticeDecision,
   normalizePracticeEvaluationWire,
   parsePracticeEvaluationOutput,
   isReadableEvaluationPromptVersion,
 } from "@/server/ai/prompts/evaluate.v1";
 import {
-  createActivationFixtureGateway,
   isReadableActivationPromptVersion,
 } from "@/server/ai/prompts/activate.v1";
+import { createActivationFixtureGateway } from "@/server/ai/prompts/activate.v2";
 import { isReadableSavedAnalysisPromptVersion } from "@/server/ai/prompts/analyze-saved-item.v1";
 import {
   createStructuredJsonGatewayResolver,
@@ -33,7 +32,6 @@ import {
 } from "@/server/ai/structured-json-gateway";
 import {
   PracticeError,
-  createPracticeTaskService,
   practiceErrorFromUnknown,
   practiceErrorResponse,
   readPracticeMutation,
@@ -45,11 +43,11 @@ import {
 } from "@/server/domain/create-practice-task";
 import type { Database } from "@/types/database.generated";
 import { success } from "@/server/api/respond";
+import { createRoundPracticeServices } from "@/server/domain/round-practice-service";
+import { createEvaluationFixtureGateway as createNewEvaluationFixtureGateway } from "@/server/ai/prompts/evaluate.v2";
 import type { WebSessionResult } from "@/server/auth/web-session";
 import { createSupabaseModelGatewayRuntimeResolver } from "@/server/model-gateway/runtime-resolver";
 import {
-  createRecordValidAttemptService,
-  createSupabasePracticePromotionRepository,
   type PracticePromotionResult,
 } from "@/server/domain/record-valid-attempt";
 
@@ -317,7 +315,8 @@ export function createPracticeAttemptHttpHandlers(dependencies: {
     async original(request: Request): Promise<Response> {
       const { requestId, result } = await mutation(request);
       if (!result.ok) return result.response;
-      const input = OriginalAttemptInputSchema.safeParse(result.body);
+      const clean = typeof result.body === "object" && result.body !== null ? { ...result.body as Record<string,unknown>, assistanceLevel: "none" } : result.body;
+      const input = OriginalAttemptInputSchema.safeParse(clean);
       if (!input.success) return practiceErrorResponse(new PracticeError("VALIDATION_FAILED"), requestId);
       try {
         return Response.json(success(await dependencies.submitOriginal(result.userId, input.data), requestId), {
@@ -336,7 +335,8 @@ export function createPracticeAttemptHttpHandlers(dependencies: {
       const { requestId, result } = await mutation(request);
       if (!result.ok) return result.response;
       const attemptId = AttemptIdSchema.safeParse((await context.params).attemptId);
-      const input = RevisionInputSchema.safeParse(result.body);
+      const clean = typeof result.body === "object" && result.body !== null ? { ...result.body as Record<string,unknown>, assistanceLevel: "none" } : result.body;
+      const input = RevisionInputSchema.safeParse(clean);
       if (!attemptId.success || !input.success) {
         return practiceErrorResponse(new PracticeError("VALIDATION_FAILED"), requestId);
       }
@@ -600,28 +600,15 @@ export function createSupabasePracticeRepository(client: SupabaseClient<Database
 export function createPracticeServerServices(client: SupabaseClient<Database>, ci: boolean) {
   const repository = createSupabasePracticeRepository(client);
   const activationFixture = createActivationFixtureGateway();
-  const evaluationFixture = createEvaluationFixtureGateway();
+  const evaluationFixture = createNewEvaluationFixtureGateway();
   const resolver = (fixtureGateway: StructuredJsonGateway) => createStructuredJsonGatewayResolver({
     ci,
     fixture: fixtureGateway,
     createRuntimeResolver: () => createSupabaseModelGatewayRuntimeResolver(client),
   });
-  const common = { repository, ci, now: () => new Date().toISOString(), attemptId: randomUUID };
-  const promotion = createRecordValidAttemptService({
-    repository: createSupabasePracticePromotionRepository(client),
-  });
+  const rounds = createRoundPracticeServices({client,repository,ci,gatewayResolver:resolver(evaluationFixture),activationFixture,evaluationFixture,now:()=>new Date().toISOString(),uuid:randomUUID});
   return {
     repository,
-    taskService: createPracticeTaskService({
-      ...common,
-      fixtureGateway: activationFixture,
-      gatewayResolver: resolver(activationFixture),
-    }),
-    attemptService: createPracticeAttemptService({
-      ...common,
-      fixtureGateway: evaluationFixture,
-      gatewayResolver: resolver(evaluationFixture),
-      promoteValidAttempt: promotion.promote,
-    }),
+    ...rounds,
   };
 }

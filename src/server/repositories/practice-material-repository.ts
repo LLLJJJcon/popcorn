@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import { CandidateExpressionListSchema, HighlightAnalysisStateSchema } from "@/contracts/knowledge";
+import { CandidateExpressionListSchema, HighlightAnalysisStateSchema, LearningCardFieldsSchema } from "@/contracts/knowledge";
+import { PracticeSituationSchema } from "@/contracts/practice";
+import { createPracticeRoundStore } from "@/server/domain/practice-rounds";
 import { MasteryStateSchema } from "@/contracts/memory";
 import { CanonicalYouTubeUrlSchema } from "@/contracts/source";
 import {
@@ -31,7 +33,8 @@ const DraftRowSchema = z.strictObject({
   prompt_chinese: z.string(),
   instructions_english: z.string(),
   goal_english: z.string(),
-  status: z.enum(["active", "completed", "abandoned"]),
+  status: z.enum(["active", "completed", "abandoned", "open", "retry_scheduled", "promoted", "superseded", "removed"]),
+  situation_en:z.string().nullable().optional(),interlocutor:z.string().nullable().optional(),task_en:z.string().nullable().optional(),target_function:z.string().nullable().optional(),target_setting:z.string().nullable().optional(),
   activation_prompt_version: z.string().nullable(),
   activation_model: z.string().nullable(),
   activation_gateway_config_id: UuidSchema.nullable(),
@@ -77,6 +80,7 @@ const ReviewRowSchema = z.strictObject({
   mastery_state: MasteryStateSchema,
   status: z.enum(["pending", "completed", "cancelled"]),
   due_at: IsoDateTimeSchema,
+  examples_opened_at:IsoDateTimeSchema.nullable().optional(),
 });
 
 const TaskRowSchema = z.strictObject({
@@ -112,6 +116,7 @@ const SenseRowSchema = z.strictObject({
   tone: z.string(),
   communicative_function: z.string(),
   register: z.string(),
+  meaning_here:z.string().nullable().optional(),use_it_when:z.string().nullable().optional(),compared_with:z.string().nullable().optional(),how_it_fits:z.string().nullable().optional(),tone_and_who:z.string().nullable().optional(),watch_out:z.string().nullable().optional(),examples:z.unknown().optional(),function_categories:z.array(z.string()).optional(),usage_settings:z.array(z.string()).optional(),
 });
 
 const OccurrenceRowSchema = z.strictObject({
@@ -150,6 +155,7 @@ function youtubeTimeUrl(canonicalUrl: string, seconds: number): string {
 }
 
 function immediateTask(row: z.infer<typeof DraftRowSchema>): PracticeMaterialTask {
+  const structured=PracticeSituationSchema.safeParse({situationZh:row.prompt_chinese,situationEn:row.situation_en,interlocutor:row.interlocutor,taskEn:row.task_en,targetFunction:row.target_function,targetSetting:row.target_setting});
   return {
     id: row.id,
     userExpressionId: row.future_user_expression_id,
@@ -162,6 +168,7 @@ function immediateTask(row: z.infer<typeof DraftRowSchema>): PracticeMaterialTas
     goalEnglish: row.goal_english,
     dueAt: null,
     createdAt: row.created_at,
+    ...(structured.success?{situation:structured.data}:{}),
   };
 }
 
@@ -210,7 +217,7 @@ export function createPracticeMaterialRepository(
       const taskId = UuidSchema.safeParse(taskIdValue);
       if (!userId.success || !taskId.success) return null;
       const draft = DraftRowSchema.safeParse(await one(from("practice_drafts")
-        .select("id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,activation_prompt_version,activation_model,activation_gateway_config_id,activation_gateway_revision,activation_gateway_fingerprint,created_at")
+        .select("id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,future_user_expression_id,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,status,activation_prompt_version,activation_model,activation_gateway_config_id,activation_gateway_revision,activation_gateway_fingerprint,created_at,situation_en,interlocutor,task_en,target_function,target_setting")
         .eq("user_id", userId.data).eq("id", taskId.data)));
       if (
         !draft.success || !belongs(draft.data, userId.data) ||
@@ -259,9 +266,12 @@ export function createPracticeMaterialRepository(
         return null;
       }
 
+      const roundState=typeof client.rpc==="function"?await createPracticeRoundStore(client as never).state(userId.data,draft.data.id):null;
+      const card=LearningCardFieldsSchema.safeParse({meaningHere:candidate.meaningHere,useItWhen:candidate.useItWhen,comparedWith:candidate.comparedWith,howItFits:candidate.howItFits,toneAndWho:candidate.toneAndWho,watchOut:candidate.watchOut,examples:candidate.examples,functionCategories:candidate.functionCategories,usageSettings:candidate.usageSettings,suitability:candidate.suitability,notExpressionReasonEn:candidate.notExpressionReasonEn});
       return PracticeMaterialViewSchema.parse({
         task: immediateTask(draft.data),
-        masteryState: "tried",
+        masteryState: roundState?(roundState.promotion?"tried":null):"tried",
+        ...(roundState?{roundState}:{}),...(card.success?{learningCard:card.data}:{}),
         source: {
           videoTitle: snapshot.data.title,
           youtubeUrl: youtubeTimeUrl(source.data.canonical_url, candidate.startSeconds),
@@ -283,7 +293,7 @@ export function createPracticeMaterialRepository(
       const reviewTaskId = UuidSchema.safeParse(reviewTaskIdValue);
       if (!userId.success || !reviewTaskId.success) return null;
       const review = ReviewRowSchema.safeParse(await one(from("review_tasks")
-        .select("id,user_id,user_expression_id,mastery_state,status,due_at")
+        .select("id,user_id,user_expression_id,mastery_state,status,due_at,examples_opened_at")
         .eq("user_id", userId.data).eq("id", reviewTaskId.data)));
       if (
         !review.success || !belongs(review.data, userId.data) ||
@@ -305,7 +315,7 @@ export function createPracticeMaterialRepository(
         Date.parse(task.data.due_at) !== Date.parse(review.data.due_at)
       ) return null;
       const sense = SenseRowSchema.safeParse(await one(from("expression_senses")
-        .select("id,user_id,video_source_id,expression_text,english_meaning,english_explanation,tone,communicative_function,register")
+        .select("id,user_id,video_source_id,expression_text,english_meaning,english_explanation,tone,communicative_function,register,meaning_here,use_it_when,compared_with,how_it_fits,tone_and_who,watch_out,examples,function_categories,usage_settings")
         .eq("user_id", userId.data).eq("id", expression.data.expression_sense_id)));
       if (
         !sense.success || !belongs(sense.data, userId.data) ||
@@ -337,9 +347,11 @@ export function createPracticeMaterialRepository(
       ) {
         return null;
       }
+      const card=LearningCardFieldsSchema.safeParse({meaningHere:sense.data.meaning_here,useItWhen:sense.data.use_it_when,comparedWith:sense.data.compared_with,howItFits:sense.data.how_it_fits,toneAndWho:sense.data.tone_and_who,watchOut:sense.data.watch_out,examples:sense.data.examples,functionCategories:sense.data.function_categories,usageSettings:sense.data.usage_settings,suitability:"expression"});
       return PracticeMaterialViewSchema.parse({
         task: dueTask(task.data),
         masteryState: expression.data.mastery_state,
+        ...(card.success?{learningCard:card.data}:{}),...(review.data.examples_opened_at!==undefined?{examplesOpened:review.data.examples_opened_at!==null}:{}),
         source: {
           videoTitle: snapshot.data.title,
           youtubeUrl: youtubeTimeUrl(source.data.canonical_url, occurrence.data.start_seconds),

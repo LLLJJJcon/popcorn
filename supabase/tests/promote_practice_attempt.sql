@@ -13,6 +13,9 @@ select extensions.no_plan();
 \set artifact_a '0c500000-0000-4000-8000-000000000001'
 \set save_b '0c400000-0000-4000-8000-000000000002'
 \set artifact_b '0c500000-0000-4000-8000-000000000002'
+\set artifact_failed '0c500000-0000-4000-8000-000000000004'
+\set artifact_revision '0c500000-0000-4000-8000-000000000005'
+\set artifact_rollback '0c500000-0000-4000-8000-000000000006'
 \set artifact_bad '0c500000-0000-4000-8000-000000000003'
 \set origin_a '0c600000-0000-4000-8000-000000000001'
 \set config_a '0c700000-0000-4000-8000-000000000001'
@@ -114,6 +117,14 @@ insert into public.generated_artifacts (
   '2026-08-20 11:01:02+00'
 );
 
+-- Each independent promotion/rollback/revision test owns a separate server
+-- artifact identity. Actual receipt replay and cross-owner probes keep the
+-- original candidate/attempt; cross-round candidate fencing is tested separately.
+insert into public.generated_artifacts(id,user_id,video_source_id,saved_item_id,artifact_type,native_language,target_language,content,prompt_version,model,result_key,created_at)
+select copy_id,a.user_id,a.video_source_id,a.saved_item_id,a.artifact_type,a.native_language,a.target_language,a.content,a.prompt_version,a.model,repeat(md5(copy_id::text),2),a.created_at
+from public.generated_artifacts a cross join (values (:'artifact_failed'::uuid),(:'artifact_revision'::uuid),(:'artifact_rollback'::uuid)) as copies(copy_id)
+where a.id=:'artifact_a';
+
 insert into public.model_gateway_origins (
   id,slug,display_name,canonical_origin,base_path,adapter_kind,state
 ) values (
@@ -127,7 +138,7 @@ select extensions.throws_ok(
     future_user_expression_id,native_language,target_language,target_expression,
     prompt_chinese,instructions_english,goal_english,status
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),
-    'en','zh-CN','太离谱了','请自然回应。','Reply naturally.','Use it.','active')$sql$,
+    'en','zh-CN','太离谱了','请自然回应。','Reply naturally.','Use it.','open')$sql$,
     :'user_a',:'source_a',:'save_a',:'artifact_b'),
   '23503',null,'a draft cannot smuggle another owner source, save, or artifact into promotion'
 );
@@ -147,24 +158,24 @@ insert into public.practice_drafts (
 ) values
   (:'draft_valid',:'user_a',:'source_a',:'save_a',:'artifact_a',0,:'future_valid',
    'en','zh-CN','太离谱了','朋友告诉你一件很夸张的事。','Reply naturally in Mandarin.',
-   'Use the target expression.','active','activate-practice-v1','provider/model-v1',
+   'Use the target expression.','open','activate-practice-v1','provider/model-v1',
    :'config_a',1,(select config_fingerprint from public.user_model_gateway_configs where id=:'config_a'),
    '2026-08-20 11:03:00+00','2026-08-20 11:03:00+00'),
-  (:'draft_failed',:'user_a',:'source_a',:'save_a',:'artifact_a',0,:'future_failed',
+  (:'draft_failed',:'user_a',:'source_a',:'save_a',:'artifact_failed',0,:'future_failed',
    'en','zh-CN','太离谱了','朋友告诉你一件很夸张的事。','Reply naturally in Mandarin.',
-   'Use the target expression.','active',null,null,null,null,null,
+   'Use the target expression.','open',null,null,null,null,null,
    '2026-08-20 11:03:01+00','2026-08-20 11:03:01+00'),
-  (:'draft_revision',:'user_a',:'source_a',:'save_a',:'artifact_a',0,:'future_revision',
+  (:'draft_revision',:'user_a',:'source_a',:'save_a',:'artifact_revision',0,:'future_revision',
    'en','zh-CN','太离谱了','朋友告诉你一件很夸张的事。','Reply naturally in Mandarin.',
-   'Use the target expression.','active',null,null,null,null,null,
+   'Use the target expression.','open',null,null,null,null,null,
    '2026-08-20 11:03:02+00','2026-08-20 11:03:02+00'),
-  (:'draft_rollback',:'user_a',:'source_a',:'save_a',:'artifact_a',0,:'future_rollback',
+  (:'draft_rollback',:'user_a',:'source_a',:'save_a',:'artifact_rollback',0,:'future_rollback',
    'en','zh-CN','太离谱了','朋友告诉你一件很夸张的事。','Reply naturally in Mandarin.',
-   'Use the target expression.','active',null,null,null,null,null,
+   'Use the target expression.','open',null,null,null,null,null,
    '2026-08-20 11:03:03+00','2026-08-20 11:03:03+00'),
   (:'draft_bad',:'user_a',:'source_a',:'save_a',:'artifact_bad',0,:'future_bad',
    'en','zh-CN','太离谱了','朋友告诉你一件很夸张的事。','Reply naturally in Mandarin.',
-   'Use the target expression.','active',null,null,null,null,null,
+   'Use the target expression.','open',null,null,null,null,null,
    '2026-08-20 11:03:04+00','2026-08-20 11:03:04+00');
 
 insert into public.practice_draft_attempts (
@@ -372,7 +383,7 @@ select extensions.results_eq(
 select extensions.results_eq(
   $$select status,updated_at from public.practice_drafts
     where id='0c800000-0000-4000-8000-000000000001'$$,
-  $$values ('completed'::text,'2026-08-20 11:04:00+00'::timestamptz)$$,
+  $$values ('promoted'::text,'2026-08-20 11:04:00+00'::timestamptz)$$,
   'the draft completes in the same promotion transaction'
 );
 
@@ -498,7 +509,7 @@ select extensions.results_eq(
       (select count(*) from public.mastery_events where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
       (select count(*) from public.review_tasks where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002')),
       (select count(*) from private.practice_promotion_receipts where user_id in ('0c000000-0000-4000-8000-00000000a001','0c000000-0000-4000-8000-00000000b002'))$$,
-  $$values ('active'::text,1::bigint,2::bigint,1::bigint,1::bigint,1::bigint,
+  $$values ('open'::text,1::bigint,2::bigint,1::bigint,1::bigint,1::bigint,
     1::bigint,1::bigint,1::bigint,1::bigint)$$,
   'late failure preserves the staged attempt and rolls back every new canonical row and receipt'
 );
