@@ -15,6 +15,10 @@ test("valid canonical modern metadata wins over linked historical card",async()=
 test("missing canonical metadata recovers only the exact SQL-linked owned modern card",async()=>{const h=harness();h.raw.canonicalCard=null;const ctx=await h.repository.read(user,review);expect(ctx?.card?.meaningHere).toBe("Linked older meaning.");});
 test("ready legacy text survives absent modern metadata without invented labels",async()=>{const h=harness();h.raw.canonicalCard=null;h.raw.linkedCard=null;h.raw.task.scenario_metadata_mode=null as never;h.raw.task.target_function=null as never;h.raw.task.target_setting=null as never;h.raw.task.transfer_type=null as never;const ctx=await h.repository.read(user,review);expect(ctx?.card).toBeNull();expect(ctx?.prepared).toMatchObject({promptChinese:h.raw.task.prompt_chinese,metadataMode:"legacy",targetFunction:null,targetSetting:null,transferType:null});});
 test("even a service RPC projection cannot cross the requested owner graph",async()=>{const h=harness();h.raw.sense.user_id=source;expect(await h.repository.read(user,review)).toBeNull();expect(h.materials.findDueMaterial).not.toHaveBeenCalled();});
+test("private Review context retains the authoritative Vault removal flag for new-operation gates",async()=>{
+ const h=harness();Object.assign(h.raw.expression,{removed_from_vault_at:at});
+ expect(await h.repository.read(user,review)).toMatchObject({removedFromVault:true});
+});
 test("completion adopts the same complete question snapshot as the version identity when regeneration wins between reads",async()=>{
  const h=harness();h.raw.task.scenario_version=2;h.raw.task.scenario_metadata_mode=null as never;
  const oldTask={id:task,userId:user,reviewTaskId:review,userExpressionId:expression,targetExpression:"太离谱了",promptChinese:"旧题：朋友问旧价格。",instructionsEnglish:"Old instruction.",goalEnglish:"Old goal.",contextFingerprint:"f".repeat(64),dueAt:at,masteryState:"tried"};

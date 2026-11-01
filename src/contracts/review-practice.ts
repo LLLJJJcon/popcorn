@@ -48,7 +48,7 @@ export const ReviewRevisionSchema = z.strictObject({
 });
 export const DueReviewStateSchema = z.strictObject({
   reviewTaskId: uuid, identity: DueScenarioIdentitySchema,
-  regenerated: z.boolean(), canRegenerate: z.boolean(),
+  regenerated: z.boolean(), canRegenerate: z.boolean(), canRevise: z.boolean().optional(),
   expressionRevealedAt: instant.nullable(), examplesOpenedAt: instant.nullable(),
   firstAnswer: DueReviewAnswerSchema.nullable(), latestRevision: ReviewRevisionSchema.nullable(),
 });

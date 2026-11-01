@@ -97,3 +97,34 @@ At handoff, the isolated DB window was released to D with no remaining A transac
 The controller separately confirmed the actual personal schema is at023.024–038 prerequisites require the already-planned backup and protected old-field comparisons:024 maps old draft lifecycle and fills new hashes/entry_round/receipt keys;027 recomputes the new draft hash;032 fills only new due-task scenario metadata;038 creates pending preparation outbox rows for pending unprepared reviews.038 is SQL-only but an existing worker could consume those rows, so the controller must handle the real worker/cron/runtime compatibility before any actual migration or model application. This report does not equate “no model inside SQL” with a safe running-worker deployment.
 
 039–044 add the new private workflow and functions/locks only; they perform no automatic canonical backfill, job execution or model call. Actual metadata updates require the explicit owner manifest command, a valid source proof and that owner's active consented gateway. The actual owner/backup/service maintenance/application remain controller-only after independent acceptance. No raw source text, cards, answers, prompts, credentials or actual-account record content belongs in GitHub evidence.
+
+## Main soft-removal compatibility after merge 46bfb772
+
+The separately merged main migration `20261101235900_expression_removal.sql` introduces `user_expressions.removed_from_vault_at`, cancels pending reviews on Vault removal, and retains completed learning history. This integration follows that existing live-versus-history boundary. It does not add deletion, restoration, source recovery, practice generation, mastery, scheduling, or prompt behavior. The earlier 12569275 independent acceptance remains historical evidence; the merged release requires a fresh independent acceptance.
+
+The initial actual SQL regression exposed five missing upgrade fences: removed records still appeared in detail/page projections, a new claim was accepted, an in-flight publication succeeded, and modern metadata changed after removal. The final `supabase/tests/legacy_upgrade_removal.sql` retains these assertions and extends them to 21 checks, including completed official history, existing revision/upgrade UUID replay, and rejection of new revision claims/publications.
+
+New migrations are append-only; applied 001–044 and main's removal migration were not edited:
+
+- 045 excludes removed expressions from upgrade projections; new upgrade/revision claims and publications lock and validate the active expression. Successful historical receipts remain replayable before the new live gate.
+- 046 places the expression fence before the upgrade claim's sense lock, matching publication's expression-before-source/evidence/sense order. This avoids inversion with official completion and its preparation outbox.
+- 047 preserves the established owner-not-found error before evaluating an owned expression's removal status. The complete SQL suite caught the changed foreign-owner result; its original negative assertion was retained.
+- 048 disambiguates the new ownership projection's aliases from the publication function's existing sense record. The original real concurrency harness caught this runtime ambiguity; its actual-wait assertion was retained.
+
+`ReviewContext.removedFromVault` is an internal server capability input. The revision coordinator checks it after existing-request replay and before resolving a gateway or scoring a new revision. Both authoritative review-state builders emit optional `canRevise:false` only for removed expressions; old DTOs receive no default key. The client change belongs to B and hides the new-revision entry while preserving historical feedback and locally stored drafts. No raw removal timestamp is exposed to the client.
+
+Six additional real independent-connection races pass in `tests/contract/legacy-upgrade-removal-concurrency.py`: removal before claim, removal before publication, claim before removal, publication before removal, actual official completion before upgrade publication, and upgrade publication before actual official completion. The first two also probe that a waiting operation does not own the downstream sense/source lock. Both completion directions use the real official completion RPC and verify correct mastery/schedule results without a deadlock. Both reserved fixture accounts are guarded by their exact emails and fully cleaned afterward.
+
+| Merged self-verification | Result | Evidence |
+| --- | --- | --- |
+| Full application | 1833 PASS: unit928, contract257, integration585, prompt63 | `/private/tmp/merged-removal-full-test.log` |
+| Full SQL after048 | 25 files, 1188 assertions PASS, exit0 | `/private/tmp/merged-removal-all-sql-final.log` |
+| Removal lifecycle SQL | 21 PASS | `/private/tmp/legacy-upgrade-removal-sql-final.log` |
+| Removal/completion contention | Six actual two-connection races PASS; guarded cleanup completed | `/private/tmp/legacy-upgrade-removal-concurrency-final.log` |
+| Existing upgrade contention/runtime | Nine actual races plus actual coordinator, default-gateway, protected-graph and source-deleted receipt replay checks PASS; guarded cleanup completed | `/private/tmp/merged-removal-upgrade-concurrency.log` |
+| Whole TypeScript | 0 diagnostics | `/private/tmp/merged-removal-types.log` |
+| Owned lint | 0 errors, 0 warnings, exit0 | `/private/tmp/merged-removal-owned-lint.log` |
+
+Generated types include main's removal fields/functions and the new private lock helpers, preserve prior nullable RPC refinements and trigger-generated draft fields, and represent the existing nullable `remove_saved_expression` result accurately. 047/048 alter only function bodies and require no further generated shape change.
+
+Production bytes were frozen and the isolated54331/54332 database window was explicitly released to D after the successful full SQL run. A has no remaining database task or transaction. D owns the separately authorized fresh-order reset and independent acceptance; these self-test results do not substitute for that check. No personal database writes, model calls, application signals, ACL changes, or actual metadata application were performed by A.

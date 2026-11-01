@@ -490,3 +490,66 @@ test.each(["restored", "submitted"] as const)("%s official Review hides the pre-
   expect(done).toHaveBeenCalledTimes(stage === "submitted" ? 1 : 0);
   expect(fetcher).toHaveBeenCalledTimes(stage === "submitted" ? 3 : 2);
 });
+
+test.each(["standalone", "session"] as const)("read-only completed Review preserves first/latest history and %s navigation without revision actions", async mode => {
+  const item = completedReviewFixture(transfer(ids.first, "第一"), completion(ids.first), "这是保留的正式首答。");
+  item.reviewState.canRevise = false;
+  item.reviewState.latestRevision = { id: ids.third, requestId: ids.second, attemptId: ids.fourth, taskId: ids.first, scenarioVersion: 1, scenarioFingerprint: "a".repeat(64), responseChinese: "这是已经保存的最新修订。", evaluation: { ...completion(ids.first).evaluation, naturalness: { score: 5, englishFeedback: "This saved revision sounds fully natural." } }, coaching: null, naturalVersion: null, createdAt: "2026-11-01T01:00:00.000Z" };
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(item)), next = vi.fn(), done = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first} mode={mode} onNext={next} onCompleted={done}/>);
+  await screen.findByRole("heading", { name: "Your revision" });
+  expect(screen.getByRole("heading", { name: "Your first answer" }).parentElement).toHaveTextContent("这是保留的正式首答。");
+  expect(screen.getByRole("heading", { name: "Your revision" }).parentElement).toHaveTextContent("这是已经保存的最新修订。");
+  expect(screen.getByText("This saved revision sounds fully natural.")).toBeInTheDocument();
+  expect(screen.getByText(/Nice — tried → reused\. Next practice/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Revise this answer" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Your answer in Chinese")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Check my revision" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "First feedback" }));
+  expect(screen.getByRole("heading", { name: "Naturalness · 4/5" }).parentElement).toHaveTextContent("It sounds natural in conversation.");
+  if (mode === "session") { fireEvent.click(screen.getByRole("button", { name: "Next" })); expect(next).toHaveBeenCalledOnce(); }
+  else expect(screen.getByRole("link", { name: "Back to Today's practice" })).toHaveAttribute("href", "/practice");
+  expect(done).not.toHaveBeenCalled();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher.mock.calls[0]![0]).toBe(`/api/v1/practice/due/${ids.first}`);
+});
+
+test.each(["这是尚未提交的修订草稿。", "这是已保存的正式首答。"])("read-only Review cannot restore an editable draft and retains its original stored value %#", async draft => {
+  const item = completedReviewFixture(transfer(ids.first, "第一"), completion(ids.first), "这是已保存的正式首答。");
+  item.reviewState.canRevise = false;
+  const key = `popcorn:due-answer:${ids.first}:${ids.first}:1:${"a".repeat(64)}`;
+  localStorage.setItem(key, draft);
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(item));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  await screen.findByRole("heading", { name: "Feedback" });
+  expect(screen.getByText("这是已保存的正式首答。")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Your answer in Chinese")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Revise this answer" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Check my revision" })).not.toBeInTheDocument();
+  expect(localStorage.getItem(key)).toBe(draft);
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+test.each([undefined, true])("active or older Review capability %s keeps the existing revision form", async canRevise => {
+  const item = completedReviewFixture(transfer(ids.first, "第一"), completion(ids.first), "这是仍可修订的首答。");
+  if (canRevise !== undefined) item.reviewState.canRevise = canRevise;
+  const fetcher = vi.fn().mockResolvedValueOnce(apiResponse(item)).mockImplementationOnce(async (_url: string, options: RequestInit) => {
+    const body = JSON.parse(String(options.body));
+    const revision = { id: ids.third, requestId: body.requestId, attemptId: ids.fourth, taskId: ids.first, scenarioVersion: 1, scenarioFingerprint: "a".repeat(64), responseChinese: body.responseChinese, evaluation: completion(ids.first).evaluation, coaching: null, naturalVersion: null, createdAt: "2026-11-01T01:00:00.000Z" };
+    return apiResponse({ revision, reviewState: { ...item.reviewState, latestRevision: revision } });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first}/>);
+  fireEvent.click(await screen.findByRole("button", { name: "Revise this answer" }));
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("这是仍可修订的首答。");
+  expect(screen.getByRole("button", { name: "Check my revision" })).toBeEnabled();
+  expect(fetcher).toHaveBeenCalledOnce();
+  fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "这是可以正常提交的修订。" } });
+  fireEvent.click(screen.getByRole("button", { name: "Check my revision" }));
+  await screen.findByRole("heading", { name: "Your revision" });
+  expect(screen.getByRole("heading", { name: "Your revision" }).parentElement).toHaveTextContent("这是可以正常提交的修订。");
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(fetcher.mock.calls[1]![0]).toBe(`/api/v1/practice/due/${ids.first}/revisions`);
+});

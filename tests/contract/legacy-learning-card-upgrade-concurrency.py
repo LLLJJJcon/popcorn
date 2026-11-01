@@ -74,7 +74,7 @@ def race(lock_table, lock_id, winner, loser, expected_error=None, initial_sql=No
     second.wait(timeout=12)
     first_out, first_error = first.stdout.read(), first.stderr.read()
     second_out, second_error = second.stdout.read(), second.stderr.read()
-    assert blocked, "second connection must actually wait on the first review lock"
+    assert blocked, "second connection must actually wait on the first review lock: " + first_error + second_error
     assert first.returncode == 0, first_error
     if expected_error:
         assert second.returncode != 0 and expected_error in second_error, second_error

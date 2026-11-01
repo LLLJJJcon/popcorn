@@ -47,6 +47,17 @@ function harness() {
 }
 
 describe("independent due-review revisions", () => {
+  it("does not score a new revision after the expression was removed from Vault",async()=>{
+    const h=harness();Object.assign(h.context,{removedFromVault:true});
+    await expect(h.service.revise(owner,review,input)).rejects.toMatchObject({code:"NOT_FOUND"});
+    expect(h.complete).not.toHaveBeenCalled();expect(h.gatewayResolver.resolve).not.toHaveBeenCalled();expect(h.repository.claimRevision).not.toHaveBeenCalled();
+  });
+  it("keeps an existing revision UUID replay readable after Vault removal",async()=>{
+    const h=harness();const first=await h.service.revise(owner,review,input);Object.assign(h.context,{removedFromVault:true});
+    h.complete.mockClear();h.gatewayResolver.resolve.mockClear();h.repository.claimRevision.mockClear();
+    expect(await h.service.revise(owner,review,input)).toBe(first);
+    expect(h.complete).not.toHaveBeenCalled();expect(h.gatewayResolver.resolve).not.toHaveBeenCalled();expect(h.repository.claimRevision).not.toHaveBeenCalled();
+  });
   it("uses the frozen modern v5 task and writes only a revision result", async () => {
     const h = harness(), before = structuredClone(h.context);
     const result = await h.service.revise(owner, review, input);

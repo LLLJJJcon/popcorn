@@ -23,6 +23,8 @@ export type ReviewContext = {
   status: "pending" | "completed" | "cancelled"; dueAt: string; masteryState: MasteryState;
   targetExpression: string; card: LearningCardFields | null; prepared: DueTransfer | null;
   history: string[]; lastTransferType: TransferDirection | null;
+  /** Internal library preference; historical fixture contexts may omit it. */
+  removedFromVault?: boolean;
 };
 export type ReviewPreparationClaim =
   | { kind: "claimed"; requestId: string; token: string; expectedVersion: number; leaseExpiresAt: string }
@@ -94,7 +96,7 @@ function completedState(raw:Row|null,userId:string,reviewTaskId:string):DueRevie
  const firstAnswer=officialAnswer(r,t,record(raw.officialAttempt),record(raw.receipt),userId,string(e,"id"),raw.masteryEvents,e.mastery_state);if(!firstAnswer)return null;
  const latest=record(raw.latestRevision);
  if(latest&&(latest.user_id!==userId||latest.review_task_id!==reviewTaskId||latest.attempt_id!==firstAnswer.attemptId||latest.practice_task_id!==t.id||latest.scenario_version!==identity.scenarioVersion||latest.scenario_fingerprint!==identity.scenarioFingerprint))throw new PracticeError("NOT_FOUND");
- return DueReviewStateSchema.parse({reviewTaskId,identity,regenerated:t.regenerated??false,canRegenerate:false,expressionRevealedAt:r.expression_revealed_at??r.examples_opened_at??null,examplesOpenedAt:r.examples_opened_at??null,firstAnswer,latestRevision:latest?revisionView(latest):null});
+ return DueReviewStateSchema.parse({reviewTaskId,identity,regenerated:t.regenerated??false,canRegenerate:false,...(e.removed_from_vault_at!=null?{canRevise:false}:{}),expressionRevealedAt:r.expression_revealed_at??r.examples_opened_at??null,examplesOpenedAt:r.examples_opened_at??null,firstAnswer,latestRevision:latest?revisionView(latest):null});
 }
 
 type RpcClient={rpc(name:string,args:Record<string,unknown>):PromiseLike<{data:unknown;error:unknown}>};
@@ -126,10 +128,10 @@ export function createReviewPracticeRepository(client:SupabaseClient<Database>,m
    const firstAnswer=officialAnswer(review,task,record(raw.officialAttempt),record(raw.receipt),userId,string(expression,"id"),raw.masteryEvents,expression.mastery_state);
    const latest=record(raw.latestRevision);
    if(latest&&(latest.user_id!==userId||latest.review_task_id!==reviewTaskId||latest.attempt_id!==firstAnswer?.attemptId||latest.practice_task_id!==task.id||latest.scenario_version!==identity.scenarioVersion||latest.scenario_fingerprint!==identity.scenarioFingerprint))throw new PracticeError("NOT_FOUND");
-   const state=DueReviewStateSchema.parse({reviewTaskId,identity,regenerated:task.regenerated??false,canRegenerate:review.status==="pending"&&!task.regenerated&&card!==null,expressionRevealedAt:review.expression_revealed_at??review.examples_opened_at??null,examplesOpenedAt:review.examples_opened_at??null,firstAnswer,latestRevision:latest?revisionView(latest):null});
+   const state=DueReviewStateSchema.parse({reviewTaskId,identity,regenerated:task.regenerated??false,canRegenerate:review.status==="pending"&&!task.regenerated&&card!==null,...(expression.removed_from_vault_at!=null?{canRevise:false}:{}),expressionRevealedAt:review.expression_revealed_at??review.examples_opened_at??null,examplesOpenedAt:review.examples_opened_at??null,firstAnswer,latestRevision:latest?revisionView(latest):null});
    prepared=DueTransferSchema.parse({status:"ready",id:task.id,reviewTaskId,targetExpression:task.target_expression,promptChinese:task.prompt_chinese,instructionsEnglish:task.instructions_english,goalEnglish:task.goal_english,material:{...material,...(card?{learningCard:card}:{})},scenarioVersion:identity.scenarioVersion,scenarioFingerprint:identity.scenarioFingerprint,situationEn:task.situation_en??null,interlocutor:task.interlocutor??null,taskEn:task.task_en??task.instructions_english,targetFunction:task.target_function??null,targetSetting:task.target_setting??null,transferType:task.transfer_type??null,metadataMode:task.scenario_metadata_mode??"legacy",scenarioSource:task.scenario_metadata_mode==="modern"?"model":"legacy",canRegenerate:state.canRegenerate,expressionRevealed:state.expressionRevealedAt!==null,reviewState:state});
   }
-  return {userId,reviewTaskId,userExpressionId:string(expression,"id"),sourceId:string(sense,"video_source_id"),status:review.status as ReviewContext["status"],dueAt:string(review,"due_at"),masteryState:review.mastery_state as ReviewContext["masteryState"],targetExpression:string(sense,"expression_text"),card,prepared,history:z.array(z.string()).parse(raw.history),lastTransferType:z.enum(["near","far"]).nullable().parse(raw.lastTransferType)};
+  return {userId,reviewTaskId,userExpressionId:string(expression,"id"),sourceId:string(sense,"video_source_id"),status:review.status as ReviewContext["status"],dueAt:string(review,"due_at"),masteryState:review.mastery_state as ReviewContext["masteryState"],targetExpression:string(sense,"expression_text"),card,prepared,history:z.array(z.string()).parse(raw.history),lastTransferType:z.enum(["near","far"]).nullable().parse(raw.lastTransferType),removedFromVault:expression.removed_from_vault_at!=null};
  }
  async function ready(userId:string,reviewTaskId:string){const context=await read(userId,reviewTaskId);if(!context?.prepared)throw new PracticeError("NOT_FOUND");return context.prepared;}
  async function preparation(value:unknown,userId:string,reviewTaskId:string):Promise<ReviewPreparationClaim|null>{const row=record(value);if(!row)return null;if(row.kind==="ready")return {kind:"ready",prepared:await ready(userId,reviewTaskId)};return row as unknown as ReviewPreparationClaim;}

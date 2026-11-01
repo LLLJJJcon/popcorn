@@ -4,10 +4,16 @@ import { KnowledgeJobTypeSchema } from "@/contracts/knowledge";
 import {
   DueScenarioIdentitySchema, ReviewCompletionInputSchema, ReviewRevisionInputSchema,
   DuePreparationPendingSchema, ReviewOperationFailureDetailsSchema,
+  DueReviewStateSchema,
 } from "@/contracts/review-practice";
 
 const id="41000000-0000-4000-8000-000000000001";
 const identity={taskId:id,scenarioVersion:1,scenarioFingerprint:"a".repeat(64)};
+test("read-only removed history can deny new revisions without injecting a new key into old DTOs",()=>{
+ const state={reviewTaskId:id,identity,regenerated:false,canRegenerate:false,expressionRevealedAt:null,examplesOpenedAt:null,firstAnswer:null,latestRevision:null};
+ expect(DueReviewStateSchema.parse(state)).toEqual(state);
+ expect(DueReviewStateSchema.parse({...state,canRevise:false})).toMatchObject({canRevise:false});
+});
 test("official submissions bind the exact scenario that was answered",()=>{
  expect(ReviewCompletionInputSchema.parse({...identity,requestId:id,responseChinese:"这也太离谱了。"})).toMatchObject(identity);
  expect(ReviewCompletionInputSchema.safeParse({requestId:id,responseChinese:"这也太离谱了。"}).success).toBe(false);

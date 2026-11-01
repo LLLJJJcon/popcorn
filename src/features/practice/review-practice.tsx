@@ -64,6 +64,8 @@ export function ReviewPractice({ reviewTaskId, mode = "standalone", nextLabel = 
       if (!draft && item.metadataMode === "legacy" && item.scenarioVersion === 1 && !item.reviewState.firstAnswer) draft = localStorage.getItem(`popcorn:answer:review:${reviewTaskId}`) ?? localStorage.getItem(`popcorn:due-answer:${reviewTaskId}`);
     } catch { /* Optional storage. */ }
     const latest = item.reviewState.latestRevision ?? item.reviewState.firstAnswer;
+    // Keep stored drafts intact when the server exposes history as read-only.
+    if (item.reviewState.firstAnswer && item.reviewState.canRevise === false) draft = null;
     // A lost successful response can leave the exact now-official answer as a draft.
     if (draft && draft === latest?.responseChinese) { draft = null; clearDraft(item); }
     currentReview.current = item; setReview(item); setText(draft ?? latest?.responseChinese ?? ""); setEditing(Boolean(draft) || !item.reviewState.firstAnswer); setRestored(Boolean(draft)); setFirstOpen(false);
@@ -135,7 +137,7 @@ export function ReviewPractice({ reviewTaskId, mode = "standalone", nextLabel = 
     // Every keyed Review owns its operation sequence and server state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewTaskId]);
-  useEffect(() => { if (!review || !editing) return; const timer = setTimeout(() => saveDraft(review, text), 500); return () => clearTimeout(timer); }, [review, text, editing]);
+  useEffect(() => { if (!review || !editing || (review.reviewState.firstAnswer && review.reviewState.canRevise === false)) return; const timer = setTimeout(() => saveDraft(review, text), 500); return () => clearTimeout(timer); }, [review, text, editing]);
   async function mutate<T>(kind: Exclude<ActionKind, "prepare">, suffix: string, schema: z.ZodType<T>, extra: Record<string, string>, accept: (result: T, original: DueTransfer) => void, propagate = false) {
     const original = currentReview.current;
     if (!original || flight.current) { if (propagate) throw Error("Review action is busy"); return; }
@@ -173,7 +175,7 @@ export function ReviewPractice({ reviewTaskId, mode = "standalone", nextLabel = 
   }
   async function check() {
     const item = currentReview.current;
-    if (!item || flight.current) return;
+    if (!item || flight.current || (item.reviewState.firstAnswer && item.reviewState.canRevise === false)) return;
     if (!/\p{Script=Han}/u.test(text)) { setError("chinese"); return; }
     saveDraft(item, text);
     const first = item.reviewState.firstAnswer;
@@ -198,13 +200,13 @@ export function ReviewPractice({ reviewTaskId, mode = "standalone", nextLabel = 
   const completion = state ? officialCompletion(state) : null;
   const hidden = !state?.expressionRevealedAt && !state?.examplesOpenedAt;
   const feedback = completion ? !completion.evaluation.passed ? "Keep going — we'll bring this back tomorrow." : !completion.evaluation.independentUse ? "You got it with an example. We'll check again tomorrow — on your own." : `Nice — ${completion.priorState !== completion.newState ? `${completion.priorState} → ${completion.newState}` : `still ${completion.newState}`}. Next practice ${formatPracticeDate(completion.nextDueAt)}` : "";
-  const buttons = <div className={styles.buttonRow}>{mode === "session" ? <button className={styles.primaryButton} type="button" disabled={busy} onClick={onNext}>{nextLabel}</button> : <Link className={styles.primaryButton} href="/practice">Back to Today&apos;s practice</Link>}<button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => { setText(latest?.responseChinese ?? ""); setEditing(true); setError(null); }}>Revise this answer</button></div>;
+  const buttons = <div className={styles.buttonRow}>{mode === "session" ? <button className={styles.primaryButton} type="button" disabled={busy} onClick={onNext}>{nextLabel}</button> : <Link className={styles.primaryButton} href="/practice">Back to Today&apos;s practice</Link>}{state?.canRevise !== false ? <button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => { if (currentReview.current?.reviewState.canRevise === false) return; setText(latest?.responseChinese ?? ""); setEditing(true); setError(null); }}>Revise this answer</button> : null}</div>;
   const LoadingHeading = mode === "session" ? "h2" : "h1";
   const gateway = error instanceof PracticeRequestError && error.code === "MODEL_GATEWAY_CONFIGURATION_REQUIRED";
   return <section className={review || mode === "session" ? undefined : styles.workspace}>
     {!review ? <><LoadingHeading>Review</LoadingHeading>{busy ? <p role="status">Opening your practice item…</p> : null}</> : <PracticeMaterial key={identityKey(review.reviewState)} headingLevel={mode === "session" ? 2 : 1} material={review.material} expressionHidden={hidden} examplesOpened={Boolean(state?.examplesOpenedAt)} showAssistanceNotice={!first} actionsDisabled={busy} navigation={mode === "standalone" ? <p><Link className={styles.textLink} href="/practice">← Back to Today&apos;s practice</Link></p> : null} onExpressionReveal={() => recordMarker("reveal")} onExamplesOpen={() => recordMarker("examples")}>
       {notice ? <p role="status">{notice}</p> : null}
-      {editing ? <>{first ? <section className={styles.firstAnswer}><h3>Your first answer</h3><p lang="zh-CN">{first.responseChinese}</p><p>{evaluationDimensions(first.evaluation).map(d => `${d.name} ${d.result.score}/5`).join(" · ")}</p></section> : null}
+      {editing && (!first || state?.canRevise !== false) ? <>{first ? <section className={styles.firstAnswer}><h3>Your first answer</h3><p lang="zh-CN">{first.responseChinese}</p><p>{evaluationDimensions(first.evaluation).map(d => `${d.name} ${d.result.score}/5`).join(" · ")}</p></section> : null}
         {!first && state?.canRegenerate ? <button className={styles.tertiaryButton} type="button" disabled={busy} onClick={() => void regenerate()}>Try a different situation</button> : null}
         <form className={styles.responseForm} onSubmit={submit}><label htmlFor="review-response">Your answer in Chinese</label><textarea id="review-response" lang="zh-CN" required maxLength={10000} value={text} disabled={busy} onChange={event => { setText(event.target.value); setError(null); }}/>{restored ? <p role="status">Restored your unsent answer.</p> : null}{!hidden && text.trim() && !text.includes(review.targetExpression) ? <p>Your answer doesn&apos;t include {review.targetExpression} yet.</p> : null}<div className={styles.buttonRow}><button className={styles.primaryButton} type="submit" disabled={busy}>{busy && (errorKind === "complete" || errorKind === "revision") ? "Checking your Chinese…" : first ? "Check my revision" : "Check my answer"}</button></div></form></> : latest && first ? <>
         {state?.latestRevision ? <section className={styles.comparison}><AnswerComparison first={first.responseChinese} second={state.latestRevision.responseChinese} firstLabel="Your first answer" secondLabel="Your revision"/><p>{evaluationDimensions(first.evaluation).map((dimension, index) => <span className={styles.scoreChange} key={dimension.name}>{dimension.name} {dimension.result.score} → {evaluationDimensions(state.latestRevision!.evaluation)[index]!.result.score}</span>)}</p><DisclosureButton expanded={firstOpen} onClick={() => setFirstOpen(!firstOpen)}>First feedback</DisclosureButton>{firstOpen ? <EvaluationPanel evaluation={first.evaluation} coaching={first.coaching} answerText={first.responseChinese} resultLine="Your first answer" actions={null}/> : null}</section> : <section><h2>Your response</h2><p lang="zh-CN">{first.responseChinese}</p></section>}

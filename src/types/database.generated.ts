@@ -424,6 +424,14 @@ export type Database = {
         }
         Returns: string
       }
+      lock_live_review_expression: {
+        Args: { p_review_task_id: string; p_user_id: string }
+        Returns: boolean
+      }
+      lock_live_upgrade_expression: {
+        Args: { p_sense_id: string; p_user_id: string }
+        Returns: boolean
+      }
       normalize_expression_search_text: {
         Args: { p_value: string }
         Returns: string
@@ -477,6 +485,10 @@ export type Database = {
       review_request_hash: {
         Args: { p_input: Json; p_kind: string; p_review: string }
         Returns: string
+      }
+      saved_expression_is_removed: {
+        Args: { p_card: Json; p_saved_item_id: string; p_user_id: string }
+        Returns: boolean
       }
       today_candidate_cards: {
         Args: { p_user_id: string }
@@ -1822,7 +1834,6 @@ export type Database = {
       }
       saved_items: {
         Row: {
-          removed_expression_keys: string[]
           captured_at: string
           client_event_id: string
           created_at: string
@@ -1830,6 +1841,7 @@ export type Database = {
           id: string
           kind: string
           payload: Json
+          removed_expression_keys: string[]
           removed_from_saved_at: string | null
           snapshot_id: string | null
           start_seconds: number | null
@@ -1840,7 +1852,6 @@ export type Database = {
           youtube_video_id: string
         }
         Insert: {
-          removed_expression_keys?: string[]
           captured_at: string
           client_event_id: string
           created_at?: string
@@ -1848,6 +1859,7 @@ export type Database = {
           id?: string
           kind: string
           payload: Json
+          removed_expression_keys?: string[]
           removed_from_saved_at?: string | null
           snapshot_id?: string | null
           start_seconds?: number | null
@@ -1858,7 +1870,6 @@ export type Database = {
           youtube_video_id: string
         }
         Update: {
-          removed_expression_keys?: string[]
           captured_at?: string
           client_event_id?: string
           created_at?: string
@@ -1866,6 +1877,7 @@ export type Database = {
           id?: string
           kind?: string
           payload?: Json
+          removed_expression_keys?: string[]
           removed_from_saved_at?: string | null
           snapshot_id?: string | null
           start_seconds?: number | null
@@ -1944,29 +1956,29 @@ export type Database = {
       }
       user_expressions: {
         Row: {
-          removed_from_vault_at: string | null
           created_at: string
           expression_sense_id: string
           id: string
           mastery_state: string
+          removed_from_vault_at: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
-          removed_from_vault_at?: string | null
           created_at?: string
           expression_sense_id: string
           id?: string
           mastery_state: string
+          removed_from_vault_at?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
-          removed_from_vault_at?: string | null
           created_at?: string
           expression_sense_id?: string
           id?: string
           mastery_state?: string
+          removed_from_vault_at?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -2133,15 +2145,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      remove_saved_expression: {
-        Args: { p_user_id: string; p_saved_item_id: string; p_artifact_id: string; p_candidate_index: number }
-        Returns: string
-      }
-      remove_vault_expression: {
-        Args: { p_user_id: string; p_user_expression_id: string }
-        Returns: boolean
-      }
-
       activate_user_model_gateway_config: {
         Args: {
           p_config_id: string
@@ -2690,6 +2693,19 @@ export type Database = {
           p_saved_item_id: string
           p_user_id: string
         }
+        Returns: boolean
+      }
+      remove_saved_expression: {
+        Args: {
+          p_artifact_id: string
+          p_candidate_index: number
+          p_saved_item_id: string
+          p_user_id: string
+        }
+        Returns: string | null
+      }
+      remove_vault_expression: {
+        Args: { p_user_expression_id: string; p_user_id: string }
         Returns: boolean
       }
       rename_user_model_gateway_config: {

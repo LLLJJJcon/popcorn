@@ -52,6 +52,7 @@ export function createReviewRevisionService(dependencies: ReviewRevisionDependen
       if (previous?.kind === "ready") return previous.response;
       if (previous?.kind === "pending") throw new PracticeError("REQUEST_IN_PROGRESS", true, operation(input.requestId, "in_progress"));
       if (previous?.kind === "failed") throw new PracticeError(previous.code, true, operation(input.requestId, "failed"));
+      if (context.removedFromVault) throw new PracticeError("NOT_FOUND");
 
       const modernCard = prepared.metadataMode === "modern" ? LearningCardFieldsSchema.safeParse(context.card) : null;
       const modernSituation = prepared.metadataMode === "modern" ? PracticeSituationSchema.safeParse(prepared.material.task.situation) : null;
