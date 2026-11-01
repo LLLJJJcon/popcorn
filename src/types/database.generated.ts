@@ -87,6 +87,74 @@ export type Database = {
         }
         Relationships: []
       }
+      legacy_learning_card_upgrades: {
+        Row: {
+          claim_token: string | null
+          created_at: string
+          error_code: string | null
+          gateway_pin: Json | null
+          input: Json
+          lease_expires_at: string | null
+          linked_request_id: string | null
+          outcome: Json | null
+          request_hash: string
+          request_id: string
+          result: Json | null
+          sense_id: string
+          status: string
+          target_hash: string
+          updated_at: string
+          user_id: string
+          workflow_version: string
+        }
+        Insert: {
+          claim_token?: string | null
+          created_at: string
+          error_code?: string | null
+          gateway_pin?: Json | null
+          input: Json
+          lease_expires_at?: string | null
+          linked_request_id?: string | null
+          outcome?: Json | null
+          request_hash: string
+          request_id: string
+          result?: Json | null
+          sense_id: string
+          status: string
+          target_hash: string
+          updated_at: string
+          user_id: string
+          workflow_version?: string
+        }
+        Update: {
+          claim_token?: string | null
+          created_at?: string
+          error_code?: string | null
+          gateway_pin?: Json | null
+          input?: Json
+          lease_expires_at?: string | null
+          linked_request_id?: string | null
+          outcome?: Json | null
+          request_hash?: string
+          request_id?: string
+          result?: Json | null
+          sense_id?: string
+          status?: string
+          target_hash?: string
+          updated_at?: string
+          user_id?: string
+          workflow_version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_learning_card_upgrades_user_id_linked_request_id_fkey"
+            columns: ["user_id", "linked_request_id"]
+            isOneToOne: false
+            referencedRelation: "legacy_learning_card_upgrades"
+            referencedColumns: ["user_id", "request_id"]
+          },
+        ]
+      }
       practice_promotion_receipts: {
         Row: {
           attempt_id: string
@@ -315,6 +383,36 @@ export type Database = {
           item_payload: Json
           item_youtube_video_id: string
         }
+        Returns: boolean
+      }
+      legacy_upgrade_card: { Args: { c: Json }; Returns: Json }
+      legacy_upgrade_check_input: {
+        Args: { p_input: Json }
+        Returns: undefined
+      }
+      legacy_upgrade_empty: {
+        Args: { s: Database["public"]["Tables"]["expression_senses"]["Row"] }
+        Returns: boolean
+      }
+      legacy_upgrade_evidence: {
+        Args: { p_input: Json; p_user_id: string }
+        Returns: Json
+      }
+      legacy_upgrade_existing: {
+        Args: { p_sense_id: string; p_user_id: string }
+        Returns: Json
+      }
+      legacy_upgrade_hash: { Args: { value: Json }; Returns: string }
+      legacy_upgrade_lock_evidence: {
+        Args: { p_input: Json; p_user_id: string }
+        Returns: undefined
+      }
+      legacy_upgrade_sources: {
+        Args: { p_sense_id: string; p_user_id: string }
+        Returns: Json[]
+      }
+      legacy_upgrade_valid_card: {
+        Args: { c: Json; expression: string }
         Returns: boolean
       }
       lock_active_user_model_gateway_config: {
@@ -2082,6 +2180,15 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      claim_legacy_learning_card_upgrade: {
+        Args: {
+          p_gateway_pin: Json
+          p_input: Json
+          p_now: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       claim_review_completion: {
         Args: {
           p_input: Json
@@ -2265,6 +2372,16 @@ export type Database = {
           retained_user_expression_count: number
         }[]
       }
+      fail_legacy_learning_card_upgrade: {
+        Args: {
+          p_code: string
+          p_input: Json
+          p_now: string
+          p_token: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       fail_review_operation: {
         Args: {
           p_code: string
@@ -2355,6 +2472,10 @@ export type Database = {
         }
         Returns: Json
       }
+      lookup_legacy_learning_card_upgrade: {
+        Args: { p_input: Json; p_now: string; p_user_id: string }
+        Returns: Json
+      }
       lookup_review_completion: {
         Args: {
           p_input: Json
@@ -2413,6 +2534,10 @@ export type Database = {
         Args: { p_review_task_id: string; p_user_id: string }
         Returns: Json
       }
+      page_legacy_learning_card_upgrade_contexts: {
+        Args: { p_after_sense_id: string | null; p_limit: number; p_user_id: string }
+        Returns: Json
+      }
       promote_valid_practice_draft_attempt: {
         Args: {
           p_due_at: string
@@ -2431,6 +2556,16 @@ export type Database = {
           review_task_id: string
           user_expression_id: string
         }[]
+      }
+      publish_legacy_learning_card_upgrade: {
+        Args: {
+          p_input: Json
+          p_now: string
+          p_result: Json
+          p_token: string
+          p_user_id: string
+        }
+        Returns: Json
       }
       publish_review_completion: {
         Args: {
@@ -2461,6 +2596,15 @@ export type Database = {
           p_request_id: string
           p_review_task_id: string
           p_token: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      read_legacy_learning_card_upgrade_context: {
+        Args: {
+          p_sense_id: string
+          p_source_limit?: number
+          p_source_offset?: number
           p_user_id: string
         }
         Returns: Json
