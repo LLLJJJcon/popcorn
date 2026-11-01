@@ -31,6 +31,9 @@ begin
 end
 $guard$;
 
+delete from private.review_operations where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.review_revisions where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+delete from public.review_scenarios where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
 delete from private.due_practice_completion_receipts
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
 delete from private.practice_promotion_receipts
@@ -451,6 +454,7 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   await page.getByRole("button",{name:"About this expression",exact:true}).click();
   await expect(page.getByText("How it fits",{exact:true})).toBeVisible();
   await page.getByRole("button",{name:"EN",exact:true}).click();
+  await expect(page.getByLabel("Your answer in Chinese")).toBeVisible();
   const original="这个表达真的很常见。";
   await page.getByLabel("Your answer in Chinese").fill(original);
   await expect.poll(()=>page.evaluate(id=>localStorage.getItem(`popcorn:answer:${id}`),draft.data!.id)).toBe(original);
@@ -520,18 +524,22 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   expect((await admin.from("review_tasks").update({due_at:new Date(Date.now()-60000).toISOString()}).eq("id",review.data!.id).eq("user_id",USER_ID)).error).toBeNull();
   await page.goto("/practice");
   await page.getByRole("link",{name:"Start",exact:true}).click();
+  await expect(page.getByRole("heading",{name:EXPRESSION,exact:true})).toHaveCount(0);
+  await page.getByRole("button",{name:"Show the expression",exact:true}).click();
   await expect(page.getByRole("heading",{name:EXPRESSION,exact:true})).toBeVisible();
   await page.getByRole("button",{name:"About this expression",exact:true}).click();
   await expect(page.getByText("How it fits",{exact:true})).toBeVisible();
   const [dueExamples]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname===`/api/v1/practice/due/${review.data!.id}/examples-opened`),page.getByRole("button",{name:"Show examples",exact:true}).click()]);
   expect(dueExamples.status()).toBe(200);
   const marker=await admin.from("review_tasks").select("examples_opened_at").eq("id",review.data!.id).single();expect(marker.data!.examples_opened_at).toBeTruthy();
-  await page.getByLabel("Your Chinese response").fill("我觉得这个表达很适合这个情境。");
-  const [dueResponse]=await Promise.all([page.waitForResponse(r=>r.request().method()==="POST"&&new URL(r.url()).pathname===`/api/v1/practice/due/${review.data!.id}`),page.getByRole("button",{name:"Check my response",exact:true}).click()]);
+  await page.getByLabel("Your answer in Chinese").fill("我觉得这个表达很适合这个情境。");
+  const [dueResponse]=await Promise.all([page.waitForResponse(r=>r.request().method()==="POST"&&new URL(r.url()).pathname===`/api/v1/practice/due/${review.data!.id}`),page.getByRole("button",{name:"Check my answer",exact:true}).click()]);
   expect(dueResponse.status(),await dueResponse.text()).toBe(201);
   await expect(page.getByText("You got it with an example. We'll check again tomorrow — on your own.")).toBeVisible();
   const dueResult=await dueResponse.json();expect(dueResult.data.newState).toBe("tried");expect(dueResult.data.intervalDays).toBe(1);
   expect(dueResult.data.evaluation.assistanceLevel).toBe("model_answer");
+  await expect(page.getByText("Seeing an example helps, but this review won't move your progress.", { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("group4-review-assisted.png"), fullPage: true });
 
   const ignoredAfter = await admin.from("saved_items")
     .select("status,payload,start_seconds,snapshot_id,updated_at")

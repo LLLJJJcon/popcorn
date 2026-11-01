@@ -95,7 +95,7 @@ export function leaseJob(job: KnowledgeJob, now: string): LeaseDecision {
   }
 
   assertOperationalAttemptCount(job.attemptCount, 0);
-  if (job.attemptCount === MAX_JOB_ATTEMPTS) {
+  if (job.attemptCount >= (job.type === "prepare_transfer_task" ? 1 : MAX_JOB_ATTEMPTS)) {
     return {
       kind: "exhausted",
       job: {
@@ -163,7 +163,7 @@ export function nextJobFailure(
   assertOperationalAttemptCount(job.attemptCount, 1);
   const lastErrorCode = normalizeErrorCategory(error);
 
-  if (job.attemptCount === MAX_JOB_ATTEMPTS) {
+  if (job.attemptCount >= (job.type === "prepare_transfer_task" ? 1 : MAX_JOB_ATTEMPTS)) {
     return {
       ...job,
       status: "terminal_failed",

@@ -1077,6 +1077,7 @@ describe("shared contracts", () => {
       "explain_selection",
       "analyze_saved_item",
       "highlight_saved_item",
+      "prepare_transfer_task",
     ]);
     expect(KnowledgeJobStatusSchema.options).toEqual([
       "pending",
@@ -1112,6 +1113,11 @@ describe("shared contracts", () => {
       "INTERNAL_ERROR",
       "FIRST_ANSWER_EXISTS",
       "ALREADY_PROMOTED",
+      "REGENERATE_USED",
+      "ALREADY_SUBMITTED",
+      "SCENARIO_CHANGED",
+      "LEGACY_METADATA_REQUIRED",
+      "REQUEST_IN_PROGRESS",
     ]);
   });
 

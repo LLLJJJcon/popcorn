@@ -1,0 +1,871 @@
+[
+  {
+    "id": "review-01",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "高得要命",
+        "meaningHere": "Ridiculously high — complaining the price is way too much.",
+        "useItWhen": "When you want to complain that something is excessive and exaggerate a little.",
+        "toneAndWho": "Casual and exaggerated; natural with friends and online."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "朋友问：“这杯咖啡六十元，你怎么看？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "高得要命"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge intention, expression sense, setting and Chinese naturalness.",
+        "A later case also receives successful generated situations from earlier cases for this expression.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-02",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "高得要命",
+        "meaningHere": "Ridiculously high — complaining the price is way too much.",
+        "useItWhen": "When you want to complain that something is excessive and exaggerate a little.",
+        "toneAndWho": "Casual and exaggerated; natural with friends and online."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "targetSetting": {
+        "value": "online_social",
+        "label": "Online posts",
+        "description": "Writing posts, comments, group-chat messages or bullet comments."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "朋友问：“这杯咖啡六十元，你怎么看？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "高得要命"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge intention, expression sense, setting and Chinese naturalness.",
+        "A later case also receives successful generated situations from earlier cases for this expression.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-03",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "高得要命",
+        "meaningHere": "Ridiculously high — complaining the price is way too much.",
+        "useItWhen": "When you want to complain that something is excessive and exaggerate a little.",
+        "toneAndWho": "Casual and exaggerated; natural with friends and online."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "朋友问：“这杯咖啡六十元，你怎么看？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "高得要命"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge intention, expression sense, setting and Chinese naturalness.",
+        "A later case also receives successful generated situations from earlier cases for this expression.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-04",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "说白了",
+        "meaningHere": "To put it plainly, giving the central point.",
+        "useItWhen": "When someone has not understood or a discussion needs a plain summary.",
+        "toneAndWho": "Direct but acceptable with colleagues and classmates."
+      },
+      "targetFunction": {
+        "value": "explain_sum_up",
+        "label": "Explain · Sum up",
+        "rule": "The other person has not understood, or a discussion needs to be summed up."
+      },
+      "targetSetting": {
+        "value": "work_school",
+        "label": "Work & school",
+        "description": "Talking with colleagues, managers, teachers or classmates, including meetings and class."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "同事问：“会议讨论了这么久，大家到底想解决什么问题？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "说白了"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge intention, expression sense, setting and Chinese naturalness.",
+        "A later case also receives successful generated situations from earlier cases for this expression.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-05",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "说白了",
+        "meaningHere": "To put it plainly, giving the central point.",
+        "useItWhen": "When someone has not understood or a discussion needs a plain summary.",
+        "toneAndWho": "Direct but acceptable with colleagues and classmates."
+      },
+      "targetFunction": {
+        "value": "explain_sum_up",
+        "label": "Explain · Sum up",
+        "rule": "The other person has not understood, or a discussion needs to be summed up."
+      },
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "同事问：“会议讨论了这么久，大家到底想解决什么问题？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "说白了"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge intention, expression sense, setting and Chinese naturalness.",
+        "A later case also receives successful generated situations from earlier cases for this expression.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-06",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "说白了",
+        "meaningHere": "To put it plainly, giving the central point.",
+        "useItWhen": "When someone has not understood or a discussion needs a plain summary.",
+        "toneAndWho": "Direct but acceptable with colleagues and classmates."
+      },
+      "targetFunction": {
+        "value": "explain_sum_up",
+        "label": "Explain · Sum up",
+        "rule": "The other person has not understood, or a discussion needs to be summed up."
+      },
+      "targetSetting": {
+        "value": "work_school",
+        "label": "Work & school",
+        "description": "Talking with colleagues, managers, teachers or classmates, including meetings and class."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "同事问：“会议讨论了这么久，大家到底想解决什么问题？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "说白了"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge intention, expression sense, setting and Chinese naturalness.",
+        "A later case also receives successful generated situations from earlier cases for this expression.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-07",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "话虽如此",
+        "meaningHere": "Even so, accepting a point before offering a different view.",
+        "useItWhen": "When you acknowledge a reasonable point and then contrast it with another concern.",
+        "toneAndWho": "Measured disagreement with colleagues and classmates."
+      },
+      "targetFunction": {
+        "value": "concede_contrast",
+        "label": "Concede · Contrast",
+        "rule": "The speaker needs to accept one point the other person makes and then offer a different view."
+      },
+      "targetSetting": {
+        "value": "work_school",
+        "label": "Work & school",
+        "description": "Talking with colleagues, managers, teachers or classmates, including meetings and class."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "同事说：“这个方案成本低，所以我们现在就做吧？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "话虽如此"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge intention, expression sense, setting and Chinese naturalness.",
+        "A later case also receives successful generated situations from earlier cases for this expression.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-08",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "话虽如此",
+        "meaningHere": "Even so, accepting a point before offering a different view.",
+        "useItWhen": "When you acknowledge a reasonable point and then contrast it with another concern.",
+        "toneAndWho": "Measured disagreement with colleagues and classmates."
+      },
+      "targetFunction": {
+        "value": "concede_contrast",
+        "label": "Concede · Contrast",
+        "rule": "The speaker needs to accept one point the other person makes and then offer a different view."
+      },
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "同事说：“这个方案成本低，所以我们现在就做吧？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "话虽如此"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge intention, expression sense, setting and Chinese naturalness.",
+        "A later case also receives successful generated situations from earlier cases for this expression.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-09",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "话虽如此",
+        "meaningHere": "Even so, accepting a point before offering a different view.",
+        "useItWhen": "When you acknowledge a reasonable point and then contrast it with another concern.",
+        "toneAndWho": "Measured disagreement with colleagues and classmates."
+      },
+      "targetFunction": {
+        "value": "concede_contrast",
+        "label": "Concede · Contrast",
+        "rule": "The speaker needs to accept one point the other person makes and then offer a different view."
+      },
+      "targetSetting": {
+        "value": "work_school",
+        "label": "Work & school",
+        "description": "Talking with colleagues, managers, teachers or classmates, including meetings and class."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "同事说：“这个方案成本低，所以我们现在就做吧？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "话虽如此"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge intention, expression sense, setting and Chinese naturalness.",
+        "A later case also receives successful generated situations from earlier cases for this expression.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-10",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "太夸张了",
+        "meaningHere": "Something is far beyond the usual amount.",
+        "useItWhen": "Stress an unusually extreme degree.",
+        "toneAndWho": "Informal emphasis in group messages."
+      },
+      "targetFunction": {
+        "value": "emphasize",
+        "label": "Emphasize",
+        "rule": "Something is clearly beyond the usual degree and needs to be stressed."
+      },
+      "targetSetting": {
+        "value": "online_social",
+        "label": "Online posts",
+        "description": "Writing posts, comments, group-chat messages or bullet comments."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "太夸张了"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-11",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "真没想到",
+        "meaningHere": "The speaker is unexpectedly surprised.",
+        "useItWhen": "React immediately to surprising news.",
+        "toneAndWho": "Polite surprise with service staff."
+      },
+      "targetFunction": {
+        "value": "react",
+        "label": "React",
+        "rule": "Something surprising, unexpected or shocking has just happened and needs an immediate reaction."
+      },
+      "targetSetting": {
+        "value": "daily_errands",
+        "label": "Daily errands",
+        "description": "Talking with shop staff or service workers while shopping, eating out, taking a taxi or running errands."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "真没想到"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-12",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "不妨",
+        "meaningHere": "A measured proposal to try something.",
+        "useItWhen": "Offer advice without pressuring the reader.",
+        "toneAndWho": "Suitable for formal written proposals."
+      },
+      "targetFunction": {
+        "value": "suggest",
+        "label": "Suggest",
+        "rule": "The other person needs advice or needs to be persuaded."
+      },
+      "targetSetting": {
+        "value": "formal_writing",
+        "label": "Formal writing & speeches",
+        "description": "Writing formal emails, reports or notices, or giving a speech."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "不妨"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-13",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "除此之外",
+        "meaningHere": "Add another relevant point.",
+        "useItWhen": "Continue a short report with an additional point.",
+        "toneAndWho": "Neutral to formal written transitions."
+      },
+      "targetFunction": {
+        "value": "connect_ideas",
+        "label": "Connect ideas",
+        "rule": "A short account needs a transition, a contrast or a follow-on point."
+      },
+      "targetSetting": {
+        "value": "formal_writing",
+        "label": "Formal writing & speeches",
+        "description": "Writing formal emails, reports or notices, or giving a speech."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "除此之外"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-14",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "井井有条",
+        "meaningHere": "Things are well organized.",
+        "useItWhen": "Describe an organized arrangement or process.",
+        "toneAndWho": "Neutral description with coworkers."
+      },
+      "targetFunction": {
+        "value": "describe",
+        "label": "Describe",
+        "rule": "A person, thing or event needs to be described."
+      },
+      "targetSetting": {
+        "value": "work_school",
+        "label": "Work & school",
+        "description": "Talking with colleagues, managers, teachers or classmates, including meetings and class."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "井井有条"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-15",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "久违了",
+        "meaningHere": "Warm recognition after a long absence.",
+        "useItWhen": "Greet someone or welcome something absent for a long time.",
+        "toneAndWho": "Warm and natural with familiar people."
+      },
+      "targetFunction": {
+        "value": "other",
+        "label": "Other",
+        "rule": "Use useItWhen to decide what the situation must require."
+      },
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "久违了"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-16",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "有两把刷子",
+        "meaningHere": "To have real skill or ability.",
+        "useItWhen": "When someone has done something well and deserves recognition.",
+        "toneAndWho": "Casual praise between friends."
+      },
+      "targetFunction": {
+        "value": "praise",
+        "label": "Praise",
+        "rule": "Someone or something deserves praise or approval."
+      },
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "有两把刷子"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-17",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "划不来",
+        "meaningHere": "The exchange is not worth its cost.",
+        "useItWhen": "Express dissatisfaction about poor value.",
+        "toneAndWho": "Conversational, with service staff or companions."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "targetSetting": {
+        "value": "daily_errands",
+        "label": "Daily errands",
+        "description": "Talking with shop staff or service workers while shopping, eating out, taking a taxi or running errands."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "划不来"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-18",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "归根结底",
+        "meaningHere": "Identify the ultimate underlying reason.",
+        "useItWhen": "Summarize the root reason after discussing details.",
+        "toneAndWho": "Measured summary in reports and speeches."
+      },
+      "targetFunction": {
+        "value": "explain_sum_up",
+        "label": "Explain · Sum up",
+        "rule": "The other person has not understood, or a discussion needs to be summed up."
+      },
+      "targetSetting": {
+        "value": "formal_writing",
+        "label": "Formal writing & speeches",
+        "description": "Writing formal emails, reports or notices, or giving a speech."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "归根结底"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-19",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "退一步说",
+        "meaningHere": "Temporarily accept a premise to consider another point.",
+        "useItWhen": "Concede one assumption and put forward a different consideration.",
+        "toneAndWho": "Measured discussion with colleagues."
+      },
+      "targetFunction": {
+        "value": "concede_contrast",
+        "label": "Concede · Contrast",
+        "rule": "The speaker needs to accept one point the other person makes and then offer a different view."
+      },
+      "targetSetting": {
+        "value": "work_school",
+        "label": "Work & school",
+        "description": "Talking with colleagues, managers, teachers or classmates, including meetings and class."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "退一步说"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "review-20",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "活灵活现",
+        "meaningHere": "A portrayal feels vivid and lifelike.",
+        "useItWhen": "Describe a vivid performance or portrayal.",
+        "toneAndWho": "Positive description in comments or group posts."
+      },
+      "targetFunction": {
+        "value": "describe",
+        "label": "Describe",
+        "rule": "A person, thing or event needs to be described."
+      },
+      "targetSetting": {
+        "value": "online_social",
+        "label": "Online posts",
+        "description": "Writing posts, comments, group-chat messages or bullet comments."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "在一次练习中，对方问你昨天那次活动怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "活灵活现"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Judge the exact card meaning, required communicative act, setting and natural Chinese.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  }
+]

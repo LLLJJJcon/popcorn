@@ -1,0 +1,997 @@
+{
+  "commit": "c1322a9f570abd8588202dd2fb4a437f037afb20",
+  "startedAt": "2026-11-01T10:44:39.980Z",
+  "finishedAt": "2026-11-01T10:45:28.563Z",
+  "fixtureMode": false,
+  "model": "claude-haiku-5-5",
+  "revision": 3,
+  "origin": "https://aihubmix.com",
+  "activeUpdatedAt": "2026-11-01T05:31:06.551+00:00",
+  "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+  "inputSetSha256": "3fb1880a57f6ebf17d8971e9499e05af6b6c229f95669ebfdbb48820a8abac18",
+  "requestMaxTokens": 400,
+  "taskTimeoutMs": 20000,
+  "maxFormatAttemptsPerCase": 4,
+  "denominator": 20,
+  "configurationReads": [
+    {
+      "kind": "active-pin",
+      "checked": true,
+      "at": "2026-11-01T10:44:40.064Z"
+    },
+    {
+      "kind": "runtime-resolver",
+      "checked": true,
+      "model": "claude-haiku-5-5",
+      "revision": 3,
+      "origin": "https://aihubmix.com",
+      "at": "2026-11-01T10:44:40.071Z"
+    }
+  ],
+  "httpFetchCount": 20,
+  "logicalCasesObserved": 20,
+  "artifactSha256": "f5d122184fba34a865dbf6f992c688f8cb319e97631a53bb79f1ef6db31c29e8",
+  "artifactSensitiveMatch": false,
+  "humanApproval": "pending",
+  "minimumHumanApproved": 17,
+  "structuredAvailable": 20,
+  "formatAttempts": 20,
+  "sourceFileSha256": {
+    "src/server/ai/prompts/transfer-scenario.v1.ts": "700a82867b7c1835d93516b23f816bc517bd86cf8dc1ff092172eb9cf052fb38",
+    "src/server/domain/transfer-target.ts": "56da26e534c272b08ccccefb08e1605c377518e258ddbb9a7b5d9097101bf384",
+    "scripts/try-prompts.ts": "7e928dd2c8c9b9571b6a7e9b2363f76c969c57e5344605792e29a277f0af6669",
+    "tests/prompt-golden/transfer-scenario-v1-review.json": "3fb1880a57f6ebf17d8971e9499e05af6b6c229f95669ebfdbb48820a8abac18",
+    "src/server/ai/output-budgets.ts": "32381d663db479f517e4e1cc1005aaa9576c7a6c06052cee762831d483922911",
+    "src/server/ai/openai-compatible-provider.ts": "52020fc248fdb3e78942225bdaa4e654daf26ba8836c40d627a225abfdc5873c"
+  },
+  "noAdditionalOrReplacementCases": true,
+  "noSemanticRetries": true,
+  "learningDataWrites": 0,
+  "caseEvidence": [
+    {
+      "id": "review-01",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "1da9ff5e6d75467f657f2fc5bb0f604fbddcb53521d2ddca009598a5362b0539",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 1,
+          "caseId": "review-01",
+          "caseOrdinal": 1,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "70a8ccbe9f5faa02f91168bd370adc8e8c4b7b3477ce2ca2c1432f7bbc4d9489",
+          "startedAt": "2026-11-01T10:44:40.074Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            351
+          ],
+          "usage": {
+            "prompt_tokens": 896,
+            "completion_tokens": 163,
+            "total_tokens": 1059
+          },
+          "finishedAt": "2026-11-01T10:44:42.959Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-02",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "099e7f2f2c780c915b56d1e827ba5c457747aa40a366e1029eee2e308ffca9db",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 2,
+          "caseId": "review-02",
+          "caseOrdinal": 2,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "de2b33b30da58e441c007a7a70e6f60870d23bbef644226f512fe612613e1cac",
+          "startedAt": "2026-11-01T10:44:42.963Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            466
+          ],
+          "usage": {
+            "prompt_tokens": 944,
+            "completion_tokens": 207,
+            "total_tokens": 1151
+          },
+          "finishedAt": "2026-11-01T10:44:45.529Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-03",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "e0f2d82d190972334ca0228d0b1e57a4d1883d4771ee3a46575ac1ae1b0a406c",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 3,
+          "caseId": "review-03",
+          "caseOrdinal": 3,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "98e84d15f1952ab774843042a33a5093501a15effc7e8ea898b56ef45a96ce02",
+          "startedAt": "2026-11-01T10:44:45.530Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            405
+          ],
+          "usage": {
+            "prompt_tokens": 1010,
+            "completion_tokens": 192,
+            "total_tokens": 1202
+          },
+          "finishedAt": "2026-11-01T10:44:47.730Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-04",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "eb011573d50aefc9050e8c1302b2ea68fceec4883dcb1cd72f014dfb115d1761",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 4,
+          "caseId": "review-04",
+          "caseOrdinal": 4,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "a425bdc54cdb12504a0128da43eb333d90dbcc07b1f199e7d846efe80f20a1c4",
+          "startedAt": "2026-11-01T10:44:47.731Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            441
+          ],
+          "usage": {
+            "prompt_tokens": 899,
+            "completion_tokens": 192,
+            "total_tokens": 1091
+          },
+          "finishedAt": "2026-11-01T10:44:50.274Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-05",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "2c4d35223e451affe5a153f3056deb47e48beb0c85e5e8ba9a1addcf1fcf3f14",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 5,
+          "caseId": "review-05",
+          "caseOrdinal": 5,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "5df4a89bde2759f5a1705972513dc670c11031cfc950e3cb21a18d43779952a4",
+          "startedAt": "2026-11-01T10:44:50.276Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            363
+          ],
+          "usage": {
+            "prompt_tokens": 949,
+            "completion_tokens": 159,
+            "total_tokens": 1108
+          },
+          "finishedAt": "2026-11-01T10:44:52.500Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-06",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "4d3b3b5c97cfbcbce2d65d899df309642b084be395b002a13ebea97106b28946",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 6,
+          "caseId": "review-06",
+          "caseOrdinal": 6,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "066832763adca98c129b71fdac5187c687a51fb52aef7b7dea65b7dc0bd4f614",
+          "startedAt": "2026-11-01T10:44:52.503Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            388
+          ],
+          "usage": {
+            "prompt_tokens": 1005,
+            "completion_tokens": 162,
+            "total_tokens": 1167
+          },
+          "finishedAt": "2026-11-01T10:44:55.419Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-07",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "3d797ad125bc20101dc09d962e451de7a9f0af94fff60a2302e372dc5c211afe",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 7,
+          "caseId": "review-07",
+          "caseOrdinal": 7,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "83d834057f5381ce8b5dbac7eb4134334728e4c189c70c2e7953bbd446dc2493",
+          "startedAt": "2026-11-01T10:44:55.420Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            400
+          ],
+          "usage": {
+            "prompt_tokens": 906,
+            "completion_tokens": 172,
+            "total_tokens": 1078
+          },
+          "finishedAt": "2026-11-01T10:44:57.514Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-08",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "a1c7af99e1d51817293ba64e00a3bffb35139324a20e6912d9655391a9a20473",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 8,
+          "caseId": "review-08",
+          "caseOrdinal": 8,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "691272b918ac9eb795abda8afff8540b3f6c32cc1c30ed806d8ab6074433e15d",
+          "startedAt": "2026-11-01T10:44:57.515Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            480
+          ],
+          "usage": {
+            "prompt_tokens": 949,
+            "completion_tokens": 205,
+            "total_tokens": 1154
+          },
+          "finishedAt": "2026-11-01T10:44:59.753Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-09",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "749a0a7a222cc3ed7984768329b0a9c66fb2423d644f2f619bca86bfd5b9b9a5",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 9,
+          "caseId": "review-09",
+          "caseOrdinal": 9,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "490502943beea4a90900bbc02327441a27d856b9ff9d5e8df4f3c1f9dab0a815",
+          "startedAt": "2026-11-01T10:44:59.755Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            374
+          ],
+          "usage": {
+            "prompt_tokens": 1020,
+            "completion_tokens": 158,
+            "total_tokens": 1178
+          },
+          "finishedAt": "2026-11-01T10:45:02.250Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-10",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "742c8e94d18c7198cbb7a279d3f4a0e440e6eaccb8ce038d41e772c8f74f99dd",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 10,
+          "caseId": "review-10",
+          "caseOrdinal": 10,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "209ee7a157f8285cfe5be19049e4e98bd09f7a6b8552dc1b61144fb22cd92f4a",
+          "startedAt": "2026-11-01T10:45:02.251Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            469
+          ],
+          "usage": {
+            "prompt_tokens": 874,
+            "completion_tokens": 216,
+            "total_tokens": 1090
+          },
+          "finishedAt": "2026-11-01T10:45:04.776Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-11",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "24d87799408b37f1e4c60abf570a74783dd2a462d6984eca6f4ac36a14ad9319",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 11,
+          "caseId": "review-11",
+          "caseOrdinal": 11,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "532450827d354b124c6cb9d4dbe6c959bd5a6c7558ed81c494e0449a8ab3f234",
+          "startedAt": "2026-11-01T10:45:04.779Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            349
+          ],
+          "usage": {
+            "prompt_tokens": 883,
+            "completion_tokens": 163,
+            "total_tokens": 1046
+          },
+          "finishedAt": "2026-11-01T10:45:07.072Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-12",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "a6065d59c7cda5e9a344b23c956e38b8394839361f3af9dff5565dec7469fbd6",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 12,
+          "caseId": "review-12",
+          "caseOrdinal": 12,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "0da7650881356ab10311f5b721508ff3497ac2c85bcca553c92a566e2077a7b6",
+          "startedAt": "2026-11-01T10:45:07.073Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            505
+          ],
+          "usage": {
+            "prompt_tokens": 868,
+            "completion_tokens": 216,
+            "total_tokens": 1084
+          },
+          "finishedAt": "2026-11-01T10:45:09.396Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-13",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "ba3aaedd315bdaeedad6dc8212282d71413df13dabeaa76af2c638d13ed78147",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 13,
+          "caseId": "review-13",
+          "caseOrdinal": 13,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "13b733449a6bd3db11f8f8c424ba2e0b6401fcc918c96e4546236f4ffdeca4e1",
+          "startedAt": "2026-11-01T10:45:09.397Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            375
+          ],
+          "usage": {
+            "prompt_tokens": 874,
+            "completion_tokens": 150,
+            "total_tokens": 1024
+          },
+          "finishedAt": "2026-11-01T10:45:11.327Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-14",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "fe5d875492f81d13ce75c7f9ac96b4c38c73955b47d260622be4869d8d9f8d3b",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 14,
+          "caseId": "review-14",
+          "caseOrdinal": 14,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "0cc1617ecfc86926ac1cc5d21fa58e9bed6ad95097b7ef3ea7d5bbbf6ce5221a",
+          "startedAt": "2026-11-01T10:45:11.329Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            329
+          ],
+          "usage": {
+            "prompt_tokens": 857,
+            "completion_tokens": 136,
+            "total_tokens": 993
+          },
+          "finishedAt": "2026-11-01T10:45:13.585Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-15",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "8233c432a0170657fd42fe494bb367ce60aa79a5127077ad5fd0525e89017009",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 15,
+          "caseId": "review-15",
+          "caseOrdinal": 15,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "92d94105f911b99a4b6cb07198437fec66a14e3f27903d55025e062c5f289872",
+          "startedAt": "2026-11-01T10:45:13.586Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            398
+          ],
+          "usage": {
+            "prompt_tokens": 861,
+            "completion_tokens": 181,
+            "total_tokens": 1042
+          },
+          "finishedAt": "2026-11-01T10:45:16.072Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-16",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "6c74351589f652e58051cc199457fee263e1b4c456d1b8e40637a2b98f04f3dc",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 16,
+          "caseId": "review-16",
+          "caseOrdinal": 16,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "47ebfebfd7c33fd330207d9cd3c04f9691289f855f01114298041bae5f9aa54d",
+          "startedAt": "2026-11-01T10:45:16.074Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            406
+          ],
+          "usage": {
+            "prompt_tokens": 855,
+            "completion_tokens": 187,
+            "total_tokens": 1042
+          },
+          "finishedAt": "2026-11-01T10:45:18.610Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-17",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "e02f3c7681f22bd691f2e62e3465989bee709cfe0e3e26bcc708e74a569bfab4",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 17,
+          "caseId": "review-17",
+          "caseOrdinal": 17,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "30fa9cb9080235930d326f4e0c675ff62e77d6fad85fb1df52bcf3ad98c2bbf4",
+          "startedAt": "2026-11-01T10:45:18.611Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            406
+          ],
+          "usage": {
+            "prompt_tokens": 891,
+            "completion_tokens": 180,
+            "total_tokens": 1071
+          },
+          "finishedAt": "2026-11-01T10:45:21.301Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-18",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "93213b5c292666846ffeb203d72b0dce6506ea83d5d933649b5be77f8d77e7d7",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 18,
+          "caseId": "review-18",
+          "caseOrdinal": 18,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "954cac90288876a82d756e7881a087189639292cb14e0d9da4db2ff5b3822929",
+          "startedAt": "2026-11-01T10:45:21.302Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            484
+          ],
+          "usage": {
+            "prompt_tokens": 886,
+            "completion_tokens": 184,
+            "total_tokens": 1070
+          },
+          "finishedAt": "2026-11-01T10:45:23.760Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-19",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "dadc62d10ae46dae7b31f8db54ea4f3d5db5bbc82a24eb50273c462355215b4b",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 19,
+          "caseId": "review-19",
+          "caseOrdinal": 19,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "b60106c8403ba22e99684986fd2ee7e54eca4f1474a44cb9e6eab3ca0edf8c63",
+          "startedAt": "2026-11-01T10:45:23.761Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            461
+          ],
+          "usage": {
+            "prompt_tokens": 891,
+            "completion_tokens": 192,
+            "total_tokens": 1083
+          },
+          "finishedAt": "2026-11-01T10:45:26.364Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    },
+    {
+      "id": "review-20",
+      "formatAttempts": 1,
+      "attemptStatuses": [
+        "valid"
+      ],
+      "structuredAvailable": true,
+      "scenarioFingerprint": "5d7a56d5b90ab2284a1ee6467ae4574ab18b1d61b5a22d2d95a5053c6ffd3da7",
+      "httpFetchCount": 1,
+      "http": [
+        {
+          "fetch": 20,
+          "caseId": "review-20",
+          "caseOrdinal": 20,
+          "requestModel": "claude-haiku-5-5",
+          "maxTokens": 400,
+          "thinkingType": "disabled",
+          "reasoningEffort": "none",
+          "bodyFieldNames": [
+            "model",
+            "max_tokens",
+            "thinking",
+            "reasoning_effort",
+            "messages"
+          ],
+          "systemPromptSha256": "1e79592cceb7dbf65d84002a823d7874c2f5f2fc7eba1ac07057fdeee23cd707",
+          "userPromptSha256": "09217dc69f4501ca70b661e7aa84b6e057825a74c32a3705aca0a3d3fbcf8802",
+          "startedAt": "2026-11-01T10:45:26.365Z",
+          "status": 200,
+          "finishReasons": [
+            "stop"
+          ],
+          "visibleContentCharacters": [
+            470
+          ],
+          "usage": {
+            "prompt_tokens": 865,
+            "completion_tokens": 201,
+            "total_tokens": 1066
+          },
+          "finishedAt": "2026-11-01T10:45:28.558Z"
+        }
+      ],
+      "humanIntentionSetting": null,
+      "humanNaturalness": null,
+      "humanApproved": null
+    }
+  ],
+  "resolvedGatewayModel": "claude-haiku-5-5",
+  "requestedModel": "claude-haiku-5-5",
+  "requestedModelAssertedOnAll20Fetches": true,
+  "providerResponseModel": null,
+  "providerResponseModelObservation": "Not captured by this observer. Resolved configuration and request-body model are observed; underlying provider model identity is not independently established."
+}

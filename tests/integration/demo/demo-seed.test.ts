@@ -11,7 +11,7 @@ import {
   type DemoTable,
 } from "../../../scripts/seed-demo";
 import { candidateMatchesHighlight } from "../../../src/server/jobs/handlers/marked-learning-cards";
-import { CandidateExpressionSchema } from "../../../src/contracts/knowledge";
+import { CandidateExpressionSchema, LearningCardFieldsSchema } from "../../../src/contracts/knowledge";
 import { SavedHighlightSchema } from "../../../src/contracts/highlights";
 import { DEMO_VIDEO } from "../../fixtures/demo/youtube-video";
 import transcript from "../../fixtures/demo/transcript.zh-CN.json";
@@ -36,6 +36,8 @@ class MemoryRepository implements DemoSeedRepository {
   readonly operations: Operation[] = [];
   readonly rows = new Map<DemoTable, Map<string, DemoSeedRow>>();
   accounts: DemoAccount[];
+
+  async prepareReviewScenario() { /* Real SQL publication is verified on the isolated stack. */ }
 
   constructor(accounts: DemoAccount[]) {
     this.accounts = accounts;
@@ -118,6 +120,36 @@ function idsByTable(repository: MemoryRepository): Record<string, string[]> {
 }
 
 describe("deterministic classroom demo seed", () => {
+  it("authors valid modern cards for new synthetic canonical senses without rewriting old evidence", () => {
+    const plan = buildDemoSeedPlan(OWNER_A, REFERENCE_NOW);
+    const senses = rowsFor(plan, "expression_senses");
+    for (const sense of senses) {
+      expect(LearningCardFieldsSchema.safeParse({ meaningHere: sense.meaning_here, useItWhen: sense.use_it_when,
+        comparedWith: sense.compared_with, howItFits: sense.how_it_fits, toneAndWho: sense.tone_and_who,
+        watchOut: sense.watch_out, examples: sense.examples, functionCategories: sense.function_categories,
+        usageSettings: sense.usage_settings, suitability: "expression" }).success).toBe(true);
+    }
+    expect(senses.map(sense => [sense.expression_text, sense.function_categories])).toEqual([
+      ["挺靠谱的", ["praise"]], ["慢慢来", ["suggest"]], ["太离谱了", ["complain"]],
+    ]);
+  });
+  it("plans prepared near and far review examples while keeping the mixed queue schedule", () => {
+    const plan = buildDemoSeedPlan(OWNER_A, REFERENCE_NOW);
+    const scenarios = plan.reviewScenarios;
+    expect(scenarios).toHaveLength(2);
+    expect(scenarios?.map(item => [item.transferType, item.targetFunction, item.targetSetting])).toEqual([
+      ["near", "praise", "casual_chat"], ["far", "suggest", "work_school"],
+    ]);
+    for (const item of scenarios ?? []) {
+      const review = rowsFor(plan, "review_tasks").find(row => row.id === item.reviewTaskId)!;
+      const expression = rowsFor(plan, "user_expressions").find(row => row.id === review.user_expression_id)!;
+      const sense = rowsFor(plan, "expression_senses").find(row => row.id === expression.expression_sense_id)!;
+      expect(review.status).toBe("pending");
+      expect(["tried", "reused"]).toContain(review.mastery_state);
+      expect(item.scenario.situationZh).not.toContain(sense.expression_text);
+      expect(item.scenario.situationEn).toMatch(/[A-Za-z]/);
+    }
+  });
   it("keeps three distinct expression cards available for first practice alongside round scenarios", async () => {
     const repository = new MemoryRepository([{ id: OWNER_A, email: "owner@example.com" }]);
     await seedDemo({ repository, userSelector: OWNER_A, referenceNow: REFERENCE_NOW });
@@ -553,13 +585,16 @@ describe("deterministic classroom demo seed", () => {
     const expression = [...repository.rows.get("user_expressions")!.values()][0];
     const pending = [...repository.rows.get("review_tasks")!.values()].find(row => row.user_expression_id === expression.id && row.status === "pending")!;
     const mark = [...repository.rows.get("saved_item_highlights")!.values()][0];
+    const sense = [...repository.rows.get("expression_senses")!.values()][0];
     repository.rows.get("user_expressions")!.set(expression.id, { ...expression, mastery_state: "owned" });
     repository.rows.get("review_tasks")!.set(pending.id, { ...pending, due_at: "2027-01-01T00:00:00.000Z", interval_days: 30 });
     repository.rows.get("saved_item_highlights")!.set(mark.id, { ...mark, status: "removed", removed_at: REFERENCE_NOW });
+    repository.rows.get("expression_senses")!.set(sense.id, { ...sense, meaning_here: "A learner's edited meaning.", function_categories: ["describe"] });
     await seedDemo({ repository, userSelector: OWNER_A, referenceNow: "2026-11-01T12:00:00.000Z" });
     expect(repository.rows.get("user_expressions")!.get(expression.id)?.mastery_state).toBe("owned");
     expect(repository.rows.get("review_tasks")!.get(pending.id)).toMatchObject({ due_at: "2027-01-01T00:00:00.000Z", interval_days: 30 });
     expect(repository.rows.get("saved_item_highlights")!.get(mark.id)?.status).toBe("removed");
+    expect(repository.rows.get("expression_senses")!.get(sense.id)).toMatchObject({ meaning_here: "A learner's edited meaning.", function_categories: ["describe"] });
   });
 
   it("is network-free, owner-scoped, idempotent, and leaves unrelated rows untouched", async () => {

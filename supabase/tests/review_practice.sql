@@ -1,0 +1,16 @@
+begin;
+select extensions.no_plan();
+select extensions.has_column('public','practice_tasks','scenario_version','review question version is persisted');
+select extensions.has_column('public','practice_tasks','scenario_fingerprint','scenario dedup is separate from mastery context hash');
+select extensions.has_column('public','review_tasks','expression_revealed_at','recall disclosure is persisted per review');
+select extensions.has_table('public','review_revisions','learning-only review revisions have their own table');
+select extensions.has_table('public','review_scenarios','replaced questions remain in owned immutable history');
+select extensions.has_function('public','read_review_practice_context',array['uuid','uuid'],'context reads all-round history without generating');
+select extensions.ok(not has_function_privilege('authenticated','public.read_review_practice_context(uuid,uuid)','execute'),'browser role cannot choose a context owner');
+select extensions.ok(has_function_privilege('service_role','public.read_review_practice_context(uuid,uuid)','execute'),'server reads owner context through its dedicated RPC');
+select extensions.is(public.read_review_practice_context('59000000-0000-4000-8000-000000000001','59000000-0000-4000-8000-000000000002'),null::jsonb,'unknown owned review returns no graph');
+select extensions.has_function('public','claim_review_preparation',array['uuid','uuid','text','uuid','jsonb','jsonb','timestamp with time zone'],'worker and GET share a short owned preparation claim');
+select extensions.has_function('public','publish_review_scenario',array['uuid','uuid','uuid','uuid','jsonb','timestamp with time zone'],'publication requires the same claim and expected version');
+select extensions.has_function('public','mark_review_disclosure',array['uuid','uuid','text','jsonb','timestamp with time zone'],'review markers use the scenario fence');
+select * from extensions.finish();
+rollback;

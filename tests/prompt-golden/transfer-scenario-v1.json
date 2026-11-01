@@ -1,0 +1,260 @@
+[
+  {
+    "id": "transfer-01",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "高得要命",
+        "meaningHere": "Ridiculously high — complaining the price is way too much.",
+        "useItWhen": "When you want to complain that something is excessive and exaggerate a little.",
+        "toneAndWho": "Casual and exaggerated; natural with friends and online."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "朋友问：“这杯咖啡六十元，你怎么看？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "高得要命"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "New everyday topic, neither coffee nor housing prices; complain to a friend or family member.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "transfer-02",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "高得要命",
+        "meaningHere": "Ridiculously high — complaining the price is way too much.",
+        "useItWhen": "When you want to complain that something is excessive and exaggerate a little.",
+        "toneAndWho": "Casual and exaggerated; natural with friends and online."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "targetSetting": {
+        "value": "online_social",
+        "label": "Online posts",
+        "description": "Writing posts, comments, group-chat messages or bullet comments."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "朋友问：“这杯咖啡六十元，你怎么看？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "高得要命"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Different life domain and relationship from the previous friend and coffee situation.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "transfer-03",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "说白了",
+        "meaningHere": "To put it plainly, giving the central point.",
+        "useItWhen": "When someone has not understood or a discussion needs a plain summary.",
+        "toneAndWho": "Direct but acceptable with colleagues and classmates."
+      },
+      "targetFunction": {
+        "value": "explain_sum_up",
+        "label": "Explain · Sum up",
+        "rule": "The other person has not understood, or a discussion needs to be summed up."
+      },
+      "targetSetting": {
+        "value": "work_school",
+        "label": "Work & school",
+        "description": "Talking with colleagues, managers, teachers or classmates, including meetings and class."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "同事问：“会议讨论了这么久，大家到底想解决什么问题？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "说白了"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "A colleague or classmate needs clarification or a summary, on a new topic.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "transfer-04",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "说白了",
+        "meaningHere": "To put it plainly, giving the central point.",
+        "useItWhen": "When someone has not understood or a discussion needs a plain summary.",
+        "toneAndWho": "Direct but acceptable with colleagues and classmates."
+      },
+      "targetFunction": {
+        "value": "explain_sum_up",
+        "label": "Explain · Sum up",
+        "rule": "The other person has not understood, or a discussion needs to be summed up."
+      },
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "transferType": "far",
+      "previousSituations": [
+        "同事问：“会议讨论了这么久，大家到底想解决什么问题？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "说白了"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Change setting and relationship from work; choose a different life domain.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "transfer-05",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "话虽如此",
+        "meaningHere": "Even so, accepting a point before offering a different view.",
+        "useItWhen": "When you acknowledge a reasonable point and then contrast it with another concern.",
+        "toneAndWho": "Measured disagreement with colleagues and classmates."
+      },
+      "targetFunction": {
+        "value": "concede_contrast",
+        "label": "Concede · Contrast",
+        "rule": "The speaker needs to accept one point the other person makes and then offer a different view."
+      },
+      "targetSetting": {
+        "value": "work_school",
+        "label": "Work & school",
+        "description": "Talking with colleagues, managers, teachers or classmates, including meetings and class."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "同事说：“这个方案成本低，所以我们现在就做吧？”"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "话虽如此"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "The other person makes a reasonable point that must be acknowledged before a different view.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  },
+  {
+    "id": "transfer-06",
+    "input": {
+      "task": "review_situation",
+      "card": {
+        "expression": "有两把刷子",
+        "meaningHere": "To have real skill or ability.",
+        "useItWhen": "When someone has done something well and deserves recognition.",
+        "toneAndWho": "Casual praise between friends."
+      },
+      "targetFunction": {
+        "value": "praise",
+        "label": "Praise",
+        "rule": "Someone or something deserves praise or approval."
+      },
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "transferType": "near",
+      "previousSituations": [
+        "朋友修好了坏掉的自行车，问你觉得他的手艺怎么样。"
+      ]
+    },
+    "expect": {
+      "mustNotContain": [
+        "有两把刷子"
+      ],
+      "maxCharacters": {
+        "situationZh": 120,
+        "interlocutor": 10
+      },
+      "maxWords": {
+        "situationEn": 60,
+        "taskEn": 30
+      },
+      "manualReview": [
+        "Praise genuine skill on a new topic; no wording hints in any output field.",
+        "Faithful English translation; neither the situation nor task reveals or translates answer wording."
+      ]
+    }
+  }
+]

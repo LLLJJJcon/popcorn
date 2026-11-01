@@ -4,13 +4,15 @@ import { pathToFileURL } from "node:url";
 
 import { createClient } from "@supabase/supabase-js";
 
-import type { LearningCardFields } from "../src/contracts/knowledge";
+import { LearningCardFieldsSchema, type LearningCardFields } from "../src/contracts/knowledge";
+import { getTargetFunction, getTargetSetting } from "../src/server/ai/prompts/learning-intent-constants";
 import { practiceCandidateKey } from "../src/server/domain/practice-rounds";
 import { highlightIdentity } from "../src/server/jobs/handlers/marked-learning-cards";
 import type { Database } from "../src/types/database.generated";
 import artifacts from "../tests/fixtures/demo/generated-artifacts.json" with { type: "json" };
 import transcript from "../tests/fixtures/demo/transcript.zh-CN.json" with { type: "json" };
 import { DEMO_VIDEO } from "../tests/fixtures/demo/youtube-video";
+import { modernReviewColumns } from "../tests/fixtures/demo/review-fixtures";
 
 export const DEMO_TABLES = [
   "video_sources",
@@ -35,8 +37,14 @@ export type DemoSeedRow = Readonly<{ id: string; user_id: string; [key: string]:
 export type DemoAccount = Readonly<{ id: string; email: string }>;
 
 export type DemoPracticeScenario = { readonly name:string; readonly rounds: readonly { readonly draft:DemoSeedRow; readonly attempts:readonly DemoSeedRow[] }[]; readonly removeAfter:boolean };
+export type DemoReviewScenario = {
+  readonly reviewTaskId: string; readonly requestId: string; readonly transferType: "near" | "far";
+  readonly targetFunction: LearningCardFields["functionCategories"][number]; readonly targetSetting: LearningCardFields["usageSettings"][number];
+  readonly scenario: { readonly situationZh: string; readonly situationEn: string; readonly interlocutor: string; readonly taskEn: string };
+};
 
 export type DemoSeedRepository = {
+  prepareReviewScenario(ownerId: string, scenario: DemoReviewScenario, now: string): Promise<void>;
   createPracticeRound(ownerId:string,draft:DemoSeedRow):Promise<void>;
   recordPracticeAttempt(ownerId:string,attempt:DemoSeedRow):Promise<void>;
   removePracticeRound(ownerId:string,taskId:string):Promise<void>;
@@ -58,6 +66,7 @@ export type DemoSeedPlan = {
   readonly tables: Readonly<Record<DemoTable, readonly DemoSeedRow[]>>;
   readonly completedReviewPlaceholders: readonly DemoSeedRow[];
   readonly practiceScenarios:readonly DemoPracticeScenario[];
+  readonly reviewScenarios: readonly DemoReviewScenario[];
 };
 
 const FIXED_AT = DEMO_VIDEO.acquiredAt;
@@ -426,6 +435,7 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
       normalized_expression_text: candidate.expression, english_meaning: candidate.englishMeaning,
       english_explanation: candidate.englishExplanation, tone: candidate.tone,
       communicative_function: candidate.communicativeFunction, register: candidate.register,
+      ...modernReviewColumns(candidate.expression),
       created_at: FIXED_AT, updated_at: FIXED_AT,
     });
     tables.expression_occurrences.push({
@@ -511,7 +521,13 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
     });
   }
 
-  return { tables, completedReviewPlaceholders, practiceScenarios };
+  const reviewScenarios: DemoReviewScenario[] = [
+    { reviewTaskId: id("review:tried:pending"), requestId: id("seed-review:tried"), transferType: "near", targetFunction: "praise", targetSetting: "casual_chat",
+      scenario: { situationZh: "朋友打算请一位做事认真的同学组织活动，问你觉得能不能信任这个人。", situationEn: "A friend wants a careful classmate to organize an event and asks whether this person can be trusted.", interlocutor: "朋友", taskEn: "Reassure your friend about this classmate's reliability." } },
+    { reviewTaskId: id("review:reused:pending"), requestId: id("seed-review:reused"), transferType: "far", targetFunction: "suggest", targetSetting: "work_school",
+      scenario: { situationZh: "实习第一天，同事因还不会使用公司的新系统而着急，问你该怎么办。", situationEn: "On the first day of an internship, a colleague feels anxious about learning the company's new system and asks what to do.", interlocutor: "同事", taskEn: "Encourage your colleague to learn patiently without rushing." } },
+  ];
+  return { tables, completedReviewPlaceholders, practiceScenarios, reviewScenarios };
 }
 
 async function write(repository: DemoSeedRepository, ownerId: string, table: DemoTable, rows: readonly DemoSeedRow[], insertOnly = true) {
@@ -584,6 +600,8 @@ export async function seedDemo(input: {
     if(scenario.removeAfter)await input.repository.removePracticeRound(account.id,scenario.rounds.at(-1)!.draft.id);
   }
 
+  for (const scenario of plan.reviewScenarios) await input.repository.prepareReviewScenario(account.id, scenario, input.referenceNow);
+
   const ids = {} as Record<DemoTable, readonly string[]>;
   const counts = {} as Record<DemoTable, number>;
   for (const table of DEMO_TABLES) {
@@ -620,6 +638,24 @@ export function createSupabaseDemoSeedRepository(
     if(result.error)throw new DemoSeedCliError("database_write","Could not apply demo practice transaction");
   }
   return {
+    async prepareReviewScenario(ownerId, scenario, now) {
+      // No model call: publish a fixed, explicitly authored classroom example
+      // through the real version/hash/archive path. Existing questions and
+      // incomplete legacy cards are preserved; this is not legacy recovery.
+      const contextResult = await rpcClient.rpc("read_review_practice_context", { p_user_id: ownerId, p_review_task_id: scenario.reviewTaskId });
+      if (contextResult.error || !contextResult.data) throw new DemoSeedCliError("database_write", "Could not read demo review state");
+      const context = contextResult.data as { review: { status: string }; task: unknown; canonicalCard: unknown };
+      if (context.review.status !== "pending" || context.task || !LearningCardFieldsSchema.safeParse(context.canonicalCard).success) return;
+      const claimResult = await rpcClient.rpc("claim_review_preparation", { p_user_id: ownerId, p_review_task_id: scenario.reviewTaskId,
+        p_kind: "prepare", p_request_id: scenario.requestId, p_identity: null, p_job: null, p_now: now });
+      if (claimResult.error || !claimResult.data) throw new DemoSeedCliError("database_write", "Could not claim demo review state");
+      const claim = claimResult.data as { kind: string; requestId: string; token: string };
+      if (claim.kind === "ready") return;
+      if (claim.kind !== "claimed") throw new DemoSeedCliError("database_write", "Demo review preparation is not available");
+      await apply("publish_review_scenario", { p_user_id: ownerId, p_review_task_id: scenario.reviewTaskId, p_request_id: claim.requestId, p_token: claim.token,
+        p_generated: { scenario: scenario.scenario, transferType: scenario.transferType, targetFunction: getTargetFunction(scenario.targetFunction),
+          targetSetting: getTargetSetting(scenario.targetSetting), promptVersion: "transfer-scenario-v1", model: "fixture/demo-transfer-scenario-v1", pin: null }, p_now: now });
+    },
     async createPracticeRound(ownerId,draft) { if(draft.user_id!==ownerId)throw new DemoSeedCliError("database_write","demo owner mismatch");await apply("create_practice_round",{p_user_id:ownerId,p_draft:draft,p_request_id:fixtureUuid(ownerId,`seed-round:${draft.id}`)}); },
     async recordPracticeAttempt(ownerId,attempt) { if(attempt.user_id!==ownerId)throw new DemoSeedCliError("database_write","demo owner mismatch");await apply("record_practice_round_attempt",{p_user_id:ownerId,p_attempt:attempt}); },
     async removePracticeRound(ownerId,taskId) { await apply("change_practice_round",{p_user_id:ownerId,p_task_id:taskId,p_action:"remove"}); },

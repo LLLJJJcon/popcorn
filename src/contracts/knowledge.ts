@@ -54,6 +54,7 @@ export const KnowledgeJobTypeSchema = z.enum([
   "explain_selection",
   "analyze_saved_item",
   "highlight_saved_item",
+  "prepare_transfer_task",
 ]);
 
 const knowledgeJobBase = {

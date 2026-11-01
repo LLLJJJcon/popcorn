@@ -10,6 +10,8 @@ export const MODEL_OUTPUT_TOKENS = {
   highlightExpressions: withOutputHeadroom(512),
   activatePractice: withOutputHeadroom(512),
   evaluatePractice: withOutputHeadroom(1_536),
+  // Section8.6 specifies this exact completion budget, without headroom.
+  transferScenario: 400,
   explainSelection: withOutputHeadroom(1_024),
   savedItemAnalysis: withOutputHeadroom(2_048),
   youtubeOverview: withOutputHeadroom(4_096),

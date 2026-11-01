@@ -48,6 +48,10 @@ GitHub checkpoint push was initially rejected by automatic approval review becau
 
 The separate acceptance agent completed the final engineering/fixture gates and all 11 criteria; see `group-1-acceptance.md`. Draft PR #1 contains the acceptance matrix. The user explicitly approved the only exception to 15.3: deleting the inherited blank final line from migration 021, with no SQL-content or database change (`95de382`). Unassigned concurrent provider/token edits are preserved outside the committed/tested scope. Real-model semantic review remains unrun. That execution stopped after group 1.
 
+## Group 4 preflight pointer — 2026-11-01
+
+Actual§7.8 findings and modern interfaces are recorded in `group-4-preflight.md`. The confirmed legacy metadata gap is separately offered for product selection in `group-4-legacy-decision.md`; its unapproved compatibility branch is not implemented. Modern-only work does not require inventing old categories or adding analysis calls. Group3 is independently accepted and merged main.
+
 ## Group 3 preflight pointer — 2026-11-01
 
 After independent group2 acceptance and PR#2 main merge, exact current-state findings for all §6.11 checks are in `group-3-preflight.md`; interfaces/rulings/ownership are frozen in `group-3-contracts.md`. No group4 implementation is authorized before group3's independent gate.
