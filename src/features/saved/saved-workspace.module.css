@@ -266,95 +266,6 @@
   margin-bottom: 0.4rem;
 }
 
-.momentDelete {
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.momentDeleteTrigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  min-height: 2rem;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 0.3rem 0.5rem;
-  background: transparent;
-  color: color-mix(in srgb, var(--cocoa) 70%, var(--paper));
-  font: inherit;
-  font-size: 0.78rem;
-  cursor: pointer;
-}
-
-.momentDeleteTrigger:hover,
-.momentDeleteTrigger[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--danger) 7%, var(--paper));
-  color: var(--danger);
-}
-
-.momentDeleteTrigger:focus-visible,
-.momentDeleteActions button:focus-visible {
-  outline: 2px solid var(--coral-active);
-  outline-offset: 2px;
-}
-
-.momentDeleteConfirm {
-  position: absolute;
-  top: calc(100% + 0.4rem);
-  right: 0;
-  z-index: 2;
-  width: min(20rem, calc(100vw - 4.5rem));
-  border: 1px solid color-mix(in srgb, var(--cocoa) 18%, transparent);
-  border-radius: var(--radius-sm);
-  padding: 1rem;
-  background: var(--paper);
-  box-shadow: var(--shadow-paper);
-  font-size: 0.85rem;
-  line-height: 1.5;
-}
-
-.momentDeleteConfirm p {
-  margin-bottom: 0.65rem;
-}
-
-.momentDeleteTitle {
-  font-weight: 750;
-}
-
-.momentDeleteActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
-.momentDeleteActions button {
-  min-height: 2rem;
-  border: 1px solid color-mix(in srgb, var(--cocoa) 20%, transparent);
-  border-radius: var(--radius-sm);
-  padding: 0.35rem 0.65rem;
-  background: var(--paper);
-  color: var(--cocoa);
-  font: inherit;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.momentDeleteActions button:last-child {
-  border-color: var(--danger);
-  background: var(--danger);
-  color: var(--paper);
-}
-
-.momentDelete button:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.momentDeleteConfirm [role="alert"] {
-  margin: 0.65rem 0 0;
-  color: var(--danger);
-}
-
 .rawText {
   margin-bottom: 0.65rem;
   border-left: 3px solid var(--coral);
@@ -1093,3 +1004,9 @@ generated cards have their own reading surface. */ .highlightEditor {
 
 .learningCardFooter { justify-content:flex-start;flex-wrap:wrap;gap:.75rem; }
 .learningCardFooter .practiceAction { text-decoration:none; }
+.cardHeading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-width: 0; }
+.cardHeading > h2 { min-width: 0; flex: 1; margin: 0; }
+.videoCard .cardHeading { margin-bottom: 0.55rem; }
+.cardHeadingActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.4rem; }
+.detailToolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0.75rem 0; color: color-mix(in srgb, var(--cocoa) 60%, var(--paper)); font-size: 0.78rem; }
+.learningCardHeading > h4 { min-width: 0; flex: 1; overflow-wrap: anywhere; }

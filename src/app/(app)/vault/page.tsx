@@ -16,7 +16,7 @@ export default async function VaultPage() {
       <h1>Vault</h1>
       <p>Return to Mandarin you have genuinely practised, with the evidence that made it yours.</p>
     </header>
-    <VaultSearch />
+    <VaultSearch refreshKey={cards.map(card => card.userExpressionId).join(",")} />
     <VaultList cards={cards} />
   </main>;
 }

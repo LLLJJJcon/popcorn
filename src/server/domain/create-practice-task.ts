@@ -1,3 +1,4 @@
+import { expressionRemovalKey } from "@/features/saved/expression-removal-key";
 import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 import { createHash } from "node:crypto";
 
@@ -21,6 +22,7 @@ export type CandidateArtifactRecord = {
   readonly userId: string;
   readonly videoSourceId: string;
   readonly savedItemId: string;
+  readonly removedExpressionKeys?: readonly string[];
   readonly artifactType: string;
   readonly content: unknown;
 };
@@ -278,7 +280,7 @@ function exactCandidate(artifact: CandidateArtifactRecord, selection: CandidateS
   ) throw new PracticeError("NOT_FOUND");
   const content = CandidateContentSchema.safeParse(artifact.content);
   const candidate = content.success ? content.data.candidates[selection.candidateIndex] : undefined;
-  if (!candidate) throw new PracticeError("NOT_FOUND");
+  if (!candidate || artifact.removedExpressionKeys?.includes(expressionRemovalKey(candidate))) throw new PracticeError("NOT_FOUND");
   return candidate;
 }
 

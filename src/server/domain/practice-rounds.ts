@@ -17,9 +17,9 @@ const originalInput=z.strictObject({taskId:z.string().uuid(),responseChinese:Tar
 const candidateProjectionRowSchema = z.strictObject({
   candidate_key: z.string().min(1), task_id: z.string().uuid().nullable(),
   round_number: z.number().int().positive().nullable(),
-  status: z.enum(["open", "retry_scheduled", "promoted", "superseded", "removed"]).nullable(),
+  status: z.enum(["open", "retry_scheduled", "promoted", "superseded", "removed", "vault_removed"]).nullable(),
   user_expression_id: z.string().uuid().nullable(),
-}).refine(row => row.task_id === null
+}).refine(row => row.status === "vault_removed" ? row.user_expression_id !== null : row.task_id === null
   ? row.round_number === null && row.status === null
   : row.round_number !== null && row.status !== null,
 { message: "Inconsistent practice candidate projection" });
@@ -46,7 +46,7 @@ export function createPracticeRoundStore(client:PracticeRoundRpcClient) {
     },
     async candidate(userId:string,candidateKey:string){
       return await rpc("get_practice_candidate_state",{p_user_id:userId,p_candidate_key:candidateKey}) as {
-        draft:Record<string,unknown>|null;promotion:{userExpressionId:string}|null;situations:string[];
+        draft:Record<string,unknown>|null;promotion:{userExpressionId:string;removedFromVault?:boolean}|null;situations:string[];
       };
     },
     async candidatePracticeStates(userId: string, candidateKeys: readonly string[]): Promise<Map<string, SavedPracticeState>> {
@@ -63,7 +63,7 @@ export function createPracticeRoundStore(client:PracticeRoundRpcClient) {
         for (const row of rows) {
           if (!expected.delete(row.candidate_key)) throw new Error("Unexpected practice candidate projection");
           const state = row.user_expression_id
-            ? { status: "promoted", userExpressionId: row.user_expression_id }
+            ? { status: "promoted", userExpressionId: row.user_expression_id, ...(row.status === "vault_removed" ? {removedFromVault:true} : {}) }
             : row.task_id
               ? { status: row.status === "removed" ? "removed" : "practicing", taskId: row.task_id, roundNumber: row.round_number }
               : { status: "unpracticed" };

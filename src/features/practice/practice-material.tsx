@@ -22,7 +22,7 @@ export function PracticeMaterial({ material, onExamplesOpen, onExamplesPendingCh
   }
   const Heading = headingLevel === 2 ? "h2" : "h1";
   const roundNumber = material.roundState?.roundNumber ?? 1;
-  const phaseLabel = due ? `Current mastery: ${material.masteryState}` : material.roundState?.promotion ? "In your Vault" : roundNumber > 1 ? `Round ${roundNumber} · Not in your Vault yet` : "New · Not in your Vault yet";
+  const phaseLabel = due ? `Current mastery: ${material.masteryState}` : material.roundState?.promotion ? material.roundState.promotion.removedFromVault ? "Removed from Vault" : "In your Vault" : roundNumber > 1 ? `Round ${roundNumber} · Not in your Vault yet` : "New · Not in your Vault yet";
   return <article className={headingLevel === 2 ? styles.embeddedWorkspace : styles.workspace}>
     {navigation}
     <header className={styles.practiceHeader}><Heading lang="zh-CN">{material.task.targetExpression}</Heading><p className={styles.meaning}>{card?.meaningHere ?? material.expression.englishMeaning}</p><div className={styles.metaRow}><span className={styles.mastery}>{phaseLabel}</span>{sessionStatus}</div></header>

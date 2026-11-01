@@ -12,3 +12,8 @@ export async function GET(
     requestId: () => crypto.randomUUID(),
   }).vaultDetail(request, context);
 }
+
+export async function DELETE(request: Request, context: { readonly params: Promise<{ readonly userExpressionId: string }> }) {
+  const { createExpressionDeletionRuntime } = await import("@/server/repositories/expression-removal-repository");
+  return (await createExpressionDeletionRuntime()).vault(request,(await context.params).userExpressionId);
+}

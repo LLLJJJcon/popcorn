@@ -250,7 +250,7 @@ describe("Saved candidate expressions", () => {
     expect(screen.getByTestId("raw-text")).toHaveTextContent("这个想法挺有意思的");
     expect(screen.queryByText("旧表达")).not.toBeInTheDocument();
     expect(screen.getByText("最新表达")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Delete 中文访谈?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete saved video 中文访谈" })).toBeInTheDocument();
     expect(screen.queryByText(/already.*Vault|added.*Vault/i)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Practice this expression" }));
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));

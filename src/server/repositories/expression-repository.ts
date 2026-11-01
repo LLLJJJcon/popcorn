@@ -1,9 +1,10 @@
 import { SavedHighlightSchema, type SavedHighlight } from "@/contracts/highlights";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { KnowledgeJobStatusSchema, type KnowledgeJobStatus } from "@/contracts/knowledge";
+import { CandidateExpressionListSchema, KnowledgeJobStatusSchema, type KnowledgeJobStatus } from "@/contracts/knowledge";
 import { ANALYZE_SAVED_ITEM_READABLE_PROMPT_VERSIONS } from "@/server/ai/prompts/analyze-saved-item.v1";
 import { SavedItemAnalysisJobInputSchema } from "@/server/jobs/job-types";
+import { createPracticeRoundStore, practiceCandidateKey, type PracticeRoundRpcClient } from "@/server/domain/practice-rounds";
 import type { Database, Json } from "@/types/database.generated";
 
 export type CandidateArtifactRecord = {
@@ -102,6 +103,15 @@ export function createSupabaseExpressionRepository(
       ]);
       queryFailed(source.error ?? snapshot.error ?? artifact.error ?? highlights.error ?? latestJob.error ?? pin?.error);
       if (!source.data || !snapshot.data) return null;
+      let content = artifact.data?.content;
+      if (artifact.data && content && typeof content === "object" && !Array.isArray(content) && typeof client.rpc === "function") {
+        const parsed = CandidateExpressionListSchema.safeParse(content.candidates);
+        if (parsed.success) {
+          const keys = parsed.data.map((card,candidateIndex) => practiceCandidateKey({savedItemId,candidateArtifactId:artifact.data!.id,candidateIndex},card));
+          const states = await createPracticeRoundStore(client as unknown as PracticeRoundRpcClient).candidatePracticeStates(userId,keys);
+          content = {...content,candidates:parsed.data.map((card,index) => ({...card,practiceState:states.get(keys[index]!)}))} as Json;
+        }
+      }
       return {
         userId: saved.data.user_id,
         sourceId,
@@ -131,7 +141,7 @@ export function createSupabaseExpressionRepository(
           savedItemId: artifact.data.saved_item_id!,
           type: artifact.data.artifact_type,
           promptVersion: artifact.data.prompt_version,
-          content: artifact.data.content,
+          content: content!,
         } : null,
       };
     },

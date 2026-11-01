@@ -1,3 +1,4 @@
+import { DeleteVaultExpression } from "./delete-vault-expression";
 import Link from "next/link";
 
 import type {
@@ -29,6 +30,7 @@ export function VaultDetail({
   return (
     <main className={styles.workspace}>
       <Link className={styles.backLink} href="/vault">← Back to Vault</Link>
+      <div className={styles.detailToolbar}><span>Manage expression</span><DeleteVaultExpression id={card.userExpressionId} expression={card.expression} detail /></div>
       <header className={styles.detailHeader}>
         <div>
           <p className={styles.eyebrow}>Expression detail</p>

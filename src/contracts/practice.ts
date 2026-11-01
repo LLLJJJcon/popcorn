@@ -107,7 +107,7 @@ export const PracticeRoundStateSchema = z.strictObject({
   roundNumber: z.number().int().positive(), status: PracticeRoundStatusSchema,
   firstAnswer: PracticeRoundAnswerSchema.nullable(), latestRevision: PracticeRoundAnswerSchema.nullable(),
   examplesOpened: z.boolean(),
-  promotion: z.strictObject({userExpressionId:z.string().uuid(),nextDueAt:IsoDateTimeSchema}).nullable(),
+  promotion: z.strictObject({userExpressionId:z.string().uuid(),nextDueAt:IsoDateTimeSchema,removedFromVault:z.boolean().optional()}).nullable(),
   retryDueAt: IsoDateTimeSchema.nullable(),
 });
 export const PracticeActivationResponseSchema = z.union([

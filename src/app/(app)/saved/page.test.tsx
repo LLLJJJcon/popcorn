@@ -7,7 +7,7 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock("@/features/saved/api", () => ({ createSavedRuntime: h.createSavedRuntime }));
 vi.mock("@/server/today-practice-runtime", () => ({ createTodayPracticeRuntime: h.createTodayPracticeRuntime }));
-vi.mock("next/navigation", () => ({ redirect: (path: string) => { throw new Error(`redirect:${path}`); } }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({push:vi.fn(),refresh:vi.fn()}), redirect: (path: string) => { throw new Error(`redirect:${path}`); } }));
 import SavedPage from "./page";
 
 const video = {

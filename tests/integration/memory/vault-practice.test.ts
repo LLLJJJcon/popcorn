@@ -1,3 +1,4 @@
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 import { render, screen } from "@testing-library/react";
 import { createElement } from "react";
 
@@ -85,6 +86,7 @@ function queryClient(plans: Array<{ table: string; data: unknown[] }>) {
         calls.push(["from", table]);
         const query = {
           select(columns: string) { calls.push(["select", table, columns]); return query; },
+          is(column: string, value: null) { calls.push(["is", table, column, value]); return query; },
           eq(column: string, value: unknown) { calls.push(["eq", table, column, value]); return query; },
           in(column: string, value: unknown) { calls.push(["in", table, column, value]); return query; },
           lte(column: string, value: unknown) { calls.push(["lte", table, column, value]); return query; },
@@ -229,6 +231,7 @@ describe("Vault and due Practice boundaries", () => {
       ["order", "video_snapshots", "captured_at", { ascending: false }],
       ["order", "video_snapshots", "id", { ascending: false }],
       ["limit", "video_snapshots", 300],
+      ["is", "user_expressions", "removed_from_vault_at", null],
       ["eq", "practice_draft_attempts", "user_id", USER],
       ["in", "practice_draft_attempts", "future_user_expression_id", [EXPRESSION]],
     ]));

@@ -290,3 +290,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+.cardHeading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-width: 0; }
+.cardHeading > h2,.cardHeading > a { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.cardHeading > h2 { margin: 0; }
+.expressionCard .cardHeading { margin-bottom: 0.4rem; }
+.detailToolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0 0 0.75rem; color: color-mix(in srgb, var(--cocoa) 60%, var(--paper)); font-size: 0.78rem; }
+.detailHeader h1 { overflow-wrap: anywhere; }

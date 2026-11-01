@@ -1,5 +1,6 @@
 "use client";
 
+import { DeleteVaultExpression } from "./delete-vault-expression";
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
@@ -49,7 +50,7 @@ function searchUrl(filters: Filters): string {
   return `/api/v1/vault?${parameters.toString()}`;
 }
 
-export function VaultSearch() {
+export function VaultSearch({ refreshKey = "" }: { readonly refreshKey?: string } = {}) {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [results, setResults] = useState<readonly ExpressionSearchResult[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -83,7 +84,7 @@ export function VaultSearch() {
       active = false;
       window.clearTimeout(timeout);
     };
-  }, [filters, retryGeneration]);
+  }, [filters, retryGeneration, refreshKey]);
 
   function update<K extends keyof Filters>(key: K, value: Filters[K]) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -173,6 +174,7 @@ export function VaultSearch() {
         <ul className={styles.searchResults} aria-label="Vault search results">
           {results.map((result, index) => (
             <li key={result.userExpressionId}>
+              <div className={styles.cardHeading}>
               <Link
                 ref={(element) => { resultRefs.current[index] = element; }}
                 href={`/vault/${result.userExpressionId}`}
@@ -180,6 +182,8 @@ export function VaultSearch() {
               >
                 <span lang="zh-CN">{result.expressionText}</span> — {result.englishMeaning}
               </Link>
+              <DeleteVaultExpression id={result.userExpressionId} expression={result.expressionText} onDeleted={()=>{setResults(current=>current.filter(value=>value.userExpressionId!==result.userExpressionId));setRetryGeneration(current=>current+1);}}/>
+              </div>
               <p>
                 {result.sourceCount} {result.sourceCount === 1 ? "source" : "sources"} · {result.masteryState} · {MATCH_LABELS[result.matchReason]}
               </p>

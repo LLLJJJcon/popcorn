@@ -1443,6 +1443,7 @@ export type Database = {
       }
       saved_items: {
         Row: {
+          removed_expression_keys: string[]
           captured_at: string
           client_event_id: string
           created_at: string
@@ -1460,6 +1461,7 @@ export type Database = {
           youtube_video_id: string
         }
         Insert: {
+          removed_expression_keys?: string[]
           captured_at: string
           client_event_id: string
           created_at?: string
@@ -1477,6 +1479,7 @@ export type Database = {
           youtube_video_id: string
         }
         Update: {
+          removed_expression_keys?: string[]
           captured_at?: string
           client_event_id?: string
           created_at?: string
@@ -1562,6 +1565,7 @@ export type Database = {
       }
       user_expressions: {
         Row: {
+          removed_from_vault_at: string | null
           created_at: string
           expression_sense_id: string
           id: string
@@ -1570,6 +1574,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          removed_from_vault_at?: string | null
           created_at?: string
           expression_sense_id: string
           id?: string
@@ -1578,6 +1583,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          removed_from_vault_at?: string | null
           created_at?: string
           expression_sense_id?: string
           id?: string
@@ -1748,6 +1754,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      remove_saved_expression: {
+        Args: { p_user_id: string; p_saved_item_id: string; p_artifact_id: string; p_candidate_index: number }
+        Returns: string
+      }
+      remove_vault_expression: {
+        Args: { p_user_id: string; p_user_expression_id: string }
+        Returns: boolean
+      }
+
       activate_user_model_gateway_config: {
         Args: {
           p_config_id: string

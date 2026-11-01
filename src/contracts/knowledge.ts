@@ -143,7 +143,7 @@ export const SavedPracticeStateSchema = z.discriminatedUnion("status", [
   z.strictObject({status:z.literal("unpracticed")}),
   z.strictObject({status:z.literal("practicing"),taskId:z.string().uuid(),roundNumber:z.number().int().positive()}),
   z.strictObject({status:z.literal("removed"),taskId:z.string().uuid(),roundNumber:z.number().int().positive()}),
-  z.strictObject({status:z.literal("promoted"),userExpressionId:z.string().uuid()}),
+  z.strictObject({status:z.literal("promoted"),userExpressionId:z.string().uuid(),removedFromVault:z.boolean().optional()}),
 ]);
 export type SavedPracticeState = z.infer<typeof SavedPracticeStateSchema>;
 export const CandidateExpressionSchema = z.strictObject({
