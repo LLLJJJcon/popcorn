@@ -1,118 +1,15 @@
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { describe, expect, test, vi } from "vitest";
-
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { EvaluationPanel } from "./evaluation-panel";
-
-const evaluation = {
-  passed: true,
-  accuracy: { score: 5, englishFeedback: "The meaning is accurate." },
-  naturalness: { score: 3, englishFeedback: "Move 吧 to the end for a more natural reaction." },
-  contextualFit: { score: 4, englishFeedback: "It fits the new situation." },
-  independentUse: true, assistanceLevel: "none" as const,
-};
-
-describe("EvaluationPanel", () => {
-  test("orders actionable feedback, coaching, evidence, schedule, and session actions", async () => {
-    const onRevise = vi.fn();
-    const onContinue = vi.fn();
-    const onStop = vi.fn();
-    const user = userEvent.setup();
-    const { container } = render(<EvaluationPanel
-      evaluation={evaluation} coaching={{ naturalRevisionChinese: "这个价格也太离谱了吧。" }}
-      evidenceMessage="Practice evidence was recorded." transition={{ from: "tried", to: "reused" }}
-      nextDueAt="2026-08-29T12:00:00.000Z" remainingCount={2}
-      onRevise={onRevise} onContinue={onContinue} onStop={onStop}
-    />);
-
-    const text = container.textContent ?? "";
-    expect(text.indexOf("Strong start")).toBeLessThan(text.indexOf("Accuracy"));
-    expect(text.indexOf("Accuracy")).toBeLessThan(text.indexOf("Naturalness"));
-    expect(text.indexOf("Naturalness")).toBeLessThan(text.indexOf("Context fit"));
-    expect(text.indexOf("Context fit")).toBeLessThan(text.indexOf("Try next"));
-    expect(text.indexOf("Try next")).toBeLessThan(text.indexOf("Natural revision"));
-    expect(screen.getByText("这个价格也太离谱了吧。")).toBeInTheDocument();
-    expect(screen.getByText("Practice recorded")).toBeInTheDocument();
-    expect(screen.getByText("Practice evidence was recorded.")).toBeInTheDocument();
-    expect(screen.getByText("Mastery moved from tried to reused.")).toBeInTheDocument();
-    expect(screen.getByText(/Next due Aug 29, 2026/i)).toBeInTheDocument();
-    expect(screen.getByText("2 left in this session")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Revise and check again" }));
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(screen.getByRole("button", { name: "Stop for now" }));
-    expect(onRevise).toHaveBeenCalledOnce();
-    expect(onContinue).toHaveBeenCalledOnce();
-    expect(onStop).toHaveBeenCalledOnce();
-  });
-
-  test("omits unavailable transition, coaching, and continue action", () => {
-    render(<EvaluationPanel
-      evaluation={{ ...evaluation, passed: false, independentUse: false }} coaching={null}
-      evidenceMessage="This attempt was recorded, but mastery did not change." transition={null}
-      nextDueAt={null} remainingCount={0} onRevise={() => undefined} onStop={() => undefined}
-    />);
-    expect(screen.getByText(/not there yet/i)).toBeInTheDocument();
-    expect(screen.queryByText(/mastery moved/i)).not.toBeInTheDocument();
-    expect(screen.queryByText("Natural revision")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
-  });
-
-  test("turns a valid non-pass into a clear hierarchy with only failed dimensions emphasized", () => {
-    render(<EvaluationPanel
-      evaluation={{
-        ...evaluation,
-        passed: false,
-        accuracy: { score: 2, englishFeedback: "The target meaning is only partly clear." },
-        naturalness: { score: 4, englishFeedback: "The response sounds natural." },
-        contextualFit: { score: 1, englishFeedback: "The response does not fit this situation." },
-        independentUse: false,
-      }}
-      coaching={{ naturalRevisionChinese: "这个价格也太离谱了吧。" }}
-      evidenceMessage="This attempt was recorded, but the expression was not added to your Vault as independent evidence."
-      onRevise={() => undefined}
-      onStop={() => undefined}
-    />);
-
-    expect(screen.getByRole("heading", { name: "Keep practising - 2 areas need work" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Focus first: Context fit" })).toBeInTheDocument();
-    expect(screen.getByText(/not added to your Vault/i)).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Accuracy score" })).toHaveAttribute("data-outcome", "needs-work");
-    expect(screen.getByRole("region", { name: "Naturalness score" })).toHaveAttribute("data-outcome", "on-track");
-    expect(screen.getByRole("region", { name: "Context fit score" })).toHaveAttribute("data-outcome", "needs-work");
-  });
-
-  test("uses stable dimension order to break a lowest-score tie", () => {
-    render(<EvaluationPanel
-      evaluation={{
-        ...evaluation,
-        passed: false,
-        accuracy: { score: 1, englishFeedback: "Accuracy needs work." },
-        naturalness: { score: 1, englishFeedback: "Naturalness needs work." },
-        contextualFit: { score: 1, englishFeedback: "Context fit needs work." },
-        independentUse: false,
-      }}
-      coaching={null}
-      evidenceMessage="The expression was not added to your Vault."
-      onRevise={() => undefined}
-      onStop={() => undefined}
-    />);
-
-    expect(screen.getByRole("heading", { name: "Focus first: Accuracy" })).toBeInTheDocument();
-  });
-
-  test("turns positive lowest-dimension feedback into a concrete rewrite instruction", () => {
-    render(<EvaluationPanel
-      evaluation={{
-        ...evaluation,
-        accuracy: { score: 5, englishFeedback: "The meaning is already accurate." },
-        naturalness: { score: 5, englishFeedback: "The sentence already sounds natural." },
-        contextualFit: { score: 5, englishFeedback: "The response already fits the situation." },
-      }}
-      coaching={null} evidenceMessage="Practice evidence was recorded."
-      onRevise={() => undefined} onStop={() => undefined}
-    />);
-    expect(screen.getByText(/Rewrite your sentence once, keeping what works and applying this accuracy feedback/i))
-      .toBeInTheDocument();
-  });
+import { characterDifference } from "./answer-comparison";
+import { formatPracticeDate } from "./practice-controls";
+const evaluation={passed:true,accuracy:{score:5,englishFeedback:"Meaning is accurate."},naturalness:{score:3,englishFeedback:"Move 吧 to the end."},contextualFit:{score:4,englishFeedback:"It fits the new situation."},independentUse:true,assistanceLevel:"none" as const};
+afterEach(cleanup);
+describe("EvaluationPanel",()=>{
+ test("uses lowest dimension focus and only failed dimensions are emphasized",()=>{render(<EvaluationPanel evaluation={{...evaluation,passed:false,independentUse:false,accuracy:{score:2,englishFeedback:"Improve meaning."},contextualFit:{score:1,englishFeedback:"Address the intention."}}} coaching={null} resultLine="Keep going." actions={null}/>);expect(screen.getByRole("heading",{name:"Focus first: Context fit"})).toBeInTheDocument();expect(screen.getByRole("region",{name:"Accuracy score"})).toHaveAttribute("data-outcome","needs-work");expect(screen.getByRole("region",{name:"Naturalness score"})).toHaveAttribute("data-outcome","on-track");});
+ test("stable tie uses Accuracy; natural version is collapsed pure comparison",()=>{const fetcher=vi.fn();vi.stubGlobal("fetch",fetcher);render(<EvaluationPanel evaluation={{...evaluation,accuracy:{score:3,englishFeedback:"Meaning okay."}}} coaching={{naturalRevisionChinese:"价格也太高了吧。"}} answerText="价格太高了。" resultLine="Try again." actions={null}/>);expect(screen.getByRole("heading",{name:"Focus first: Accuracy"})).toBeInTheDocument();const toggle=screen.getByRole("button",{name:"Show a natural version"});expect(toggle).toHaveAttribute("aria-expanded","false");fireEvent.click(toggle);expect(toggle).toHaveAttribute("aria-expanded","true");expect(screen.getByText("Your answer")).toBeInTheDocument();expect(screen.getByText("A natural version")).toBeInTheDocument();expect(document.querySelectorAll("mark").length).toBeGreaterThan(0);expect(fetcher).not.toHaveBeenCalled();vi.unstubAllGlobals();});
+ test("full score suppresses coaching and revision action",()=>{render(<EvaluationPanel evaluation={{...evaluation,naturalness:{...evaluation.naturalness,score:5},contextualFit:{...evaluation.contextualFit,score:5}}} coaching={{naturalRevisionChinese:"价格太高了。"}} answerText="价格太高了。" resultLine="Added to your Vault." onRevise={()=>{}}/>);expect(screen.getByRole("heading",{name:"Nothing to fix."})).toBeInTheDocument();expect(screen.queryByRole("button",{name:/Revise|natural version/})).not.toBeInTheDocument();});
+ test("character diff keeps matching Unicode characters and marks insertions",()=>{const [first,second]=characterDifference("很贵😀。","也很贵😀呀。");expect(first!.filter(x=>x.changed)).toHaveLength(0);expect(second!.filter(x=>x.changed).map(x=>x.text).join("")).toBe("也呀");});
+ test("dates use the runtime local timezone",()=>{const date="2026-11-01T23:30:00Z";expect(formatPracticeDate(date)).toBe(new Intl.DateTimeFormat("en-US",{month:"short",day:"numeric",year:"numeric"}).format(new Date(date)));});
+ test("long unchanged text stays unmarked between distant insertions",()=>{const original="甲".repeat(600)+"乙".repeat(600);const [a,b]=characterDifference(original,"也"+original+"呀");expect(a!.filter(x=>x.changed)).toHaveLength(0);expect(b!.filter(x=>x.changed).map(x=>x.text).join("")).toBe("也呀");});
 });

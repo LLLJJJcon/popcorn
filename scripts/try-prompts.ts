@@ -9,23 +9,28 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import highlightCases from "../tests/prompt-golden/highlight-expressions-v1.json";
 import analysisCases from "../tests/prompt-golden/analyze-saved-item-v3.json";
+import activationCases from "../tests/prompt-golden/activate-practice-v3.json";
+import evaluationCases from "../tests/prompt-golden/evaluate-practice-v5.json";
 import { buildHighlightExpressionsPrompt, createHighlightExpressionsFixtureGateway, normalizeHighlightExpressionsWire, type AnalysisLine } from "../src/server/ai/prompts/highlight-expressions.v1";
 import { buildAnalyzeMarkedExpressionsPrompt, createAnalyzeMarkedExpressionsFixtureGateway, normalizeLearningCard, normalizeMarkedAnalysisWire } from "../src/server/ai/prompts/analyze-saved-item.v3";
+import { buildActivatePracticePrompt, createActivationFixtureGateway, createActivationWireNormalizer, normalizeActivationWire, type ActivationInput } from "../src/server/ai/prompts/activate.v2";
+import { buildEvaluatePracticePrompt, normalizePracticeEvaluationWire, createEvaluationFixtureGateway, type EvaluationInput } from "../src/server/ai/prompts/evaluate.v2";
 import { createStructuredJsonGatewayResolver, type StructuredJsonGateway } from "../src/server/ai/structured-json-gateway";
 import { createSupabaseModelGatewayRuntimeResolver } from "../src/server/model-gateway/runtime-resolver";
 import { groundSuggestedHighlights } from "../src/server/domain/saved-item-target";
 import { assertLocalSupabaseUrl } from "./seed-demo";
 import type { Database } from "../src/types/database.generated";
 
-export const PROMPT_VERSIONS = ["highlight-expressions-v1", "analyze-saved-item-v3"] as const;
+export const PROMPT_VERSIONS = ["highlight-expressions-v1", "analyze-saved-item-v3", "activate-practice-v3", "evaluate-practice-v5"] as const;
 export type PromptVersion = typeof PROMPT_VERSIONS[number];
 export type GoldenCase = {
   id: string;
-  input: { task: string; lines: readonly AnalysisLine[]; highlights?: readonly { id: string; text: string; line: number }[] };
+  input: Record<string, unknown>;
   expect: Record<string, unknown>;
 };
 export function goldenCases(version: PromptVersion): GoldenCase[] {
-  return (version === "highlight-expressions-v1" ? highlightCases : analysisCases) as GoldenCase[];
+  const cases = { "highlight-expressions-v1": highlightCases, "analyze-saved-item-v3": analysisCases, "activate-practice-v3": activationCases, "evaluate-practice-v5": evaluationCases };
+  return cases[version] as GoldenCase[];
 }
 export function parsePromptArguments(args: readonly string[]) {
   const values = args[0] === "--" ? args.slice(1) : args;
@@ -59,7 +64,7 @@ export function compareGolden(version: PromptVersion, sample: GoldenCase, output
       check("empty result permitted", marks.length > 0 || wanted.allowEmpty === true);
       for (const text of strings(wanted.mustInclude)) check(`includes ${text}`, marks.some(mark => mark.text === text));
       for (const text of strings(wanted.mustNotInclude)) check(`excludes ${text}`, marks.every(mark => !mark.text.includes(text)));
-      const targets = sample.input.lines.filter(line => line.role === "TARGET");
+      const targets = (sample.input.lines as readonly AnalysisLine[]).filter(line => line.role === "TARGET");
       try {
         const grounded = groundSuggestedHighlights(marks, targets.map(line => ({ id: String(line.line), text: line.text, startSeconds: 0, endSeconds: 1 })));
         check("all marks survive deduplication, overlap and grounding checks", grounded.length === marks.length);
@@ -83,12 +88,12 @@ export function compareGolden(version: PromptVersion, sample: GoldenCase, output
         check(`mark ${i + 1}: unique text`, marks.filter(other => other.text === mark.text).length === 1);
       }
     }
-  } else {
+  } else if (version === "analyze-saved-item-v3") {
     const decoded = normalizeMarkedAnalysisWire(output);
     check("valid cards envelope", decoded.success);
     if (decoded.success) {
       const cards = decoded.data.cards;
-      const highlights = sample.input.highlights ?? [];
+      const highlights = (sample.input.highlights ?? []) as readonly { id: string; text: string; line: number }[];
       check("one card per id in exact order", cards.length === highlights.length && cards.every((card, i) => card.id === highlights[i]?.id));
       for (const [i, card] of cards.entries()) {
         check(`card ${i + 1}: required fields and exact-mark examples`, normalizeLearningCard(card, highlights[i]?.text ?? "").success);
@@ -105,17 +110,50 @@ export function compareGolden(version: PromptVersion, sample: GoldenCase, output
         for (const text of strings(wanted.examplesMustNotContain)) check(`card ${i + 1}: examples exclude ${text}`, examples.every(example => !String(example.zh).includes(text)));
       }
     }
+  } else if (version === "activate-practice-v3") {
+    const input = sample.input as unknown as ActivationInput;
+    const decoded = normalizeActivationWire(output);
+    check("valid four-field scenario", decoded.success);
+    check("no extra model-owned fields", Object.keys(output).every(key => ["situationZh", "situationEn", "interlocutor", "taskEn"].includes(key)));
+    if (decoded.success) {
+      const grounded = createActivationWireNormalizer({ targetExpression: input.card.expression, avoidSituations: input.avoidSituations })(output);
+      check("target-free and previously unused scenario", grounded.success);
+      for (const target of strings(wanted.mustNotContain)) {
+        for (const field of ["situationZh", "situationEn", "taskEn"] as const) check(`${field} excludes ${target}`, !decoded.data[field].includes(target));
+      }
+    }
+  } else {
+    const decoded = normalizePracticeEvaluationWire(output);
+    check("valid evaluation wire", decoded.success);
+    check("no model-owned business fields", Object.keys(output).every(key => ["accuracy", "naturalness", "contextualFit", "naturalRevisionChinese"].includes(key)));
+    if (decoded.success) {
+      for (const [constraint, operator] of [["minScores", "at least"], ["maxScores", "at most"], ["exactScores", "equals"]] as const) {
+        const bounds = wanted[constraint];
+        if (typeof bounds !== "object" || bounds === null || Array.isArray(bounds)) continue;
+        for (const field of ["accuracy", "naturalness", "contextualFit"] as const) {
+          const bound = (bounds as Record<string, unknown>)[field];
+          if (typeof bound !== "number") continue;
+          const score = decoded.data[field].score;
+          check(`${field} ${operator} ${bound}`, constraint === "minScores" ? score >= bound : constraint === "maxScores" ? score <= bound : score === bound);
+        }
+      }
+      if (wanted.allowNaturalRevision === false) check("no natural revision requested", output.naturalRevisionChinese === undefined || output.naturalRevisionChinese === null);
+      if (typeof output.naturalRevisionChinese === "string") check("optional revision contains target", output.naturalRevisionChinese.includes(String(sample.input.targetExpression)));
+    }
   }
   return { checks, manualReview: [...strings(wanted.manualReview), "A human must assess naturalness, intended meaning, reusable boundaries and genuinely different situations; passing these checks is not semantic acceptance."] };
 }
 export async function runGoldenTrial(version: PromptVersion, sample: GoldenCase, gateway: StructuredJsonGateway) {
-  const isHighlight = version === "highlight-expressions-v1";
-  const prompt = isHighlight ? buildHighlightExpressionsPrompt(sample.input)
-    : buildAnalyzeMarkedExpressionsPrompt({ lines: sample.input.lines, highlights: sample.input.highlights ?? [] });
+  const lines = (sample.input.lines ?? []) as readonly AnalysisLine[];
+  const highlights = (sample.input.highlights ?? []) as readonly { id: string; text: string; line: number }[];
+  const prompt = version === "highlight-expressions-v1" ? buildHighlightExpressionsPrompt({ lines })
+    : version === "analyze-saved-item-v3" ? buildAnalyzeMarkedExpressionsPrompt({ lines, highlights })
+      : version === "activate-practice-v3" ? buildActivatePracticePrompt(sample.input as unknown as ActivationInput)
+        : buildEvaluatePracticePrompt(sample.input as unknown as EvaluationInput);
   // One trial per chosen case. Do not hide an initial bad output behind format retries.
   const output = await gateway.complete<Record<string, unknown>>(version, prompt.userPrompt, {
-    systemPrompt: prompt.systemPrompt, timeoutMs: isHighlight ? 20_000 : 30_000,
-    maxTokens: isHighlight ? MODEL_OUTPUT_TOKENS.highlightExpressions : learningCardOutputTokens(sample.input.highlights?.length ?? 0),
+    systemPrompt: prompt.systemPrompt, timeoutMs: version === "highlight-expressions-v1" || version === "activate-practice-v3" ? 20_000 : 30_000,
+    maxTokens: version === "highlight-expressions-v1" ? MODEL_OUTPUT_TOKENS.highlightExpressions : version === "analyze-saved-item-v3" ? learningCardOutputTokens(highlights.length) : version === "activate-practice-v3" ? MODEL_OUTPUT_TOKENS.activatePractice : MODEL_OUTPUT_TOKENS.evaluatePractice,
     normalize: value => ({ success: true, data: value }),
   });
   return { output, comparison: compareGolden(version, sample, output) };
@@ -156,7 +194,7 @@ async function main() {
   if (result.error || result.data.length !== 1) throw new Error("Active owner gateway unavailable");
   const pin = result.data[0];
   const gateway = await createStructuredJsonGatewayResolver({ ci: false,
-    fixture: version === "highlight-expressions-v1" ? createHighlightExpressionsFixtureGateway() : createAnalyzeMarkedExpressionsFixtureGateway(),
+    fixture: version === "highlight-expressions-v1" ? createHighlightExpressionsFixtureGateway() : version === "analyze-saved-item-v3" ? createAnalyzeMarkedExpressionsFixtureGateway() : version === "activate-practice-v3" ? createActivationFixtureGateway() : createEvaluationFixtureGateway(),
     createRuntimeResolver: () => createSupabaseModelGatewayRuntimeResolver(client),
   }).resolve(userId, { configId: pin.config_id, revision: pin.revision, fingerprint: pin.config_fingerprint });
   let report = `\n# ${version} trial — ${new Date().toISOString()}\n\nReal owner gateway, selected golden data only. One request per case; existing transport retry policy applies. Requires human product review. No credentials or account configuration are included.\n`;

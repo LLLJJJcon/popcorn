@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-POPCORN_TEST_DATABASE_URL="${POPCORN_TEST_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}"
+POPCORN_TEST_DATABASE_URL="${POPCORN_TEST_DATABASE_URL:?Set an explicit isolated test database URL}"
 POPCORN_PSQL_BIN="${POPCORN_PSQL_BIN:-psql}"
 POPCORN_PROMOTION_TMP="$(mktemp -d /tmp/popcorn-practice-promotion.XXXXXX)"
 POPCORN_GATE_LOG="$POPCORN_PROMOTION_TMP/gate.log"
@@ -70,6 +70,7 @@ POPCORN_GATE_LOG="$POPCORN_PROMOTION_TMP/gate.log"
 POPCORN_FIRST_LOG="$POPCORN_PROMOTION_TMP/first.log"
 POPCORN_SECOND_LOG="$POPCORN_PROMOTION_TMP/second.log"
 
+seed_promotion_fixture() {
 "$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 insert into auth.users (
   instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
@@ -133,7 +134,7 @@ insert into public.practice_drafts(
   '0d100000-0000-4000-8000-000000000001','0d400000-0000-4000-8000-000000000001',
   '0d500000-0000-4000-8000-000000000001',0,'0d700000-0000-4000-8000-000000000001',
   'en','zh-CN','太离谱了','朋友告诉你一件很夸张的事。','Reply naturally in Mandarin.',
-  'Use the target expression.','active','2026-08-20 12:02:00+00','2026-08-20 12:02:00+00'
+  'Use the target expression.','open','2026-08-20 12:02:00+00','2026-08-20 12:02:00+00'
 );
 insert into public.practice_draft_attempts(
   id,user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
@@ -148,6 +149,10 @@ insert into public.practice_draft_attempts(
 );
 SQL
 
+}
+seed_promotion_fixture
+
+run_promotion_race() {
 "$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -At -v ON_ERROR_STOP=1 >"$POPCORN_GATE_LOG" 2>&1 <<'SQL' &
 set application_name = 'popcorn_practice_promotion_gate';
 select pg_advisory_lock(202608160012);
@@ -194,6 +199,27 @@ SQL
 done
 [[ "${POPCORN_FIRST_WAITING:-f}" == "t" ]]
 
+if [[ "${POPCORN_CROSS_ROUND_RACE:-false}" == "true" ]]; then
+"$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -At -v ON_ERROR_STOP=1 >"$POPCORN_SECOND_LOG" 2>&1 <<'SQL' &
+set application_name = 'popcorn_practice_promotion_second';
+begin;
+set local role service_role;
+-- This stale second-round writer starts while round one's promotion is still
+-- uncommitted. Its current-round index update must wait for that transaction.
+update public.practice_drafts set status='open',updated_at='2026-08-20 12:04:00+00'
+where id='0d600000-0000-4000-8000-000000000002';
+do $$
+begin
+  perform public.promote_valid_practice_draft_attempt(
+    '0d000000-0000-4000-8000-00000000a001','0d800000-0000-4000-8000-000000000002',
+    '太离谱了','2026-08-21 12:04:00+00',1);
+  raise exception 'second round unexpectedly promoted';
+exception when sqlstate '40001' then
+  raise notice 'CANDIDATE_PROMOTION_REJECTED';
+end $$;
+commit;
+SQL
+else
 "$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -At -v ON_ERROR_STOP=1 >"$POPCORN_SECOND_LOG" 2>&1 <<'SQL' &
 set application_name = 'popcorn_practice_promotion_second';
 begin;
@@ -206,6 +232,7 @@ from public.promote_valid_practice_draft_attempt(
 );
 commit;
 SQL
+fi
 POPCORN_SECOND_PID=$!
 
 for _attempt in $(seq 1 100); do
@@ -232,6 +259,9 @@ wait "$POPCORN_GATE_PID" || true
 wait "$POPCORN_FIRST_PID"
 wait "$POPCORN_SECOND_PID"
 
+}
+run_promotion_race
+
 POPCORN_FIRST_RESULT="$(grep '^FIRST|' "$POPCORN_FIRST_LOG")"
 POPCORN_SECOND_RESULT="$(grep '^SECOND|' "$POPCORN_SECOND_LOG")"
 POPCORN_FIRST_PAYLOAD="${POPCORN_FIRST_RESULT#FIRST|}"
@@ -257,6 +287,54 @@ select
    from public.practice_draft_attempts where id='0d800000-0000-4000-8000-000000000001');
 SQL
 )"
-[[ "$POPCORN_GRAPH_STATE" == '1|1|1|1|1|1|1|1|completed|1:true:这也太离谱了吧。' ]]
+[[ "$POPCORN_GRAPH_STATE" == '1|1|1|1|1|1|1|1|promoted|1:true:这也太离谱了吧。' ]]
 
 echo "practice promotion concurrency invariant passed"
+
+
+# Repeat with the same candidate/artifact/index in two different rounds, not a
+# synthetic pair of independent candidates. The privileged stale second writer
+# may publish an open row after the first commits; the receipt fence still must
+# prevent a second canonical graph/promotion.
+cleanup_promotion_fixture
+POPCORN_PROMOTION_TMP="$(mktemp -d /tmp/popcorn-practice-promotion.XXXXXX)"
+POPCORN_GATE_LOG="$POPCORN_PROMOTION_TMP/gate.log"
+POPCORN_FIRST_LOG="$POPCORN_PROMOTION_TMP/first.log"
+POPCORN_SECOND_LOG="$POPCORN_PROMOTION_TMP/second.log"
+seed_promotion_fixture
+"$POPCORN_PSQL_BIN" "$POPCORN_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+insert into public.practice_drafts(
+ id,user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
+ future_user_expression_id,native_language,target_language,target_expression,
+ prompt_chinese,instructions_english,goal_english,status,round_number,previous_draft_id,created_at,updated_at)
+select '0d600000-0000-4000-8000-000000000002',user_id,video_source_id,saved_item_id,candidate_artifact_id,candidate_index,
+ '0d700000-0000-4000-8000-000000000002',native_language,target_language,target_expression,
+ '同事说新停车费翻了一倍，问你怎么看。',instructions_english,goal_english,'removed',2,id,
+ '2026-08-20 12:03:00+00','2026-08-20 12:03:00+00'
+from public.practice_drafts where id='0d600000-0000-4000-8000-000000000001';
+insert into public.practice_draft_attempts(
+ id,user_id,practice_draft_id,future_user_expression_id,revision,response_chinese,
+ passed,accuracy_score,accuracy_feedback_english,naturalness_score,naturalness_feedback_english,
+ contextual_fit_score,contextual_fit_feedback_english,independent_use,assistance_level,submitted_at,created_at)
+values('0d800000-0000-4000-8000-000000000002','0d000000-0000-4000-8000-00000000a001',
+ '0d600000-0000-4000-8000-000000000002','0d700000-0000-4000-8000-000000000002',1,'这也太离谱了吧。',
+ true,5,'Correct meaning.',5,'Natural wording.',5,'Fits the act.',true,'none','2026-08-20 12:04:00+00','2026-08-20 12:04:00+00');
+SQL
+POPCORN_CROSS_ROUND_RACE=true
+run_promotion_race
+grep -q 'CANDIDATE_PROMOTION_REJECTED' "$POPCORN_SECOND_LOG"
+POPCORN_CROSS_ROUND_STATE="$($POPCORN_PSQL_BIN "$POPCORN_TEST_DATABASE_URL" -X -At -F '|' -v ON_ERROR_STOP=1 <<'SQL'
+select
+ (select count(distinct candidate_key) from public.practice_drafts where user_id='0d000000-0000-4000-8000-00000000a001'),
+ (select count(*) from private.practice_promotion_receipts where user_id='0d000000-0000-4000-8000-00000000a001'),
+ (select count(*) from public.user_expressions where user_id='0d000000-0000-4000-8000-00000000a001'),
+ (select count(*) from public.attempts where user_id='0d000000-0000-4000-8000-00000000a001'),
+ (select count(*) from public.mastery_events where user_id='0d000000-0000-4000-8000-00000000a001'),
+ (select count(*) from public.review_tasks where user_id='0d000000-0000-4000-8000-00000000a001'),
+ (select status from public.practice_drafts where id='0d600000-0000-4000-8000-000000000001'),
+ (select status from public.practice_drafts where id='0d600000-0000-4000-8000-000000000002'),
+ (select entry_round from public.attempts where id='0d800000-0000-4000-8000-000000000001');
+SQL
+)"
+[[ "$POPCORN_CROSS_ROUND_STATE" == '1|1|1|1|1|1|promoted|open|1' ]]
+echo "same-candidate cross-round promotion concurrency invariant passed"

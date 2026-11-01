@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { practiceCandidateKey } from "../src/server/domain/practice-rounds";
 import { highlightIdentity } from "../src/server/jobs/handlers/marked-learning-cards";
 import type { Database } from "../src/types/database.generated";
 import artifacts from "../tests/fixtures/demo/generated-artifacts.json";
@@ -17,6 +18,8 @@ export const DEMO_TABLES = [
   "saved_items",
   "saved_item_highlights",
   "generated_artifacts",
+  "practice_drafts",
+  "practice_draft_attempts",
   "expression_senses",
   "expression_occurrences",
   "user_expressions",
@@ -30,7 +33,12 @@ export type DemoTable = typeof DEMO_TABLES[number];
 export type DemoSeedRow = Readonly<{ id: string; user_id: string; [key: string]: unknown }>;
 export type DemoAccount = Readonly<{ id: string; email: string }>;
 
+export type DemoPracticeScenario = { readonly name:string; readonly rounds: readonly { readonly draft:DemoSeedRow; readonly attempts:readonly DemoSeedRow[] }[]; readonly removeAfter:boolean };
+
 export type DemoSeedRepository = {
+  createPracticeRound(ownerId:string,draft:DemoSeedRow):Promise<void>;
+  recordPracticeAttempt(ownerId:string,attempt:DemoSeedRow):Promise<void>;
+  removePracticeRound(ownerId:string,taskId:string):Promise<void>;
   findAccounts(selector: string): Promise<readonly DemoAccount[]>;
   writeOwned(input: {
     readonly ownerId: string;
@@ -48,6 +56,7 @@ export type DemoSeedRepository = {
 export type DemoSeedPlan = {
   readonly tables: Readonly<Record<DemoTable, readonly DemoSeedRow[]>>;
   readonly completedReviewPlaceholders: readonly DemoSeedRow[];
+  readonly practiceScenarios:readonly DemoPracticeScenario[];
 };
 
 const FIXED_AT = DEMO_VIDEO.acquiredAt;
@@ -353,6 +362,31 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
   const basicSave = groupOneSave("not-expression", 0, "ready");
   card(basicSave, mark(basicSave, "basic-word", "我们", 0, "user"), "我们", 0, true);
 
+  const practiceScenarios:DemoPracticeScenario[]=[];
+  for (const name of ["assisted-retry","removed","second-round-entry"] as const) {
+    const saveId=groupOneSave(`group2-${name}`,0,"ready");
+    const highlightId=mark(saveId,`group2-${name}`,"挺靠谱",0,"user");
+    card(saveId,highlightId,"挺靠谱",0);
+    const artifact=tables.generated_artifacts.at(-1)!;
+    const candidate=(artifact.content as {candidates:{highlightKey:string}[]}).candidates[0]!;
+    const key=practiceCandidateKey({savedItemId:saveId,candidateArtifactId:artifact.id,candidateIndex:0},candidate);
+    const rounds:{draft:DemoSeedRow;attempts:DemoSeedRow[]}[]=[];
+    for(let number=1;number<=(name==="second-round-entry"?2:1);number++) {
+      const createdAt=at(referenceDayMillis,-1,(number-1)*10);
+      const draftId=id(`group2:${name}:round:${number}`), futureId=id(`group2:${name}:expression:${number}`);
+      const prompt=number===1?"朋友介绍了一位修车师傅，问你是否愿意找他帮忙。":"同学设计了一个复习计划，问你是否值得试一试。";
+      const draft:DemoSeedRow={id:draftId,user_id:ownerId,video_source_id:sourceId,saved_item_id:saveId,candidate_artifact_id:artifact.id,candidate_index:0,candidate_artifact_type:"saved_item_analysis",candidate_key:key,round_number:number,future_user_expression_id:futureId,native_language:"en",target_language:"zh-CN",target_expression:"挺靠谱",prompt_chinese:prompt,instructions_english:"Tell your friend whether the idea seems dependable.",goal_english:"Use the expression to express a dependable judgment.",status:"open",activation_prompt_version:null,activation_model:null,activation_gateway_config_id:null,activation_gateway_revision:null,activation_gateway_fingerprint:null,created_at:createdAt,updated_at:createdAt,situation_en:number===1?"A friend recommends a mechanic and asks whether you would ask them for help.":"A classmate designs a study plan and asks whether it is worth trying.",interlocutor:number===1?"朋友":"同学",task_en:"Say whether the suggestion seems dependable.",target_function:"praise",target_setting:"casual_chat",scenario_source:"model",examples_opened_at:name==="assisted-retry"?at(Date.parse(createdAt),0,1):null};
+      const attempts:DemoSeedRow[]=[];
+      for(let revision=1;revision<=(name==="assisted-retry"?2:1);revision++) {
+        const passed=name==="assisted-retry"||number===2;
+        const submitted=at(Date.parse(createdAt),0,revision===1?2:4);
+        attempts.push({id:id(`group2:${name}:round:${number}:attempt:${revision}`),user_id:ownerId,practice_draft_id:draftId,future_user_expression_id:futureId,revision,response_chinese:revision===1?"这个建议挺靠谱的。":"我觉得这个办法挺靠谱的。",passed,independent_use:passed&&name!=="assisted-retry",assistance_level:name==="assisted-retry"?"model_answer":"none",accuracy_score:4,accuracy_feedback_english:"The intended meaning is clear.",naturalness_score:passed?4:2,naturalness_feedback_english:passed?"The wording is natural.":"The word order needs work.",contextual_fit_score:4,contextual_fit_feedback_english:"The intention fits the situation.",submitted_at:submitted,created_at:submitted,natural_version:passed?null:"我觉得这个办法挺靠谱的。",evaluation_prompt_version:null,evaluation_model:null,evaluation_gateway_config_id:null,evaluation_gateway_revision:null,evaluation_gateway_fingerprint:null});
+      }
+      rounds.push({draft,attempts});tables.practice_drafts.push(draft);tables.practice_draft_attempts.push(...attempts);
+    }
+    practiceScenarios.push({name,rounds,removeAfter:name==="removed"});
+  }
+
   const states = ["tried", "reused", "owned"] as const;
   const originalDayOffsets = [-1, -2, -10] as const;
   const completedReviewPlaceholders: DemoSeedRow[] = [];
@@ -451,7 +485,7 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
     });
   }
 
-  return { tables, completedReviewPlaceholders };
+  return { tables, completedReviewPlaceholders, practiceScenarios };
 }
 
 async function write(repository: DemoSeedRepository, ownerId: string, table: DemoTable, rows: readonly DemoSeedRow[], insertOnly = true) {
@@ -511,6 +545,19 @@ export async function seedDemo(input: {
   }
   await write(input.repository, account.id, "review_tasks", plan.tables.review_tasks.filter((row) => row.status === "pending"));
 
+  for(const scenario of plan.practiceScenarios) {
+    const first=scenario.rounds[0]!;
+    // Existing candidate graphs may have been edited or practised by the learner.
+    // Never replay seed mutations against them, even when their current state differs.
+    if((await input.repository.readOwned({ownerId:account.id,table:"practice_drafts",ids:[first.draft.id]})).length)continue;
+    for(const [index,round] of scenario.rounds.entries()) {
+      if(index===0)await write(input.repository,account.id,"practice_drafts",[round.draft]);
+      else await input.repository.createPracticeRound(account.id,round.draft);
+      for(const attempt of round.attempts)await input.repository.recordPracticeAttempt(account.id,attempt);
+    }
+    if(scenario.removeAfter)await input.repository.removePracticeRound(account.id,scenario.rounds.at(-1)!.draft.id);
+  }
+
   const ids = {} as Record<DemoTable, readonly string[]>;
   const counts = {} as Record<DemoTable, number>;
   for (const table of DEMO_TABLES) {
@@ -541,7 +588,15 @@ export function createSupabaseDemoSeedRepository(
   client: ReturnType<typeof createClient<Database>>,
 ): DemoSeedRepository {
   const db = client as unknown as SeedDb;
+  const rpcClient=client as unknown as {rpc(name:string,args:Record<string,unknown>):PromiseLike<{data:unknown;error:unknown}>};
+  async function apply(name:string,args:Record<string,unknown>) {
+    const result=await rpcClient.rpc(name,args);
+    if(result.error)throw new DemoSeedCliError("database_write","Could not apply demo practice transaction");
+  }
   return {
+    async createPracticeRound(ownerId,draft) { if(draft.user_id!==ownerId)throw new DemoSeedCliError("database_write","demo owner mismatch");await apply("create_practice_round",{p_user_id:ownerId,p_draft:draft,p_request_id:fixtureUuid(ownerId,`seed-round:${draft.id}`)}); },
+    async recordPracticeAttempt(ownerId,attempt) { if(attempt.user_id!==ownerId)throw new DemoSeedCliError("database_write","demo owner mismatch");await apply("record_practice_round_attempt",{p_user_id:ownerId,p_attempt:attempt}); },
+    async removePracticeRound(ownerId,taskId) { await apply("change_practice_round",{p_user_id:ownerId,p_task_id:taskId,p_action:"remove"}); },
     async findAccounts(selector) {
       if (UUID_PATTERN.test(selector)) {
         const result = await client.auth.admin.getUserById(selector);

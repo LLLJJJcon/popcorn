@@ -1090,3 +1090,6 @@ generated cards have their own reading surface. */ .highlightEditor {
 .candidateCard dd {
   overflow-wrap: anywhere;
 }
+
+.learningCardFooter { justify-content:flex-start;flex-wrap:wrap;gap:.75rem; }
+.learningCardFooter .practiceAction { text-decoration:none; }

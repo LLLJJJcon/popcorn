@@ -90,6 +90,7 @@ export type Database = {
       practice_promotion_receipts: {
         Row: {
           attempt_id: string
+          candidate_key: string
           created_at: string
           deleted_occurrence_id: string | null
           due_at: string
@@ -108,6 +109,7 @@ export type Database = {
         }
         Insert: {
           attempt_id: string
+          candidate_key: string
           created_at: string
           deleted_occurrence_id?: string | null
           due_at: string
@@ -126,6 +128,7 @@ export type Database = {
         }
         Update: {
           attempt_id?: string
+          candidate_key?: string
           created_at?: string
           deleted_occurrence_id?: string | null
           due_at?: string
@@ -140,6 +143,27 @@ export type Database = {
           review_task_id?: string
           source_deleted_at?: string | null
           user_expression_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      practice_round_requests: {
+        Row: {
+          candidate_key: string
+          practice_draft_id: string
+          request_id: string
+          user_id: string
+        }
+        Insert: {
+          candidate_key: string
+          practice_draft_id: string
+          request_id: string
+          user_id: string
+        }
+        Update: {
+          candidate_key?: string
+          practice_draft_id?: string
+          request_id?: string
           user_id?: string
         }
         Relationships: []
@@ -235,6 +259,25 @@ export type Database = {
         Args: { p_value: string }
         Returns: string
       }
+      practice_candidate_key: {
+        Args: {
+          p_artifact_id: string
+          p_index: number
+          p_save_id: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      practice_round_answer: {
+        Args: {
+          a: Database["public"]["Tables"]["practice_draft_attempts"]["Row"]
+        }
+        Returns: Json
+      }
+      practice_situation_fingerprint: {
+        Args: { p_text: string }
+        Returns: string
+      }
       promote_valid_practice_draft_attempt_source_active: {
         Args: {
           p_due_at: string
@@ -277,6 +320,7 @@ export type Database = {
           contextual_fit_feedback_english: string
           contextual_fit_score: number
           created_at: string
+          entry_round: number | null
           evaluation_gateway_config_id: string | null
           evaluation_gateway_fingerprint: string | null
           evaluation_gateway_revision: number | null
@@ -300,6 +344,7 @@ export type Database = {
           contextual_fit_feedback_english: string
           contextual_fit_score: number
           created_at?: string
+          entry_round?: number | null
           evaluation_gateway_config_id?: string | null
           evaluation_gateway_fingerprint?: string | null
           evaluation_gateway_revision?: number | null
@@ -323,6 +368,7 @@ export type Database = {
           contextual_fit_feedback_english?: string
           contextual_fit_score?: number
           created_at?: string
+          entry_round?: number | null
           evaluation_gateway_config_id?: string | null
           evaluation_gateway_fingerprint?: string | null
           evaluation_gateway_revision?: number | null
@@ -813,6 +859,7 @@ export type Database = {
           future_user_expression_id: string
           id: string
           independent_use: boolean
+          natural_version: string | null
           naturalness_feedback_english: string
           naturalness_score: number
           passed: boolean
@@ -837,6 +884,7 @@ export type Database = {
           future_user_expression_id: string
           id?: string
           independent_use: boolean
+          natural_version?: string | null
           naturalness_feedback_english: string
           naturalness_score: number
           passed: boolean
@@ -861,6 +909,7 @@ export type Database = {
           future_user_expression_id?: string
           id?: string
           independent_use?: boolean
+          natural_version?: string | null
           naturalness_feedback_english?: string
           naturalness_score?: number
           passed?: boolean
@@ -913,17 +962,32 @@ export type Database = {
           candidate_artifact_id: string
           candidate_artifact_type: string
           candidate_index: number
+          candidate_key: string
           created_at: string
+          examples_opened_at: string | null
           future_user_expression_id: string
           goal_english: string
           id: string
           instructions_english: string
+          interlocutor: string | null
           native_language: string
+          previous_draft_id: string | null
           prompt_chinese: string
+          removed_at: string | null
+          retry_due_at: string | null
+          round_number: number
+          round_request_id: string | null
           saved_item_id: string
+          scenario_fingerprint: string
+          scenario_source: string | null
+          situation_en: string | null
           status: string
+          status_before_remove: string | null
           target_expression: string
+          target_function: string | null
           target_language: string
+          target_setting: string | null
+          task_en: string | null
           updated_at: string
           user_id: string
           video_source_id: string
@@ -937,17 +1001,32 @@ export type Database = {
           candidate_artifact_id: string
           candidate_artifact_type?: string
           candidate_index: number
+          candidate_key?: string
           created_at?: string
+          examples_opened_at?: string | null
           future_user_expression_id: string
           goal_english: string
           id?: string
           instructions_english: string
+          interlocutor?: string | null
           native_language: string
+          previous_draft_id?: string | null
           prompt_chinese: string
+          removed_at?: string | null
+          retry_due_at?: string | null
+          round_number?: number
+          round_request_id?: string | null
           saved_item_id: string
+          scenario_fingerprint?: string
+          scenario_source?: string | null
+          situation_en?: string | null
           status?: string
+          status_before_remove?: string | null
           target_expression: string
+          target_function?: string | null
           target_language: string
+          target_setting?: string | null
+          task_en?: string | null
           updated_at?: string
           user_id: string
           video_source_id: string
@@ -961,17 +1040,32 @@ export type Database = {
           candidate_artifact_id?: string
           candidate_artifact_type?: string
           candidate_index?: number
+          candidate_key?: string
           created_at?: string
+          examples_opened_at?: string | null
           future_user_expression_id?: string
           goal_english?: string
           id?: string
           instructions_english?: string
+          interlocutor?: string | null
           native_language?: string
+          previous_draft_id?: string | null
           prompt_chinese?: string
+          removed_at?: string | null
+          retry_due_at?: string | null
+          round_number?: number
+          round_request_id?: string | null
           saved_item_id?: string
+          scenario_fingerprint?: string
+          scenario_source?: string | null
+          situation_en?: string | null
           status?: string
+          status_before_remove?: string | null
           target_expression?: string
+          target_function?: string | null
           target_language?: string
+          target_setting?: string | null
+          task_en?: string | null
           updated_at?: string
           user_id?: string
           video_source_id?: string
@@ -1029,6 +1123,13 @@ export type Database = {
             referencedRelation: "video_sources"
             referencedColumns: ["id", "user_id"]
           },
+          {
+            foreignKeyName: "practice_previous_round_owner_fk"
+            columns: ["previous_draft_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "practice_drafts"
+            referencedColumns: ["id", "user_id"]
+          },
         ]
       }
       practice_tasks: {
@@ -1044,12 +1145,18 @@ export type Database = {
           goal_english: string
           id: string
           instructions_english: string
+          interlocutor: string | null
           kind: string
           native_language: string
           prompt_chinese: string
           review_task_id: string | null
+          scenario_source: string | null
+          situation_en: string | null
           target_expression: string
+          target_function: string | null
           target_language: string
+          target_setting: string | null
+          task_en: string | null
           user_expression_id: string
           user_id: string
         }
@@ -1065,12 +1172,18 @@ export type Database = {
           goal_english: string
           id?: string
           instructions_english: string
+          interlocutor?: string | null
           kind: string
           native_language: string
           prompt_chinese: string
           review_task_id?: string | null
+          scenario_source?: string | null
+          situation_en?: string | null
           target_expression: string
+          target_function?: string | null
           target_language: string
+          target_setting?: string | null
+          task_en?: string | null
           user_expression_id: string
           user_id: string
         }
@@ -1086,12 +1199,18 @@ export type Database = {
           goal_english?: string
           id?: string
           instructions_english?: string
+          interlocutor?: string | null
           kind?: string
           native_language?: string
           prompt_chinese?: string
           review_task_id?: string | null
+          scenario_source?: string | null
+          situation_en?: string | null
           target_expression?: string
+          target_function?: string | null
           target_language?: string
+          target_setting?: string | null
+          task_en?: string | null
           user_expression_id?: string
           user_id?: string
         }
@@ -1162,6 +1281,7 @@ export type Database = {
           consecutive_successes: number
           created_at: string
           due_at: string
+          examples_opened_at: string | null
           id: string
           interval_days: number
           mastery_state: string
@@ -1176,6 +1296,7 @@ export type Database = {
           consecutive_successes: number
           created_at?: string
           due_at: string
+          examples_opened_at?: string | null
           id?: string
           interval_days: number
           mastery_state: string
@@ -1190,6 +1311,7 @@ export type Database = {
           consecutive_successes?: number
           created_at?: string
           due_at?: string
+          examples_opened_at?: string | null
           id?: string
           interval_days?: number
           mastery_state?: string
@@ -1603,6 +1725,10 @@ export type Database = {
           video_source_id: string
         }[]
       }
+      change_practice_round: {
+        Args: { p_action: string; p_task_id: string; p_user_id: string }
+        Returns: Json
+      }
       claim_knowledge_jobs: {
         Args: { p_limit: number; p_now: string }
         Returns: {
@@ -1661,6 +1787,10 @@ export type Database = {
           prior_state: string
           review_task_id: string
         }[]
+      }
+      complete_due_practice_with_examples: {
+        Args: { p_input: Json; p_user_id: string }
+        Returns: Json
       }
       complete_gateway_learning_artifact_job: {
         Args: {
@@ -1722,6 +1852,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      create_practice_round: {
+        Args: { p_draft: Json; p_request_id: string; p_user_id: string }
+        Returns: Json
+      }
       create_user_model_gateway_config:
         | {
             Args: {
@@ -1768,6 +1902,36 @@ export type Database = {
           retained_user_expression_count: number
         }[]
       }
+      get_due_practice_assistance: {
+        Args: { p_review_task_id: string; p_user_id: string }
+        Returns: string
+      }
+      get_practice_candidate_projection: {
+        Args: { p_candidate_keys: string[]; p_user_id: string }
+        Returns: {
+          candidate_key: string
+          round_number: number | null
+          status: string | null
+          task_id: string | null
+          user_expression_id: string | null
+        }[]
+      }
+      get_practice_candidate_state: {
+        Args: { p_candidate_key: string; p_user_id: string }
+        Returns: Json
+      }
+      get_practice_round_request: {
+        Args: {
+          p_candidate_key: string
+          p_request_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      get_practice_round_state: {
+        Args: { p_task_id: string; p_user_id: string }
+        Returns: Json
+      }
       has_user_model_gateway_secret: {
         Args: { p_config_id: string; p_user_id: string }
         Returns: boolean
@@ -1787,6 +1951,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      open_due_practice_examples: {
+        Args: { p_review_task_id: string; p_user_id: string }
+        Returns: Json
+      }
       promote_valid_practice_draft_attempt: {
         Args: {
           p_due_at: string
@@ -1805,6 +1973,10 @@ export type Database = {
           review_task_id: string
           user_expression_id: string
         }[]
+      }
+      record_practice_round_attempt: {
+        Args: { p_attempt: Json; p_user_id: string }
+        Returns: Json
       }
       register_gateway_learning_artifact_job: {
         Args: {

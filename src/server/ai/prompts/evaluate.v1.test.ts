@@ -98,12 +98,14 @@ describe("Practice frozen prompt contract", () => {
     expect(ACTIVATE_PRACTICE_READABLE_PROMPT_VERSIONS).toEqual([
       "activate-practice-v1",
       "activate-practice-v2",
+      "activate-practice-v3",
     ]);
     expect(EVALUATE_PRACTICE_READABLE_PROMPT_VERSIONS).toEqual([
       "evaluate-practice-v1",
       "evaluate-practice-v2",
       "evaluate-practice-v3",
       "evaluate-practice-v4",
+      "evaluate-practice-v5",
     ]);
     expect(isReadableActivationPromptVersion("activate-practice-v2")).toBe(true);
     expect(isReadableActivationPromptVersion("activate-practice-v999")).toBe(false);

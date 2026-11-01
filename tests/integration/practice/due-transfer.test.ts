@@ -438,14 +438,14 @@ describe("due Practice transfer boundary", () => {
 
   test("canonicalizes PostgREST completion instants at the RPC boundary", async () => {
     const rpc = vi.fn(async (_name: string, input: Record<string, unknown>) => ({
-      data: [{
+      data: {completion:{
         review_task_id: REVIEW, practice_task_id: "33333333-3333-4333-8333-333333333333",
         attempt_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         mastery_event_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
         next_review_task_id: REVIEW_TWO,
         prior_state: "tried", new_state: "reused", next_due_at: "2026-08-29T12:00:00+00:00",
         interval_days: 7, created: true,
-      }],
+      },assistanceLevel:"none"},
       error: null,
       input,
     }));
@@ -459,8 +459,8 @@ describe("due Practice transfer boundary", () => {
       completedAt: "2026-08-22T12:00:00+00:00", evaluationPromptVersion: null, evaluationModel: null,
       evaluationGatewayConfigId: null, evaluationGatewayRevision: null, evaluationGatewayFingerprint: null,
     })).resolves.toMatchObject({ nextDueAt: "2026-08-29T12:00:00.000Z" });
-    expect(rpc).toHaveBeenCalledWith("complete_due_practice", expect.objectContaining({
-      p_completed_at: "2026-08-22T12:00:00.000Z",
+    expect(rpc).toHaveBeenCalledWith("complete_due_practice_with_examples", expect.objectContaining({
+      p_input: expect.objectContaining({completedAt: "2026-08-22T12:00:00.000Z"}),
     }));
   });
 
@@ -485,13 +485,13 @@ describe("due Practice transfer boundary", () => {
     const harness = completedReplayRepositoryHarness();
     harness.rows.user_expressions[0]!.mastery_state = "owned";
     harness.rpc.mockResolvedValue({
-      data: [{
+      data: {completion:{
         review_task_id: REVIEW, practice_task_id: "33333333-3333-4333-8333-333333333333",
         attempt_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         mastery_event_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", next_review_task_id: REVIEW_TWO,
         prior_state: "tried", new_state: "reused", next_due_at: "2026-08-29T12:00:00+00:00",
         interval_days: 7, created: false,
-      }],
+      },assistanceLevel:"none"},
       error: null,
     });
     const gateway = { model: "must-not-run", complete: vi.fn(async () => { throw new Error("Provider must be skipped"); }) };

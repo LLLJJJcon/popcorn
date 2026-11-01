@@ -18,6 +18,8 @@ import {
 import type { Database, Json } from "@/types/database.generated";
 import { createYouTubeVideoMetadataProvider, type ReadVideoMetadata } from "@/server/youtube/video-metadata";
 import { createSavedMomentRemover } from "@/server/domain/delete-saved-moment";
+import { CandidateExpressionListSchema, type CandidateExpression } from "@/contracts/knowledge";
+import { createPracticeRoundStore,practiceCandidateKey } from "@/server/domain/practice-rounds";
 
 type SourceRow = {
   readonly id: string;
@@ -569,9 +571,34 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
       status: row.status as SavedHighlight["status"],
     }));
 
+    let artifacts = (artifactResult.data ?? []).map(mapArtifact);
+    // Legacy scripted clients lack RPC support. Real clients always take this
+    // path, and projection failures propagate rather than masking saved state.
+    if (typeof client.rpc === "function") {
+      const cardsByArtifact = new Map<string, CandidateExpression[]>();
+      const candidateKeys = new Set<string>();
+      for (const artifact of artifacts) {
+        if (artifact.type !== "saved_item_analysis" || !artifact.savedItemId) continue;
+        const parsed = CandidateExpressionListSchema.safeParse(objectPayload(artifact.content).candidates);
+        if (!parsed.success) continue;
+        cardsByArtifact.set(artifact.id, parsed.data);
+        for (const [candidateIndex, card] of parsed.data.entries()) {
+          candidateKeys.add(practiceCandidateKey({ savedItemId: artifact.savedItemId, candidateArtifactId: artifact.id, candidateIndex }, card));
+        }
+      }
+      const states = await createPracticeRoundStore(client as never).candidatePracticeStates(userId, [...candidateKeys]);
+      artifacts = artifacts.map(artifact => {
+        const cards = cardsByArtifact.get(artifact.id);
+        if (!cards || !artifact.savedItemId) return artifact;
+        const candidates = cards.map((card, candidateIndex) => ({
+          ...card, practiceState: states.get(practiceCandidateKey({ savedItemId: artifact.savedItemId!, candidateArtifactId: artifact.id, candidateIndex }, card)),
+        }));
+        return { ...artifact, content: { ...objectPayload(artifact.content), candidates } as Json };
+      });
+    }
     return {
       sources, snapshots, items, jobs, evidence, highlights, gatewayAvailable: Boolean(gatewayResult.data?.length),
-      artifacts: (artifactResult.data ?? []).map(mapArtifact),
+      artifacts,
     };
   }
 

@@ -31,6 +31,7 @@ import {
   resolvePracticeEgress,
 } from "@/server/domain/create-practice-task";
 import { scheduleReview } from "@/server/domain/schedule-review";
+import { createPracticeRoundStore } from "@/server/domain/practice-rounds";
 import type { DueTransferTask } from "@/server/domain/create-transfer-task";
 import { buildDueTransferTask } from "@/server/domain/create-transfer-task";
 import type { PracticeMaterialRepository } from "@/server/repositories/practice-material-repository";
@@ -49,6 +50,7 @@ export type DuePracticeRpcResult = {
   readonly nextDueAt: string;
   readonly intervalDays: number;
   readonly created: boolean;
+  readonly assistanceLevel?: "none"|"hint"|"model_answer";
 };
 
 export type DuePracticePersistedAttempt = {
@@ -98,6 +100,7 @@ type DuePracticeRpcInput = {
 };
 
 export type DuePracticeCompletionRepository = {
+  findAssistance?(userId:string,reviewTaskId:string):Promise<"none"|"model_answer">;
   findTransferTask(userId: string, reviewTaskId: string): Promise<DueTransferTask | null>;
   findCompletionState(userId: string, reviewTaskId: string): Promise<DuePracticeCompletionState | null>;
   resolveActiveGatewayPin(userId: string): Promise<import("@/server/ai/provider").ModelGatewayPin | null>;
@@ -202,6 +205,11 @@ export function createDuePracticeCompletionService(dependencies: {
       if (!state || !task || task.userId !== userId.data || task.reviewTaskId !== reviewTaskId.data) {
         throw new PracticeError("NOT_FOUND");
       }
+      if(dependencies.repository.findAssistance){
+        input.data.assistanceLevel=state.status==="completed"&&state.attempt
+          ? state.attempt.assistanceLevel
+          : await dependencies.repository.findAssistance(userId.data,reviewTaskId.data);
+      }
 
       let evaluation: EvaluationResult;
       let coaching: PracticeCoaching | null = null;
@@ -268,7 +276,7 @@ export function createDuePracticeCompletionService(dependencies: {
         evaluationGatewayFingerprint = resolved.pin?.fingerprint ?? null;
       }
 
-      const independent = evaluation.independentUse;
+      let independent = evaluation.independentUse;
       let completed: DuePracticeRpcResult;
       try {
         completed = await dependencies.repository.completeDuePractice({
@@ -288,9 +296,12 @@ export function createDuePracticeCompletionService(dependencies: {
       } catch {
         throw new PracticeError("INTERNAL_ERROR", true);
       }
+      if(completed.assistanceLevel){evaluation={...evaluation,...derivePracticeDecision(evaluation,completed.assistanceLevel)};independent=evaluation.independentUse;}
       completed = validateRpcResult(completed, task, independent, completedAt);
+      const {assistanceLevel:serverAssistance,...publicCompletion}=completed;
+      void serverAssistance;
       return {
-        ...completed,
+        ...publicCompletion,
         transition: completed.priorState === completed.newState
           ? null
           : { from: completed.priorState, to: completed.newState },
@@ -312,7 +323,8 @@ export function createDuePracticeHttpHandler(dependencies: {
     const mutation = await readPracticeMutation(request, { ...dependencies, requestId });
     if (!mutation.ok) return mutation.response;
     const reviewTaskId = UserIdSchema.safeParse((await context.params).reviewTaskId);
-    const input = DueInputSchema.safeParse(mutation.body);
+    const clean=typeof mutation.body==="object"&&mutation.body!==null?{...mutation.body as Record<string,unknown>,assistanceLevel:"none"}:mutation.body;
+    const input = DueInputSchema.safeParse(clean);
     if (!reviewTaskId.success || !input.success) return practiceErrorResponse(new PracticeError("VALIDATION_FAILED"), requestId);
     try {
       return Response.json(success(await dependencies.complete(mutation.userId, reviewTaskId.data, input.data), requestId), {
@@ -447,6 +459,7 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
 
   return {
     findTransferTask,
+    findAssistance(userId,reviewTaskId){return createPracticeRoundStore(client as never).dueAssistance(userId,reviewTaskId);},
     async findCompletionState(userId, reviewTaskId) {
       const review = await findReviewGraph(userId, reviewTaskId);
       if (!review) return null;
@@ -564,26 +577,14 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
       throw inserted.error ?? new PracticeError("INTERNAL_ERROR", true);
     },
     async completeDuePractice(input) {
-      const result = await client.rpc("complete_due_practice", {
-        p_user_id: input.userId, p_review_task_id: input.reviewTaskId, p_practice_task_id: input.practiceTaskId,
-        p_request_key: input.requestKey, p_response_chinese: input.responseChinese, p_assistance_level: input.assistanceLevel,
-        p_passed: input.passed, p_accuracy_score: input.accuracyScore, p_accuracy_feedback_english: input.accuracyFeedbackEnglish,
-        p_naturalness_score: input.naturalnessScore, p_naturalness_feedback_english: input.naturalnessFeedbackEnglish,
-        p_contextual_fit_score: input.contextualFitScore, p_contextual_fit_feedback_english: input.contextualFitFeedbackEnglish,
-        p_completed_at: canonicalInstant(input.completedAt),
-        ...(input.evaluationPromptVersion === null ? {} : { p_evaluation_prompt_version: input.evaluationPromptVersion }),
-        ...(input.evaluationModel === null ? {} : { p_evaluation_model: input.evaluationModel }),
-        ...(input.evaluationGatewayConfigId === null ? {} : { p_evaluation_gateway_config_id: input.evaluationGatewayConfigId }),
-        ...(input.evaluationGatewayRevision === null ? {} : { p_evaluation_gateway_revision: input.evaluationGatewayRevision }),
-        ...(input.evaluationGatewayFingerprint === null ? {} : { p_evaluation_gateway_fingerprint: input.evaluationGatewayFingerprint }),
-      });
-      if (result.error || !result.data || result.data.length !== 1) throw result.error ?? new Error("due completion failed");
-      const row = result.data[0]!;
+      const result=await createPracticeRoundStore(client as never).completeDue(input.userId,{...input,completedAt:canonicalInstant(input.completedAt)}) as {completion:Database["public"]["Functions"]["complete_due_practice"]["Returns"][number];assistanceLevel:"none"|"hint"|"model_answer"};
+      const row = result.completion;
+      if(!row)throw new Error("due completion failed");
       return {
         reviewTaskId: row.review_task_id, practiceTaskId: row.practice_task_id, attemptId: row.attempt_id,
         masteryEventId: row.mastery_event_id, nextReviewTaskId: row.next_review_task_id,
         priorState: row.prior_state as MasteryState, newState: row.new_state as MasteryState,
-        nextDueAt: canonicalInstant(row.next_due_at), intervalDays: row.interval_days, created: row.created,
+        nextDueAt: canonicalInstant(row.next_due_at), intervalDays: row.interval_days, created: row.created,assistanceLevel:result.assistanceLevel,
       };
     },
   };

@@ -1,3 +1,4 @@
+import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 import { expect, test } from "vitest";
 import * as highlight from "./highlight-expressions.v1";
 import * as analyze from "./analyze-saved-item.v3";
@@ -8,7 +9,7 @@ test("highlight fixture takes characters three through six only from the first t
   const factory = (highlight as unknown as { createHighlightExpressionsFixtureGateway: () => StructuredJsonGateway }).createHighlightExpressionsFixtureGateway;
   const gateway = factory();
   const prompt = highlight.buildHighlightExpressionsPrompt({ lines: [{ line: 1, role: "context", text: "高得要命" }, { line: 2, role: "TARGET", text: "今天气温高得要命" }] });
-  const result = await gateway.complete(highlight.HIGHLIGHT_EXPRESSIONS_PROMPT_VERSION, prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 20000, maxTokens: 350, normalize: highlight.normalizeHighlightExpressionsWire });
+  const result = await gateway.complete(highlight.HIGHLIGHT_EXPRESSIONS_PROMPT_VERSION, prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 20000, maxTokens: MODEL_OUTPUT_TOKENS.highlightExpressions, normalize: highlight.normalizeHighlightExpressionsWire });
   expect(result).toEqual({ highlights: [{ text: "气温高得", occurrence: 1, reasonEn: "Fixture highlight." }] });
   expect(JSON.parse(prompt.userPrompt.split("\n")[0]!).task).toBe("highlight");
 });

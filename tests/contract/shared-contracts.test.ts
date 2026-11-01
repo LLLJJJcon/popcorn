@@ -1110,6 +1110,8 @@ describe("shared contracts", () => {
       "CONFLICT",
       "NOTHING_TO_ANALYZE",
       "INTERNAL_ERROR",
+      "FIRST_ANSWER_EXISTS",
+      "ALREADY_PROMOTED",
     ]);
   });
 

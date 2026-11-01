@@ -75,12 +75,14 @@ export type PracticeErrorCode =
   | "PROVIDER_UNAVAILABLE"
   | "PROVIDER_OUTPUT_INVALID"
   | "REVISION_CONFLICT"
+  | "FIRST_ANSWER_EXISTS"
+  | "ALREADY_PROMOTED"
   | "INTERNAL_ERROR";
 
 export class PracticeError extends Error {
   override readonly name = "PracticeError";
 
-  constructor(readonly code: PracticeErrorCode, readonly retryable = false) {
+  constructor(readonly code: PracticeErrorCode, readonly retryable = false, readonly details?: Record<string,unknown>) {
     super(code);
   }
 }
@@ -157,11 +159,13 @@ export function practiceErrorResponse(error: unknown, requestId: string): Respon
               ? { code: "PROVIDER_OUTPUT_INVALID" as const, message: "Practice Provider returned an unreadable response", status: 422 }
         : practice.code === "PROVIDER_FAILED"
           ? { code: "PROVIDER_OUTPUT_INVALID" as const, message: "Practice Provider is temporarily unavailable", status: 503 }
+          : practice.code === "FIRST_ANSWER_EXISTS" || practice.code === "ALREADY_PROMOTED"
+            ? {code:practice.code,message:practice.code === "FIRST_ANSWER_EXISTS" ? "You already answered this round. Here's your feedback." : "This expression is already in your Vault.",status:409}
           : practice.code === "REVISION_CONFLICT"
             ? { code: "CONFLICT" as const, message: "Practice revision conflicts with current history", status: 409 }
             : { code: "INTERNAL_ERROR" as const, message: "Practice is temporarily unavailable", status: 500 };
   return Response.json(
-    failure({ code: details.code, message: details.message, retryable: practice.retryable }, requestId),
+    failure({ code: details.code, message: details.message, retryable: practice.retryable, ...(practice.details ? {details:practice.details} : {}) }, requestId),
     { status: details.status, headers: { "Cache-Control": "no-store" } },
   );
 }

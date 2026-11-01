@@ -27,6 +27,8 @@ export const ApiErrorCodeSchema = z.enum([
   "CONFLICT",
   "NOTHING_TO_ANALYZE",
   "INTERNAL_ERROR",
+  "FIRST_ANSWER_EXISTS",
+  "ALREADY_PROMOTED",
 ]);
 
 export const ApiErrorSchema = z.strictObject({
@@ -34,6 +36,7 @@ export const ApiErrorSchema = z.strictObject({
   message: NonblankStringSchema.max(500),
   retryable: z.boolean(),
   fieldErrors: z.record(z.string(), z.array(z.string().min(1)).max(20)).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const ApiFailureSchema = z.strictObject({

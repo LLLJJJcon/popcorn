@@ -10,6 +10,8 @@ select extensions.no_plan();
 \set save_a '0b200000-0000-4000-8000-000000000001'
 \set save_b '0b200000-0000-4000-8000-000000000002'
 \set artifact_a '0b300000-0000-4000-8000-000000000001'
+\set artifact_live '0b300000-0000-4000-8000-000000000003'
+\set artifact_probe '0b300000-0000-4000-8000-000000000004'
 \set artifact_b '0b300000-0000-4000-8000-000000000002'
 \set origin_id '0b400000-0000-4000-8000-000000000001'
 \set config_a '0b500000-0000-4000-8000-000000000001'
@@ -63,6 +65,13 @@ insert into public.generated_artifacts (
   (:'artifact_b',:'user_b',:'source_b',:'save_b','saved_item_analysis','en','zh-CN',
    '{"candidates":[{"expression":"没想到"}]}'::jsonb,'analyze-v1','fixture',repeat('b',64),'2026-08-20 11:01:00+00');
 
+-- Provenance and constraint probes are distinct candidates, not extra open rounds
+-- of draft_a. Failing probes roll back and may share the unused probe identity.
+insert into public.generated_artifacts(id,user_id,video_source_id,saved_item_id,artifact_type,native_language,target_language,content,prompt_version,model,result_key,created_at)
+select copy_id,a.user_id,a.video_source_id,a.saved_item_id,a.artifact_type,a.native_language,a.target_language,a.content,a.prompt_version,a.model,repeat(md5(copy_id::text),2),a.created_at
+from public.generated_artifacts a cross join (values (:'artifact_live'::uuid),(:'artifact_probe'::uuid)) as copies(copy_id)
+where a.id=:'artifact_a';
+
 insert into public.model_gateway_origins (
   id,slug,display_name,canonical_origin,base_path,adapter_kind,state
 ) values (
@@ -86,14 +95,14 @@ insert into public.practice_drafts (
 ) values (
   :'draft_a',:'user_a',:'source_a',:'save_a',:'artifact_a',0,:'future_a',
   'en','zh-CN','太离谱了','朋友告诉你一件很夸张的事。',
-  'Reply naturally in Mandarin.','Use the target expression.','active',
+  'Reply naturally in Mandarin.','Use the target expression.','open',
   '2026-08-20 11:03:00+00','2026-08-20 11:03:00+00'
 );
 
 select extensions.results_eq(
   $$select future_user_expression_id,status from public.practice_drafts
     where id='0b600000-0000-4000-8000-000000000001'$$,
-  $$values ('0b700000-0000-4000-8000-000000000001'::uuid,'active'::text)$$,
+  $$values ('0b700000-0000-4000-8000-000000000001'::uuid,'open'::text)$$,
   'draft retains the future expression identity without creating Vault state'
 );
 select extensions.results_eq(
@@ -113,8 +122,8 @@ select extensions.throws_ok(
     future_user_expression_id,native_language,target_language,target_expression,
     prompt_chinese,instructions_english,goal_english,status
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
-    '没想到','请自然回应。','Reply naturally.','Use the expression.','active')$sql$,
-    :'user_a',:'source_a',:'save_a',:'artifact_a'),
+    '没想到','请自然回应。','Reply naturally.','Use the expression.','open')$sql$,
+    :'user_a',:'source_a',:'save_a',:'artifact_probe'),
   '23514',null,'draft target expression must exactly match its indexed candidate'
 );
 select extensions.throws_ok(
@@ -123,8 +132,8 @@ select extensions.throws_ok(
     future_user_expression_id,native_language,target_language,target_expression,
     prompt_chinese,instructions_english,goal_english,status
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,1,gen_random_uuid(),'en','zh-CN',
-    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active')$sql$,
-    :'user_a',:'source_a',:'save_a',:'artifact_a'),
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','open')$sql$,
+    :'user_a',:'source_a',:'save_a',:'artifact_probe'),
   '23514',null,'draft rejects a candidate index absent from artifact content'
 );
 
@@ -134,8 +143,8 @@ select extensions.throws_ok(
     future_user_expression_id,native_language,target_language,target_expression,
     prompt_chinese,instructions_english,goal_english,status
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,%L::uuid,'en','zh-CN',
-    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active')$sql$,
-    :'user_a',:'source_a',:'save_a',:'artifact_a',:'future_a'),
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','open')$sql$,
+    :'user_a',:'source_a',:'save_a',:'artifact_probe',:'future_a'),
   '23505',null,'one owner cannot reuse a future expression identity across drafts'
 );
 select extensions.throws_ok(
@@ -144,7 +153,7 @@ select extensions.throws_ok(
     future_user_expression_id,native_language,target_language,target_expression,
     prompt_chinese,instructions_english,goal_english,status
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,%L::uuid,'en','zh-CN',
-    '没想到','请自然回应。','Reply naturally.','Use the expression.','active')$sql$,
+    '没想到','请自然回应。','Reply naturally.','Use the expression.','open')$sql$,
     :'user_b',:'source_b',:'save_b',:'artifact_b',:'future_a'),
   '23505',null,'different owners cannot reuse a future expression identity'
 );
@@ -155,7 +164,7 @@ select extensions.throws_ok(
     future_user_expression_id,native_language,target_language,target_expression,
     prompt_chinese,instructions_english,goal_english,status
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
-    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active')$sql$,
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','open')$sql$,
     :'user_a',:'source_a',:'save_a',:'artifact_b'),
   '23503',null,'draft rejects another owner candidate artifact'
 );
@@ -165,8 +174,8 @@ select extensions.throws_ok(
     future_user_expression_id,native_language,target_language,target_expression,
     prompt_chinese,instructions_english,goal_english,status
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
-    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active')$sql$,
-    :'user_a',:'source_b',:'save_a',:'artifact_a'),
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','open')$sql$,
+    :'user_a',:'source_b',:'save_a',:'artifact_probe'),
   '23503',null,'draft rejects a cross-source identity tuple'
 );
 
@@ -178,10 +187,10 @@ select extensions.lives_ok(
     activation_prompt_version,activation_model,activation_gateway_config_id,
     activation_gateway_revision,activation_gateway_fingerprint
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,%L::uuid,'en','zh-CN',
-    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','open',
     'activate-v1','provider/model-v1',%L::uuid,1,
     (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
-    :'draft_live',:'user_a',:'source_a',:'save_a',:'artifact_a',:'future_live',
+    :'draft_live',:'user_a',:'source_a',:'save_a',:'artifact_live',:'future_live',
     :'config_a',:'config_a'),
   'draft accepts exact non-secret activation provenance'
 );
@@ -193,9 +202,9 @@ select extensions.throws_ok(
     activation_prompt_version,activation_model,activation_gateway_config_id,
     activation_gateway_revision,activation_gateway_fingerprint
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
-    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','open',
     'activate-v1','provider/model-v1',%L::uuid,1,null)$sql$,
-    :'user_a',:'source_a',:'save_a',:'artifact_a',:'config_a'),
+    :'user_a',:'source_a',:'save_a',:'artifact_probe',:'config_a'),
   '23514',null,'draft rejects activation provenance missing only fingerprint'
 );
 select extensions.throws_ok(
@@ -206,10 +215,10 @@ select extensions.throws_ok(
     activation_prompt_version,activation_model,activation_gateway_config_id,
     activation_gateway_revision,activation_gateway_fingerprint
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
-    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','open',
     'activate-v1','invented/model',%L::uuid,1,
     (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
-    :'user_a',:'source_a',:'save_a',:'artifact_a',:'config_a',:'config_a'),
+    :'user_a',:'source_a',:'save_a',:'artifact_probe',:'config_a',:'config_a'),
   '23503',null,'draft activation model must match the exact owner gateway revision'
 );
 select extensions.throws_ok(
@@ -220,10 +229,10 @@ select extensions.throws_ok(
     activation_prompt_version,activation_model,activation_gateway_config_id,
     activation_gateway_revision,activation_gateway_fingerprint
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
-    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','open',
     'activate-v1','provider/model-v1',%L::uuid,1,
     (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
-    :'user_a',:'source_a',:'save_a',:'artifact_a',:'config_b',:'config_b'),
+    :'user_a',:'source_a',:'save_a',:'artifact_probe',:'config_b',:'config_b'),
   '23503',null,'draft activation provenance rejects another owner gateway'
 );
 select extensions.throws_ok(
@@ -234,10 +243,10 @@ select extensions.throws_ok(
     activation_prompt_version,activation_model,activation_gateway_config_id,
     activation_gateway_revision,activation_gateway_fingerprint
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
-    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','open',
     'activate-v1','provider/model-v1',%L::uuid,2,
     (select config_fingerprint from public.user_model_gateway_configs where id=%L::uuid))$sql$,
-    :'user_a',:'source_a',:'save_a',:'artifact_a',:'config_a',:'config_a'),
+    :'user_a',:'source_a',:'save_a',:'artifact_probe',:'config_a',:'config_a'),
   '23503',null,'draft activation provenance rejects the wrong gateway revision'
 );
 select extensions.throws_ok(
@@ -248,9 +257,9 @@ select extensions.throws_ok(
     activation_prompt_version,activation_model,activation_gateway_config_id,
     activation_gateway_revision,activation_gateway_fingerprint
   ) values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,0,gen_random_uuid(),'en','zh-CN',
-    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','active',
+    '太离谱了','请自然回应。','Reply naturally.','Use the expression.','open',
     'activate-v1','provider/model-v1',%L::uuid,1,%L)$sql$,
-    :'user_a',:'source_a',:'save_a',:'artifact_a',:'config_a',repeat('c',64)),
+    :'user_a',:'source_a',:'save_a',:'artifact_probe',:'config_a',repeat('c',64)),
   '23503',null,'draft activation provenance rejects the wrong gateway fingerprint'
 );
 
@@ -271,14 +280,14 @@ select extensions.throws_ok(
 );
 select extensions.lives_ok(
   format($sql$update public.practice_drafts
-    set status='completed',updated_at='2026-08-20 11:10:00+00'
+    set status='promoted',updated_at='2026-08-20 11:10:00+00'
     where id=%L::uuid$sql$, :'draft_live'),
   'service role may update only draft lifecycle state'
 );
 select extensions.results_eq(
   format($sql$select status,updated_at from public.practice_drafts
     where id=%L::uuid$sql$, :'draft_live'),
-  $$values ('completed'::text,'2026-08-20 11:10:00+00'::timestamptz)$$,
+  $$values ('promoted'::text,'2026-08-20 11:10:00+00'::timestamptz)$$,
   'draft lifecycle update persists without changing immutable activation data'
 );
 
@@ -540,7 +549,7 @@ select extensions.is(
   'authenticated owner can select only the owner attempt revisions'
 );
 select extensions.throws_ok(
-  format($sql$update public.practice_drafts set status='abandoned'
+  format($sql$update public.practice_drafts set status='removed'
     where id=%L::uuid$sql$, :'draft_a'),
   '42501',null,'authenticated owners cannot update drafts directly'
 );
@@ -572,7 +581,7 @@ select extensions.throws_ok(
   ) values (
     '0b000000-0000-4000-8000-00000000b002','0b100000-0000-4000-8000-000000000002',
     '0b200000-0000-4000-8000-000000000002','0b300000-0000-4000-8000-000000000002',0,
-    gen_random_uuid(),'en','zh-CN','没想到','请自然回应。','Reply naturally.','Use it.','active'
+    gen_random_uuid(),'en','zh-CN','没想到','请自然回应。','Reply naturally.','Use it.','open'
   )$$,
   '42501',null,'authenticated users cannot directly write drafts'
 );

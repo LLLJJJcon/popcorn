@@ -139,6 +139,13 @@ export const LearningCardFieldsSchema = z.strictObject({
 });
 
 const CompatTextSchema = z.string().min(1).max(2_000).refine((text) => text.trim().length > 0);
+export const SavedPracticeStateSchema = z.discriminatedUnion("status", [
+  z.strictObject({status:z.literal("unpracticed")}),
+  z.strictObject({status:z.literal("practicing"),taskId:z.string().uuid(),roundNumber:z.number().int().positive()}),
+  z.strictObject({status:z.literal("removed"),taskId:z.string().uuid(),roundNumber:z.number().int().positive()}),
+  z.strictObject({status:z.literal("promoted"),userExpressionId:z.string().uuid()}),
+]);
+export type SavedPracticeState = z.infer<typeof SavedPracticeStateSchema>;
 export const CandidateExpressionSchema = z.strictObject({
   expression: TargetChineseTextSchema.max(10_000),
   englishMeaning: CompatTextSchema,
@@ -153,6 +160,7 @@ export const CandidateExpressionSchema = z.strictObject({
   confidence: z.number().finite().min(0).max(1).optional(),
   highlightId: z.string().uuid().optional(),
   highlightKey: z.string().min(1).max(30_000).optional(),
+  practiceState: SavedPracticeStateSchema.optional(),
   meaningHere: LearningCardTextSchema.optional(),
   useItWhen: LearningCardTextSchema.optional(),
   comparedWith: LearningCardTextSchema.optional(),
