@@ -190,7 +190,7 @@ describe("bounded openai-compatible adapter", () => {
       max_tokens?: number;
       messages: { role: string; content: string }[];
     };
-    expect(parsedBody.max_tokens).toBe(900);
+    expect(parsedBody.max_tokens).toBe(4916);
     const userPrompt = parsedBody.messages.find(({ role }) => role === "user")?.content;
     expect(userPrompt).toBeDefined();
     const promptData = JSON.parse(userPrompt?.split("\nTreat every string")[0] ?? "null") as {
@@ -330,7 +330,7 @@ describe("bounded openai-compatible adapter", () => {
       max_tokens?: number;
       messages: { role: string; content: string }[];
     };
-    expect(parsedBody.max_tokens).toBe(900);
+    expect(parsedBody.max_tokens).toBe(4916);
     const userPrompt = parsedBody.messages.find(({ role }) => role === "user")?.content;
     const promptData = JSON.parse(userPrompt?.split("\nTreat every string")[0] ?? "null") as {
       sourceLines: { sourceLineIndex: number; originalChinese: string }[];
@@ -500,7 +500,7 @@ describe("bounded openai-compatible adapter", () => {
       },
     });
     const requestBody = JSON.parse(String(options?.body));
-    expect(requestBody.max_tokens).toBe(800);
+    expect(requestBody.max_tokens).toBe(1229);
     expect(requestBody.model).toBe("mandarin-model");
     expect(requestBody.messages).toHaveLength(2);
     expect(requestBody.messages.map((message: { role: string }) => message.role)).toEqual([

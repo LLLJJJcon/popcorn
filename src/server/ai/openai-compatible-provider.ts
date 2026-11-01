@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MODEL_OUTPUT_TOKENS, translationOutputTokens } from "./output-budgets";
 
 import {
   ModelGatewayError,
@@ -38,7 +39,6 @@ const DEFAULT_OVERVIEW_TIMEOUT_MS = 120_000;
 // Two accepted 10k Chinese inputs plus the existing scene/rubric remain bounded.
 const DEFAULT_MAX_REQUEST_BYTES = 131_072;
 const DEFAULT_MAX_RESPONSE_BYTES = 524_288;
-const OVERVIEW_MAX_TOKENS = 900;
 
 const GatewayEnvelopeSchema = z.object({
   choices: z.array(z.object({
@@ -211,9 +211,15 @@ export function createOpenAiCompatibleStructuredJsonClient(
     userPrompt: string,
     completionOptions: StructuredTextCompletionOptions,
   ): Promise<string> {
+    const isHaiku55 = options.config.model === "claude-haiku-5-5";
     const body = JSON.stringify({
       model: options.config.model,
       max_tokens: boundedPositiveInteger(completionOptions.maxTokens, 1),
+      // Haiku 5.5 defaults to adaptive thinking, which can consume the entire
+      // small output cap before it emits any usable learning content.
+      // AIHubMix's Chat Completions mapping also needs the unified effort flag;
+      // the native thinking field alone is accepted but does not disable it.
+      ...(isHaiku55 ? { thinking: { type: "disabled" }, reasoning_effort: "none" } : {}),
       ...(options.config.model === "qwen3.8-flash" && /^evaluate-practice-v\d+$/.test(promptVersion)
         ? { enable_thinking: false }
         : {}),
@@ -327,7 +333,7 @@ export function createOpenAiCompatibleLearningArtifactProvider(
         {
           systemPrompt: prompt.systemPrompt,
           timeoutMs: overviewTimeoutMs,
-          maxTokens: OVERVIEW_MAX_TOKENS,
+          maxTokens: MODEL_OUTPUT_TOKENS.youtubeOverview,
           maxTransportRetries: 0,
         },
       );
@@ -398,7 +404,7 @@ export function createOpenAiCompatibleLearningArtifactProvider(
         {
           systemPrompt: prompt.systemPrompt,
           timeoutMs: artifactTimeoutMs,
-          maxTokens: 800,
+          maxTokens: translationOutputTokens(requested.length),
           normalize: normalizeTranslationWire,
         },
       );
@@ -429,7 +435,7 @@ export function createOpenAiCompatibleLearningArtifactProvider(
         {
           systemPrompt: prompt.systemPrompt,
           timeoutMs: artifactTimeoutMs,
-          maxTokens: 500,
+          maxTokens: MODEL_OUTPUT_TOKENS.explainSelection,
           normalize: normalizeExplanationWire,
         },
       );

@@ -52,6 +52,25 @@ function readMessages(fetchImpl: ReturnType<typeof vi.fn>, callIndex = 0) {
 }
 
 describe("learning artifact prompt and wire contract", () => {
+  test("gives a 32-line translation room for every requested line", async () => {
+    const segments = Array.from({ length: 32 }, (_, index) => ({
+      stableId: index.toString(16).padStart(64, "0"),
+      originalChinese: "这杯咖啡太贵了。", startSeconds: index, endSeconds: index + 1,
+    }));
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      // Simulate truncation when a multi-line response receives the old short cap.
+      if (body.max_tokens < 4000) return completionResponse('{"translations":[');
+      return completionResponse(JSON.stringify({ translations: segments.map((_, sourceLineIndex) => ({
+        sourceLineIndex, english: "This coffee is too expensive.",
+      })) }));
+    });
+    const provider = createOpenAiCompatibleLearningArtifactProvider({ config: runtimeConfig, fetchImpl });
+    await expect(provider.translateSegments({ ...evidence, segments }, segments.map(segment => segment.stableId)))
+      .resolves.toEqual({ segments: segments.map(segment => ({ id: segment.stableId, english: "This coffee is too expensive." })) });
+    expect(readMessages(fetchImpl).body.max_tokens).toBe(9524);
+  });
+
   test("keeps untrusted Overview transcript instructions only in the frozen user-data block", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => completionResponse(
       `The result is {"overview":"A “clear” summary.","chapters":[],"keyQuotes":[],"ignored":true}.`,
@@ -77,7 +96,7 @@ describe("learning artifact prompt and wire contract", () => {
     expect(systemPrompt).not.toContain(INJECTION);
     expect(userPrompt).not.toContain("startSeconds");
     expect(userPrompt).not.toContain("stableId");
-    expect(body.max_tokens).toBe(900);
+    expect(body.max_tokens).toBe(4916);
   });
 
   test("publishes the valid ordered Translation subset from a one-level wrapper", async () => {
@@ -105,7 +124,7 @@ describe("learning artifact prompt and wire contract", () => {
     }) + USER_SUFFIX);
     expect(userPrompt).not.toContain("startSeconds");
     expect(userPrompt).not.toContain("stableId");
-    expect(body.max_tokens).toBe(800);
+    expect(body.max_tokens).toBe(1229);
   });
 
   test("adds server-owned selection identity to an atomic Explanation wire object", async () => {
@@ -138,7 +157,7 @@ describe("learning artifact prompt and wire contract", () => {
     }) + USER_SUFFIX);
     expect(userPrompt).not.toContain("startSeconds");
     expect(userPrompt).not.toContain("stableId");
-    expect(body.max_tokens).toBe(500);
+    expect(body.max_tokens).toBe(1229);
   });
 
   test("exports only the finite current and historical readable prompt versions", () => {

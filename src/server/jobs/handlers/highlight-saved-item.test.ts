@@ -73,5 +73,5 @@ test('suggestion transport uses the confirmed twenty-second deadline', async () 
   const f = setup(async () => ({ highlights: [] }));
   await f.handler(job, userId, job.updatedAt);
   const calls = f.complete.mock.calls as unknown[][];
-  expect(calls[0]?.[2]).toMatchObject({ timeoutMs: 20000, maxTokens: 350 });
+  expect(calls[0]?.[2]).toMatchObject({ timeoutMs: 20000, maxTokens: 615 });
 });

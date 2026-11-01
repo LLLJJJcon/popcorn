@@ -195,7 +195,7 @@ describe("complete due Practice", () => {
       expect.objectContaining({
         systemPrompt: expect.stringContaining("naturalRevisionChinese"),
         timeoutMs: 30_000,
-        maxTokens: 700,
+        maxTokens: 1844,
       }),
     );
     expect(store.completeDuePractice).toHaveBeenCalledWith(expect.objectContaining({
@@ -316,7 +316,7 @@ describe("complete due Practice", () => {
     expect(gateway.complete).toHaveBeenCalledWith(
       "evaluate-practice-v4",
       expect.not.stringContaining("assistanceLevel"),
-      expect.objectContaining({ timeoutMs: 30_000, maxTokens: 700 }),
+      expect.objectContaining({ timeoutMs: 30_000, maxTokens: 1844 }),
     );
   });
 

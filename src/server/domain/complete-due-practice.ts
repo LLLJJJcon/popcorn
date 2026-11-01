@@ -1,3 +1,4 @@
+import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 import { createHash } from "node:crypto";
 
 import { z } from "zod";
@@ -244,7 +245,7 @@ export function createDuePracticeCompletionService(dependencies: {
               {
                 systemPrompt: prompt.systemPrompt,
                 timeoutMs: 30_000,
-                maxTokens: 700,
+                maxTokens: MODEL_OUTPUT_TOKENS.evaluatePractice,
                 normalize: normalizePracticeEvaluationWire,
               },
             ),

@@ -1,3 +1,4 @@
+import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 import type { KnowledgeJob } from "@/contracts/knowledge";
 import {
   safeModelFailureCode,
@@ -106,7 +107,7 @@ export function createAnalyzeSavedItemHandler({ store, gatewayResolver }: {
           {
             systemPrompt: prompt.systemPrompt,
             timeoutMs: 30_000,
-            maxTokens: 900,
+            maxTokens: MODEL_OUTPUT_TOKENS.savedItemAnalysis,
             normalize: normalizeSavedItemAnalysisWire,
           },
         );

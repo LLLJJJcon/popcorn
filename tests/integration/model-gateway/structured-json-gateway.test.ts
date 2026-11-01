@@ -170,6 +170,48 @@ describe("structured JSON model gateway", () => {
     }
   });
 
+  test.each([
+    ["analyze-saved-item-v3", 2458, 2458],
+    ["analyze-saved-item-v3", 4301, 4301],
+    ["analyze-saved-item-v3", 9831, 9831],
+    ["evaluate-practice-v4", 1844, 1844],
+    ["activate-practice-v2", 615, 615],
+  ])("Haiku completes %s without spending its %i-token budget on thinking", async (promptVersion, requestedTokens, expectedTokens) => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      // The observed provider failure: thinking consumes the entire cap before
+      // any assistant text is emitted. Reject it at the real HTTP boundary.
+      if (body.thinking?.type !== "disabled" || body.reasoning_effort !== "none" || body.max_tokens < expectedTokens) {
+        return new Response(JSON.stringify({ choices: [{ finish_reason: "length", message: { role: "assistant", content: "" } }] }));
+      }
+      return jsonResponse({ checked: true });
+    });
+    const resolver = createStructuredJsonGatewayResolver({
+      ci: false,
+      fixture: mockGateway("unused", vi.fn()),
+      createRuntimeResolver: () => ({ resolve: async () => ({ ...runtimeConfig, model: "claude-haiku-5-5" }) }),
+      fetchImpl,
+    });
+    const gateway = await resolver.resolve(USER_ID, PIN);
+    await expect(gateway.complete(promptVersion, "Explain a fixed synthetic expression.", completionOptions(recordNormalizer, { maxTokens: requestedTokens })))
+      .resolves.toEqual({ checked: true });
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(body.max_tokens).toBe(expectedTokens);
+    expect(body).not.toHaveProperty("enable_thinking");
+  });
+
+  test("rejects output budgets above the application ceiling before fetching", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const resolver = createStructuredJsonGatewayResolver({
+      ci: false, fixture: mockGateway("unused", vi.fn()),
+      createRuntimeResolver: () => ({ resolve: async () => runtimeConfig }), fetchImpl,
+    });
+    const gateway = await resolver.resolve(USER_ID, PIN);
+    await expect(gateway.complete("analyze-saved-item-v3", "Fixed synthetic data.",
+      completionOptions(recordNormalizer, { maxTokens: 9832 }))).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   test("unsupported adapters and transport failures fail closed without exposing the key", async () => {
     const unsupported = createStructuredJsonGatewayResolver({
       ci: false,

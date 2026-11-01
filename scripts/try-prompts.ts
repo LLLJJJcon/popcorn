@@ -1,3 +1,4 @@
+import { MODEL_OUTPUT_TOKENS, learningCardOutputTokens } from "../src/server/ai/output-budgets";
 import { readFile, mkdir, appendFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -114,7 +115,7 @@ export async function runGoldenTrial(version: PromptVersion, sample: GoldenCase,
   // One trial per chosen case. Do not hide an initial bad output behind format retries.
   const output = await gateway.complete<Record<string, unknown>>(version, prompt.userPrompt, {
     systemPrompt: prompt.systemPrompt, timeoutMs: isHighlight ? 20_000 : 30_000,
-    maxTokens: isHighlight ? 350 : 450 * (sample.input.highlights?.length ?? 0) + 150,
+    maxTokens: isHighlight ? MODEL_OUTPUT_TOKENS.highlightExpressions : learningCardOutputTokens(sample.input.highlights?.length ?? 0),
     normalize: value => ({ success: true, data: value }),
   });
   return { output, comparison: compareGolden(version, sample, output) };

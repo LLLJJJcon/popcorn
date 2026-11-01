@@ -31,6 +31,9 @@ test("retries only bad cards and preserves successful cards when one mark keeps 
   expect(content.highlightStates).toContainEqual({ highlightId: other.id, text: other.text, status: "failed" });
   expect(complete).toHaveBeenCalledTimes(4);
   expect(JSON.parse(complete.mock.calls[1]![1].split("\n")[0]!).highlights).toHaveLength(1);
+  const calls = complete.mock.calls as unknown[][];
+  expect(calls[0]?.[2]).toMatchObject({ maxTokens: 4301 });
+  expect(calls[1]?.[2]).toMatchObject({ maxTokens: 2458 });
 });
 
 test("examples-only failures retry four times then produce a card with examples unavailable", async () => {
@@ -46,8 +49,8 @@ test("batches six marks as five then one with proportional token budgets", async
   await generateMarkedLearningCards({ gateway: gateway(complete), evidence: { ...evidence, highlights: marks } });
   expect(complete).toHaveBeenCalledTimes(2);
   const calls = complete.mock.calls as unknown[][];
-  expect(calls[0]?.[2]).toMatchObject({ maxTokens: 2400 });
-  expect(calls[1]?.[2]).toMatchObject({ maxTokens: 600 });
+  expect(calls[0]?.[2]).toMatchObject({ maxTokens: 9831 });
+  expect(calls[1]?.[2]).toMatchObject({ maxTokens: 2458 });
 });
 
 test("malformed JSON attempts stop at four and retain a per-mark failure", async () => {
