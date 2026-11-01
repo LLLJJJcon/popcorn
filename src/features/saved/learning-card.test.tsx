@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { CandidateExpression } from "@/contracts/knowledge";
 import { CandidateExpressionCard } from "./candidate-expression";
 export const learningCard: CandidateExpression = {
-  expression: "高得要命", englishMeaning: "Ridiculously high.", englishExplanation: "Complain about an excessive degree.", tone: "Casual.", communicativeFunction: "Complain", register: "Casual chat", evidenceText: "这里的房价高得要命。", segmentIds: ["s1"], startSeconds: 62, endSeconds: 66, confidence: 1,
+  expression: "高得要命", englishMeaning: "Ridiculously high.", englishExplanation: "Complain about an excessive degree.", tone: "Casual.", communicativeFunction: "Complain", register: "Casual chat", evidenceText: "这里的房价高得要命。", segmentIds: ["s1"], startSeconds: 62, endSeconds: 66,
   highlightId: "11111111-1111-4111-8111-111111111111", highlightKey: "s1:5:s1:9",
   meaningHere: "Ridiculously high — the speaker is complaining about the price.", useItWhen: "You want to complain that something is excessive.", comparedWith: "很高 states the degree; 高得要命 adds exaggeration and annoyance.", howItFits: "The original form comes after an adjective, joined by 得.", toneAndWho: "Casual and exaggerated; use with friends and family.", watchOut: "Usually negative; do not use it to praise something.", examples: [{ zh: "这里的咖啡高得要命。", en: "Coffee here is ridiculously expensive." }, { zh: "今天气温高得要命。", en: "The temperature is unbearably high today." }], functionCategories: ["emphasize", "complain"], usageSettings: ["casual_chat"], suitability: "expression",
 };

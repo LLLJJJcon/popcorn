@@ -62,9 +62,16 @@ test('valid suggestion only references target and server-computed offsets', asyn
       endOffset: 7,
       text: '高得要命'
     }]);
-  const body = JSON.parse(f.complete.mock.calls[0]![1]);
+  const body = JSON.parse(f.complete.mock.calls[0]![1].split("\n")[0]!);
   expect(body.lines.map((v: {
     role: string;
   }) => v.role)).toEqual(['context', 'TARGET', 'context']);
 });
 test('empty suggestions is a valid ready result', async () => { const f = setup(async () => ({ highlights: [] })); expect(await f.handler(job, userId, job.updatedAt)).toBe('completed'); expect(f.finish).toHaveBeenLastCalledWith(userId, job, [], false, job.updatedAt); });
+
+test('suggestion transport uses the confirmed twenty-second deadline', async () => {
+  const f = setup(async () => ({ highlights: [] }));
+  await f.handler(job, userId, job.updatedAt);
+  const calls = f.complete.mock.calls as unknown[][];
+  expect(calls[0]?.[2]).toMatchObject({ timeoutMs: 20000, maxTokens: 350 });
+});

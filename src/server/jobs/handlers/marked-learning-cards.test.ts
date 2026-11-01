@@ -23,14 +23,14 @@ test("grounds every card in its selected mark and skips previously analyzed posi
 test("retries only bad cards and preserves successful cards when one mark keeps failing", async () => {
   const other = { ...highlight, id: "10000000-0000-4000-8000-000000000002", startOffset: 0, endOffset: 2, text: "价格" };
   const complete = vi.fn(async (_version: string, prompt: string) => {
-    const { highlights } = JSON.parse(prompt);
+    const { highlights } = JSON.parse(prompt.split("\n")[0]!);
     return { cards: highlights.map((mark: { id: string; text: string }) => mark.text === "价格" ? { id: mark.id, meaningHere: "bad" } : card(mark.id)) };
   });
   const content = await generateMarkedLearningCards({ gateway: gateway(complete), evidence: { ...evidence, highlights: [highlight, other] } });
   expect(content.candidates).toHaveLength(1);
   expect(content.highlightStates).toContainEqual({ highlightId: other.id, text: other.text, status: "failed" });
   expect(complete).toHaveBeenCalledTimes(4);
-  expect(JSON.parse(complete.mock.calls[1]![1]).highlights).toHaveLength(1);
+  expect(JSON.parse(complete.mock.calls[1]![1].split("\n")[0]!).highlights).toHaveLength(1);
 });
 
 test("examples-only failures retry four times then produce a card with examples unavailable", async () => {
@@ -42,7 +42,7 @@ test("examples-only failures retry four times then produce a card with examples 
 
 test("batches six marks as five then one with proportional token budgets", async () => {
   const marks = Array.from({ length: 6 }, (_, index) => ({ ...highlight, id: `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`, startOffset: index, endOffset: index + 1, text: "高" }));
-  const complete = vi.fn(async (_version: string, prompt: string) => ({ cards: JSON.parse(prompt).highlights.map((mark: { id: string }) => ({ ...card(mark.id), examples: [{ zh: "今天气温高。", en: "It is hot today." }, { zh: "那里的价格高。", en: "Prices are high there." }] })) }));
+  const complete = vi.fn(async (_version: string, prompt: string) => ({ cards: JSON.parse(prompt.split("\n")[0]!).highlights.map((mark: { id: string }) => ({ ...card(mark.id), examples: [{ zh: "今天气温高。", en: "It is hot today." }, { zh: "那里的价格高。", en: "Prices are high there." }] })) }));
   await generateMarkedLearningCards({ gateway: gateway(complete), evidence: { ...evidence, highlights: marks } });
   expect(complete).toHaveBeenCalledTimes(2);
   const calls = complete.mock.calls as unknown[][];
@@ -71,4 +71,22 @@ test("JSON and card failures share the same four-call budget", async () => {
   expect(complete).toHaveBeenCalledTimes(4);
   expect(content.candidates).toEqual([]);
   expect(content.highlightStates[0]?.status).toBe("failed");
+});
+
+
+test("modern learning cards do not persist confidence and include short target-line references", async () => {
+  const complete = vi.fn(async () => ({ cards: [card()] }));
+  const content = await generateMarkedLearningCards({ gateway: gateway(complete), evidence });
+  expect(content.candidates[0]).not.toHaveProperty("confidence");
+  const calls = complete.mock.calls as unknown as [string, string][];
+  expect(JSON.parse(calls[0]![1].split("\n")[0]!).highlights).toEqual([{ id: "h1", text: "高得要命", line: 2 }]);
+});
+
+test.each(["reversed", "extra", "duplicate"])("retries %s output IDs without publishing misassociated cards", async (kind) => {
+  const other = { ...highlight, id: "10000000-0000-4000-8000-000000000002" };
+  const complete = vi.fn(async () => ({ cards: kind === "reversed" ? [card("h2"), card("h1")] : kind === "extra" ? [card("h1"), card("h2"), card("h3")] : [card("h1"), card("h1")] }));
+  const content = await generateMarkedLearningCards({ gateway: gateway(complete), evidence: { ...evidence, highlights: [highlight, other] } });
+  expect(complete).toHaveBeenCalledTimes(4);
+  expect(content.candidates).toEqual([]);
+  expect(content.highlightStates.every(state => state.status === "failed")).toBe(true);
 });

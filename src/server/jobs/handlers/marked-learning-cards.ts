@@ -1,3 +1,4 @@
+import { ANALYZE_BATCH_SIZE, FORMAT_RETRY_MAX } from "@/server/domain/learning-config";
 import { CandidateExpressionSchema, type CandidateExpression, type HighlightAnalysisState, type LearningCardFields } from "@/contracts/knowledge";
 import type { SavedHighlight } from "@/contracts/highlights";
 import { ModelGatewayError } from "@/server/ai/provider";
@@ -31,7 +32,6 @@ function groundCard(fields: LearningCardFields, highlight: SavedHighlight, evide
     englishMeaning: fields.meaningHere, englishExplanation: fields.useItWhen,
     tone: fields.toneAndWho, communicativeFunction: fields.functionCategories.join(", "),
     register: fields.usageSettings.join(", ") || "Context dependent",
-    confidence: 1,
     evidenceText, segmentIds: segments.map((segment) => segment.stableId),
     startSeconds: segments[0]!.startSeconds, endSeconds: segments.at(-1)!.endSeconds,
     highlightId: highlight.id, highlightKey: highlightIdentity(highlight),
@@ -60,13 +60,13 @@ export async function generateMarkedLearningCards({ gateway, evidence, highlight
   );
   const attempted = new Set(missing.map((highlight) => highlight.id));
   const lines = markedAnalysisLines(evidence);
-  for (let offset = 0; offset < missing.length; offset += 5) {
-    let pending = missing.slice(offset, offset + 5);
+  for (let offset = 0; offset < missing.length; offset += ANALYZE_BATCH_SIZE) {
+    let pending = missing.slice(offset, offset + ANALYZE_BATCH_SIZE);
     const lastExamplesOnly = new Map<string, Record<string, unknown>>();
-    for (let attempt = 0; attempt < 4 && pending.length > 0; attempt += 1) {
+    for (let attempt = 0; attempt <= FORMAT_RETRY_MAX && pending.length > 0; attempt += 1) {
       const shortIds = new Map(pending.map((highlight, index) => [`h${index + 1}`, highlight]));
       const prompt = buildAnalyzeMarkedExpressionsPrompt({
-        lines, highlights: [...shortIds].map(([id, highlight]) => ({ id, text: highlight.text })),
+        lines, highlights: [...shortIds].map(([id, highlight]) => ({ id, text: highlight.text, line: (evidence.contextBefore ?? []).slice(-3).length + evidence.segments.findIndex(segment => segment.stableId === highlight.startSegmentId) + 1 })),
       });
       let cards: readonly Record<string, unknown>[];
       try {
@@ -81,6 +81,17 @@ export async function generateMarkedLearningCards({ gateway, evidence, highlight
         if (error instanceof ModelGatewayError && ["json_extract", "wire_schema", "grounding"].includes(error.stage)) continue;
         break;
       }
+      // Unknown, repeated or reordered IDs corrupt the batch association. Missing
+      // cards are handled below as individual failures, preserving valid cards.
+      const requested = [...shortIds.keys()];
+      let previousIndex = -1;
+      const invalidOrder = cards.some(card => {
+        const index = requested.indexOf(card.id as string);
+        if (index <= previousIndex) return true;
+        previousIndex = index;
+        return false;
+      });
+      if (invalidOrder) continue;
       const succeeded = new Set<string>();
       for (const [shortId, highlight] of shortIds) {
         const matching = cards.filter((card) => card.id === shortId);

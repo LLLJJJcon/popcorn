@@ -59,7 +59,7 @@ begin
         jsonb_build_object('candidates',jsonb_build_array(jsonb_build_object(
           'expression',target_text,'englishMeaning','A contextual meaning.','englishExplanation','Use this expression naturally.',
           'tone','Casual.','communicativeFunction','Describe','register','Casual chat',
-          'evidenceText',evidence_text,'segmentIds',jsonb_build_array('bound-segment'),'startSeconds',1,'endSeconds',2,'confidence',1,
+          'evidenceText',evidence_text,'segmentIds',jsonb_build_array('bound-segment'),'startSeconds',1,'endSeconds',2,
           'meaningHere','A contextual meaning.','useItWhen','Describe an everyday situation.',
           'comparedWith','This form has a more expressive tone.','howItFits','Use the original form in the sentence.',
           'toneAndWho','Casual, with friends.','watchOut',null,'examples',null,
@@ -87,5 +87,6 @@ select extensions.throws_ok(format('update public.expression_senses set expressi
 select extensions.ok((select indexdef like '%md5(normalized_expression_text)%' from pg_indexes where schemaname='public' and indexname='expression_senses_normalized_text_idx'),'the normalized lookup index hashes its bounded btree key');
 select extensions.lives_ok(format('select * from public.delete_video_source(%L,%L,%L,%L::timestamptz)',(select owner_id from bound_cases where case_number=2),(select source_id from bound_cases where case_number=2),'remove_source_keep_evidence','2026-11-02T00:00:00Z'),'a long practiced fixture retains canonical learning evidence when its source is deleted');
 select extensions.ok((select not result.created and result.expression_sense_id=c.sense_id from bound_cases c cross join lateral public.promote_valid_practice_draft_attempt(c.owner_id,c.attempt_id,c.target_text,c.submitted_at+interval '1 day',1) result where c.case_number=2),'the public source-deletion wrapper replays a 10k normalized target with the same canonical identity');
+select extensions.ok((select bool_and(o.confidence=1) from public.expression_occurrences o join bound_cases c on c.occurrence_id=o.id),'modern cards without confidence use a neutral internal occurrence compatibility value');
 select * from extensions.finish();
 rollback;

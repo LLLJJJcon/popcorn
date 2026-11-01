@@ -150,7 +150,7 @@ export const CandidateExpressionSchema = z.strictObject({
   segmentIds: z.array(StableSegmentIdSchema).min(1).max(32),
   startSeconds: z.number().finite().min(0).max(604_800),
   endSeconds: z.number().finite().min(0).max(604_800),
-  confidence: z.number().finite().min(0).max(1),
+  confidence: z.number().finite().min(0).max(1).optional(),
   highlightId: z.string().uuid().optional(),
   highlightKey: z.string().min(1).max(30_000).optional(),
   meaningHere: LearningCardTextSchema.optional(),
@@ -175,6 +175,7 @@ export const CandidateExpressionSchema = z.strictObject({
       suitability: candidate.suitability, notExpressionReasonEn: candidate.notExpressionReasonEn,
     }).success) context.addIssue({ code: "custom", path: ["meaningHere"], message: "Invalid learning card" });
   } else {
+    if (candidate.confidence === undefined) context.addIssue({ code: "custom", path: ["confidence"], message: "Legacy confidence is required" });
     if (candidate.evidenceText.length > 2_000) context.addIssue({ code: "custom", path: ["evidenceText"], message: "Legacy evidence exceeds 2000 characters" });
     if (candidate.expression.length > 200) context.addIssue({ code: "custom", path: ["expression"], message: "Legacy expression exceeds 200 characters" });
     for (const [key, limit] of [["englishMeaning", 500], ["englishExplanation", 2_000], ["tone", 200], ["communicativeFunction", 300], ["register", 200]] as const) {

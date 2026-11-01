@@ -40,7 +40,7 @@ export function createHighlightSavedItemHandler({ store, gatewayResolver }: {
       let highlights: ReturnType<typeof groundSuggestedHighlights> = [];
       await completeWithFormatRetries(() => gateway.complete(HIGHLIGHT_EXPRESSIONS_PROMPT_VERSION, prompt.userPrompt, {
         systemPrompt: prompt.systemPrompt,
-        timeoutMs: 30000,
+        timeoutMs: 20000,
         maxTokens: 350,
         normalize: normalizeHighlightExpressionsWire
       }), value => {

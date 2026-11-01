@@ -1,3 +1,5 @@
+import { createHighlightExpressionsFixtureGateway } from "./highlight-expressions.v1";
+import { createAnalyzeMarkedExpressionsFixtureGateway } from "./analyze-saved-item.v3";
 import { z } from "zod";
 
 import { normalizeEnglishPunctuation, type WireDecodeResult } from "@/server/ai/model-output";
@@ -160,25 +162,11 @@ export function createAnalyzeSavedItemFixtureGateway(): StructuredJsonGateway {
         readonly lines?: readonly { readonly role: string; readonly text: string }[];
         readonly highlights?: readonly { readonly id: string; readonly text: string }[];
       };
-      if (_promptVersion === "highlight-expressions-v1" || _promptVersion === "analyze-saved-item-v3") {
-        const target = parsed.lines?.find((line) => line.role === "TARGET")?.text ?? "";
-        const suggested = ["高得要命", "太离谱了", "说白了", "没想到", "说实话"].find((text) => target.includes(text) && target !== text);
-        const payload = _promptVersion === "highlight-expressions-v1"
-          ? { highlights: suggested ? [{ text: suggested, occurrence: 1, reasonEn: "A reusable way to express your reaction in everyday conversation." }] : [] }
-          : { cards: (parsed.highlights ?? []).map((highlight) => ({
-            id: highlight.id,
-            meaningHere: "The speaker uses this expression to make a point in this particular conversation.",
-            useItWhen: "You want to describe your reaction clearly in an everyday conversation.",
-            comparedWith: "A plain description states the facts; this expression adds the speaker's personal attitude.",
-            howItFits: "Keep the selected words together in the same order within your sentence.",
-            toneAndWho: "Conversational; use it with friends or people you know well.",
-            watchOut: null,
-            examples: [{ zh: `今天聊起${highlight.text}。`, en: "Today this came up in a conversation." }, { zh: `朋友说${highlight.text}。`, en: "A friend used this expression." }],
-            functionCategories: ["describe"], usageSettings: ["casual_chat"], suitability: "expression", notExpressionReasonEn: null,
-          })) };
-        const decoded = options.normalize(payload);
-        if (!decoded.success) throw new ModelGatewayError("PROVIDER_OUTPUT_INVALID", "wire_schema", decoded.fieldPath);
-        return decoded.data;
+      if (_promptVersion === "highlight-expressions-v1") {
+        return createHighlightExpressionsFixtureGateway().complete(_promptVersion, userPrompt, options);
+      }
+      if (_promptVersion === "analyze-saved-item-v3") {
+        return createAnalyzeMarkedExpressionsFixtureGateway().complete(_promptVersion, userPrompt, options);
       }
       const line = parsed.sourceLines?.[0];
       if (

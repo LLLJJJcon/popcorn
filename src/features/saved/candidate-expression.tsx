@@ -86,7 +86,7 @@ export function CandidateExpressionCard({
         <summary>Source sentence</summary>
         <blockquote className={styles.candidateEvidence} lang="zh-CN">{candidate.evidenceText}</blockquote>
       </details>
-      {candidate.confidence < 0.7 ? <p className={styles.candidateNotice}>Needs your confirmation</p> : null}
+      {candidate.confidence !== undefined && candidate.confidence < 0.7 ? <p className={styles.candidateNotice}>Needs your confirmation</p> : null}
       <div className={styles.candidateActions}>
         <a className={styles.watchAction} href={youtubeTimeUrl(canonicalUrl, candidate.startSeconds)}>
           Watch at {timestamp(candidate.startSeconds)} on YouTube
