@@ -1,12 +1,14 @@
 # Shared fallback situations — product review draft
 
-Status: **待产品方审核 / Not approved for runtime, fixtures or seed data.**
+Status: **撤回 / 不采用。Withdrawn by the user; do not use in runtime, fixtures or seed data.**
+
+The user's final decision supersedes §8.7 and the earlier fallback plan: cancel generic runtime fallbacks for first practice and due reviews, retain any prepared task, and report preparation failure with retry while preserving state if no task is available. A failed regeneration keeps the existing task and does not consume its successful-regeneration allowance. No expression-specific question bank is added. The twenty JSON entries below remain an unchanged historical review artifact, not approved product content. CI uses separate synthetic data only.
 
 Source: confirmed execution specification §8.7 and the approved plan `docs/superpowers/plans/2026-11-01-phase1-groups2-4.md`. These are authored fixed fallback situations, not real model generations or the group 4 twenty-question human review. Each intention has two everyday topics in different domains, with a concrete interlocutor, faithful English translation and an instruction stating the act without supplying Chinese answer wording.
 
 Approval binds to the SHA-256 of the canonical JSON below: parse the JSON block, then encode `JSON.stringify(value)` as UTF-8 with no trailing newline (array/key order preserved). Verified SHA-256: `81ef89bf794e029f7ea8438b8ca5cfd415ae2126344fce42e3a7929cc83c3784`. Any content edit requires a new digest and approval.
 
-Selection after approval: same intention, prefer matching setting, skip every previously used scenario and any target-expression leakage, then choose the first remaining template. When both are unavailable, report preparation failure and preserve existing state. No round cap or repeated scenario is introduced. A template cannot promise to exclude every possible arbitrary target string; runtime validation must check the actual expression before selection.
+Withdrawn proposal (historical, not an implementation instruction): same intention, prefer matching setting, skip every previously used scenario and any target-expression leakage, then choose the first remaining template. The review found that generic intention templates cannot guarantee the expression's specific meaning, form and suitable setting. They will not be selected by runtime or fixtures.
 
 Mechanical review: each situationZh ≤120 Unicode code points; situationEn ≤60 whitespace-delimited words; interlocutor ≤10 Unicode code points; taskEn ≤30 whitespace-delimited words. Human review should confirm intention, setting/relationship, translation, naturalness, no answer hints and distinct life domains within each pair. `other` is deliberately a neutral conversational opening; its fit to any particular card's Use it when still needs runtime/model judgment and is not guaranteed by the generic template.
 
@@ -35,4 +37,4 @@ Mechanical review: each situationZh ≤120 Unicode code points; situationEn ≤6
 ]
 ```
 
-Review decision: pending. Runtime module, fixture integration and seed use are deliberately absent until the controller records approval for this exact digest.
+Review decision: **withdrawn / not adopted**. No runtime module, selector, fixture integration or seed use of this JSON is authorized.

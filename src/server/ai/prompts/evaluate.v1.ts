@@ -54,6 +54,7 @@ export const EVALUATE_PRACTICE_READABLE_PROMPT_VERSIONS = [
   "evaluate-practice-v2",
   "evaluate-practice-v3",
   "evaluate-practice-v4",
+  "evaluate-practice-v5",
 ] as const;
 
 export function isReadableEvaluationPromptVersion(value: string): boolean {

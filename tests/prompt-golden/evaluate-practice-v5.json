@@ -1,0 +1,204 @@
+[
+  {
+    "id": "evaluation-1",
+    "input": {
+      "task": "evaluation",
+      "targetExpression": "高得要命",
+      "targetMeaning": "Ridiculously high — complaining something is way too much.",
+      "situationZh": "周末你和朋友去了一家新开的咖啡店，一杯普通拿铁要六十块。朋友问你：“你觉得这家店怎么样？”",
+      "interlocutor": "朋友",
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "taskEn": "Reply to your friend and complain about how expensive the coffee is.",
+      "toneAndWho": "Casual and exaggerated; natural with friends and online.",
+      "watchOut": "Usually negative — don't use it to praise something.",
+      "learnerResponse": "这杯咖啡高得要命，下次别来了。"
+    },
+    "expect": {
+      "minScores": {
+        "accuracy": 3,
+        "naturalness": 3,
+        "contextualFit": 3
+      },
+      "manualReview": [
+        "All three dimensions are usable for the stated complaint sense."
+      ],
+      "allowNaturalRevision": true
+    }
+  },
+  {
+    "id": "evaluation-2",
+    "input": {
+      "task": "evaluation",
+      "targetExpression": "高得要命",
+      "targetMeaning": "Ridiculously high — complaining something is way too much.",
+      "situationZh": "周末你和朋友去了一家新开的咖啡店，一杯普通拿铁要六十块。朋友问你：“你觉得这家店怎么样？”",
+      "interlocutor": "朋友",
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "taskEn": "Reply to your friend and complain about how expensive the coffee is.",
+      "toneAndWho": "Casual and exaggerated; natural with friends and online.",
+      "watchOut": "Usually negative — don't use it to praise something.",
+      "learnerResponse": "他的个子高得要命，打篮球很厉害。"
+    },
+    "expect": {
+      "maxScores": {
+        "accuracy": 3
+      },
+      "manualReview": [
+        "Feedback identifies praise/height as a different sense from the target complaint meaning."
+      ],
+      "allowNaturalRevision": true
+    }
+  },
+  {
+    "id": "evaluation-3",
+    "input": {
+      "task": "evaluation",
+      "targetExpression": "高得要命",
+      "targetMeaning": "Ridiculously high — complaining something is way too much.",
+      "situationZh": "周末你和朋友去了一家新开的咖啡店，一杯普通拿铁要六十块。朋友问你：“你觉得这家店怎么样？”",
+      "interlocutor": "朋友",
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "taskEn": "Reply to your friend and complain about how expensive the coffee is.",
+      "toneAndWho": "Casual and exaggerated; natural with friends and online.",
+      "watchOut": "Usually negative — don't use it to praise something.",
+      "learnerResponse": "高得要命是什么意思？"
+    },
+    "expect": {
+      "exactScores": {
+        "accuracy": 1
+      },
+      "manualReview": [
+        "The target is merely mentioned, not used to communicate its meaning."
+      ],
+      "allowNaturalRevision": true
+    }
+  },
+  {
+    "id": "evaluation-4",
+    "input": {
+      "task": "evaluation",
+      "targetExpression": "高得要命",
+      "targetMeaning": "Ridiculously high — complaining something is way too much.",
+      "situationZh": "周末你和朋友去了一家新开的咖啡店，一杯普通拿铁要六十块。朋友问你：“你觉得这家店怎么样？”",
+      "interlocutor": "朋友",
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "taskEn": "Reply to your friend and complain about how expensive the coffee is.",
+      "toneAndWho": "Casual and exaggerated; natural with friends and online.",
+      "watchOut": "Usually negative — don't use it to praise something.",
+      "learnerResponse": "咖啡还行吧。"
+    },
+    "expect": {
+      "exactScores": {
+        "accuracy": 1
+      },
+      "manualReview": [
+        "The target expression is absent; other dimensions remain independently scored."
+      ],
+      "allowNaturalRevision": true
+    }
+  },
+  {
+    "id": "evaluation-5",
+    "input": {
+      "task": "evaluation",
+      "targetExpression": "高得要命",
+      "targetMeaning": "Ridiculously high — complaining something is way too much.",
+      "situationZh": "你和上级讨论供应商的报价，价格超出了预算。上级问：“你觉得这份报价怎么样？”",
+      "interlocutor": "上级",
+      "targetSetting": {
+        "value": "work_school",
+        "label": "Work & school",
+        "description": "Talking with colleagues, managers, teachers or classmates, including meetings and class."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "taskEn": "Reply to your manager and complain about the excessive quote.",
+      "toneAndWho": "Casual and exaggerated; natural with friends and online.",
+      "watchOut": "Usually negative — don't use it to praise something.",
+      "learnerResponse": "老板，这个报价高得要命啊！"
+    },
+    "expect": {
+      "maxScores": {
+        "contextualFit": 4
+      },
+      "manualReview": [
+        "Feedback identifies the casual tone relative to a manager at work."
+      ],
+      "allowNaturalRevision": true
+    }
+  },
+  {
+    "id": "evaluation-6",
+    "input": {
+      "task": "evaluation",
+      "targetExpression": "高得要命",
+      "targetMeaning": "Ridiculously high — complaining something is way too much.",
+      "situationZh": "周末你和朋友去了一家新开的咖啡店，一杯普通拿铁要六十块。朋友问你：“你觉得这家店怎么样？”",
+      "interlocutor": "朋友",
+      "targetSetting": {
+        "value": "casual_chat",
+        "label": "Casual chat",
+        "description": "Chatting with friends or family, or sending private messages."
+      },
+      "targetFunction": {
+        "value": "complain",
+        "label": "Complain",
+        "rule": "Something annoying, unfair or costly has happened and the speaker needs to express dissatisfaction."
+      },
+      "taskEn": "Reply to your friend and complain about how expensive the coffee is.",
+      "toneAndWho": "Casual and exaggerated; natural with friends and online.",
+      "watchOut": "Usually negative — don't use it to praise something.",
+      "learnerResponse": "这杯咖啡高得要命，下次别来了。"
+    },
+    "expect": {
+      "exactScores": {
+        "accuracy": 5,
+        "naturalness": 5,
+        "contextualFit": 5
+      },
+      "allowNaturalRevision": false,
+      "manualReview": [
+        "A fully natural answer has no identifiable defect and receives no optional rewrite."
+      ]
+    }
+  }
+]

@@ -16,6 +16,7 @@ export const ACTIVATE_PRACTICE_PROMPT_VERSION = "activate-practice-v2";
 export const ACTIVATE_PRACTICE_READABLE_PROMPT_VERSIONS = [
   "activate-practice-v1",
   "activate-practice-v2",
+  "activate-practice-v3",
 ] as const;
 
 export function isReadableActivationPromptVersion(value: string): boolean {

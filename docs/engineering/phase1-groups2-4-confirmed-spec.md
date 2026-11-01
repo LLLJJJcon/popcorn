@@ -2,6 +2,10 @@
 
 Source: user-provided execution specification, copied 2026-11-01. This is reference material within the user-authorized scope; execute only the current group after prerequisite acceptance. Draft/phase-2 text is absent. The three approved decisions in the plan override identified ambiguities. Template content and later human question review have explicit approval gates.
 
+## Latest explicit user override — no generic production fallback
+
+User rejected the20-template generic coverage and approved: cancel production generic fallback for first practice/due review; retain prepared tasks/state; failed preparation offers retry; failed regeneration retains the current task and allowance. Do not add an expression-specific bank. This supersedes quoted8.7 production criteria and earlier fallback-first answer. Test-only deterministic fixtures remain allowed, not semantic proof. Open unanswered round1 stays New/resumes same task.
+
 ## 1 方案摘要
 
 本方案把 Popcorn 从“主成功链路能走通”升级为“每个用户、每种结果都有下一步”的学习闭环，分两期交付：一期做核心闭环与亮点，二期做回流与可见的进步。方案与产品方逐组对齐，标注“已确认”的章节为定稿，可直接执行；尚未对齐的章节为初稿，执行前会按对齐结论重写。
