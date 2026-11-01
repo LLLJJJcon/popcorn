@@ -1,6 +1,6 @@
 # Group 4 controller integration record
 
-2026-11-01. Worktree `phase1-groups2-4/进度`, branch `codex/phase1-group4-confirmed`. This records implementation checks; separate D final acceptance and product decisions remain pending.
+2026-11-01. Worktree `phase1-groups2-4/进度`, branch `codex/phase1-group4-confirmed`. Independent D engineering acceptance now passes at4591f0a; required product decisions remain pending. The authoritative independent result is `group-4-acceptance.md`; earlier sections below retain the implementation/debugging evidence.
 
 ## Ownership and serial gates
 
@@ -34,7 +34,7 @@ Screenshot review additionally found a notice-display inconsistency: after offic
 
 ## Open gates
 
-- D independently accepts the final frozen client/tests, build, seed and complete production browser flows. Its independent backend archive41a6327 already passes1094SQL assertions, four new real races/source-free recovery, both old promotion races,238 focused application tests, extension180 and provenance16; final source comparison must confirm those backend bytes remain identical.
+- Independent D final **engineering PASS at4591f0a** is recorded in `group-4-acceptance.md`: full1704+provenance16/types/lint/build, all5 production browser cases and final notice assertions, four inspected screenshots including naturally due far, and independently verified exact-byte inheritance of backend41's1094SQL/six races/source-free0egress/seed replay. No unresolved engineering blocker remains. Its temporary3104 service is stopped; personal and controller services remain untouched.
 - Missing legacy metadata remains the unapproved product choice in `group-4-legacy-decision.md`; no extra legacy-generation prompt is implemented.
 - Actual20 modern questions were generated once by D and preserved at9a7aa6a. Structural20/20 is not human semantic approval; the product review file remains unfilled pending the user's decision.
 - User cancellation of generic fallback supersedes the original template portions of7.2/8.7/15.1. Cold failure offers retry with state retained; failed replacement retains the old question and allowance. No expression-specific bank is added.
