@@ -297,7 +297,7 @@ describe("fixture-only CI freeze gate", () => {
     expect(workflow).not.toMatch(/(?:sk-[A-Za-z0-9_-]{16,}|Bearer\s+eyJ)/);
   });
 
-  test("reuses the pinned extension release test without dependency drift", () => {
+  test("runs the complete pinned extension suite without dependency drift", () => {
     const packageJson = JSON.parse(readRequired("package.json")) as {
       scripts: Record<string, string>;
       dependencies: Record<string, string>;
@@ -308,7 +308,7 @@ describe("fixture-only CI freeze gate", () => {
     ) as Record<string, unknown>;
 
     expect(packageJson.scripts["test:extension"]).toBe(
-      "node --test --test-name-pattern='^(?:notes filters preserve selected contrast and expose pressed state|runtime has no source-file credential dependency or retired model|retired Remix and reader files are absent|published prompt files contain runtime sections)$' extension/tests/release.test.js",
+      "node --test extension/tests/*.test.js",
     );
     expect(extensionTestPackage).toEqual({ type: "commonjs" });
     expect(packageJson.dependencies).toEqual({

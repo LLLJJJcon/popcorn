@@ -57,3 +57,14 @@ To restart, refresh the isolated source/config copies and launch the installed N
 - Real-model semantic quality remains **unrun and unaccepted**. Product review can explicitly invoke `pnpm prompts:try -- <version> --real --user <existing-owner-UUID> [--case <case-id>]`, then inspect the generated comparison report and human-review criteria. This task did not authorize spending real calls, so no real prompt-run report was fabricated.
 - Independent acceptance owns the final integrated lint/unit/contract/integration/provenance/build/SQL/E2E gates. The temporary service uses development mode; the installed Next guide recommends a production build for release verification. This self-test does not replace that production build or independent review.
 - Group 2–4 behavior and section 4.9 downstream integrations were not implemented by task C.
+
+## Independent acceptance fix round — provenance extension-command assertion
+
+The independent frozen `aa8ec40` acceptance run found that `tests/provenance/no-llm-wiki-code.test.ts:310` still required the historical four-test name filter even though section 15.4 and task C require the full extension suite. The controller authorized only this expectation alignment and a report update.
+
+- RED: `pnpm --config.verify-deps-before-run=false exec vitest run tests/provenance/no-llm-wiki-code.test.ts` reproduced the exact command-string mismatch: 1 failed, 10 passed. Log: `/private/tmp/group1-tooling-fix-provenance-red.log`.
+- Minimal change: renamed that assertion to describe the complete pinned extension suite and changed its exact expected command to `node --test extension/tests/*.test.js`. All dependency pins, extension test package shape, workflow authorization/allowlist, credential checks and other provenance assertions remain unchanged. No tests were skipped, and the full-extension command still includes `save-payloads.test.js`.
+- GREEN: `pnpm --config.verify-deps-before-run=false test:provenance` passed 2 files / 16 tests. Log: `/private/tmp/group1-tooling-fix-provenance-green.log`.
+- GREEN: `pnpm --config.verify-deps-before-run=false test:prompts` passed 2 files / 28 tests, including the exact full-extension package-command constraint. Log: `/private/tmp/group1-tooling-fix-prompts-green.log`.
+
+The per-command pnpm option disables automatic dependency installation by the current host's fallback pnpm, using the already installed dependencies. An initial unqualified pnpm invocation aborted its automatic reinstall check with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` before running tests; no dependency files were changed. This option does not skip Vitest or any test assertion. This fix round touched only the provenance test and this report. Concurrent external provider and structured-gateway test changes were not touched. No commit or push was performed by task C.
