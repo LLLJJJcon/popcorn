@@ -1112,6 +1112,11 @@ describe("shared contracts", () => {
       "INTERNAL_ERROR",
       "FIRST_ANSWER_EXISTS",
       "ALREADY_PROMOTED",
+      "REGENERATE_USED",
+      "ALREADY_SUBMITTED",
+      "SCENARIO_CHANGED",
+      "LEGACY_METADATA_REQUIRED",
+      "REQUEST_IN_PROGRESS",
     ]);
   });
 

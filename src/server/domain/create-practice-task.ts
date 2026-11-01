@@ -77,6 +77,12 @@ export type PracticeErrorCode =
   | "REVISION_CONFLICT"
   | "FIRST_ANSWER_EXISTS"
   | "ALREADY_PROMOTED"
+  | "REGENERATE_USED"
+  | "ALREADY_SUBMITTED"
+  | "SCENARIO_CHANGED"
+  | "LEGACY_METADATA_REQUIRED"
+  | "REQUEST_IN_PROGRESS"
+  | "IDEMPOTENCY_CONFLICT"
   | "INTERNAL_ERROR";
 
 export class PracticeError extends Error {
@@ -145,6 +151,20 @@ async function boundedJson(request: Request): Promise<unknown> {
 
 export function practiceErrorResponse(error: unknown, requestId: string): Response {
   const practice = error instanceof PracticeError ? error : new PracticeError("INTERNAL_ERROR", true);
+  const reviewMessages = {
+    REGENERATE_USED: "You already changed this review situation.",
+    ALREADY_SUBMITTED: "This review already has an official answer.",
+    SCENARIO_CHANGED: "This situation changed. Review the current question before submitting.",
+    LEGACY_METADATA_REQUIRED: "This older expression needs a learning card before we can prepare a new situation. Your practice schedule hasn't changed.",
+    REQUEST_IN_PROGRESS: "This request is still being prepared. Please wait.",
+    IDEMPOTENCY_CONFLICT: "This request ID was already used for a different answer.",
+  } as const;
+  if (Object.prototype.hasOwnProperty.call(reviewMessages, practice.code)) {
+    const code = practice.code as keyof typeof reviewMessages;
+    return Response.json(failure({ code, message: reviewMessages[code], retryable: practice.retryable,
+      ...(practice.details ? { details: practice.details } : {}),
+    }, requestId), { status: 409, headers: { "Cache-Control": "no-store" } });
+  }
   const details = practice.code === "VALIDATION_FAILED"
     ? { code: "VALIDATION_FAILED" as const, message: "Invalid practice request", status: 400 }
     : practice.code === "NOT_FOUND"

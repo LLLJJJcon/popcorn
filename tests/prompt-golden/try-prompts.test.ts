@@ -10,6 +10,7 @@ describe("opt-in golden trial tooling", () => {
     ["analyze-saved-item-v3", learningCardOutputTokens(1)],
     ["activate-practice-v3", MODEL_OUTPUT_TOKENS.activatePractice],
     ["evaluate-practice-v5", MODEL_OUTPUT_TOKENS.evaluatePractice],
+    ["transfer-scenario-v1", 400],
   ] as const)("uses the current shared %s output budget with exactly one selected trial call", async (version, maxTokens) => {
     const complete = vi.fn(async () => ({}));
     await runGoldenTrial(version, goldenCases(version)[0], { model: "fixture/budget-boundary", complete } as never);
