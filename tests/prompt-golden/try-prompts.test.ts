@@ -1,9 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { MODEL_OUTPUT_TOKENS, learningCardOutputTokens } from "../../src/server/ai/output-budgets";
 import { compareGolden, derivePromptTrialEnvironment, goldenCases, parsePromptArguments, renderTrial, runGoldenTrial } from "../../scripts/try-prompts";
 import { createHighlightExpressionsFixtureGateway } from "../../src/server/ai/prompts/highlight-expressions.v1";
 import { createAnalyzeMarkedExpressionsFixtureGateway } from "../../src/server/ai/prompts/analyze-saved-item.v3";
 
 describe("opt-in golden trial tooling", () => {
+  it.each([
+    ["highlight-expressions-v1", MODEL_OUTPUT_TOKENS.highlightExpressions],
+    ["analyze-saved-item-v3", learningCardOutputTokens(1)],
+    ["activate-practice-v3", MODEL_OUTPUT_TOKENS.activatePractice],
+    ["evaluate-practice-v5", MODEL_OUTPUT_TOKENS.evaluatePractice],
+  ] as const)("uses the current shared %s output budget with exactly one selected trial call", async (version, maxTokens) => {
+    const complete = vi.fn(async () => ({}));
+    await runGoldenTrial(version, goldenCases(version)[0], { model: "fixture/budget-boundary", complete } as never);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(complete).toHaveBeenCalledWith(version, expect.any(String), expect.objectContaining({ maxTokens }));
+  });
   it("requires an explicit real-call flag and exact owner before any configuration/network work", () => {
     expect(() => parsePromptArguments(["highlight-expressions-v1"])).toThrow();
     expect(() => parsePromptArguments(["highlight-expressions-v1", "--real"])).toThrow();

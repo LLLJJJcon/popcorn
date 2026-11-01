@@ -563,12 +563,20 @@ export function createPopcornLauncher({
 
 /** @param {{ action: string | undefined, launcher: Launcher, processRef?: SignalProcess }} options */
 export async function runLauncherCommand({ action, launcher, processRef = process }) {
-  const stop = () => launcher.stop().catch(() => {});
+  /** @type {Promise<void> | undefined} */
+  let signalCleanup;
+  const stop = () => { signalCleanup ??= launcher.stop().catch(() => {}); };
   processRef.once("SIGINT", stop);
   processRef.once("SIGTERM", stop);
-  if (action === "start") await launcher.start();
-  else if (action === "stop") await launcher.stop();
-  else throw new Error("Use: node scripts/popcorn-local.mjs start|stop");
+  try {
+    if (action === "start") await launcher.start();
+    else if (action === "stop") await launcher.stop();
+    else throw new Error("Use: node scripts/popcorn-local.mjs start|stop");
+  } finally {
+    // A signal may cancel startup before it acquires a claim. Its cleanup still
+    // has asynchronous state reads to finish before this command can settle.
+    await signalCleanup;
+  }
 }
 
 async function main() {

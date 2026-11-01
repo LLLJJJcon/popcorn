@@ -1,3 +1,4 @@
+import { MODEL_OUTPUT_TOKENS, learningCardOutputTokens } from "../src/server/ai/output-budgets";
 import { readFile, mkdir, appendFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -152,7 +153,7 @@ export async function runGoldenTrial(version: PromptVersion, sample: GoldenCase,
   // One trial per chosen case. Do not hide an initial bad output behind format retries.
   const output = await gateway.complete<Record<string, unknown>>(version, prompt.userPrompt, {
     systemPrompt: prompt.systemPrompt, timeoutMs: version === "highlight-expressions-v1" || version === "activate-practice-v3" ? 20_000 : 30_000,
-    maxTokens: version === "highlight-expressions-v1" ? 350 : version === "analyze-saved-item-v3" ? 450 * highlights.length + 150 : version === "activate-practice-v3" ? 400 : 700,
+    maxTokens: version === "highlight-expressions-v1" ? MODEL_OUTPUT_TOKENS.highlightExpressions : version === "analyze-saved-item-v3" ? learningCardOutputTokens(highlights.length) : version === "activate-practice-v3" ? MODEL_OUTPUT_TOKENS.activatePractice : MODEL_OUTPUT_TOKENS.evaluatePractice,
     normalize: value => ({ success: true, data: value }),
   });
   return { output, comparison: compareGolden(version, sample, output) };

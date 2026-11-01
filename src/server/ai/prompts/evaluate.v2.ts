@@ -1,11 +1,12 @@
 import type { AssistanceLevel } from "@/contracts/practice";
 import type { WireNormalizer } from "@/server/ai/model-output";
+import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 import { framePrompt } from "./instruction-framing";
 import type { TargetFunction, TargetSetting } from "./learning-intent-constants";
 import { buildEvaluatePracticePrompt as buildLegacyPrompt, normalizePracticeEvaluationWire as normalizeLegacyWire, parsePracticeEvaluationOutput as parseLegacyOutput, createEvaluationFixtureGateway as legacyFixture, type PracticeEvaluationWire } from "./evaluate.v1";
 
 export const EVALUATE_PRACTICE_PROMPT_VERSION = "evaluate-practice-v5";
-export const EVALUATION_MAX_TOKENS = 700;
+export const EVALUATION_MAX_TOKENS = MODEL_OUTPUT_TOKENS.evaluatePractice;
 export const EVALUATION_TIMEOUT_MS = 30_000;
 export type EvaluationInput = {
   readonly targetExpression: string;

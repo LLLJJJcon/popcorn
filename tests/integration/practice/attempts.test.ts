@@ -770,7 +770,7 @@ describe("evaluation and append-only revisions", () => {
     expect(harness.fixture.complete).toHaveBeenCalledWith(
       "evaluate-practice-v4",
       expect.not.stringContaining("assistanceLevel"),
-      expect.objectContaining({ timeoutMs: 30_000, maxTokens: 700 }),
+      expect.objectContaining({ timeoutMs: 30_000, maxTokens: 1844 }),
     );
   });
 

@@ -1,3 +1,4 @@
+import { learningCardOutputTokens } from "@/server/ai/output-budgets";
 import { ANALYZE_BATCH_SIZE, FORMAT_RETRY_MAX } from "@/server/domain/learning-config";
 import { CandidateExpressionSchema, type CandidateExpression, type HighlightAnalysisState, type LearningCardFields } from "@/contracts/knowledge";
 import type { SavedHighlight } from "@/contracts/highlights";
@@ -72,7 +73,7 @@ export async function generateMarkedLearningCards({ gateway, evidence, highlight
       try {
         const wire = await completeWithFormatRetries(() => gateway.complete(
           ANALYZE_MARKED_EXPRESSIONS_PROMPT_VERSION, prompt.userPrompt,
-          { systemPrompt: prompt.systemPrompt, timeoutMs: 30_000, maxTokens: 450 * pending.length + 150, normalize: normalizeMarkedAnalysisWire },
+          { systemPrompt: prompt.systemPrompt, timeoutMs: 30_000, maxTokens: learningCardOutputTokens(pending.length), normalize: normalizeMarkedAnalysisWire },
         ), undefined, 0);
         cards = wire.cards;
       } catch (error) {

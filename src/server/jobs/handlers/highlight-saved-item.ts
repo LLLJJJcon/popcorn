@@ -1,3 +1,4 @@
+import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 import { z } from 'zod';
 import { ModelGatewayError } from '@/server/ai/provider';
 import { buildHighlightExpressionsPrompt, HIGHLIGHT_EXPRESSIONS_PROMPT_VERSION, normalizeHighlightExpressionsWire, type AnalysisLine } from '@/server/ai/prompts/highlight-expressions.v1';
@@ -41,7 +42,7 @@ export function createHighlightSavedItemHandler({ store, gatewayResolver }: {
       await completeWithFormatRetries(() => gateway.complete(HIGHLIGHT_EXPRESSIONS_PROMPT_VERSION, prompt.userPrompt, {
         systemPrompt: prompt.systemPrompt,
         timeoutMs: 20000,
-        maxTokens: 350,
+        maxTokens: MODEL_OUTPUT_TOKENS.highlightExpressions,
         normalize: normalizeHighlightExpressionsWire
       }), value => {
         try {

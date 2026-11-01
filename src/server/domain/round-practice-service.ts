@@ -4,6 +4,7 @@ import { z } from "zod";
 import { CandidateExpressionListSchema, type CandidateExpression } from "@/contracts/knowledge";
 import { PracticeTaskSchema, PracticeAttemptResponseSchema, PracticeSituationSchema, type PracticeSituation, type PracticeTask, type PracticeActivationResponse, type PracticeRoundState, type PracticeAttemptResponse } from "@/contracts/practice";
 import { TargetChineseTextSchema } from "@/contracts/source";
+import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 import { ACTIVATE_PRACTICE_PROMPT_VERSION, buildActivatePracticePrompt, createActivationWireNormalizer, validateActivationOutput, ACTIVATION_MAX_TOKENS, ACTIVATION_TIMEOUT_MS } from "@/server/ai/prompts/activate.v2";
 import * as evaluationV5 from "@/server/ai/prompts/evaluate.v2";
 import * as evaluationV4 from "@/server/ai/prompts/evaluate.v1";
@@ -83,11 +84,11 @@ export function createRoundPracticeServices(deps:{client:SupabaseClient<Database
         const {card}=await candidate(userId,{savedItemId:d.saved_item_id,candidateArtifactId:d.candidate_artifact_id,candidateIndex:d.candidate_index});
         const prompt=evaluationV5.buildEvaluatePracticePrompt({targetExpression:d.target_expression,targetMeaning:card.meaningHere??card.englishMeaning,situationZh:scenario.situationZh,interlocutor:scenario.interlocutor,targetSetting:getTargetSetting(scenario.targetSetting),targetFunction:getTargetFunction(scenario.targetFunction),taskEn:scenario.taskEn,toneAndWho:card.toneAndWho??card.tone,watchOut:card.watchOut??null,learnerResponse:text});
         version=evaluationV5.EVALUATE_PRACTICE_PROMPT_VERSION;
-        const output=await completeWithFormatRetries(()=>resolved.gateway.complete(version,prompt.userPrompt,{systemPrompt:prompt.systemPrompt,maxTokens:700,timeoutMs:30_000,normalize:evaluationV5.normalizePracticeEvaluationWire}));
+        const output=await completeWithFormatRetries(()=>resolved.gateway.complete(version,prompt.userPrompt,{systemPrompt:prompt.systemPrompt,maxTokens:MODEL_OUTPUT_TOKENS.evaluatePractice,timeoutMs:30_000,normalize:evaluationV5.normalizePracticeEvaluationWire}));
         parsed=evaluationV5.parsePracticeEvaluationOutput(output,d.target_expression,assisted);
       }else{
         const prompt=evaluationV4.buildEvaluatePracticePrompt({targetExpression:d.target_expression,promptChinese:d.prompt_chinese,learnerResponse:text});version=evaluationV4.EVALUATE_PRACTICE_PROMPT_VERSION;
-        const output=await completeWithFormatRetries(()=>resolved.gateway.complete(version,prompt.userPrompt,{systemPrompt:prompt.systemPrompt,maxTokens:700,timeoutMs:30_000,normalize:evaluationV4.normalizePracticeEvaluationWire}));
+        const output=await completeWithFormatRetries(()=>resolved.gateway.complete(version,prompt.userPrompt,{systemPrompt:prompt.systemPrompt,maxTokens:MODEL_OUTPUT_TOKENS.evaluatePractice,timeoutMs:30_000,normalize:evaluationV4.normalizePracticeEvaluationWire}));
         parsed=evaluationV4.parsePracticeEvaluationOutput(output,d.target_expression,assisted);
       }
     }catch(error){throw practiceErrorFromUnknown(error);}

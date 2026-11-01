@@ -1,3 +1,4 @@
+import { MODEL_OUTPUT_TOKENS, learningCardOutputTokens } from "../../src/server/ai/output-budgets";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -40,7 +41,7 @@ describe("group 1 prompt golden contracts (not model quality acceptance)", () =>
     expect(prompt.userPrompt.split("\n").slice(1)).toEqual([USER_DATA_INSTRUCTION]);
     expect(JSON.parse(prompt.userPrompt.split("\n")[0])).toEqual(sample.input);
     const gateway = createHighlightExpressionsFixtureGateway();
-    const result = await gateway.complete("highlight-expressions-v1", prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 20_000, maxTokens: 350, normalize: normalizeHighlightExpressionsWire });
+    const result = await gateway.complete("highlight-expressions-v1", prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 20_000, maxTokens: MODEL_OUTPUT_TOKENS.highlightExpressions, normalize: normalizeHighlightExpressionsWire });
     expect(normalizeHighlightExpressionsWire(result).success).toBe(true);
     const target = [...lines.find(line => line.role === "TARGET")!.text];
     expect(result.highlights).toEqual(target.length >= 6 ? [{ text: target.slice(2, 6).join(""), occurrence: 1, reasonEn: "Fixture highlight." }] : []);
@@ -51,7 +52,7 @@ describe("group 1 prompt golden contracts (not model quality acceptance)", () =>
     expect(prompt.systemPrompt).toBe(`${INSTRUCTION_ISOLATION_PREFIX}\n\n${ANALYZE_MARKED_EXPRESSIONS_TASK_INSTRUCTION}`);
     expect(prompt.userPrompt.split("\n").slice(1)).toEqual([USER_DATA_INSTRUCTION]);
     expect(JSON.parse(prompt.userPrompt.split("\n")[0])).toEqual(sample.input);
-    const result = await createAnalyzeMarkedExpressionsFixtureGateway().complete("analyze-saved-item-v3", prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 30_000, maxTokens: 450 * sample.input.highlights.length + 150, normalize: normalizeMarkedAnalysisWire });
+    const result = await createAnalyzeMarkedExpressionsFixtureGateway().complete("analyze-saved-item-v3", prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 30_000, maxTokens: learningCardOutputTokens(sample.input.highlights.length), normalize: normalizeMarkedAnalysisWire });
     expect(result.cards.map(card => card.id)).toEqual(sample.input.highlights.map(mark => mark.id));
     for (const [index, card] of result.cards.entries()) {
       const expression = sample.input.highlights[index].text;

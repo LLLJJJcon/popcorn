@@ -8,6 +8,7 @@ import {
   type StructuredJsonGateway,
 } from "@/server/ai/structured-json-gateway";
 import type { ModelGatewayRuntimeConfig } from "@/server/model-gateway/runtime-resolver";
+import { MODEL_OUTPUT_TOKENS, learningCardOutputTokens } from "@/server/ai/output-budgets";
 import { createOpenAiCompatibleStructuredJsonClient } from "@/server/ai/openai-compatible-provider";
 
 const USER_ID = "0a000000-0000-4000-8000-00000000a001";
@@ -175,10 +176,10 @@ describe("structured JSON model gateway", () => {
     }
   });
 
-  test("Haiku5.5 can return visible JSON within700 tokens instead of an empty reasoning-only response", async () => {
+  test("Haiku emits visible JSON with both reasoning flags and an explicit caller output budget", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
       const body = JSON.parse(String(init?.body));
-      if (body.thinking?.type === "disabled") return jsonResponse({ checked: true });
+      if (body.thinking?.type === "disabled" && body.reasoning_effort === "none") return jsonResponse({ checked: true });
       // Real acceptance diagnostic: HTTP200/length, no visible content, all700
       // completion tokens consumed by the model's default adaptive thinking.
       return new Response(JSON.stringify({
@@ -198,18 +199,18 @@ describe("structured JSON model gateway", () => {
   });
 
   test.each([
-    ["evaluate-practice-v5", 700],
-    ["activate-practice-v3", 400],
-    ["highlight-expressions-v1", 350],
-    ["analyze-saved-item-v3", 450 * 1 + 150],
-    ["analyze-saved-item-v3", 450 * 2 + 150],
-    ["analyze-saved-item-v3", 450 * 5 + 150],
-  ])("disables thinking only for exact Haiku structured %s while preserving max_tokens=%s", async (promptVersion, maxTokens) => {
+    ["evaluate-practice-v5", MODEL_OUTPUT_TOKENS.evaluatePractice],
+    ["activate-practice-v3", MODEL_OUTPUT_TOKENS.activatePractice],
+    ["highlight-expressions-v1", MODEL_OUTPUT_TOKENS.highlightExpressions],
+    ["analyze-saved-item-v3", learningCardOutputTokens(1)],
+    ["analyze-saved-item-v3", learningCardOutputTokens(2)],
+    ["analyze-saved-item-v3", learningCardOutputTokens(5)],
+  ])("passes the explicit %s caller budget %s through while disabling exact Haiku reasoning", async (promptVersion, maxTokens) => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ checked: true }));
     const client = createOpenAiCompatibleStructuredJsonClient({ config: { ...runtimeConfig, model: "claude-haiku-5-5" }, fetchImpl });
     await client.complete(promptVersion, "FIXED USER DATA", completionOptions(recordNormalizer, { maxTokens }));
     expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({
-      model: "claude-haiku-5-5", max_tokens: maxTokens, thinking: { type: "disabled" },
+      model: "claude-haiku-5-5", max_tokens: maxTokens, thinking: { type: "disabled" }, reasoning_effort: "none",
       messages: [{ role: "system", content: "TASK SYSTEM" }, { role: "user", content: "FIXED USER DATA" }],
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -227,14 +228,56 @@ describe("structured JSON model gateway", () => {
     },
   );
 
-  test("Haiku plain-text transport keeps its previous body without a thinking flag", async () => {
+  test("Haiku raw-text transport uses both reasoning flags and the explicit task budget", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => assistantResponse("An ordinary text response."));
     const client = createOpenAiCompatibleStructuredJsonClient({ config: { ...runtimeConfig, model: "claude-haiku-5-5" }, fetchImpl });
-    await client.completeText("youtube-overview-v3", "FIXED USER DATA", { systemPrompt: "TASK SYSTEM", timeoutMs: 120_000, maxTokens: 900 });
+    await client.completeText("youtube-overview-v3", "FIXED USER DATA", { systemPrompt: "TASK SYSTEM", timeoutMs: 120_000, maxTokens: MODEL_OUTPUT_TOKENS.youtubeOverview });
     expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({
-      model: "claude-haiku-5-5", max_tokens: 900,
+      model: "claude-haiku-5-5", max_tokens: MODEL_OUTPUT_TOKENS.youtubeOverview, thinking: { type: "disabled" }, reasoning_effort: "none",
       messages: [{ role: "system", content: "TASK SYSTEM" }, { role: "user", content: "FIXED USER DATA" }],
     });
+  });
+
+  test.each([
+    ["analyze-saved-item-v3", 2458, 2458],
+    ["analyze-saved-item-v3", 4301, 4301],
+    ["analyze-saved-item-v3", 9831, 9831],
+    ["evaluate-practice-v4", 1844, 1844],
+    ["activate-practice-v2", 615, 615],
+  ])("Haiku completes %s without spending its %i-token budget on thinking", async (promptVersion, requestedTokens, expectedTokens) => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      // The observed provider failure: thinking consumes the entire cap before
+      // any assistant text is emitted. Reject it at the real HTTP boundary.
+      if (body.thinking?.type !== "disabled" || body.reasoning_effort !== "none" || body.max_tokens < expectedTokens) {
+        return new Response(JSON.stringify({ choices: [{ finish_reason: "length", message: { role: "assistant", content: "" } }] }));
+      }
+      return jsonResponse({ checked: true });
+    });
+    const resolver = createStructuredJsonGatewayResolver({
+      ci: false,
+      fixture: mockGateway("unused", vi.fn()),
+      createRuntimeResolver: () => ({ resolve: async () => ({ ...runtimeConfig, model: "claude-haiku-5-5" }) }),
+      fetchImpl,
+    });
+    const gateway = await resolver.resolve(USER_ID, PIN);
+    await expect(gateway.complete(promptVersion, "Explain a fixed synthetic expression.", completionOptions(recordNormalizer, { maxTokens: requestedTokens })))
+      .resolves.toEqual({ checked: true });
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(body.max_tokens).toBe(expectedTokens);
+    expect(body).not.toHaveProperty("enable_thinking");
+  });
+
+  test("rejects output budgets above the application ceiling before fetching", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const resolver = createStructuredJsonGatewayResolver({
+      ci: false, fixture: mockGateway("unused", vi.fn()),
+      createRuntimeResolver: () => ({ resolve: async () => runtimeConfig }), fetchImpl,
+    });
+    const gateway = await resolver.resolve(USER_ID, PIN);
+    await expect(gateway.complete("analyze-saved-item-v3", "Fixed synthetic data.",
+      completionOptions(recordNormalizer, { maxTokens: 9832 }))).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   test("unsupported adapters and transport failures fail closed without exposing the key", async () => {

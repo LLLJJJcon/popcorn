@@ -1,3 +1,4 @@
+import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 import { randomUUID } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -151,7 +152,7 @@ export function createPracticeAttemptService(dependencies: {
           {
             systemPrompt: prompt.systemPrompt,
             timeoutMs: 30_000,
-            maxTokens: 700,
+            maxTokens: MODEL_OUTPUT_TOKENS.evaluatePractice,
             normalize: normalizePracticeEvaluationWire,
           },
         ),

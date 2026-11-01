@@ -1,3 +1,4 @@
+import { MODEL_OUTPUT_TOKENS } from "../../src/server/ai/output-budgets";
 import { describe, expect, it } from "vitest";
 import activationCases from "./activate-practice-v3.json";
 import evaluationCases from "./evaluate-practice-v5.json";
@@ -25,14 +26,14 @@ describe("group 2 golden datasets and opt-in trial tooling", () => {
     expect(sample.expect.mustNotContain).toContain(sample.input.card.expression);
     expect(sample.expect.manualReview.length).toBeGreaterThan(0);
     const normalize = createActivationWireNormalizer({ targetExpression: sample.input.card.expression, avoidSituations: sample.input.avoidSituations });
-    const output = await createActivationFixtureGateway().complete("activate-practice-v3", prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 20000, maxTokens: 400, normalize });
+    const output = await createActivationFixtureGateway().complete("activate-practice-v3", prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 20000, maxTokens: MODEL_OUTPUT_TOKENS.activatePractice, normalize });
     expect(normalize(output).success).toBe(true);
     // Generic synthetic CI data does not establish the required intention or sense.
   });
   for (const sample of evaluationCases) it(`${sample.id}: builds enriched scoring and valid deterministic fixture output`, async () => {
     const prompt = buildEvaluatePracticePrompt(sample.input as EvaluationInput);
     expect(JSON.parse(prompt.userPrompt.split("\n")[0])).toEqual(sample.input);
-    const output = await createEvaluationFixtureGateway().complete("evaluate-practice-v5", prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 30000, maxTokens: 700, normalize: normalizePracticeEvaluationWire });
+    const output = await createEvaluationFixtureGateway().complete("evaluate-practice-v5", prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 30000, maxTokens: MODEL_OUTPUT_TOKENS.evaluatePractice, normalize: normalizePracticeEvaluationWire });
     expect(normalizePracticeEvaluationWire(output).success).toBe(true);
     // Fixtures exercise shape only. They must not pretend to satisfy semantic scoring expectations.
     expect(sample.expect.manualReview.length).toBeGreaterThan(0);

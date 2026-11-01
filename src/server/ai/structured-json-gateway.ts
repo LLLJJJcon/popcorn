@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { FORMAT_RETRY_MAX } from "@/server/domain/learning-config";
+import { MAX_MODEL_OUTPUT_TOKENS } from "./output-budgets";
 
 import {
   createOpenAiCompatibleStructuredJsonClient,
@@ -16,7 +17,7 @@ const PromptVersionSchema = z.string().trim().min(1).max(100);
 const PromptSchema = z.string().min(1).max(65_536);
 const SystemPromptSchema = z.string().min(1).max(32_768);
 const TimeoutSchema = z.number().int().positive().max(120_000);
-const MaxTokensSchema = z.number().int().positive().max(4_096);
+const MaxTokensSchema = z.number().int().positive().max(MAX_MODEL_OUTPUT_TOKENS);
 
 export type StructuredJsonCompletionOptions<T> = {
   readonly systemPrompt: string;

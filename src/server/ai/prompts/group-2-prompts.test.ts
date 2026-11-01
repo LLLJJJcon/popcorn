@@ -6,14 +6,17 @@ import {
   ActivationOutputSchema, buildActivatePracticePrompt, normalizeActivationWire,
   createActivationWireNormalizer, validateActivationOutput, scenarioFingerprint,
   createActivationFixtureGateway,
+  ACTIVATION_MAX_TOKENS,
 } from "./activate.v2";
 import {
   EVALUATE_PRACTICE_PROMPT_VERSION, buildEvaluatePracticePrompt,
   normalizePracticeEvaluationWire, parsePracticeEvaluationOutput, createEvaluationFixtureGateway,
+  EVALUATION_MAX_TOKENS,
 } from "./evaluate.v2";
 import { buildEvaluatePracticePrompt as buildLegacyEvaluation } from "./evaluate.v1";
 import { getTargetFunction, getTargetSetting, LEARNING_FUNCTIONS, LEARNING_SETTINGS } from "./learning-intent-constants";
 import { INSTRUCTION_ISOLATION_PREFIX, USER_DATA_INSTRUCTION } from "./instruction-framing";
+import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 
 const spec = readFileSync("docs/engineering/phase1-groups2-4-confirmed-spec.md", "utf8");
 const activationSection = spec.slice(spec.indexOf("### 8.4"), spec.indexOf("### 8.5"));
@@ -40,6 +43,10 @@ const wire = (score: number, revision?: string) => ({
 });
 
 describe("group 2 prompt version and isolation contracts", () => {
+  it("aliases current task output caps to the upstream shared budgets without applying headroom twice", () => {
+    expect(ACTIVATION_MAX_TOKENS).toBe(MODEL_OUTPUT_TOKENS.activatePractice);
+    expect(EVALUATION_MAX_TOKENS).toBe(MODEL_OUTPUT_TOKENS.evaluatePractice);
+  });
   it("uses the entire approved activation instruction byte for byte", () => {
     expect(ACTIVATE_PRACTICE_PROMPT_VERSION).toBe("activate-practice-v3");
     expect(ACTIVATION_TASK_INSTRUCTION).toBe(taskInstruction);
@@ -83,7 +90,7 @@ describe("four bounded scenario fields with task-aware grounding", () => {
     const gateway = createActivationFixtureGateway();
     expect(gateway.model).toBe("fixture/activation-v3");
     const prompt = buildActivatePracticePrompt(activationInput);
-    const options = { systemPrompt: prompt.systemPrompt, timeoutMs: 20000, maxTokens: 400, normalize: createActivationWireNormalizer({ targetExpression: "高得要命", avoidSituations: [] }) };
+    const options = { systemPrompt: prompt.systemPrompt, timeoutMs: 20000, maxTokens: MODEL_OUTPUT_TOKENS.activatePractice, normalize: createActivationWireNormalizer({ targetExpression: "高得要命", avoidSituations: [] }) };
     const first = await gateway.complete(ACTIVATE_PRACTICE_PROMPT_VERSION, prompt.userPrompt, options);
     expect(await gateway.complete(ACTIVATE_PRACTICE_PROMPT_VERSION, prompt.userPrompt, options)).toEqual(first);
     expect(ActivationOutputSchema.safeParse(first).success).toBe(true);
@@ -99,7 +106,7 @@ describe("four bounded scenario fields with task-aware grounding", () => {
     const avoidSituations: string[] = [];
     for (let index = 0; index < 12; index += 1) {
       const prompt = buildActivatePracticePrompt({ ...activationInput, avoidSituations });
-      const output = await gateway.complete(ACTIVATE_PRACTICE_PROMPT_VERSION, prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 20000, maxTokens: 400, normalize: createActivationWireNormalizer({ targetExpression: "高得要命", avoidSituations }) });
+      const output = await gateway.complete(ACTIVATE_PRACTICE_PROMPT_VERSION, prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 20000, maxTokens: MODEL_OUTPUT_TOKENS.activatePractice, normalize: createActivationWireNormalizer({ targetExpression: "高得要命", avoidSituations }) });
       expect(avoidSituations).not.toContain(output.situationZh);
       avoidSituations.push(output.situationZh);
     }
@@ -158,7 +165,7 @@ describe("v5 preserves tolerant normalization and program decisions", () => {
   });
   it("uses the existing deterministic evaluation fixture with the new targetExpression field", async () => {
     const prompt = buildEvaluatePracticePrompt(evaluationInput);
-    const output = await createEvaluationFixtureGateway().complete(EVALUATE_PRACTICE_PROMPT_VERSION, prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 30000, maxTokens: 700, normalize: normalizePracticeEvaluationWire });
+    const output = await createEvaluationFixtureGateway().complete(EVALUATE_PRACTICE_PROMPT_VERSION, prompt.userPrompt, { systemPrompt: prompt.systemPrompt, timeoutMs: 30000, maxTokens: MODEL_OUTPUT_TOKENS.evaluatePractice, normalize: normalizePracticeEvaluationWire });
     expect(output.naturalRevisionChinese).toContain("高得要命");
     expect(parsePracticeEvaluationOutput(output, "高得要命", "none").evaluation.passed).toBe(true);
   });

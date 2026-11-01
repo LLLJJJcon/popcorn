@@ -63,6 +63,8 @@ This repair is ready for the designated acceptance agent to rerun independently;
 
 ## Independent acceptance repair2 — exact Haiku structured-request compatibility
 
+**Historical subsection, frozen at accepted commit `515de29`.** The statements and test observations below describe that earlier narrow repair only. The later main integration adopts upstream `de5551c` task output budgets and both reasoning controls for structured **and raw** exact-Haiku requests; current merged behavior is recorded in [merge-delta.md](./merge-delta.md). The old 700-token live observations are preserved and have not been rerun.
+
 The acceptance agent's real fixed `evaluation-2` diagnostic (`/private/tmp/popcorn-group2-evaluation-2-diagnostic.json`) recorded one request with max_tokens700: HTTP200, finish_reason length, zero visible content, completion_tokens700 and reasoning_tokens700. The public error was PROVIDER_OUTPUT_INVALID/response_envelope. The diagnostic contains safe response metadata, not learner answers or credentials.
 
 The official [Anthropic thinking troubleshooting table](https://platform.claude.com/docs/en/build-with-claude/thinking-troubleshooting) and [thinking overview](https://platform.claude.com/docs/en/build-with-claude/thinking) were checked on2026-11-01. They document adaptive thinking as the Haiku5.5 default, thinking tokens counting against max_tokens, and support for thinking.type disabled at high effort or below. Other Claude models differ, so this is deliberately an exact model compatibility rule.

@@ -3,12 +3,13 @@ import { z } from "zod";
 import { TargetChineseTextSchema } from "@/contracts/source";
 import type { WireNormalizer } from "@/server/ai/model-output";
 import { ModelGatewayError } from "@/server/ai/provider";
+import { MODEL_OUTPUT_TOKENS } from "@/server/ai/output-budgets";
 import type { StructuredJsonCompletionOptions, StructuredJsonGateway } from "@/server/ai/structured-json-gateway";
 import { framePrompt, readFixturePromptData } from "./instruction-framing";
 import { getTargetFunction, getTargetSetting, type TargetFunction, type TargetSetting, type FunctionCategory, type UsageSetting } from "./learning-intent-constants";
 
 export const ACTIVATE_PRACTICE_PROMPT_VERSION = "activate-practice-v3";
-export const ACTIVATION_MAX_TOKENS = 400;
+export const ACTIVATION_MAX_TOKENS = MODEL_OUTPUT_TOKENS.activatePractice;
 export const ACTIVATION_TIMEOUT_MS = 20_000;
 export const ACTIVATION_TASK_INSTRUCTION = "[First practice situation] You write one practice situation for an intermediate learner of Mandarin Chinese whose helper language is English. The learner will reply in Chinese and should naturally need the target expression to do so. The learner can see the target expression and its meaning; the situation itself must not contain it.\n\nUse \"card\" to understand the meaning, intention, tone and suitable settings. Design the situation as follows:\n- It must make the target intention necessary: following targetFunction.rule, there must be something to emphasize, complain about, praise, react to, explain, concede, suggest, connect or describe.\n- It takes place in targetSetting (see targetSetting.description), with one concrete interlocutor who fits that setting, such as a friend, a coworker or a shop assistant. For formal_writing, the learner writes one sentence of a message or speech instead of speaking.\n- Choose an everyday topic that differs from sourceLine and from every text in avoidSituations.\n- situationZh: natural Simplified Chinese an intermediate learner can read, 1 to 3 short sentences, at most 120 characters. Describe what is happening and end with what the interlocutor says or asks, so the learner has something to reply to.\n- Never include the target expression, and never give wording that shows how to answer.\n- situationEn: a faithful English translation of situationZh, at most 60 words, also without the target expression.\n- interlocutor: who the learner is talking to, in Chinese, at most 10 characters (for example 同事).\n- taskEn: one English instruction of at most 30 words saying what to do in the reply, for example \"Reply to your coworker and complain about how expensive the lunch is.\" Do not mention or translate the target expression.\n\nOutput exactly: {\"situationZh\":\"...\",\"situationEn\":\"...\",\"interlocutor\":\"...\",\"taskEn\":\"...\"}";
 
