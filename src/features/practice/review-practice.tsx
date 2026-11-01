@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { getPractice, openPracticeExamples, postPractice } from "./api";
+import { getPractice, openPracticeExamples, postPractice, PracticeRequestError } from "./api";
 import { DueCompletionSchema, DueTransferSchema, type Completion } from "./review-schema";
 import { PracticeMaterial } from "./practice-material";
 import { EvaluationPanel } from "./evaluation-panel";
@@ -9,16 +9,30 @@ import { formatPracticeDate } from "./practice-controls";
 import { PracticeOpenError } from "./practice-open-error";
 import type { PracticeMaterialView } from "./material-schema";
 import styles from "./practice-workspace.module.css";
-export function ReviewPractice({ reviewTaskId, mode = "standalone", nextLabel = "Next", onNext, onCompleted }: {
+export function ReviewPractice({ reviewTaskId, mode = "standalone", nextLabel = "Next", onNext, onCompleted, onUnavailable }: {
   readonly reviewTaskId: string;
   readonly mode?: "standalone" | "session";
   readonly nextLabel?: "Next" | "Finish";
   readonly onNext?: () => void;
   readonly onCompleted?: (result: Completion) => void;
+  readonly onUnavailable?: () => Promise<boolean>;
 }) {
   const [material, setMaterial] = useState<PracticeMaterialView | null>(null), [error, setError] = useState<unknown>(null), [text, setText] = useState(""), [busy, setBusy] = useState(false), [slow, setSlow] = useState(false), [examplesPending, setExamplesPending] = useState(false), [completion, setCompletion] = useState<Completion | null>(null), [localRevision, setLocalRevision] = useState(false), [compared, setCompared] = useState(false), [restored, setRestored] = useState(false);
+  const mountedRef = useRef(true);
   const flight = useRef(false), touched = useRef(false), retry = useRef<() => void>(() => { });
   const draftKey = `popcorn:answer:review:${reviewTaskId}`;
+  async function handleError(error: unknown) {
+    if (!mountedRef.current)
+      return;
+    const changedReview = error instanceof PracticeRequestError &&
+      ((error.status === 404 && error.code === "FORBIDDEN") || (error.status === 409 && error.code === "CONFLICT"));
+    if (mode === "session" && changedReview && onUnavailable) {
+      const handled = await onUnavailable();
+      if (handled || !mountedRef.current)
+        return;
+    }
+    setError(error);
+  }
   async function begin() {
     if (flight.current)
       return;
@@ -27,24 +41,32 @@ export function ReviewPractice({ reviewTaskId, mode = "standalone", nextLabel = 
     setError(null);
     setSlow(false);
     retry.current = () => void begin();
-    const timer = setTimeout(() => setSlow(true), 8000);
+    const timer = setTimeout(() => {
+      if (mountedRef.current)
+        setSlow(true);
+    }, 8000);
     try {
       const result = await getPractice(`/api/v1/practice/due/${encodeURIComponent(reviewTaskId)}`, DueTransferSchema);
+      if (!mountedRef.current)
+        return;
       if (result.reviewTaskId !== reviewTaskId || result.id !== result.material.task.id || result.targetExpression !== result.material.task.targetExpression)
         throw Error("Review identity mismatch");
       setMaterial(result.material);
     }
     catch (e) {
-      setError(e);
+      await handleError(e);
     }
     finally {
       clearTimeout(timer);
       flight.current = false;
-      setBusy(false);
-      setSlow(false);
+      if (mountedRef.current) {
+        setBusy(false);
+        setSlow(false);
+      }
     }
   }
   useEffect(() => {
+    mountedRef.current = true;
     let mounted = true;
     void Promise.resolve().then(() => {
       if (!mounted)
@@ -61,6 +83,7 @@ export function ReviewPractice({ reviewTaskId, mode = "standalone", nextLabel = 
     });
     return () => {
       mounted = false;
+      mountedRef.current = false;
     };
     // Each keyed Review instance owns one entry request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -85,9 +108,14 @@ export function ReviewPractice({ reviewTaskId, mode = "standalone", nextLabel = 
     setError(null);
     setSlow(false);
     retry.current = () => void check();
-    const timer = setTimeout(() => setSlow(true), 8000);
+    const timer = setTimeout(() => {
+      if (mountedRef.current)
+        setSlow(true);
+    }, 8000);
     try {
       const result = await postPractice(`/api/v1/practice/due/${encodeURIComponent(reviewTaskId)}`, { responseChinese: text }, DueCompletionSchema);
+      if (!mountedRef.current)
+        return;
       if (result.reviewTaskId !== reviewTaskId || result.practiceTaskId !== material?.task.id)
         throw Error("Review completion mismatch");
       setCompletion(result);
@@ -98,13 +126,15 @@ export function ReviewPractice({ reviewTaskId, mode = "standalone", nextLabel = 
       catch { /* Optional draft storage. */ }
     }
     catch (e) {
-      setError(e);
+      await handleError(e);
     }
     finally {
       clearTimeout(timer);
       flight.current = false;
-      setBusy(false);
-      setSlow(false);
+      if (mountedRef.current) {
+        setBusy(false);
+        setSlow(false);
+      }
     }
   }
   function submit(event: FormEvent) {

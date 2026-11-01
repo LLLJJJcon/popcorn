@@ -121,3 +121,21 @@ test("slow Review preparation preserves the request and gateway setup is explici
   expect(screen.getByText("Connect a model to continue.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Set up model gateway" })).toHaveAttribute("href", "/settings/model-gateway");
 });
+test.each(["get", "post"] as const)("standalone Review %s conflict keeps original error and retry behavior", async (stage) => {
+  const onUnavailable = vi.fn(async () => true);
+  const code = stage === "get" ? "FORBIDDEN" : "CONFLICT", status = stage === "get" ? 404 : 409;
+  const rejected = Response.json({ ok: false, requestId: "fixture", error: { code, message: "The review changed", retryable: false } }, { status });
+  const fetcher = stage === "get" ? vi.fn().mockResolvedValueOnce(rejected) : vi.fn().mockResolvedValueOnce(apiResponse(transfer(ids.first, "第一"))).mockResolvedValueOnce(rejected);
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first} onUnavailable={onUnavailable}/>);
+  if (stage === "post") {
+    await screen.findByLabelText("Your Chinese response");
+    fireEvent.change(screen.getByLabelText("Your Chinese response"), { target: { value: "保留这份原始回答。" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check my response" }));
+  }
+  await screen.findByRole("alert");
+  expect(onUnavailable).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  if (stage === "post")
+    expect(screen.getByLabelText("Your Chinese response")).toHaveValue("保留这份原始回答。");
+});

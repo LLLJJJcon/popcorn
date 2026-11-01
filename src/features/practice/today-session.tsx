@@ -1,10 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { PracticeRoundState } from "@/contracts/practice";
 import type { TodayPracticeItem, TodaySessionResult } from "@/contracts/today-practice";
-import { restorePractice } from "./api";
+import { PracticeRequestError, restorePractice } from "./api";
 import { activateTodayCandidate, getNextPractice, getTaskMaterial, getTodayPractice } from "./today-api";
 import { PracticeSession, type PracticeRemoval } from "./practice-session";
 import { ReviewPractice } from "./review-practice";
@@ -26,7 +25,6 @@ type Undo = {
 export function TodaySession({ userId }: {
   readonly userId: string;
 }) {
-  const router = useRouter();
   const [display, setDisplay] = useState<SessionDisplay>({ results: [], current: null }), [current, setCurrent] = useState<Current | null>(null), [left, setLeft] = useState(0), [nextDate, setNextDate] = useState<string | null>(null), [ready, setReady] = useState(false), [busy, setBusy] = useState(true), [slow, setSlow] = useState(false), [error, setError] = useState<unknown>(null), [undo, setUndo] = useState<Undo | null>(null);
   const state = useRef<SessionDisplay>({ results: [], current: null }), active = useRef<Current | null>(null), sequence = useRef(0), alive = useRef(true), undoBusy = useRef(false), retry = useRef<() => void>(() => { });
   function persist(value: SessionDisplay) {
@@ -39,6 +37,11 @@ export function TodaySession({ userId }: {
   function setActive(value: Current | null) {
     active.current = value;
     setCurrent(value);
+  }
+  function refreshAfterExternalPromotion() {
+    persist({ ...state.current, current: null });
+    setActive(null);
+    void next();
   }
   async function next(resume = false) {
     const token = ++sequence.current;
@@ -79,7 +82,7 @@ export function TodaySession({ userId }: {
       if (!alive.current || token !== sequence.current)
         return;
       if ("redirect" in activation) {
-        router.push(activation.redirect);
+        refreshAfterExternalPromotion();
         return;
       }
       persist({ ...state.current, current: { currentItemId: item.id, currentTaskId: activation.taskId } });
@@ -93,8 +96,13 @@ export function TodaySession({ userId }: {
       setActive({ item, material });
     }
     catch (e) {
-      if (alive.current && token === sequence.current)
+      if (alive.current && token === sequence.current) {
+        if (e instanceof PracticeRequestError && e.userExpressionId) {
+          refreshAfterExternalPromotion();
+          return;
+        }
         setError(e);
+      }
     }
     finally {
       clearTimeout(timer);
@@ -133,6 +141,33 @@ export function TodaySession({ userId }: {
     if (!alive.current || value?.item.id !== originItemId || (originTaskId && value.material?.task.id !== originTaskId))
       return;
     void next();
+  }
+  function promotedElsewhere(originItemId: string, originTaskId: string) {
+    const value = active.current;
+    if (!alive.current || value?.item.id !== originItemId || value.material?.task.id !== originTaskId)
+      return;
+    refreshAfterExternalPromotion();
+  }
+  async function reviewUnavailable(originItemId: string, reviewTaskId: string): Promise<boolean> {
+    const value = active.current;
+    if (!alive.current || value?.item.id !== originItemId || value.item.kind !== "review" || value.item.reviewTaskId !== reviewTaskId)
+      return true;
+    const token = sequence.current;
+    try {
+      const today = await getTodayPractice();
+      const latest = active.current;
+      if (!alive.current || sequence.current !== token || latest?.item.id !== originItemId || latest.item.kind !== "review" || latest.item.reviewTaskId !== reviewTaskId)
+        return true;
+      if (today.items.some(item => item.kind === "review" && item.reviewTaskId === reviewTaskId))
+        return false;
+      persist({ ...state.current, current: null });
+      setActive(null);
+      void next();
+      return true;
+    }
+    catch {
+      return false;
+    }
   }
   function record(result: TodaySessionResult) {
     persist({ ...state.current, results: upsertSessionResult(state.current.results, result) });
@@ -226,5 +261,5 @@ export function TodaySession({ userId }: {
     }
   }
   const completedCount = display.results.length, total = completedCount + Math.max(0, left - (current && display.results.some(r => r.id === current.item.id) ? 1 : 0));
-  return <section className={styles.workspace}><header className={styles.landingHeader}><p className={styles.sessionNavigation}><Link className={`${styles.textLink} ${styles.sessionExit}`} href="/practice">← Exit session</Link></p><h1>Today&apos;s practice · {left} left</h1><progress className={styles.sessionProgress} aria-label="Session progress" max={Math.max(1, total)} value={completedCount}/></header>{undo ? <div className={styles.undoToast} role="status"><span>Removed {undo.item.expression} from practice.</span><button className={styles.secondaryButton} type="button" onClick={() => void restore()}>Undo</button></div> : null}{error ? <PracticeOpenError error={error} onRetry={() => retry.current()}/> : null}{busy ? <p role="status">{slow ? "Your configured model is still working. Your practice is still here." : "Opening your next practice item…"}</p> : null}{!busy && current ? (current.item.kind === "review" ? <ReviewPractice key={current.item.id} reviewTaskId={current.item.reviewTaskId} mode="session" nextLabel={left <= 1 ? "Finish" : "Next"} onNext={() => advance(current.item.id)} onCompleted={result => reviewed(current.item.id, result)}/> : current.material ? <PracticeSession key={current.material.task.id} material={current.material} savedReturnTarget="/practice" mode="session" nextLabel={left <= 1 ? "Finish" : "Next"} onNext={() => advance(current.item.id, current.material!.task.id)} onCompleted={round => completed(current.item.id, current.material!.task.id, round)} onRoundCreated={taskId => void roundCreated(current.item.id, current.material!.task.id, taskId)} onRemoved={receipt => removed(current.item.id, receipt)}/> : null) : null}{ready && !busy && !error && !current ? <><h2>All done for today</h2><SessionSummary results={display.results} nextPracticeAt={nextDate}/><div className={styles.buttonRow}><Link className={styles.primaryButton} href="/home">Back to Home</Link><Link className={styles.secondaryButton} href="https://www.youtube.com/">Watch something on YouTube</Link></div></> : null}</section>;
+  return <section className={styles.workspace}><header className={styles.landingHeader}><p className={styles.sessionNavigation}><Link className={`${styles.textLink} ${styles.sessionExit}`} href="/practice">← Exit session</Link></p><h1>Today&apos;s practice · {left} left</h1><progress className={styles.sessionProgress} aria-label="Session progress" max={Math.max(1, total)} value={completedCount}/></header>{undo ? <div className={styles.undoToast} role="status"><span>Removed {undo.item.expression} from practice.</span><button className={styles.secondaryButton} type="button" onClick={() => void restore()}>Undo</button></div> : null}{error ? <PracticeOpenError error={error} onRetry={() => retry.current()}/> : null}{busy ? <p role="status">{slow ? "Your configured model is still working. Your practice is still here." : "Opening your next practice item…"}</p> : null}{!busy && current ? (current.item.kind === "review" ? <ReviewPractice key={current.item.id} reviewTaskId={current.item.reviewTaskId} mode="session" nextLabel={left <= 1 ? "Finish" : "Next"} onNext={() => advance(current.item.id)} onCompleted={result => reviewed(current.item.id, result)} onUnavailable={() => reviewUnavailable(current.item.id, current.item.kind === "review" ? current.item.reviewTaskId : "")}/> : current.material ? <PracticeSession key={current.material.task.id} material={current.material} savedReturnTarget="/practice" mode="session" nextLabel={left <= 1 ? "Finish" : "Next"} onNext={() => advance(current.item.id, current.material!.task.id)} onCompleted={round => completed(current.item.id, current.material!.task.id, round)} onRoundCreated={taskId => void roundCreated(current.item.id, current.material!.task.id, taskId)} onRemoved={receipt => removed(current.item.id, receipt)} onPromotedElsewhere={() => promotedElsewhere(current.item.id, current.material!.task.id)}/> : null) : null}{ready && !busy && !error && !current ? <><h2>All done for today</h2><SessionSummary results={display.results} nextPracticeAt={nextDate}/><div className={styles.buttonRow}><Link className={styles.primaryButton} href="/home">Back to Home</Link><Link className={styles.secondaryButton} href="https://www.youtube.com/">Watch something on YouTube</Link></div></> : null}</section>;
 }

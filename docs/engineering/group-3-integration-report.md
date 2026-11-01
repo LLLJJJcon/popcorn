@@ -24,4 +24,6 @@ The native-ESM import error, old-selector failures and actual Exit failure are r
 
 Final controller browser run, isolated API54331/DB54332/app3103: **5/5 PASS,59.5s**, `/private/tmp/group3-e2e-full-green.log`. Controller's development server remains available; no build ran against its cache. Personal3000 is unchanged. D should use a separate frozen production build/port.
 
+After D's additional cross-tab findings, C's session-only recovery patch passed123 scoped tests, and the unchanged full six-item case passed again in16.9s (`/private/tmp/group3-mixed-after-review.log`). This later delta changes only Practice UI/client errors/tests/report, not backend/SQL/seed. Its final independent production-browser rerun remains D's responsibility.
+
 Independent full verification, SQL/RLS, concurrency/regression review, repeated seed, production E2E and all nine §6.12 criteria remain pending. Group4 is not started.

@@ -13,8 +13,8 @@ import { practiceTaskHref, resolvePracticeReturnTarget } from "./return-target";
 import styles from "./practice-workspace.module.css";
 export type PracticeRemoval = { taskId: string; undoUntil: string; roundState: PracticeRoundState };
 const emptyRound: PracticeRoundState = { roundNumber: 1, status: "open", firstAnswer: null, latestRevision: null, examplesOpened: false, promotion: null, retryDueAt: null };
-export function PracticeSession({ material, savedReturnTarget, mode = "standalone", onNext, nextLabel = "Next", onCompleted, onRemoved, onRoundCreated }: {
-  readonly material: PracticeMaterialView; readonly savedReturnTarget: string | null; readonly mode?: "standalone" | "session"; readonly onNext?: () => void; readonly nextLabel?: "Next" | "Finish"; readonly onCompleted?: (state: PracticeRoundState) => void; readonly onRemoved?: (receipt: PracticeRemoval) => void; readonly onRoundCreated?: (taskId: string) => void;
+export function PracticeSession({ material, savedReturnTarget, mode = "standalone", onNext, nextLabel = "Next", onCompleted, onRemoved, onRoundCreated, onPromotedElsewhere }: {
+  readonly material: PracticeMaterialView; readonly savedReturnTarget: string | null; readonly mode?: "standalone" | "session"; readonly onNext?: () => void; readonly nextLabel?: "Next" | "Finish"; readonly onCompleted?: (state: PracticeRoundState) => void; readonly onRemoved?: (receipt: PracticeRemoval) => void; readonly onRoundCreated?: (taskId: string) => void; readonly onPromotedElsewhere?: () => void;
 }) {
   const Container = mode === "session" ? "section" : "main";
   const router = useRouter(), target = resolvePracticeReturnTarget(savedReturnTarget);
@@ -61,7 +61,7 @@ export function PracticeSession({ material, savedReturnTarget, mode = "standalon
   function handleError(caught: unknown, fallback = "provider") {
     if (!mounted.current) return;
     if (caught instanceof PracticeRequestError && caught.roundState) { setRound(caught.roundState); setText((caught.roundState.latestRevision ?? caught.roundState.firstAnswer)?.text ?? ""); setEditing(false); setNotice("You already answered this round. Here's your feedback."); emitCompleted(caught.roundState); try { localStorage.removeItem(draftKey); } catch {} return; }
-    if (caught instanceof PracticeRequestError && caught.userExpressionId) { router.push(`/vault/${caught.userExpressionId}`); return; }
+    if (caught instanceof PracticeRequestError && caught.userExpressionId) { if (mode === "session") onPromotedElsewhere?.(); else router.push(`/vault/${caught.userExpressionId}`); return; }
     setError(caught instanceof PracticeRequestError && caught.code === "MODEL_GATEWAY_CONFIGURATION_REQUIRED" ? "gateway" : fallback);
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
