@@ -32,8 +32,11 @@ import {
 } from "@/server/domain/create-practice-task";
 import { scheduleReview } from "@/server/domain/schedule-review";
 import { createPracticeRoundStore } from "@/server/domain/practice-rounds";
+import * as modernEvaluation from "@/server/ai/prompts/evaluate.v2";
+import { getTargetFunction,getTargetSetting } from "@/server/ai/prompts/learning-intent-constants";
+import { completeWithFormatRetries } from "@/server/ai/structured-json-gateway";
+import type { DueTransfer,DueReviewState } from "@/contracts/review-practice";
 import type { DueTransferTask } from "@/server/domain/create-transfer-task";
-import { buildDueTransferTask } from "@/server/domain/create-transfer-task";
 import type { PracticeMaterialRepository } from "@/server/repositories/practice-material-repository";
 import type { Database } from "@/types/database.generated";
 
@@ -54,6 +57,7 @@ export type DuePracticeRpcResult = {
 };
 
 export type DuePracticePersistedAttempt = {
+  readonly coaching?: PracticeCoaching|null;
   readonly responseChinese: string;
   readonly assistanceLevel: "none" | "hint" | "model_answer";
   readonly passed: boolean;
@@ -78,6 +82,7 @@ export type DuePracticeCompletionState = {
 };
 
 type DuePracticeRpcInput = {
+  readonly scenarioVersion?:number;readonly scenarioFingerprint?:string;readonly coaching?:PracticeCoaching|null;
   readonly userId: string;
   readonly reviewTaskId: string;
   readonly practiceTaskId: string;
@@ -100,6 +105,9 @@ type DuePracticeRpcInput = {
 };
 
 export type DuePracticeCompletionRepository = {
+  requireScenarioIdentity?:boolean;
+  findCurrentReview?(userId:string,reviewTaskId:string):Promise<DueTransfer|null>;
+  findCurrentReviewState?(userId:string,reviewTaskId:string):Promise<DueReviewState|null>;
   findAssistance?(userId:string,reviewTaskId:string):Promise<"none"|"model_answer">;
   findTransferTask(userId: string, reviewTaskId: string): Promise<DueTransferTask | null>;
   findCompletionState(userId: string, reviewTaskId: string): Promise<DuePracticeCompletionState | null>;
@@ -112,6 +120,7 @@ const ExplicitInstantSchema = z.string().datetime({ offset: true });
 const DueInputSchema = z.strictObject({
   responseChinese: TargetChineseTextSchema.max(10_000),
   assistanceLevel: AssistanceLevelSchema,
+  taskId:z.string().uuid().optional(),scenarioVersion:z.number().int().positive().optional(),scenarioFingerprint:z.string().regex(/^[a-f0-9]{64}$/).optional(),requestId:z.string().uuid().optional(),
 });
 
 function requestKey(userId: string, reviewTaskId: string, taskId: string, responseChinese: string, assistanceLevel: string): string {
@@ -144,7 +153,7 @@ function persistedEvaluation(attempt: DuePracticePersistedAttempt): EvaluationRe
   });
 }
 
-function readableEvaluationProvenance(attempt: DuePracticePersistedAttempt): boolean {
+export function readableEvaluationProvenance(attempt: Pick<DuePracticePersistedAttempt,"evaluationPromptVersion"|"evaluationModel"|"evaluationGatewayConfigId"|"evaluationGatewayRevision"|"evaluationGatewayFingerprint">): boolean {
   const metadata = [
     attempt.evaluationModel,
     attempt.evaluationGatewayConfigId,
@@ -163,7 +172,7 @@ function expectedSchedule(result: DuePracticeRpcResult, independent: boolean, co
   return scheduleReview({ kind: "successful_independent_reuse", now: completedAt });
 }
 
-function validateRpcResult(result: DuePracticeRpcResult, task: DueTransferTask, independent: boolean, completedAt: string): DuePracticeRpcResult {
+export function validateRpcResult(result: DuePracticeRpcResult, task: Pick<DueTransferTask,"id"|"reviewTaskId"|"masteryState">, independent: boolean, completedAt: string): DuePracticeRpcResult {
   const legalTransition = independent
     ? task.masteryState === "tried"
       ? result.newState === "reused"
@@ -205,6 +214,9 @@ export function createDuePracticeCompletionService(dependencies: {
       if (!state || !task || task.userId !== userId.data || task.reviewTaskId !== reviewTaskId.data) {
         throw new PracticeError("NOT_FOUND");
       }
+      if(dependencies.repository.requireScenarioIdentity&&(input.data.taskId!==task.id||input.data.scenarioVersion!==task.scenarioVersion||input.data.scenarioFingerprint!==task.scenarioFingerprint||!input.data.requestId)){
+        throw new PracticeError("SCENARIO_CHANGED",false,{current:await dependencies.repository.findCurrentReview?.(userId.data,reviewTaskId.data)});
+      }
       if(dependencies.repository.findAssistance){
         input.data.assistanceLevel=state.status==="completed"&&state.attempt
           ? state.attempt.assistanceLevel
@@ -229,6 +241,7 @@ export function createDuePracticeCompletionService(dependencies: {
           attempt.assistanceLevel !== input.data.assistanceLevel
         ) throw new PracticeError("REVISION_CONFLICT");
         evaluation = persistedEvaluation(attempt);
+        coaching=attempt.coaching??null;
         completedAt = canonicalInstant(attempt.submittedAt);
         evaluationPromptVersion = attempt.evaluationPromptVersion;
         evaluationModel = attempt.evaluationModel;
@@ -241,22 +254,21 @@ export function createDuePracticeCompletionService(dependencies: {
         }
         const resolved = await resolvePracticeEgress(userId.data, dependencies);
         try {
-          const prompt = buildEvaluatePracticePrompt({
-            targetExpression: task.targetExpression,
-            promptChinese: task.promptChinese,
-            learnerResponse: input.data.responseChinese,
-          });
-          const parsed = parsePracticeEvaluationOutput(
-            await resolved.gateway.complete(
-              EVALUATE_PRACTICE_PROMPT_VERSION,
+          const modern=task.metadataMode==="modern"&&task.situation&&task.learningCard;
+          if(task.metadataMode==="modern"&&!modern)throw new PracticeError("LEGACY_METADATA_REQUIRED");
+          const prompt = modern ? modernEvaluation.buildEvaluatePracticePrompt({targetExpression:task.targetExpression,targetMeaning:task.learningCard!.meaningHere,situationZh:task.situation!.situationZh,interlocutor:task.situation!.interlocutor,targetFunction:getTargetFunction(task.situation!.targetFunction),targetSetting:getTargetSetting(task.situation!.targetSetting),taskEn:task.situation!.taskEn,toneAndWho:task.learningCard!.toneAndWho,watchOut:task.learningCard!.watchOut,learnerResponse:input.data.responseChinese}) : buildEvaluatePracticePrompt({targetExpression:task.targetExpression,promptChinese:task.promptChinese,learnerResponse:input.data.responseChinese});
+          const version=modern?modernEvaluation.EVALUATE_PRACTICE_PROMPT_VERSION:EVALUATE_PRACTICE_PROMPT_VERSION;
+          const parsed = (modern?modernEvaluation.parsePracticeEvaluationOutput:parsePracticeEvaluationOutput)(
+            await completeWithFormatRetries(()=>resolved.gateway.complete(
+              version,
               prompt.userPrompt,
               {
                 systemPrompt: prompt.systemPrompt,
                 timeoutMs: 30_000,
                 maxTokens: MODEL_OUTPUT_TOKENS.evaluatePractice,
-                normalize: normalizePracticeEvaluationWire,
+                normalize: modern?modernEvaluation.normalizePracticeEvaluationWire:normalizePracticeEvaluationWire,
               },
-            ),
+            )),
             task.targetExpression,
             input.data.assistanceLevel,
           );
@@ -265,11 +277,12 @@ export function createDuePracticeCompletionService(dependencies: {
             ...derivePracticeDecision(parsed.evaluation, input.data.assistanceLevel),
           });
           coaching = parsed.coaching;
+          if([evaluation.accuracy,evaluation.naturalness,evaluation.contextualFit].every(d=>d.score===5))coaching=null;
         } catch (error) {
           throw practiceErrorFromUnknown(error);
         }
         completedAt = requestedAt;
-        evaluationPromptVersion = resolved.pin ? EVALUATE_PRACTICE_PROMPT_VERSION : null;
+        evaluationPromptVersion = resolved.pin ? (task.metadataMode==="modern"?modernEvaluation.EVALUATE_PRACTICE_PROMPT_VERSION:EVALUATE_PRACTICE_PROMPT_VERSION) : null;
         evaluationModel = resolved.pin ? resolved.gateway.model : null;
         evaluationGatewayConfigId = resolved.pin?.configId ?? null;
         evaluationGatewayRevision = resolved.pin?.revision ?? null;
@@ -292,8 +305,10 @@ export function createDuePracticeCompletionService(dependencies: {
           evaluationGatewayConfigId,
           evaluationGatewayRevision,
           evaluationGatewayFingerprint,
+          ...(dependencies.repository.requireScenarioIdentity?{scenarioVersion:task.scenarioVersion,scenarioFingerprint:task.scenarioFingerprint,coaching}:{}),
         });
-      } catch {
+      } catch (error) {
+        if(error instanceof PracticeError)throw error;
         throw new PracticeError("INTERNAL_ERROR", true);
       }
       if(completed.assistanceLevel){evaluation={...evaluation,...derivePracticeDecision(evaluation,completed.assistanceLevel)};independent=evaluation.independentUse;}
@@ -307,6 +322,7 @@ export function createDuePracticeCompletionService(dependencies: {
           : { from: completed.priorState, to: completed.newState },
         evaluation,
         coaching,
+        ...(dependencies.repository.findCurrentReviewState?{reviewState:await dependencies.repository.findCurrentReviewState(userId.data,reviewTaskId.data)}:dependencies.repository.findCurrentReview?{reviewState:(await dependencies.repository.findCurrentReview(userId.data,reviewTaskId.data))?.reviewState}:{}),
       };
     },
   };
@@ -375,7 +391,7 @@ const MasteryEventRowSchema = z.strictObject({
 
 const MASTERY_RANK: Readonly<Record<MasteryState, number>> = { tried: 0, reused: 1, owned: 2 };
 
-function legalHistoricalTransition(priorState: MasteryState, newState: MasteryState, independent: boolean): boolean {
+export function legalHistoricalTransition(priorState: MasteryState, newState: MasteryState, independent: boolean): boolean {
   if (!independent) return newState === priorState;
   if (priorState === "tried") return newState === "reused";
   if (priorState === "reused") return newState === "reused" || newState === "owned";
@@ -543,38 +559,9 @@ export function createSupabaseDuePracticeRepository(client: SupabaseClient<Datab
       if (!eligiblePendingReview(review, requestedAt)) throw new PracticeError("NOT_FOUND");
       const existing = taskForGraph(await findTaskForReview(userId, reviewTaskId), review);
       if (existing) return existing;
-      const source = await client.from("practice_tasks").select("id,user_id,user_expression_id,target_expression,prompt_chinese")
-        .eq("user_id", userId).eq("user_expression_id", review.user_expression_id).eq("kind", "use_it_now")
-        .order("created_at", { ascending: true }).limit(1).maybeSingle();
-      if (source.error) throw source.error;
-      if (!source.data || source.data.user_id !== userId || source.data.user_expression_id !== review.user_expression_id) {
-        throw new PracticeError("NOT_FOUND");
-      }
-      const priorTransfers = await client.from("practice_tasks").select("id,prompt_chinese")
-        .eq("user_id", userId).eq("user_expression_id", review.user_expression_id).eq("kind", "due_practice");
-      if (priorTransfers.error) throw priorTransfers.error;
-      const built = buildDueTransferTask({
-        id: crypto.randomUUID(), userId, reviewTaskId, userExpressionId: review.user_expression_id,
-        targetExpression: source.data.target_expression, originalPromptChinese: source.data.prompt_chinese,
-        priorPromptChinese: priorTransfers.data?.map((task) => task.prompt_chinese) ?? [],
-        dueAt: review.due_at, masteryState: review.mastery_state,
-        transferOrdinal: priorTransfers.data?.length ?? 0,
-      });
-      const inserted = await client.from("practice_tasks").insert({
-        id: built.id, user_id: built.userId, user_expression_id: built.userExpressionId, kind: "due_practice",
-        native_language: "en", target_language: "zh-CN", target_expression: built.targetExpression,
-        prompt_chinese: built.promptChinese, instructions_english: built.instructionsEnglish, goal_english: built.goalEnglish,
-        due_at: built.dueAt, review_task_id: built.reviewTaskId, context_fingerprint: built.contextFingerprint,
-      }).select("*").maybeSingle();
-      if (!inserted.error && inserted.data) {
-        const record = transferRecord(inserted.data, built.masteryState);
-        if (record) return record;
-      }
-      const racedReview = await findReviewGraph(userId, reviewTaskId);
-      if (!eligiblePendingReview(racedReview, requestedAt)) throw new PracticeError("NOT_FOUND");
-      const raced = taskForGraph(await findTaskForReview(userId, reviewTaskId), racedReview);
-      if (raced) return raced;
-      throw inserted.error ?? new PracticeError("INTERNAL_ERROR", true);
+      // Existing legacy questions remain readable. New Review preparation is
+      // exclusively handled by the claimed model-backed coordinator.
+      throw new PracticeError("NOT_FOUND");
     },
     async completeDuePractice(input) {
       const result=await createPracticeRoundStore(client as never).completeDue(input.userId,{...input,completedAt:canonicalInstant(input.completedAt)}) as {completion:Database["public"]["Functions"]["complete_due_practice"]["Returns"][number];assistanceLevel:"none"|"hint"|"model_answer"};

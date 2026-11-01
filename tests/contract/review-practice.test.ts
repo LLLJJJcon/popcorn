@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { ApiErrorCodeSchema } from "@/contracts/api";
+import { KnowledgeJobTypeSchema } from "@/contracts/knowledge";
 import {
   DueScenarioIdentitySchema, ReviewCompletionInputSchema, ReviewRevisionInputSchema,
   DuePreparationPendingSchema, ReviewOperationFailureDetailsSchema,
@@ -27,3 +28,4 @@ test("Review conflicts remain typed API failures for current-question recovery",
   expect(ApiErrorCodeSchema.safeParse(code).success).toBe(true);
  }
 });
+test("committed review scheduling has a distinct prepare job type",()=>{expect(KnowledgeJobTypeSchema.safeParse("prepare_transfer_task").success).toBe(true);});

@@ -13,11 +13,12 @@ import {
 import { createProcessorScopedGatewayResolver } from "@/server/jobs/provider-cache";
 import { createSupabaseModelGatewayRuntimeResolver } from "@/server/model-gateway/runtime-resolver";
 import { createSupadataTranscriptProvider } from "@/server/transcript/supadata-provider";
+import { createReviewPracticeServices } from "@/server/review-practice-runtime";
+import type { TranscriptProvider } from "@/server/transcript/provider";
 
 const ProcessorEnvSchema = ServerEnvSchema.pick({
   NEXT_PUBLIC_SUPABASE_URL: true,
   SUPABASE_SERVICE_ROLE_KEY: true,
-  SUPADATA_API_KEY: true,
   INTERNAL_JOB_SECRET: true,
 });
 
@@ -25,7 +26,6 @@ function runtimeRoute() {
   const environment = ProcessorEnvSchema.parse({
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    SUPADATA_API_KEY: process.env.SUPADATA_API_KEY,
     INTERNAL_JOB_SECRET: process.env.INTERNAL_JOB_SECRET,
   });
   const service = createServiceJobClient(
@@ -33,9 +33,13 @@ function runtimeRoute() {
     environment.SUPABASE_SERVICE_ROLE_KEY,
   );
   const store = createSupabaseDurableJobStore(service);
-  const transcriptProvider = createSupadataTranscriptProvider({
-    apiKey: environment.SUPADATA_API_KEY,
-  });
+  // Resolve transcript credentials only for a transcript job, so Review jobs
+  // can run with their own model configuration and no unrelated provider key.
+  const transcript = () => createSupadataTranscriptProvider({apiKey:process.env.SUPADATA_API_KEY??""});
+  const transcriptProvider:TranscriptProvider = {
+    request:videoId=>transcript().request(videoId),
+    poll:jobId=>transcript().poll(jobId),
+  };
   const learningProviderResolver = createLearningArtifactProviderResolver({
     ci: process.env.CI === "true",
     createRuntimeResolver: () => createSupabaseModelGatewayRuntimeResolver(service),
@@ -56,6 +60,7 @@ function runtimeRoute() {
       transcriptProvider,
       learningProviderResolver,
       analysisGatewayResolver,
+      reviewPracticeService:createReviewPracticeServices(service,process.env.CI==="true").service,
     }),
   });
   return createInternalProcessRoute({

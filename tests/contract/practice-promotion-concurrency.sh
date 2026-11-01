@@ -18,6 +18,10 @@ where application_name in (
   'popcorn_practice_promotion_second'
 )
   and pid <> pg_backend_pid();
+delete from public.knowledge_job_internal
+where user_id='0d000000-0000-4000-8000-00000000a001';
+delete from public.knowledge_jobs
+where user_id='0d000000-0000-4000-8000-00000000a001';
 delete from private.practice_promotion_receipts
 where user_id='0d000000-0000-4000-8000-00000000a001';
 delete from public.review_tasks

@@ -212,8 +212,34 @@ select extensions.throws_ok(format('select public.publish_review_scenario(%L,%L,
 select extensions.is((select count(*)::integer from public.practice_tasks t join history_graph g on g.review_id=t.review_task_id where g.name='other_owner'),0,'lost worker cannot leave a partially published task');
 select extensions.ok((select public.fail_review_operation(g.owner_id,g.review_id,pg_temp.history_id('592f0000',20),(o.value->>'token')::uuid,'PROVIDER_UNAVAILABLE','2026-11-01T02:00:02Z') from history_graph g cross join lifecycle_results o where g.name='other_owner' and o.name='job_old'),'lost worker cycle can be marked failed without a task');
 insert into lifecycle_results select 'job_new',public.claim_review_preparation(owner_id,review_id,'prepare',pg_temp.history_id('592f0000',21),null,jsonb_build_object('jobId',pg_temp.history_id('592e0000',1),'attemptCount',2,'leaseExpiresAt','2026-11-01T02:05:00Z'),'2026-11-01T02:00:03Z') from history_graph where name='other_owner';
-insert into lifecycle_results select 'job_publish',public.publish_review_scenario(g.owner_id,g.review_id,pg_temp.history_id('592f0000',21),(o.value->>'token')::uuid,pg_temp.lifecycle_generated('同事问新快递的费用怎么样。'),'2026-11-01T02:00:04Z') from history_graph g cross join lifecycle_results o where g.name='other_owner' and o.name='job_new';
-select extensions.is((select count(*)::integer from public.practice_tasks t join history_graph g on g.review_id=t.review_task_id where g.name='other_owner'),1,'current worker fence publishes one owner-scoped task');
+select extensions.is((select value from lifecycle_results where name='job_new'),jsonb_build_object('kind','failed','requestId',pg_temp.history_id('592f0000',20),'code','PROVIDER_UNAVAILABLE'),'late background delivery observes the failed cycle instead of authorizing a retry');
+select extensions.is((select count(*)::integer from private.review_operations where user_id='59200000-0000-4000-8000-000000000002' and request_id=pg_temp.history_id('592f0000',21)),0,'fresh background request ID cannot create another persisted model cycle after failure');
+select extensions.is((select count(*)::integer from public.practice_tasks t join history_graph g on g.review_id=t.review_task_id where g.name='other_owner'),0,'late background observation leaves the failed review without a fabricated ready task');
+
+-- A fresh user-authorized retry has no job fence. It can create the next cycle;
+-- a late background observer may subsequently read its ready task without one.
+insert into lifecycle_results select 'user_retry',public.claim_review_preparation(owner_id,review_id,'prepare',pg_temp.history_id('592f0000',22),null,null,'2026-11-01T02:00:04Z') from history_graph where name='other_owner';
+select extensions.is((select value->>'kind' from lifecycle_results where name='user_retry'),'claimed','only a fresh explicit user retry starts the replacement model cycle');
+insert into lifecycle_results select 'job_publish',public.publish_review_scenario(g.owner_id,g.review_id,pg_temp.history_id('592f0000',22),(o.value->>'token')::uuid,pg_temp.lifecycle_generated('同事问新快递的费用怎么样。'),'2026-11-01T02:00:05Z') from history_graph g cross join lifecycle_results o where g.name='other_owner' and o.name='user_retry';
+select extensions.is((select count(*)::integer from public.practice_tasks t join history_graph g on g.review_id=t.review_task_id where g.name='other_owner'),1,'explicit user retry publishes exactly one owner-scoped task');
+select extensions.is((select public.claim_review_preparation(owner_id,review_id,'prepare',pg_temp.history_id('592f0000',21),null,jsonb_build_object('jobId',pg_temp.history_id('592e0000',1),'attemptCount',2,'leaseExpiresAt','2026-11-01T02:05:00Z'),'2026-11-01T02:00:06Z')->>'kind' from history_graph where name='other_owner'),'ready','late background delivery only observes the user-prepared ready task');
+select extensions.is((select count(*)::integer from private.review_operations where user_id='59200000-0000-4000-8000-000000000002' and request_id=pg_temp.history_id('592f0000',21)),0,'ready background observation still creates no retry operation');
+
+-- A real official completion schedules a new owned pending review and its real
+-- outbox. This clean initial cycle supplies the positive worker-publication case.
+create temp table lifecycle_worker_schedule as
+ select g.owner_id,g.source_id,g.expression_id,public.complete_due_practice_with_examples(g.owner_id,jsonb_build_object('reviewTaskId',g.review_id,'practiceTaskId',t.id,'responseChinese','这里高得要命。','accuracyScore',4,'accuracyFeedbackEnglish','Accurate.','naturalnessScore',4,'naturalnessFeedbackEnglish','Natural.','contextualFitScore',4,'contextualFitFeedbackEnglish','Fits.','completedAt','2026-11-01T02:00:07Z')) result
+ from history_graph g join public.practice_tasks t on t.review_task_id=g.review_id where g.name='other_owner';
+create temp table lifecycle_fresh_worker_job as
+ select j.id,j.user_id,(s.result#>>'{completion,next_review_task_id}')::uuid review_id
+ from lifecycle_worker_schedule s join public.knowledge_job_internal i on i.user_id=s.owner_id and i.input=jsonb_build_object('kind','prepare_transfer_task','reviewTaskId',s.result#>>'{completion,next_review_task_id}')
+ join public.knowledge_jobs j on j.id=i.knowledge_job_id and j.user_id=s.owner_id and j.video_source_id=s.source_id and j.job_type='prepare_transfer_task';
+select extensions.is((select count(*)::integer from lifecycle_fresh_worker_job),1,'real completion schedules exactly one next-review preparation outbox');
+update public.knowledge_jobs set status='leased',attempt_count=1,lease_expires_at='2026-11-01T02:10:00Z' where id=(select id from lifecycle_fresh_worker_job) and user_id=(select user_id from lifecycle_fresh_worker_job);
+insert into lifecycle_results select 'fresh_job',public.claim_review_preparation(user_id,review_id,'prepare',id,null,jsonb_build_object('jobId',id,'attemptCount',1,'leaseExpiresAt','2026-11-01T02:10:00Z'),'2026-11-01T02:00:08Z') from lifecycle_fresh_worker_job;
+select extensions.is((select value->>'kind' from lifecycle_results where name='fresh_job'),'claimed','new scheduled review permits one genuine initial background cycle');
+insert into lifecycle_results select 'fresh_job_publish',public.publish_review_scenario(j.user_id,j.review_id,j.id,(o.value->>'token')::uuid,pg_temp.lifecycle_generated('同事问新包裹的运费合不合理。','far'),'2026-11-01T02:00:09Z') from lifecycle_fresh_worker_job j cross join lifecycle_results o where o.name='fresh_job';
+select extensions.is((select count(*)::integer from public.practice_tasks t join lifecycle_fresh_worker_job j on j.review_id=t.review_task_id and j.user_id=t.user_id),1,'current worker fence publishes one task for the genuinely new pending review');
 
 -- A real official completion racing an existing replacement claim wins.
 insert into lifecycle_results select 'answer_race_identity',pg_temp.lifecycle_identity(review_id,pg_temp.history_id('592f0000',30)) from history_graph where name='same_word_candidate';

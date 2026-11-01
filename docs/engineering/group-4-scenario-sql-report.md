@@ -1,6 +1,6 @@
 # Group 4B4 scenario lifecycle SQL report
 
-Status: **80/80 SQL assertions pass after A's additive 034 replay and 036 distinct-waiter fixes**. B4 implemented tests and supplied RED evidence; D remains the separate final acceptance owner.
+Status: the original lifecycle suite passed **80/80 after 034/036**. The subsequent **038 fixture adaptation passes 89/89**, with RLS **345/345** and both original promotion concurrency races passing; details and separate logs are appended below. B implemented tests and supplied RED evidence; D remains the separate final acceptance owner.
 
 ## Scope and isolation
 
@@ -49,7 +49,7 @@ The initial repaired suite passed **65/65**. At the controller's explicit reques
 
 Log: `/private/tmp/group4-scenario-waiter-red.log`. Pending-B identity, known-failed waiter behavior, original-winner replay and ordinary preparation aliases already passed in that RED run. A confirmed the frozen contract and repaired only the distinct successful regeneration-waiter case in new additive 036. B preserved all four failing assertions and added the old-failed-cycle, expired-waiter and repeated-publication boundaries above. The helper accepts the expected typed terminal conflict (matching exception, or matching failed code), and rejects ready/pending/claimed outcomes; it does not hide or reinterpret a successful alias as a conflict.
 
-## Final verification
+## Verification at 036 (historical)
 
 ```text
 pnpm exec supabase test db /Users/liangjing/.codex/worktrees/phase1-groups2-4/进度/supabase/tests/review_scenario_lifecycle.sql --workdir /private/tmp/popcorn-phase1-test-stack --local
@@ -58,3 +58,37 @@ pnpm exec supabase test db /Users/liangjing/.codex/worktrees/phase1-groups2-4/�
 Exit 0: `Files=1, Tests=80`, `All tests successful`, `Result: PASS`. Full log: `/private/tmp/group4-scenario-after036.log`. The earlier 65-test GREEN is retained at `/private/tmp/group4-scenario-after034.log`. `git diff --check` exited 0.
 
 All transactions have ended and fixture writes rolled back; B4 retains no lock or running database task. A may continue the next additive migration. Full SQL/browser/runtime gates and the separate real twenty-question human review remain outside this self-test report.
+
+## 038 test-only fixture adaptation
+
+After 038, background preparation observes the current initial cycle and cannot authorize a fresh retry after failure. The old lifecycle fixture incorrectly tried to claim another worker cycle after a failed worker, so its 68 preceding assertions passed and its later publication failed `JOB_LEASE_CONFLICT`. The same outbox also legitimately adds one preparation job per owned review, making the old RLS fixture's exact job count one too small. The original promotion concurrency fixture's cleanup did not yet remove the newly created outbox before deleting its source.
+
+The controller authorized changes to exactly three test files, plus this report. No production SQL/TypeScript, migration, worker behavior, registry or runtime was modified:
+
+| Test file | Precise adaptation |
+| --- | --- |
+| `supabase/tests/review_scenario_lifecycle.sql` | Keeps all existing negative boundaries. A late background request now explicitly observes the prior failed outcome, creates no operation and leaves no task. Only an explicit fresh user retry with `p_job=null` may publish; late background delivery may then observe that ready task without claiming a retry. A real official completion schedules a genuinely new owned pending review and real outbox; that clean initial cycle supplies the positive worker claim/publication case. No private receipt, request operation or worker binding was manually fabricated. |
+| `supabase/tests/rls.sql` | Changes the exact owned job expectation from 1 to 2 and adds two exact result-set assertions: both original analysis-job identities/source/save links remain correct, and both new review jobs have the precise owner/type/status/attempt/private-input/review/expression/source graph. No count was relaxed to a lower bound. |
+| `tests/contract/practice-promotion-concurrency.sh` | Adds only four cleanup lines deleting `knowledge_job_internal` before `knowledge_jobs`, each restricted to its existing `0d000000-0000-4000-8000-00000000a001` fixture owner. The original same-attempt/cross-round race logic and assertions are unchanged. |
+
+Actual pre-adaptation failures were reproduced against the dedicated local stack:
+
+- `/private/tmp/group4-038-lifecycle-baseline.log`: 68 assertions passed, then the obsolete automatic worker-retry fixture failed publication.
+- `/private/tmp/group4-038-rls-baseline.log`: 342/343 passed; exact expected `knowledge_jobs=1` differed from the correct new value 2.
+- `/private/tmp/group4-038-promotion-baseline.log`: the first original race passed, then source cleanup failed its knowledge-job source foreign key.
+
+After adaptation, each SQL file ran individually with `--workdir /private/tmp/popcorn-phase1-test-stack --local`, transaction rollback, no reset or full-suite execution:
+
+```text
+pnpm exec supabase test db /Users/liangjing/.codex/worktrees/phase1-groups2-4/进度/supabase/tests/review_scenario_lifecycle.sql --workdir /private/tmp/popcorn-phase1-test-stack --local
+pnpm exec supabase test db /Users/liangjing/.codex/worktrees/phase1-groups2-4/进度/supabase/tests/rls.sql --workdir /private/tmp/popcorn-phase1-test-stack --local
+```
+
+Both exited 0: lifecycle **89/89**, RLS **345/345**. These are the later adapted counts, not a relabeling of the original 80-case history. Full logs:
+
+- `/private/tmp/group4-038-lifecycle-green.log`
+- `/private/tmp/group4-038-rls-green.log`
+
+The unchanged race assertions were executed using the explicit isolated database on port 54332 and the existing configurable psql path, with credentials kept out of output. Script exit 0 printed both `practice promotion concurrency invariant passed` and `same-candidate cross-round promotion concurrency invariant passed`. Log: `/private/tmp/group4-038-promotion-green.log`. A subsequent read confirmed the guarded 0d fixture owner count was 0. `bash -n` and `git diff --check` also passed.
+
+Database windows were coordinated with A/controller: after the first cleanup/race verification B released the database for root's short browser diagnosis, then ran the two adapted rollback files after release and immediately handed the window back for A's independent race harness. No transaction, fixture owner or lock remains from B. Root owns the coherent checkpoint; D still independently re-verifies the final branch.

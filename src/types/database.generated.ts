@@ -168,6 +168,77 @@ export type Database = {
         }
         Relationships: []
       }
+      review_operations: {
+        Row: {
+          claim_token: string | null
+          created_at: string
+          error_code: string | null
+          expected_fingerprint: string | null
+          expected_version: number
+          job_attempt_count: number | null
+          job_id: string | null
+          job_lease_expires_at: string | null
+          kind: string
+          lease_expires_at: string | null
+          linked_request_id: string | null
+          request_hash: string
+          request_id: string
+          response: Json | null
+          review_task_id: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          claim_token?: string | null
+          created_at: string
+          error_code?: string | null
+          expected_fingerprint?: string | null
+          expected_version: number
+          job_attempt_count?: number | null
+          job_id?: string | null
+          job_lease_expires_at?: string | null
+          kind: string
+          lease_expires_at?: string | null
+          linked_request_id?: string | null
+          request_hash: string
+          request_id: string
+          response?: Json | null
+          review_task_id: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Update: {
+          claim_token?: string | null
+          created_at?: string
+          error_code?: string | null
+          expected_fingerprint?: string | null
+          expected_version?: number
+          job_attempt_count?: number | null
+          job_id?: string | null
+          job_lease_expires_at?: string | null
+          kind?: string
+          lease_expires_at?: string | null
+          linked_request_id?: string | null
+          request_hash?: string
+          request_id?: string
+          response?: Json | null
+          review_task_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_operations_user_id_linked_request_id_fkey"
+            columns: ["user_id", "linked_request_id"]
+            isOneToOne: false
+            referencedRelation: "review_operations"
+            referencedColumns: ["user_id", "request_id"]
+          },
+        ]
+      }
       user_model_gateway_secrets: {
         Row: {
           config_id: string
@@ -297,6 +368,18 @@ export type Database = {
           user_expression_id: string
         }[]
       }
+      require_review_revision: {
+        Args: { p_input: Json; p_review_task_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      review_evaluation: {
+        Args: { p_assistance: string; p_evaluation: Json }
+        Returns: Json
+      }
+      review_request_hash: {
+        Args: { p_input: Json; p_kind: string; p_review: string }
+        Returns: string
+      }
       today_candidate_cards: {
         Args: { p_user_id: string }
         Returns: {
@@ -365,6 +448,7 @@ export type Database = {
           accuracy_feedback_english: string
           accuracy_score: number
           assistance_level: string
+          coaching: Json | null
           contextual_fit_feedback_english: string
           contextual_fit_score: number
           created_at: string
@@ -381,6 +465,8 @@ export type Database = {
           passed: boolean
           practice_task_id: string
           response_chinese: string
+          review_scenario_fingerprint: string | null
+          review_scenario_version: number | null
           submitted_at: string
           user_expression_id: string
           user_id: string
@@ -389,6 +475,7 @@ export type Database = {
           accuracy_feedback_english: string
           accuracy_score: number
           assistance_level: string
+          coaching?: Json | null
           contextual_fit_feedback_english: string
           contextual_fit_score: number
           created_at?: string
@@ -405,6 +492,8 @@ export type Database = {
           passed: boolean
           practice_task_id: string
           response_chinese: string
+          review_scenario_fingerprint?: string | null
+          review_scenario_version?: number | null
           submitted_at: string
           user_expression_id: string
           user_id: string
@@ -413,6 +502,7 @@ export type Database = {
           accuracy_feedback_english?: string
           accuracy_score?: number
           assistance_level?: string
+          coaching?: Json | null
           contextual_fit_feedback_english?: string
           contextual_fit_score?: number
           created_at?: string
@@ -429,6 +519,8 @@ export type Database = {
           passed?: boolean
           practice_task_id?: string
           response_chinese?: string
+          review_scenario_fingerprint?: string | null
+          review_scenario_version?: number | null
           submitted_at?: string
           user_expression_id?: string
           user_id?: string
@@ -1197,14 +1289,24 @@ export type Database = {
           kind: string
           native_language: string
           prompt_chinese: string
+          regenerated: boolean
           review_task_id: string | null
+          scenario_fingerprint: string | null
+          scenario_gateway_config_id: string | null
+          scenario_gateway_fingerprint: string | null
+          scenario_gateway_revision: number | null
+          scenario_metadata_mode: string | null
+          scenario_model: string | null
+          scenario_prompt_version: string | null
           scenario_source: string | null
+          scenario_version: number
           situation_en: string | null
           target_expression: string
           target_function: string | null
           target_language: string
           target_setting: string | null
           task_en: string | null
+          transfer_type: string | null
           user_expression_id: string
           user_id: string
         }
@@ -1224,14 +1326,24 @@ export type Database = {
           kind: string
           native_language: string
           prompt_chinese: string
+          regenerated?: boolean
           review_task_id?: string | null
+          scenario_fingerprint?: string | null
+          scenario_gateway_config_id?: string | null
+          scenario_gateway_fingerprint?: string | null
+          scenario_gateway_revision?: number | null
+          scenario_metadata_mode?: string | null
+          scenario_model?: string | null
+          scenario_prompt_version?: string | null
           scenario_source?: string | null
+          scenario_version?: number
           situation_en?: string | null
           target_expression: string
           target_function?: string | null
           target_language: string
           target_setting?: string | null
           task_en?: string | null
+          transfer_type?: string | null
           user_expression_id: string
           user_id: string
         }
@@ -1251,14 +1363,24 @@ export type Database = {
           kind?: string
           native_language?: string
           prompt_chinese?: string
+          regenerated?: boolean
           review_task_id?: string | null
+          scenario_fingerprint?: string | null
+          scenario_gateway_config_id?: string | null
+          scenario_gateway_fingerprint?: string | null
+          scenario_gateway_revision?: number | null
+          scenario_metadata_mode?: string | null
+          scenario_model?: string | null
+          scenario_prompt_version?: string | null
           scenario_source?: string | null
+          scenario_version?: number
           situation_en?: string | null
           target_expression?: string
           target_function?: string | null
           target_language?: string
           target_setting?: string | null
           task_en?: string | null
+          transfer_type?: string | null
           user_expression_id?: string
           user_id?: string
         }
@@ -1296,6 +1418,13 @@ export type Database = {
             referencedRelation: "review_tasks"
             referencedColumns: ["id", "user_id", "user_expression_id"]
           },
+          {
+            foreignKeyName: "review_scenario_pin_owner_fk"
+            columns: ["scenario_gateway_config_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "user_model_gateway_configs"
+            referencedColumns: ["id", "user_id"]
+          },
         ]
       }
       profiles: {
@@ -1322,6 +1451,155 @@ export type Database = {
         }
         Relationships: []
       }
+      review_revisions: {
+        Row: {
+          attempt_id: string
+          coaching: Json | null
+          created_at: string
+          evaluation: Json
+          evaluation_gateway_config_id: string | null
+          evaluation_gateway_fingerprint: string | null
+          evaluation_gateway_revision: number | null
+          evaluation_model: string
+          evaluation_prompt_version: string
+          id: string
+          practice_task_id: string
+          request_id: string
+          response_chinese: string
+          review_task_id: string
+          scenario_fingerprint: string
+          scenario_version: number
+          user_expression_id: string
+          user_id: string
+        }
+        Insert: {
+          attempt_id: string
+          coaching?: Json | null
+          created_at?: string
+          evaluation: Json
+          evaluation_gateway_config_id?: string | null
+          evaluation_gateway_fingerprint?: string | null
+          evaluation_gateway_revision?: number | null
+          evaluation_model: string
+          evaluation_prompt_version: string
+          id?: string
+          practice_task_id: string
+          request_id: string
+          response_chinese: string
+          review_task_id: string
+          scenario_fingerprint: string
+          scenario_version: number
+          user_expression_id: string
+          user_id: string
+        }
+        Update: {
+          attempt_id?: string
+          coaching?: Json | null
+          created_at?: string
+          evaluation?: Json
+          evaluation_gateway_config_id?: string | null
+          evaluation_gateway_fingerprint?: string | null
+          evaluation_gateway_revision?: number | null
+          evaluation_model?: string
+          evaluation_prompt_version?: string
+          id?: string
+          practice_task_id?: string
+          request_id?: string
+          response_chinese?: string
+          review_task_id?: string
+          scenario_fingerprint?: string
+          scenario_version?: number
+          user_expression_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_revisions_attempt_id_user_id_user_expression_id_fkey"
+            columns: ["attempt_id", "user_id", "user_expression_id"]
+            isOneToOne: false
+            referencedRelation: "attempts"
+            referencedColumns: ["id", "user_id", "user_expression_id"]
+          },
+          {
+            foreignKeyName: "review_revisions_evaluation_gateway_config_id_user_id_fkey"
+            columns: ["evaluation_gateway_config_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "user_model_gateway_configs"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "review_revisions_practice_task_id_user_id_user_expression__fkey"
+            columns: ["practice_task_id", "user_id", "user_expression_id"]
+            isOneToOne: false
+            referencedRelation: "practice_tasks"
+            referencedColumns: ["id", "user_id", "user_expression_id"]
+          },
+          {
+            foreignKeyName: "review_revisions_review_task_id_user_id_user_expression_id_fkey"
+            columns: ["review_task_id", "user_id", "user_expression_id"]
+            isOneToOne: false
+            referencedRelation: "review_tasks"
+            referencedColumns: ["id", "user_id", "user_expression_id"]
+          },
+        ]
+      }
+      review_scenarios: {
+        Row: {
+          context_fingerprint: string
+          created_at: string
+          id: string
+          practice_task_id: string
+          prompt_chinese: string
+          review_task_id: string
+          scenario_fingerprint: string
+          scenario_version: number
+          snapshot: Json
+          user_expression_id: string
+          user_id: string
+        }
+        Insert: {
+          context_fingerprint: string
+          created_at?: string
+          id?: string
+          practice_task_id: string
+          prompt_chinese: string
+          review_task_id: string
+          scenario_fingerprint: string
+          scenario_version: number
+          snapshot: Json
+          user_expression_id: string
+          user_id: string
+        }
+        Update: {
+          context_fingerprint?: string
+          created_at?: string
+          id?: string
+          practice_task_id?: string
+          prompt_chinese?: string
+          review_task_id?: string
+          scenario_fingerprint?: string
+          scenario_version?: number
+          snapshot?: Json
+          user_expression_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_scenarios_practice_task_id_user_id_user_expression__fkey"
+            columns: ["practice_task_id", "user_id", "user_expression_id"]
+            isOneToOne: false
+            referencedRelation: "practice_tasks"
+            referencedColumns: ["id", "user_id", "user_expression_id"]
+          },
+          {
+            foreignKeyName: "review_scenarios_review_task_id_user_id_user_expression_id_fkey"
+            columns: ["review_task_id", "user_id", "user_expression_id"]
+            isOneToOne: false
+            referencedRelation: "review_tasks"
+            referencedColumns: ["id", "user_id", "user_expression_id"]
+          },
+        ]
+      }
       review_tasks: {
         Row: {
           completed_at: string | null
@@ -1330,6 +1608,7 @@ export type Database = {
           created_at: string
           due_at: string
           examples_opened_at: string | null
+          expression_revealed_at: string | null
           id: string
           interval_days: number
           mastery_state: string
@@ -1345,6 +1624,7 @@ export type Database = {
           created_at?: string
           due_at: string
           examples_opened_at?: string | null
+          expression_revealed_at?: string | null
           id?: string
           interval_days: number
           mastery_state: string
@@ -1360,6 +1640,7 @@ export type Database = {
           created_at?: string
           due_at?: string
           examples_opened_at?: string | null
+          expression_revealed_at?: string | null
           id?: string
           interval_days?: number
           mastery_state?: string
@@ -1801,6 +2082,36 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      claim_review_completion: {
+        Args: {
+          p_input: Json
+          p_now: string
+          p_review_task_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      claim_review_preparation: {
+        Args: {
+          p_identity: Json
+          p_job: Json
+          p_kind: string
+          p_now: string
+          p_request_id: string | null
+          p_review_task_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      claim_review_revision: {
+        Args: {
+          p_input: Json
+          p_now: string
+          p_review_task_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       complete_due_practice: {
         Args: {
           p_accuracy_feedback_english: string
@@ -1837,6 +2148,10 @@ export type Database = {
         }[]
       }
       complete_due_practice_with_examples: {
+        Args: { p_input: Json; p_user_id: string }
+        Returns: Json
+      }
+      complete_due_review_with_snapshot: {
         Args: { p_input: Json; p_user_id: string }
         Returns: Json
       }
@@ -1950,6 +2265,29 @@ export type Database = {
           retained_user_expression_count: number
         }[]
       }
+      fail_review_operation: {
+        Args: {
+          p_code: string
+          p_now: string
+          p_request_id: string
+          p_review_task_id: string
+          p_token: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      finish_review_preparation_job: {
+        Args: {
+          p_expected_attempt_count: number
+          p_expected_lease_expires_at: string
+          p_job_id: string
+          p_now: string
+          p_result: Json
+          p_status: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       get_due_practice_assistance: {
         Args: { p_review_task_id: string; p_user_id: string }
         Returns: string
@@ -2017,6 +2355,45 @@ export type Database = {
         }
         Returns: Json
       }
+      lookup_review_completion: {
+        Args: {
+          p_input: Json
+          p_now?: string
+          p_review_task_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      lookup_review_preparation: {
+        Args: {
+          p_identity: Json
+          p_kind: string
+          p_now: string
+          p_request_id: string | null
+          p_review_task_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      lookup_review_revision: {
+        Args: {
+          p_input: Json
+          p_now?: string
+          p_review_task_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      mark_review_disclosure: {
+        Args: {
+          p_input: Json
+          p_kind: string
+          p_now: string
+          p_review_task_id: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       mutate_saved_item_highlight: {
         Args: {
           p_action: string
@@ -2054,6 +2431,43 @@ export type Database = {
           review_task_id: string
           user_expression_id: string
         }[]
+      }
+      publish_review_completion: {
+        Args: {
+          p_input: Json
+          p_now: string
+          p_result: Json
+          p_review_task_id: string
+          p_token: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      publish_review_revision: {
+        Args: {
+          p_input: Json
+          p_now: string
+          p_result: Json
+          p_review_task_id: string
+          p_token: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      publish_review_scenario: {
+        Args: {
+          p_generated: Json
+          p_now: string
+          p_request_id: string
+          p_review_task_id: string
+          p_token: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      read_review_practice_context: {
+        Args: { p_review_task_id: string; p_user_id: string }
+        Returns: Json
       }
       record_practice_round_attempt: {
         Args: { p_attempt: Json; p_user_id: string }

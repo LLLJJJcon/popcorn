@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, test, vi } from "vitest";
 
-import { buildDueTransferTask } from "@/server/domain/create-transfer-task";
+import type { DueTransferSource,DueTransferTask } from "@/server/domain/create-transfer-task";
 import {
   createDuePracticeCompletionService,
   createDuePracticeHttpHandler,
@@ -40,7 +40,6 @@ vi.mock("@/server/repositories/review-task-repository", () => ({
 const USER = "11111111-1111-4111-8111-111111111111";
 const REVIEW = "22222222-2222-4222-8222-222222222222";
 const REVIEW_TWO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const REVIEW_THREE = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const EXPRESSION = "44444444-4444-4444-8444-444444444444";
 
 function databaseContextFingerprint(input: {
@@ -56,6 +55,15 @@ function databaseContextFingerprint(input: {
     input.goal_english,
   ].map((part) => `${Array.from(part).length}:${part}`).join("");
   return createHash("sha256").update(encoded, "utf8").digest("hex");
+}
+
+// Explicit stored historical fixture, never imported by production generation.
+function legacyPreparedFixture(source:DueTransferSource):DueTransferTask {
+ const promptChinese="朋友问一项普通服务的新价格怎么样。",instructionsEnglish="Reply naturally.",goalEnglish="Use the expression.";
+ return {id:source.id,userId:source.userId,reviewTaskId:source.reviewTaskId,userExpressionId:source.userExpressionId,targetExpression:source.targetExpression,dueAt:source.dueAt,masteryState:source.masteryState,promptChinese,instructionsEnglish,goalEnglish,contextFingerprint:databaseContextFingerprint({target_expression:source.targetExpression,prompt_chinese:promptChinese,instructions_english:instructionsEnglish,goal_english:goalEnglish})};
+}
+function installLegacyPrepared(h:ReturnType<typeof dueRepositoryHarness>){
+ h.tasks.push({...h.tasks[0],id:"33333333-3333-4333-8333-333333333333",kind:"due_practice",review_task_id:REVIEW,due_at:"2026-08-21T12:00:00.000Z"});
 }
 
 function dueRepositoryHarness(originalPromptChinese = "朋友说演唱会门票贵得不合理。你会怎么回应？") {
@@ -215,8 +223,21 @@ function completedReplayRepositoryHarness() {
 }
 
 describe("due Practice transfer boundary", () => {
+  test("legacy compatibility reads a prepared question without changing its text or stored context fingerprint",async()=>{
+    const h=dueRepositoryHarness();
+    const row:Record<string,unknown>={...h.tasks[0],id:"33333333-3333-4333-8333-333333333333",kind:"due_practice",review_task_id:REVIEW,due_at:"2026-08-21T12:00:00.000Z",prompt_chinese:"已经准备好的历史交流题。"};
+    h.tasks.push(row);
+    const task=await h.repository.ensureTransferTask(USER,REVIEW,"2026-08-22T12:00:00.000Z");
+    expect(task.promptChinese).toBe(row.prompt_chinese);expect(task.contextFingerprint).toBe(row.context_fingerprint);
+    expect(h.attemptedFingerprints).toEqual([]);
+  });
+  test("legacy compatibility never generates or inserts a generic question when none was prepared",async()=>{
+    const h=dueRepositoryHarness();
+    await expect(h.repository.ensureTransferTask(USER,REVIEW,"2026-08-22T12:00:00.000Z")).rejects.toMatchObject({code:"NOT_FOUND"});
+    expect(h.attemptedFingerprints).toEqual([]);expect(h.tasks).toHaveLength(1);
+  });
   test("returns owner-scoped learning material with the due transfer", async () => {
-    const transfer = buildDueTransferTask({
+    const transfer = legacyPreparedFixture({
       id: "33333333-3333-4333-8333-333333333333", userId: USER, reviewTaskId: REVIEW,
       userExpressionId: EXPRESSION, targetExpression: "太离谱了",
       originalPromptChinese: "朋友说演唱会门票贵得不合理。你会怎么回应？",
@@ -261,7 +282,7 @@ describe("due Practice transfer boundary", () => {
   });
 
   test("fails closed when the transfer has no matching owner-scoped material", async () => {
-    const transfer = buildDueTransferTask({
+    const transfer = legacyPreparedFixture({
       id: "33333333-3333-4333-8333-333333333333", userId: USER, reviewTaskId: REVIEW,
       userExpressionId: EXPRESSION, targetExpression: "太离谱了",
       originalPromptChinese: "朋友说演唱会门票贵得不合理。你会怎么回应？",
@@ -282,122 +303,6 @@ describe("due Practice transfer boundary", () => {
     expect(await response.text()).not.toMatch(/database|userId|api[_-]?key|gateway|expression_sense/i);
   });
 
-  test("creates a different-context prompt that withholds a complete answer", () => {
-    const originalPrompt = "这个价格也太离谱了吧，你会怎么说？";
-    const transfer = buildDueTransferTask({
-      id: "33333333-3333-4333-8333-333333333333", userId: USER, reviewTaskId: REVIEW,
-      userExpressionId: "44444444-4444-4444-8444-444444444444", targetExpression: "太离谱了",
-      originalPromptChinese: originalPrompt, dueAt: "2026-08-21T12:00:00.000Z", masteryState: "tried",
-    });
-    expect(transfer.promptChinese.normalize("NFKC")).not.toContain(originalPrompt.normalize("NFKC"));
-    expect(JSON.stringify(transfer)).not.toContain("这个价格也太离谱了吧");
-  });
-
-  test("creates sequential due transfers in different everyday situations after the prior review completes", async () => {
-    const harness = dueRepositoryHarness();
-
-    const first = await harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z");
-    harness.reviews.set(REVIEW, {
-      ...harness.reviews.get(REVIEW)!, status: "completed",
-      completed_attempt_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      completed_at: "2026-08-22T12:00:00.000Z",
-    });
-    harness.expressions.set(EXPRESSION, { id: EXPRESSION, user_id: USER, mastery_state: "reused" });
-    harness.reviews.set(REVIEW_TWO, {
-      id: REVIEW_TWO, user_id: USER, user_expression_id: EXPRESSION, mastery_state: "reused",
-      status: "pending", due_at: "2026-08-29T12:00:00.000Z",
-      completed_attempt_id: null, completed_at: null,
-    });
-    const second = await harness.repository.ensureTransferTask(USER, REVIEW_TWO, "2026-08-30T12:00:00.000Z");
-    harness.reviews.set(REVIEW_TWO, {
-      ...harness.reviews.get(REVIEW_TWO)!, status: "completed",
-      completed_attempt_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-      completed_at: "2026-08-30T12:00:00.000Z",
-    });
-    harness.expressions.set(EXPRESSION, { id: EXPRESSION, user_id: USER, mastery_state: "owned" });
-    harness.reviews.set(REVIEW_THREE, {
-      id: REVIEW_THREE, user_id: USER, user_expression_id: EXPRESSION, mastery_state: "owned",
-      status: "pending", due_at: "2026-09-29T12:00:00.000Z",
-      completed_attempt_id: null, completed_at: null,
-    });
-    const maintenance = await harness.repository.ensureTransferTask(USER, REVIEW_THREE, "2026-09-30T12:00:00.000Z");
-
-    expect(first.id).not.toBe(second.id);
-    expect(first.promptChinese).toContain("午餐");
-    expect(second.promptChinese).toContain("网购");
-    expect(maintenance.promptChinese).toContain("出行");
-    expect(first.contextFingerprint).not.toBe(second.contextFingerprint);
-    expect(new Set([first.contextFingerprint, second.contextFingerprint, maintenance.contextFingerprint]).size).toBe(3);
-    expect(harness.attemptedFingerprints).toEqual([
-      databaseContextFingerprint({
-        target_expression: first.targetExpression,
-        prompt_chinese: first.promptChinese,
-        instructions_english: first.instructionsEnglish,
-        goal_english: first.goalEnglish,
-      }),
-      databaseContextFingerprint({
-        target_expression: second.targetExpression,
-        prompt_chinese: second.promptChinese,
-        instructions_english: second.instructionsEnglish,
-        goal_english: second.goalEnglish,
-      }),
-      databaseContextFingerprint({
-        target_expression: maintenance.targetExpression,
-        prompt_chinese: maintenance.promptChinese,
-        instructions_english: maintenance.instructionsEnglish,
-        goal_english: maintenance.goalEnglish,
-      }),
-    ]);
-  });
-
-  test("excludes the original lunch scenario and every prior due scenario before semantic reuse", async () => {
-    const originalLunchPrompt = "午餐时，同事发现公司食堂一份普通套餐竟然要200元。请用“太离谱了”自然回应。";
-    const harness = dueRepositoryHarness(originalLunchPrompt);
-
-    const first = await harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z");
-    harness.reviews.set(REVIEW, {
-      ...harness.reviews.get(REVIEW)!, status: "completed",
-      completed_attempt_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      completed_at: "2026-08-22T12:00:00.000Z",
-    });
-    harness.expressions.set(EXPRESSION, { id: EXPRESSION, user_id: USER, mastery_state: "reused" });
-    harness.reviews.set(REVIEW_TWO, {
-      id: REVIEW_TWO, user_id: USER, user_expression_id: EXPRESSION, mastery_state: "reused",
-      status: "pending", due_at: "2026-08-29T12:00:00.000Z",
-      completed_attempt_id: null, completed_at: null,
-    });
-
-    const second = await harness.repository.ensureTransferTask(USER, REVIEW_TWO, "2026-08-30T12:00:00.000Z");
-
-    expect(first.promptChinese).toContain("网购");
-    expect(second.promptChinese).toContain("出行");
-    expect(second.promptChinese).not.toContain("网购");
-    expect(first.contextFingerprint).not.toBe(second.contextFingerprint);
-  });
-
-  test("reuses a stable semantic scenario with a unique fingerprint after all finite scenarios are used", () => {
-    const originalLunchPrompt = "午餐时，同事发现公司食堂一份普通套餐竟然要200元。请用“太离谱了”自然回应。";
-    const priorPrompts = [
-      "网购时，朋友发现一根普通充电线竟然标价200元。请用“太离谱了”自然回应。",
-      "出行时，同学发现十分钟的普通打车行程竟然收费237元。请用“太离谱了”自然回应。",
-      "下雨时，邻居发现租一把普通雨伞竟然要274元。请用“太离谱了”自然回应。",
-    ];
-    const reused = buildDueTransferTask({
-      id: "33333333-3333-4333-8333-333333333333", userId: USER, reviewTaskId: REVIEW_THREE,
-      userExpressionId: EXPRESSION, targetExpression: "太离谱了", originalPromptChinese: originalLunchPrompt,
-      priorPromptChinese: priorPrompts, transferOrdinal: 3,
-      dueAt: "2026-09-29T12:00:00.000Z", masteryState: "owned",
-    });
-
-    expect(reused.promptChinese).toContain("下雨");
-    expect(reused.contextFingerprint).not.toBe(databaseContextFingerprint({
-      target_expression: "太离谱了",
-      prompt_chinese: priorPrompts[2]!,
-      instructions_english: reused.instructionsEnglish,
-      goal_english: reused.goalEnglish,
-    }));
-  });
-
   test.each([
     { status: "cancelled", dueAt: "2026-08-21T12:00:00.000Z", completedAttemptId: null, completedAt: null },
     { status: "completed", dueAt: "2026-08-21T12:00:00.000Z", completedAttemptId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", completedAt: "2026-08-22T12:00:00.000Z" },
@@ -405,7 +310,7 @@ describe("due Practice transfer boundary", () => {
     { status: "pending", dueAt: "2026-08-21T12:00:00.000Z", completedAttemptId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", completedAt: "2026-08-22T12:00:00.000Z" },
   ])("rejects an already-created transfer when review eligibility is invalid: $status $dueAt", async ({ status, dueAt, completedAttemptId, completedAt }) => {
     const harness = dueRepositoryHarness();
-    await harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z");
+    installLegacyPrepared(harness);
     harness.reviews.set(REVIEW, {
       ...harness.reviews.get(REVIEW)!, status, due_at: dueAt,
       completed_attempt_id: completedAttemptId, completed_at: completedAt,
@@ -417,20 +322,8 @@ describe("due Practice transfer boundary", () => {
 
   test("rejects an already-created transfer when current expression mastery is stale", async () => {
     const harness = dueRepositoryHarness();
-    await harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z");
+    installLegacyPrepared(harness);
     harness.expressions.set(EXPRESSION, { id: EXPRESSION, user_id: USER, mastery_state: "reused" });
-
-    await expect(harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z"))
-      .rejects.toMatchObject({ code: "NOT_FOUND" });
-  });
-
-  test("rechecks the review and expression eligibility after an insert race before returning any raced task", async () => {
-    const harness = dueRepositoryHarness();
-    harness.failNextInsert(() => {
-      harness.reviews.set(REVIEW, {
-        ...harness.reviews.get(REVIEW)!, status: "cancelled",
-      });
-    });
 
     await expect(harness.repository.ensureTransferTask(USER, REVIEW, "2026-08-22T12:00:00.000Z"))
       .rejects.toMatchObject({ code: "NOT_FOUND" });

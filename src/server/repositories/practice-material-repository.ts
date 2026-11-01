@@ -81,6 +81,7 @@ const ReviewRowSchema = z.strictObject({
   status: z.enum(["pending", "completed", "cancelled"]),
   due_at: IsoDateTimeSchema,
   examples_opened_at:IsoDateTimeSchema.nullable().optional(),
+  completed_attempt_id:UuidSchema.nullable().optional(),completed_at:IsoDateTimeSchema.nullable().optional(),
 });
 
 const TaskRowSchema = z.strictObject({
@@ -97,6 +98,7 @@ const TaskRowSchema = z.strictObject({
   goal_english: z.string(),
   due_at: IsoDateTimeSchema,
   created_at: IsoDateTimeSchema,
+  situation_en:z.string().nullable().optional(),interlocutor:z.string().nullable().optional(),task_en:z.string().nullable().optional(),target_function:z.string().nullable().optional(),target_setting:z.string().nullable().optional(),
 });
 
 const UserExpressionRowSchema = z.strictObject({
@@ -186,6 +188,7 @@ function readableImmediateDraft(row: z.infer<typeof DraftRowSchema>): boolean {
 }
 
 function dueTask(row: z.infer<typeof TaskRowSchema>): PracticeMaterialTask {
+  const structured=PracticeSituationSchema.safeParse({situationZh:row.prompt_chinese,situationEn:row.situation_en,interlocutor:row.interlocutor,taskEn:row.task_en,targetFunction:row.target_function,targetSetting:row.target_setting});
   return {
     id: row.id,
     userExpressionId: row.user_expression_id,
@@ -198,6 +201,7 @@ function dueTask(row: z.infer<typeof TaskRowSchema>): PracticeMaterialTask {
     goalEnglish: row.goal_english,
     dueAt: row.due_at,
     createdAt: row.created_at,
+    ...(structured.success?{situation:structured.data}:{}),
   };
 }
 
@@ -293,14 +297,14 @@ export function createPracticeMaterialRepository(
       const reviewTaskId = UuidSchema.safeParse(reviewTaskIdValue);
       if (!userId.success || !reviewTaskId.success) return null;
       const review = ReviewRowSchema.safeParse(await one(from("review_tasks")
-        .select("id,user_id,user_expression_id,mastery_state,status,due_at,examples_opened_at")
+        .select("id,user_id,user_expression_id,mastery_state,status,due_at,examples_opened_at,completed_attempt_id,completed_at")
         .eq("user_id", userId.data).eq("id", reviewTaskId.data)));
       if (
         !review.success || !belongs(review.data, userId.data) ||
         review.data.id !== reviewTaskId.data || review.data.status === "cancelled"
       ) return null;
       const task = TaskRowSchema.safeParse(await one(from("practice_tasks")
-        .select("id,user_id,user_expression_id,review_task_id,kind,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,due_at,created_at")
+        .select("id,user_id,user_expression_id,review_task_id,kind,native_language,target_language,target_expression,prompt_chinese,instructions_english,goal_english,due_at,created_at,situation_en,interlocutor,task_en,target_function,target_setting")
         .eq("user_id", userId.data).eq("review_task_id", review.data.id)
         .eq("user_expression_id", review.data.user_expression_id).eq("kind", "due_practice")));
       const expression = UserExpressionRowSchema.safeParse(await one(from("user_expressions")
@@ -311,7 +315,8 @@ export function createPracticeMaterialRepository(
         task.data.review_task_id !== review.data.id ||
         task.data.user_expression_id !== review.data.user_expression_id ||
         expression.data.id !== review.data.user_expression_id ||
-        expression.data.mastery_state !== review.data.mastery_state ||
+        (review.data.status==="pending"&&expression.data.mastery_state !== review.data.mastery_state) ||
+        (review.data.status==="completed"&&(!review.data.completed_attempt_id||!review.data.completed_at||["tried","reused","owned"].indexOf(expression.data.mastery_state)<["tried","reused","owned"].indexOf(review.data.mastery_state))) ||
         Date.parse(task.data.due_at) !== Date.parse(review.data.due_at)
       ) return null;
       const sense = SenseRowSchema.safeParse(await one(from("expression_senses")

@@ -32,6 +32,8 @@ import { createExplainSelectionHandler } from "@/server/jobs/handlers/explain-se
 import { createGenerateOverviewHandler } from "@/server/jobs/handlers/generate-overview";
 import { createResolveSnapshotHandler } from "@/server/jobs/handlers/resolve-snapshot";
 import { createTranslateSegmentsHandler } from "@/server/jobs/handlers/translate-segments";
+import { createPrepareTransferTaskHandler } from "@/server/jobs/handlers/prepare-transfer-task";
+import type { createReviewPracticeService } from "@/server/domain/review-practice";
 import {
   createSavedItemAnalysisJobKey,
   SavedItemAnalysisJobInputSchema,
@@ -41,8 +43,10 @@ import type { Database, Json } from "@/types/database.generated";
 
 export const MAX_PROCESS_BATCH_SIZE = 5;
 const TRANSCRIPT_SEGMENT_PAGE_SIZE = 1_000;
+export type ReviewPreparationJobOutcome={status:"succeeded"|"terminal_failed";reviewTaskId?:string;taskId?:string;errorCode?:string};
 
 export interface DurableJobStore {
+  finishReviewPreparationJob?(expectedUserId:string,expectedLease:Extract<KnowledgeJob,{status:"leased"}>,outcome:ReviewPreparationJobOutcome,now:string):Promise<boolean>;
   /**
    * Implemented by the controller-owned atomic database claim RPC. It is the
    * only cross-tenant operation: returned rows already carry their DB-derived
@@ -124,13 +128,16 @@ export function createProcessorHandlers({
   transcriptProvider,
   learningProviderResolver,
   analysisGatewayResolver,
+  reviewPracticeService,
 }: {
   readonly store: ReturnType<typeof createSupabaseDurableJobStore>;
   readonly transcriptProvider: TranscriptProvider;
   readonly learningProviderResolver: LearningArtifactProviderResolver;
   readonly analysisGatewayResolver: StructuredJsonGatewayResolver;
+  readonly reviewPracticeService?: Pick<ReturnType<typeof createReviewPracticeService>,"prepareInBackground">;
 }) {
   return {
+    ...(reviewPracticeService?{prepare_transfer_task:createPrepareTransferTaskHandler({store,service:reviewPracticeService})}:{}),
     highlight_saved_item: createHighlightSavedItemHandler({store,gatewayResolver:analysisGatewayResolver}),
     resolve_snapshot: createResolveSnapshotHandler({ store, provider: transcriptProvider }),
     generate_overview: createGenerateOverviewHandler({
@@ -490,6 +497,13 @@ export function createSupabaseDurableJobStore(
   client: SupabaseClient<Database>,
 ): DurableJobStore {
   return {
+    async finishReviewPreparationJob(expectedUserId,job,outcome,now){
+      if(job.userId!==expectedUserId||job.type!=="prepare_transfer_task")throw new Error("review preparation job owner or type mismatch");
+      const {status,...result}=outcome;
+      const response=await (client as unknown as {rpc(name:string,args:Record<string,unknown>):PromiseLike<{data:unknown;error:unknown}>}).rpc("finish_review_preparation_job",{p_user_id:expectedUserId,p_job_id:job.id,p_expected_attempt_count:job.attemptCount,p_expected_lease_expires_at:job.leaseExpiresAt,p_status:status,p_result:result,p_now:now});
+      if(response.error)throw response.error;
+      return z.boolean().parse(response.data);
+    },
     async claimJobs(limit, now) {
       const claimed = await client.rpc("claim_knowledge_jobs", {
         p_limit: limit,

@@ -423,6 +423,19 @@ describe("Practice material repository", () => {
       .findDueMaterial(USER, REVIEW)).resolves.toBeNull();
   });
 
+  test("completed due material remains readable after its official mastery transition", async () => {
+    const scripted=scriptedClient(dueGraph({review:{status:"completed",completed_attempt_id:TASK,completed_at:CREATED},expression:{mastery_state:"owned"}}));
+    const material=await createPracticeMaterialRepository(scripted.client as never).findDueMaterial(USER,REVIEW);
+    expect(material?.task.id).toBe(TASK);
+    expect(material?.masteryState).toBe("owned");
+  });
+
+  test("modern due material uses the exact persisted structured situation", async () => {
+    const scripted=scriptedClient(dueGraph({task:{situation_en:"A colleague asks about lunch.",interlocutor:"同事",task_en:"React to the lunch price.",target_function:"react",target_setting:"work_school"}}));
+    const material=await createPracticeMaterialRepository(scripted.client as never).findDueMaterial(USER,REVIEW);
+    expect(material?.task.situation).toMatchObject({situationEn:"A colleague asks about lunch.",interlocutor:"同事",taskEn:"React to the lunch price.",targetFunction:"react",targetSetting:"work_school"});
+  });
+
   test("fails closed when an owner-filtered due query returns a cross-owner sense", async () => {
     const crossOwner = scriptedClient(dueGraph({ sense: { user_id: OTHER } }));
 

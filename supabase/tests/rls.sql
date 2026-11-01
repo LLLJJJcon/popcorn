@@ -194,6 +194,25 @@ values
    'tried', 'pending', '2026-08-17 11:05:00+00', 1, 0)
 on conflict (id) do nothing;
 
+-- Review scheduling now adds one owner-scoped preparation outbox. Keep both
+-- original job identities exact and verify the added private input/graph link.
+select extensions.results_eq(
+  $$select id,user_id,video_source_id,saved_item_id,job_type,status from knowledge_jobs
+    where id in('60000000-0000-4000-8000-000000000001','60000000-0000-4000-8000-000000000002') order by id$$,
+  $$values
+    ('60000000-0000-4000-8000-000000000001'::uuid,'00000000-0000-4000-8000-00000000a001'::uuid,'10000000-0000-4000-8000-000000000001'::uuid,'40000000-0000-4000-8000-000000000001'::uuid,'analyze_saved_item'::text,'pending'::text),
+    ('60000000-0000-4000-8000-000000000002'::uuid,'00000000-0000-4000-8000-00000000b002'::uuid,'10000000-0000-4000-8000-000000000002'::uuid,'40000000-0000-4000-8000-000000000002'::uuid,'analyze_saved_item'::text,'pending'::text)$$,
+  'review outbox preserves both original analysis jobs and their exact owned source/save links');
+select extensions.results_eq(
+  $$select j.user_id,j.video_source_id,j.saved_item_id,j.job_type,j.status,j.attempt_count,i.user_id,i.input,r.id,r.user_expression_id,r.user_id
+    from knowledge_jobs j join knowledge_job_internal i on i.knowledge_job_id=j.id and i.user_id=j.user_id
+    join review_tasks r on r.id=(i.input->>'reviewTaskId')::uuid and r.user_id=j.user_id
+    where j.user_id in('00000000-0000-4000-8000-00000000a001','00000000-0000-4000-8000-00000000b002') and j.job_type='prepare_transfer_task' order by j.user_id$$,
+  $$values
+    ('00000000-0000-4000-8000-00000000a001'::uuid,'10000000-0000-4000-8000-000000000001'::uuid,null::uuid,'prepare_transfer_task'::text,'pending'::text,0,'00000000-0000-4000-8000-00000000a001'::uuid,'{"kind":"prepare_transfer_task","reviewTaskId":"b0000000-0000-4000-8000-000000000001"}'::jsonb,'b0000000-0000-4000-8000-000000000001'::uuid,'72000000-0000-4000-8000-000000000001'::uuid,'00000000-0000-4000-8000-00000000a001'::uuid),
+    ('00000000-0000-4000-8000-00000000b002'::uuid,'10000000-0000-4000-8000-000000000002'::uuid,null::uuid,'prepare_transfer_task'::text,'pending'::text,0,'00000000-0000-4000-8000-00000000b002'::uuid,'{"kind":"prepare_transfer_task","reviewTaskId":"b0000000-0000-4000-8000-000000000002"}'::jsonb,'b0000000-0000-4000-8000-000000000002'::uuid,'72000000-0000-4000-8000-000000000002'::uuid,'00000000-0000-4000-8000-00000000b002'::uuid)$$,
+  'each review outbox has the exact owner/type/private input/review/expression/source graph');
+
 -- Catalog-level invariants: direct ownership, timestamps, RLS, indexes, and
 -- extensions are part of the contract rather than incidental implementation.
 select extensions.is(
@@ -730,7 +749,7 @@ select extensions.set_eq(
       union all select 'review_tasks', count(*) from review_tasks where user_id = '00000000-0000-4000-8000-00000000a001'
     ) as owned(relation_name, owned_rows) order by relation_name$$,
   $$values ('attempts',1::bigint),('expression_occurrences',1::bigint),('expression_senses',1::bigint),
-      ('generated_artifacts',1::bigint),('knowledge_jobs',1::bigint),('mastery_events',1::bigint),
+      ('generated_artifacts',1::bigint),('knowledge_jobs',2::bigint),('mastery_events',1::bigint),
       ('practice_tasks',1::bigint),('profiles',1::bigint),('review_tasks',1::bigint),('saved_items',1::bigint),
       ('transcript_segments',3::bigint),('user_expressions',1::bigint),('video_snapshots',1::bigint),
       ('video_sources',1::bigint)$$,

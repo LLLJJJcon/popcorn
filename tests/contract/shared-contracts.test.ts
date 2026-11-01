@@ -1077,6 +1077,7 @@ describe("shared contracts", () => {
       "explain_selection",
       "analyze_saved_item",
       "highlight_saved_item",
+      "prepare_transfer_task",
     ]);
     expect(KnowledgeJobStatusSchema.options).toEqual([
       "pending",
