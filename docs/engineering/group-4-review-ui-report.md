@@ -79,3 +79,22 @@ Production edits: ReviewPractice, Review schema reexport, new due-api, additive 
 Specified copy changes: Your Chinese response → Your answer in Chinese; Check my response → Check my answer; Compare with suggested revision/Show comparison → real Revise this answer/Check my revision; old generic slow copy → exact Preparing a new situation… for preparation/regeneration. Existing four §7.4 result lines and local date behavior remain. Added notices explain authoritative situation/previous-answer conflicts. No product fallback, extra model call, mastery/scheduling/independence rule, dependency, temperature, real-content claim, commit or push was introduced.
 
 C does not claim server/SQL/job integration, browser E2E, seed completeness, missing-legacy-metadata product policy, three-intent real generation or the20-question human semantic gate. Controller/A/B and independent D own those remaining combined gates. Fixture success is engineering evidence only.
+
+## Post-integration display correction on frozen backend41a6327
+
+Controller's screenshot walk-through found that completed Review feedback could display the pre-answer sentence `Seeing an example helps, but this review won't move your progress.` beside the already-official `Nice — tried → reused` outcome. The actual server correctly retained the official result after late examples. The shared component read `material.roundState.firstAnswer`, while Review's official first answer lives in `reviewState`.
+
+TDD reproduced the error with the actual Review component in both completed-GET restoration and fresh official-POST flows: **two failures** in `/private/tmp/group4-c-post-official-notice-red.log`. The fix adds only optional display prop `showAssistanceNotice` to PracticeMaterial; Review supplies `!first` from its authoritative state. Omitted props retain the exact existing first-practice condition. No roundState was synthesized; copy, marker writes, assistance, evaluations, mastery, scheduling and first/latest state were not changed.
+
+The real-component regressions verify that the notice appears before the initial answer, disappears once the official first answer exists, stays absent after late examples and in the revision editor, and preserves the official result line, answer, scores, request counts and completion-callback count. All Practice tests then passed **13 files /133 tests** (`group4-c-post-official-notice-green.log`).
+
+Final narrow-fix verification,20:49 workspace time:
+
+| Check | Result |
+| --- | --- |
+| Isolated-wrapper `pnpm test` | **123 files /1704 tests passed**, exit0: source78/831, contract9/232, integration32/578, prompts4/63 (`group4-c-notice-final-project-test.log`) |
+| `tsc --noEmit` | **exit0**, no diagnostics (`group4-c-notice-final-types.log`) |
+| Whole-project ESLint | **exit0**, only the same four existing outside-C warnings listed above (`group4-c-notice-final-lint.log`) |
+| Scoped diff check | **exit0** |
+
+This follow-up changes only PracticeMaterial, ReviewPractice, the actual Review component tests and this report. No server, SQL, E2E or official business-state path was edited. No commit, push, real model call or browser run was performed by C. Controller's previously reported five E2E passes are separate evidence, not a fresh C browser claim. Independent D retains the final acceptance role.

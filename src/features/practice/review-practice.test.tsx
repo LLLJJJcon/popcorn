@@ -456,3 +456,37 @@ test("an old unsent draft restores only into the retained legacy first question 
   expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("");
   expect(localStorage.getItem(oldKey)).toBe("这是升级之前还没有发出的回答。");
 });
+
+test.each(["restored", "submitted"] as const)("%s official Review hides the pre-answer assistance notice before and after late examples", async stage => {
+  const unopened = transfer(ids.first, "第一");
+  const official = completion(ids.first, "第一份正式回答。");
+  const completed = completedReviewFixture(unopened, official, "第一份正式回答。");
+  const markers = { reviewState: { ...completed.reviewState, expressionRevealedAt: "2026-11-01T01:00:00.000Z", examplesOpenedAt: "2026-11-01T01:00:00.000Z" } };
+  const fetcher = stage === "restored"
+    ? vi.fn().mockResolvedValueOnce(apiResponse(completed)).mockResolvedValueOnce(apiResponse(markers))
+    : vi.fn().mockResolvedValueOnce(apiResponse(unopened)).mockResolvedValueOnce(apiResponse(official, 201)).mockResolvedValueOnce(apiResponse(markers));
+  const done = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  render(<ReviewPractice reviewTaskId={ids.first} onCompleted={done}/>);
+  const notice = "Seeing an example helps, but this review won't move your progress.";
+  if (stage === "submitted") {
+    await screen.findByLabelText("Your answer in Chinese");
+    expect(screen.getByText(notice)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Your answer in Chinese"), { target: { value: "第一份正式回答。" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check my answer" }));
+  }
+  await screen.findByRole("heading", { name: "Feedback" });
+  const result = screen.getByText(/Nice — tried → reused\. Next practice/).textContent;
+  expect(screen.queryByText(notice)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Show examples" }));
+  await screen.findByText("原来的第一例句。");
+  expect(screen.queryByText(notice)).not.toBeInTheDocument();
+  expect(screen.getByText(/Nice — tried → reused\. Next practice/)).toHaveTextContent(result!);
+  expect(screen.getByText("第一份正式回答。")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Naturalness · 4/5" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Revise this answer" }));
+  expect(screen.getByLabelText("Your answer in Chinese")).toHaveValue("第一份正式回答。");
+  expect(screen.queryByText(notice)).not.toBeInTheDocument();
+  expect(done).toHaveBeenCalledTimes(stage === "submitted" ? 1 : 0);
+  expect(fetcher).toHaveBeenCalledTimes(stage === "submitted" ? 3 : 2);
+});

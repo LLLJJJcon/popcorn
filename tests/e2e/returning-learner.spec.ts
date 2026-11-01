@@ -5,6 +5,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { buildAnalyzeMarkedExpressionsPrompt, createAnalyzeMarkedExpressionsFixtureGateway, normalizeMarkedAnalysisWire } from "../../src/server/ai/prompts/analyze-saved-item.v3";
 import { cleanupDatabasePortForApi, runSavedLearningLoopCleanup } from "./saved-learning-loop-cleanup";
 import { seedDemo, createSupabaseDemoSeedRepository } from "../../scripts/seed-demo";
+import { modernReviewColumns } from "./review-fixtures";
 
 const USER_ID = "53000000-0000-4000-8000-000000000001";
 const SOURCE_ID = "53000000-0000-4000-8000-000000000002";
@@ -37,6 +38,9 @@ begin
 end
 $guard$;
 
+delete from private.review_operations where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
+delete from public.review_revisions where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
+delete from public.review_scenarios where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
 delete from private.due_practice_completion_receipts
 where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
 delete from public.mastery_events
@@ -56,6 +60,8 @@ delete from public.expression_occurrences
 where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
 delete from public.expression_senses
 where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
+delete from public.knowledge_job_internal where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
+delete from public.knowledge_jobs where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
 delete from public.generated_artifacts
 where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
 delete from public.saved_items
@@ -265,6 +271,7 @@ test.beforeAll(async () => {
     tone: "Informal and emphatic.",
     communicative_function: "Reacting to an unreasonable or surprising situation.",
     register: "Everyday spoken Mandarin.",
+    ...modernReviewColumns(EXPRESSION),
     created_at: createdAt,
     updated_at: createdAt,
   });
@@ -465,19 +472,115 @@ test("a returning learner completes due Practice without increasing saved volume
     reviewRow.getByRole("link", { name: EXPRESSION, exact: true }).click(),
   ]);
   expect(transferResponse.status()).toBe(200);
+  const firstQuestion = (await transferResponse.json()).data;
+  await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("group4-review-masked.png"), fullPage: true });
+  const oldDraft = "这个安排太离谱了，我想再问问。";
+  await page.getByLabel("Your answer in Chinese").fill(oldDraft);
+  const originalQuestion = await admin.from("practice_tasks").select("id,prompt_chinese,scenario_version,scenario_fingerprint,regenerated")
+    .eq("user_id", USER_ID).eq("id", firstQuestion.id).single();
+  expect(originalQuestion.error).toBeNull();
+  const regenerationPath = `/api/v1/practice/due/${REVIEW_ID}/regenerate`;
+  let uncertainRequestId: string | null = null;
+  // A dropped request exercises browser recovery. Actual provider failures and
+  // publication races are covered separately by the service/real SQL suites.
+  await page.route(`**${regenerationPath}`, async route => {
+    uncertainRequestId = route.request().postDataJSON().requestId;
+    await route.abort("failed");
+  });
+  await page.getByRole("button", { name: "Try a different situation", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "We couldn't prepare a situation." })).toBeVisible();
+  await expect(page.getByLabel("Your answer in Chinese")).toHaveValue(oldDraft);
+  expect((await admin.from("practice_tasks").select("id,prompt_chinese,scenario_version,scenario_fingerprint,regenerated")
+    .eq("user_id", USER_ID).eq("id", firstQuestion.id).single()).data).toEqual(originalQuestion.data);
+  await page.unroute(`**${regenerationPath}`);
+  const [regeneratedResponse] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === regenerationPath),
+    page.getByRole("button", { name: "Try again", exact: true }).click(),
+  ]);
+  expect(regeneratedResponse.status(), `Regeneration: ${await regeneratedResponse.text()}`).toBe(200);
+  expect(regeneratedResponse.request().postDataJSON().requestId).toBe(uncertainRequestId);
+  const regenerated = (await regeneratedResponse.json()).data;
+  expect(regenerated.scenarioVersion).toBe(firstQuestion.scenarioVersion + 1);
+  expect(regenerated.scenarioFingerprint).not.toBe(firstQuestion.scenarioFingerprint);
+  await expect(page.getByLabel("Your answer in Chinese")).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Try a different situation", exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Show the expression", exact: true })).toBeVisible();
+  const persistedQuestion = await admin.from("practice_tasks").select("scenario_version,scenario_fingerprint")
+    .eq("user_id", USER_ID).eq("id", regenerated.id).single();
+  expect(persistedQuestion.data).toEqual({ scenario_version: regenerated.scenarioVersion, scenario_fingerprint: regenerated.scenarioFingerprint });
+  await page.getByRole("button", { name: "Show the expression", exact: true }).click();
   await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Returning learner Mandarin clip/ })).toBeVisible();
 
-  await page.getByLabel("Your Chinese response").fill("这个票价也太离谱了吧！");
+  await page.getByLabel("Your answer in Chinese").fill("这个票价也太离谱了吧！");
   const [completionResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === "POST"
       && new URL(response.url()).pathname === `/api/v1/practice/due/${REVIEW_ID}`,
     ),
-    page.getByRole("button", { name: "Check my response" }).click(),
+    page.getByRole("button", { name: "Check my answer", exact: true }).click(),
   ]);
   expect(completionResponse.status(), `Due completion: ${await completionResponse.text()}`).toBe(201);
+  const completion = await completionResponse.json();
+  expect(completion.data.evaluation.assistanceLevel).toBe("none");
+  expect(completion.data.evaluation.independentUse).toBe(true);
   await expect(page.getByText(/^Nice — tried → reused\. Next practice/)).toBeVisible();
+
+  // A refresh must restore immutable first feedback rather than rescore it.
+  await page.reload();
+  await expect(page.getByText(/^Nice — tried → reused\. Next practice/)).toBeVisible();
+  await expect(page.getByText("Seeing an example helps, but this review won't move your progress.", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Show a natural version", exact: true }).click();
+  const naturalVersion = page.getByRole("heading", { name: "A natural version", exact: true }).locator("..");
+  await expect(naturalVersion).toBeVisible();
+  await expect(naturalVersion.locator("mark").first()).toBeVisible();
+  async function officialGraph() {
+    const rows = await Promise.all([
+      admin.from("attempts").select("*").eq("user_id", USER_ID).order("id"),
+      admin.from("mastery_events").select("*").eq("user_id", USER_ID).order("id"),
+      admin.from("user_expressions").select("*").eq("user_id", USER_ID).order("id"),
+      admin.from("review_tasks").select("id,user_expression_id,mastery_state,status,due_at,interval_days,consecutive_successes,completed_attempt_id,completed_at")
+        .eq("user_id", USER_ID).order("id"),
+    ]);
+    expect(rows.map(row => row.error)).toEqual([null, null, null, null]);
+    return rows.map(row => row.data);
+  }
+  const graphBeforeLearningRevision = await officialGraph();
+  const [examplesAfterOfficial] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === `/api/v1/practice/due/${REVIEW_ID}/examples-opened`),
+    page.getByRole("button", { name: "Show examples", exact: true }).click(),
+  ]);
+  expect(examplesAfterOfficial.status()).toBe(200);
+  const markers = await examplesAfterOfficial.json();
+  expect(markers.data.reviewState.firstAnswer).toEqual(completion.data.reviewState.firstAnswer);
+  await page.getByRole("button", { name: "Revise this answer", exact: true }).click();
+  const revisedAnswer = "这个收费也太离谱了，我还是不买了。";
+  await page.getByLabel("Your answer in Chinese").fill(revisedAnswer);
+  const [revisionResponse] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === `/api/v1/practice/due/${REVIEW_ID}/revisions`),
+    page.getByRole("button", { name: "Check my revision", exact: true }).click(),
+  ]);
+  expect(revisionResponse.status(), `Learning revision: ${await revisionResponse.text()}`).toBe(200);
+  const revision = await revisionResponse.json();
+  expect(revision.data.reviewState.firstAnswer).toEqual(completion.data.reviewState.firstAnswer);
+  expect(revision.data.revision.responseChinese).toBe(revisedAnswer);
+  expect(revision.data.revision.evaluation.assistanceLevel).toBe("model_answer");
+  expect(await officialGraph()).toEqual(graphBeforeLearningRevision);
+  await page.reload();
+  await expect(page.getByText(revisedAnswer, { exact: true }).first()).toBeVisible();
+  await page.getByRole("button", { name: "First feedback", exact: true }).click();
+  await expect(page.getByText("Your first answer", { exact: true }).first()).toBeVisible();
+  const replay = await page.request.post(`/api/v1/practice/due/${REVIEW_ID}`, {
+    data: completionResponse.request().postDataJSON(), headers: { Origin: appUrl },
+  });
+  expect(replay.status()).toBe(201);
+  const replayed = await replay.json();
+  expect(replayed.data.attemptId).toBe(completion.data.attemptId);
+  expect(replayed.data.evaluation).toEqual(completion.data.evaluation);
+  expect(await officialGraph()).toEqual(graphBeforeLearningRevision);
+  await page.screenshot({ path: test.info().outputPath("group4-review-revision.png"), fullPage: true });
   await page.getByRole("link", { name: "Back to Today's practice", exact: true }).click();
   await expect(page).toHaveURL(/\/practice$/);
 
@@ -549,8 +652,8 @@ test.describe("today's mixed practice session", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 6 left", exact: true })).toBeVisible();
     await expect(page.getByRole("main")).toHaveCount(1);
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-    await page.getByLabel("Your Chinese response").fill("我觉得这个安排挺靠谱的。");
-    await page.getByRole("button", { name: "Check my response", exact: true }).click();
+    await page.getByLabel("Your answer in Chinese").fill("我觉得这个安排挺靠谱的。");
+    await page.getByRole("button", { name: "Check my answer", exact: true }).click();
     await expect(page.getByRole("button", { name: "Next", exact: true })).toBeVisible();
     await page.getByRole("link", { name: "← Exit session", exact: true }).click();
     await expect(page).toHaveURL(/\/practice$/);
@@ -558,8 +661,8 @@ test.describe("today's mixed practice session", () => {
     await expect(page.getByText("1 review · 1 second try · 3 new · about 10 min", { exact: true })).toBeVisible();
     await page.getByRole("link", { name: "Start", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 5 left", exact: true })).toBeVisible();
-    await page.getByLabel("Your Chinese response").fill("我觉得这个安排挺靠谱的。");
-    await page.getByRole("button", { name: "Check my response", exact: true }).click();
+    await page.getByLabel("Your answer in Chinese").fill("我觉得这个安排挺靠谱的。");
+    await page.getByRole("button", { name: "Check my answer", exact: true }).click();
     await page.getByRole("button", { name: "Next", exact: true }).click();
 
     await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 4 left", exact: true })).toBeVisible();
