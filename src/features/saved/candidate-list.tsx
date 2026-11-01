@@ -391,18 +391,23 @@ export function CandidateList({
   }
 
   return (
-    <section aria-label="Candidate expressions">
-      <h3>Candidate expressions</h3>
-      {artifact!.candidates.map((candidate, index) => (
-        <CandidateExpressionCard
-          key={`${candidate.expression}-${index}`}
-          candidate={candidate}
-          canonicalUrl={youtubeUrl}
-          disabled={!hydrationReady || pendingIndex !== null}
-          activating={pendingIndex === index}
-          onUse={() => void activate(index)}
-        />
-      ))}
+    <section className={styles.expressionGroup} aria-label="Candidate expressions">
+      <div className={styles.expressionGroupHeading}>
+        <h3>Learning cards</h3>
+        <span>{artifact!.candidates.length} {artifact!.candidates.length === 1 ? "expression" : "expressions"}</span>
+      </div>
+      <div className={styles.expressionGrid}>
+        {artifact!.candidates.map((candidate, index) => (
+          <CandidateExpressionCard
+            key={`${candidate.expression}-${index}`}
+            candidate={candidate}
+            canonicalUrl={youtubeUrl}
+            disabled={!hydrationReady || pendingIndex !== null}
+            activating={pendingIndex === index}
+            onUse={() => void activate(index)}
+          />
+        ))}
+      </div>
     </section>
   );
 }

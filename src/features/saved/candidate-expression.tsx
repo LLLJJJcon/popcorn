@@ -41,7 +41,10 @@ export function CandidateExpressionCard({
         <div><dt>Function</dt><dd>{candidate.communicativeFunction}</dd></div>
         <div><dt>Register</dt><dd>{candidate.register}</dd></div>
       </dl>
-      <blockquote className={styles.candidateEvidence} lang="zh-CN">{candidate.evidenceText}</blockquote>
+      <details className={styles.sourceDisclosure}>
+        <summary>Source sentence</summary>
+        <blockquote className={styles.candidateEvidence} lang="zh-CN">{candidate.evidenceText}</blockquote>
+      </details>
       {candidate.confidence < 0.7 ? <p className={styles.candidateNotice}>Needs your confirmation</p> : null}
       <div className={styles.candidateActions}>
         <a className={styles.watchAction} href={youtubeTimeUrl(canonicalUrl, candidate.startSeconds)}>
