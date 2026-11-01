@@ -6,7 +6,9 @@ import {
   CandidateExpressionListSchema,
   CandidateExpressionSchema,
   type CandidateExpression,
+  HighlightAnalysisStateSchema,
 } from "@/contracts/knowledge";
+import type { SavedHighlight } from "@/contracts/highlights";
 import type { SavedItemKind } from "@/contracts/source";
 import type { SavedItemAnalysisWire } from "@/server/ai/prompts/analyze-saved-item.v1";
 import { createJobResultKey } from "@/server/domain/lease-job";
@@ -20,6 +22,7 @@ const SavedItemAnalysisKeyInputSchema = z.strictObject({
   promptVersion: z.string().trim().min(1).max(100),
   gatewayFingerprint: Sha256Schema,
   retryId: z.string().uuid().optional(),
+  highlightIds: z.array(z.string().uuid()).optional(),
 });
 
 export function createSavedItemAnalysisJobKey(value: z.input<typeof SavedItemAnalysisKeyInputSchema>) {
@@ -28,6 +31,7 @@ export function createSavedItemAnalysisJobKey(value: z.input<typeof SavedItemAna
     .update(JSON.stringify({
       savedItemId: input.savedItemId,
       snapshotId: input.snapshotId,
+      ...(input.highlightIds ? { highlightIds: [...input.highlightIds].sort() } : {}),
       ...(input.retryId ? { retryId: input.retryId } : {}),
     }))
     .digest("hex");
@@ -49,6 +53,7 @@ export const SavedItemAnalysisJobInputSchema = z.strictObject({
   gatewayConfigId: z.string().uuid(),
   gatewayRevision: z.number().int().positive(),
   gatewayFingerprint: Sha256Schema,
+  highlightIds: z.array(z.string().uuid()).optional(),
 });
 
 export type SavedItemAnalysisEvidence = {
@@ -60,6 +65,10 @@ export type SavedItemAnalysisEvidence = {
   readonly kind: SavedItemKind;
   readonly rawText: string;
   readonly startSeconds: number | null;
+  readonly contextBefore?: readonly string[];
+  readonly contextAfter?: readonly string[];
+  readonly highlights?: readonly SavedHighlight[];
+  readonly existingCandidates?: readonly CandidateExpression[];
   readonly segments: readonly {
     readonly stableId: string;
     readonly originalChinese: string;
@@ -70,6 +79,7 @@ export type SavedItemAnalysisEvidence = {
 
 export const SavedItemAnalysisContentSchema = z.strictObject({
   candidates: CandidateExpressionListSchema,
+  highlightStates: z.array(HighlightAnalysisStateSchema).optional(),
 });
 
 function exactOccurrenceCount(value: string, expression: string): number {

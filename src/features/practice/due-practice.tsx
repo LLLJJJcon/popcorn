@@ -24,7 +24,7 @@ const IsoDateTimeSchema = z.string().datetime({ offset: true });
 const DueTransferSchema = z.strictObject({
   id: UuidSchema,
   reviewTaskId: UuidSchema,
-  targetExpression: TargetChineseTextSchema.max(200),
+  targetExpression: TargetChineseTextSchema.max(10_000),
   promptChinese: TargetChineseTextSchema.max(2_000),
   instructionsEnglish: EnglishTextSchema.max(1_000),
   goalEnglish: EnglishTextSchema.max(1_000),
@@ -274,7 +274,7 @@ export function DuePractice({ tasks }: { readonly tasks: readonly DuePracticeVie
     >
       <form className={styles.responseForm} onSubmit={submit}>
         <label htmlFor="due-practice-response">Your Chinese response</label>
-        <textarea ref={responseRef} id="due-practice-response" lang="zh-CN" maxLength={5_000} required
+        <textarea ref={responseRef} id="due-practice-response" lang="zh-CN" maxLength={10_000} required
           value={responseChinese} onChange={(event) => setResponseChinese(event.target.value)} />
         <div className={styles.buttonRow}>
           {completion && localRevision ? (

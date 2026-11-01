@@ -93,6 +93,14 @@ describe("valid original promotion service", () => {
     });
   });
 
+  test("normalizes and promotes a 300-character target accepted by learning cards", async () => {
+    const repository: PracticePromotionRepository = { promote: vi.fn(async () => promoted) };
+    const service = createRecordValidAttemptService({ repository });
+    const targetExpression = "汉".repeat(300);
+    await expect(service.promote(USER, { ...draft, targetExpression }, attempt())).resolves.toEqual(promoted);
+    expect(repository.promote).toHaveBeenCalledWith(expect.objectContaining({ normalizedExpressionText: targetExpression }));
+  });
+
   test("canonicalizes a persisted PostgREST UTC offset before deterministic scheduling", async () => {
     const repository: PracticePromotionRepository = { promote: vi.fn(async () => promoted) };
     const service = createRecordValidAttemptService({ repository });

@@ -777,6 +777,10 @@ function productionClient(artifact: Record<string, unknown> | null) {
       transcript_hash: TRANSCRIPT_HASH,
     },
     generated_artifacts: artifact,
+    saved_item_highlights: [{ id: CONFIG_ID, saved_item_id: SAVE_ID, user_id: USER_A,
+      start_segment_id: "seg-1", start_offset: 4, end_segment_id: "seg-1", end_offset: 9,
+      text: "挺有意思的", origin: "user", reason_en: null, status: "active" }],
+    user_model_gateway_configs: { id: CONFIG_ID },
   };
   const rpc = vi.fn(async (name: string) => {
     calls.push(`rpc:${name}`);
@@ -805,6 +809,7 @@ function productionClient(artifact: Record<string, unknown> | null) {
         order(column: string, options: unknown) { calls.push(`${table}:order:${column}:${JSON.stringify(options)}`); return query; },
         limit(value: number) { calls.push(`${table}:limit:${value}`); return query; },
         maybeSingle() { calls.push(`${table}:maybeSingle`); return Promise.resolve({ data: rows[table], error: null }); },
+        then(resolve: (value: unknown) => unknown) { return Promise.resolve({ data: rows[table], error: null }).then(resolve); },
       };
       return query;
     },
@@ -876,7 +881,8 @@ describe("production candidate route exports and assembly", () => {
         savedItemId: SAVE_ID,
         snapshotId: SNAPSHOT_ID,
         transcriptHash: TRANSCRIPT_HASH,
-        promptVersion: "analyze-saved-item-v2",
+        promptVersion: "analyze-saved-item-v3",
+        highlightIds: [CONFIG_ID],
         gatewayConfigId: CONFIG_ID,
         gatewayRevision: 4,
         gatewayFingerprint: FINGERPRINT,
@@ -892,6 +898,7 @@ describe("production candidate route exports and assembly", () => {
       jobId: JOB_ID,
       status: "pending",
       created: true,
+      highlightStates: [{ highlightId: CONFIG_ID, text: "挺有意思的", status: "pending" }],
     });
   });
 });

@@ -258,7 +258,7 @@ describe("owner-scoped Saved video library", () => {
     expect(detail?.items[0]).toMatchObject({ rawText: "原文0", englishTranslation: "Translation 0" });
   });
 
-  it("uses only same-snapshot evidence that contains a player moment timestamp", async () => {
+  it("uses only same-snapshot evidence and falls back to its preceding line for a player moment gap", async () => {
     const base = rows();
     const snapshotB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc";
     const playerItems = [
@@ -324,8 +324,8 @@ describe("owner-scoped Saved video library", () => {
       },
       {
         id: "player-at-next",
-        rawText: "Saved video moment",
-        englishTranslation: null,
+        rawText: "同一快照的字幕",
+        englishTranslation: "Same snapshot subtitle.",
         youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=14s",
       },
     ]);

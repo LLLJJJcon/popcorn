@@ -35,7 +35,8 @@ import type { ModelGatewayRuntimeConfig } from "@/server/model-gateway/runtime-r
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_OVERVIEW_TIMEOUT_MS = 120_000;
-const DEFAULT_MAX_REQUEST_BYTES = 65_536;
+// Two accepted 10k Chinese inputs plus the existing scene/rubric remain bounded.
+const DEFAULT_MAX_REQUEST_BYTES = 131_072;
 const DEFAULT_MAX_RESPONSE_BYTES = 524_288;
 const OVERVIEW_MAX_TOKENS = 900;
 

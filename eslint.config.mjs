@@ -14,5 +14,11 @@ export default defineConfig([
     "supabase/.temp/**",
     "third_party/**",
     "next-env.d.ts",
+    ".pnpm-store/**",
+    ".superpowers/**",
+    ".doc-build/**",
+    ".ppt-build/**",
+    "output/**",
+    "tmp/**",
   ]),
 ]);

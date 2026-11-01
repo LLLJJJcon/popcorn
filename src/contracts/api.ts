@@ -25,6 +25,7 @@ export const ApiErrorCodeSchema = z.enum([
   "JOB_RETRY_EXHAUSTED",
   "VALIDATION_FAILED",
   "CONFLICT",
+  "NOTHING_TO_ANALYZE",
   "INTERNAL_ERROR",
 ]);
 

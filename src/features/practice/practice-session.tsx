@@ -95,7 +95,7 @@ export function PracticeSession({
             ref={responseRef}
             id="practice-response"
             lang="zh-CN"
-            maxLength={5_000}
+            maxLength={10_000}
             required
             value={responseChinese}
             onChange={(event) => setResponseChinese(event.target.value)}

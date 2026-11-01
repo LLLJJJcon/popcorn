@@ -21,7 +21,7 @@ function postgrest(tables: Record<string, Row[]>) {
     const table = url.pathname.split("/").at(-1)!;
     let result = [...(tables[table] ?? [])];
     for (const [column, filter] of url.searchParams) {
-      if (["select", "order", "limit"].includes(column)) continue;
+      if (["select", "order", "limit", "offset"].includes(column)) continue;
       const separator = filter.indexOf(".");
       const operator = filter.slice(0, separator);
       const operand = filter.slice(separator + 1);
@@ -53,6 +53,8 @@ function postgrest(tables: Record<string, Row[]>) {
         });
       }
     }
+    const offset = url.searchParams.get("offset");
+    if (offset) result = result.slice(Number(offset));
     const limit = url.searchParams.get("limit");
     if (limit) result = result.slice(0, Number(limit));
     return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
@@ -142,12 +144,13 @@ describe("Saved repository player-moment evidence", () => {
     }
   });
 
-  it.each([
-    [39, SNAPSHOT],
-    [38, null],
-  ])("keeps the fallback when no same-snapshot subtitle contains %s at snapshot %s", async (timestamp, snapshotId) => {
-    const result = await detail(fixture(false, timestamp, snapshotId));
+  it("uses the preceding line when a player moment falls in a gap", async () => {
+    const result = await detail(fixture(false, 39, SNAPSHOT));
+    expect(result?.items[0]).toMatchObject({ rawText: "Nike跌落神壇的故事嗎", englishTranslation: "The story of Nike falling from grace?" });
+  });
 
+  it("keeps the fallback when the moment has no resolved snapshot", async () => {
+    const result = await detail(fixture(false, 38, null));
     expect(result?.items[0]).toMatchObject({ rawText: "Saved video moment", englishTranslation: null });
   });
 });

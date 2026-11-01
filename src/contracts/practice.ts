@@ -17,7 +17,7 @@ const practiceTaskBase = {
   userExpressionId: z.string().uuid(),
   nativeLanguage: NativeLanguageSchema,
   targetLanguage: TargetLanguageSchema,
-  targetExpression: TargetChineseTextSchema.max(200),
+  targetExpression: TargetChineseTextSchema.max(10_000),
   promptChinese: TargetChineseTextSchema.max(2_000),
   instructionsEnglish: EnglishTextSchema.max(1_000),
   goalEnglish: EnglishTextSchema.max(1_000),
@@ -70,14 +70,14 @@ export const AttemptRecordedSchema = z.strictObject({
   userId: z.string().uuid(),
   practiceTaskId: z.string().uuid(),
   userExpressionId: z.string().uuid(),
-  responseChinese: TargetChineseTextSchema.max(5_000),
+  responseChinese: TargetChineseTextSchema.max(10_000),
   evaluation: EvaluationResultSchema,
   submittedAt: IsoDateTimeSchema,
   createdAt: IsoDateTimeSchema,
 });
 
 export const PracticeCoachingSchema = z.strictObject({
-  naturalRevisionChinese: TargetChineseTextSchema.max(5_000),
+  naturalRevisionChinese: TargetChineseTextSchema.max(10_000),
 });
 
 export const PracticeAttemptResponseSchema = z.strictObject({

@@ -27,7 +27,7 @@ export function createStatusReader(
     if (!result.data || result.data.user_id !== expectedUserId) return null;
     const status = result.data.status as PublicJobStatus["status"];
     let publicResult: PublicJobStatus["result"] = null;
-    if (status === "succeeded") {
+    if (status === "succeeded" && result.data.job_type !== "highlight_saved_item") {
       const internal = await client
         .from("knowledge_job_internal")
         .select("result,user_id")

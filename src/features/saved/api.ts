@@ -2,6 +2,8 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 import type { SavedItemKind, SavedItemStatus } from "@/contracts/source";
+import type { HighlightStatus, SavedHighlight, SavedTargetSegment } from "@/contracts/highlights";
+import { resolveSavedItemTarget } from "@/server/domain/saved-item-target";
 import { failure, success } from "@/server/api/respond";
 import {
   createNextCookieAdapter,
@@ -45,6 +47,7 @@ type SavedItemRow = {
   readonly capturedAt: string;
   readonly startSeconds: number | null;
   readonly payload: Json;
+  readonly highlightStatus?: HighlightStatus | null;
 };
 
 type ArtifactRow = {
@@ -70,6 +73,7 @@ type JobRow = {
 };
 
 type EvidenceRow = {
+  readonly position?: number;
   readonly id: string;
   readonly userId: string;
   readonly snapshotId: string;
@@ -86,6 +90,8 @@ export type SavedLibraryRows = {
   readonly artifacts: readonly ArtifactRow[];
   readonly jobs: readonly JobRow[];
   readonly evidence: readonly EvidenceRow[];
+  readonly highlights?: readonly (SavedHighlight & { readonly userId: string })[];
+  readonly gatewayAvailable?: boolean;
 };
 
 export type SavedItemView = {
@@ -97,6 +103,12 @@ export type SavedItemView = {
   readonly rawText: string;
   readonly englishTranslation: string | null;
   readonly youtubeUrl: string;
+  readonly targetSegments?: readonly SavedTargetSegment[];
+  readonly contextBefore?: readonly string[];
+  readonly contextAfter?: readonly string[];
+  readonly highlights?: readonly SavedHighlight[];
+  readonly highlightStatus?: HighlightStatus | null;
+  readonly gatewayAvailable?: boolean;
 };
 
 export type SavedVideoSummary = {
@@ -158,11 +170,11 @@ function processingState(
   if (items.some(({ status }) => status === "unsupported")) return "unsupported";
   if (
     items.some(({ status }) => status === "failed") ||
-    jobs.some(({ status }) => status === "terminal_failed")
+    jobs.some(({ status, type }) => status === "terminal_failed" && !(["highlight_saved_item", "analyze_saved_item"].includes(type)))
   ) return "failed";
   if (
     items.some(({ status }) => ["saved", "resolving_source", "organizing"].includes(status)) ||
-    jobs.some(({ status }) => ["pending", "leased", "retryable_failed"].includes(status))
+    jobs.some(({ status, type }) => !(["highlight_saved_item", "analyze_saved_item"].includes(type)) && ["pending", "leased", "retryable_failed"].includes(status))
   ) return "organizing";
   return "ready";
 }
@@ -239,13 +251,15 @@ function text(payload: Record<string, Json | undefined>, key: string): string | 
 }
 
 function matchingEvidence(row: SavedItemRow, evidence: readonly EvidenceRow[]) {
-  const sameSnapshot = evidence.filter((entry) => entry.snapshotId === row.snapshotId);
-  const segmentId = text(objectPayload(row.payload), "segmentId");
+  const sameSnapshot = evidence.filter((entry) => entry.snapshotId === row.snapshotId)
+    .toSorted((left, right) => (left.position ?? left.startSeconds) - (right.position ?? right.startSeconds));
+  const payload = objectPayload(row.payload);
+  const segmentId = text(payload, "resolvedSegmentId") ?? text(payload, "segmentId");
   if (segmentId) return sameSnapshot.find((entry) => entry.id === segmentId);
-  const timestamp = row.startSeconds;
-  return row.kind === "player_moment" && timestamp !== null
-    ? sameSnapshot.find((entry) => entry.startSeconds <= timestamp && timestamp < entry.endSeconds)
-    : undefined;
+  const timestamp = typeof payload.capturedSecond === "number" ? payload.capturedSecond : row.startSeconds;
+  if (row.kind !== "player_moment" || timestamp === null) return undefined;
+  return sameSnapshot.find((entry) => entry.startSeconds <= timestamp && timestamp < entry.endSeconds)
+    ?? sameSnapshot.findLast((entry) => entry.startSeconds <= timestamp) ?? sameSnapshot[0];
 }
 
 function rawSavedText(row: SavedItemRow, evidence: readonly EvidenceRow[]) {
@@ -271,7 +285,20 @@ function timestampUrl(canonicalUrl: string, seconds: number | null) {
   return `${canonicalUrl}&t=${Math.max(0, Math.floor(seconds))}s`;
 }
 
-function itemView(row: SavedItemRow, source: SourceRow, evidence: readonly EvidenceRow[]): SavedItemView {
+function itemView(row: SavedItemRow, source: SourceRow, evidence: readonly EvidenceRow[], highlights: readonly (SavedHighlight & { readonly userId: string })[] = [], gatewayAvailable?: boolean): SavedItemView {
+  const payload = objectPayload(row.payload);
+  const snapshotSegments = evidence.filter(segment => segment.snapshotId === row.snapshotId)
+    .toSorted((left, right) => (left.position ?? left.startSeconds) - (right.position ?? right.startSeconds))
+    .map(segment => ({ id: segment.id, text: segment.originalChinese, startSeconds: segment.startSeconds, endSeconds: segment.endSeconds }));
+  const resolved = resolveSavedItemTarget(row.kind as SavedItemKind, row.payload, snapshotSegments, row.startSeconds);
+  let targetSegments = resolved.targetSegments;
+  if (row.kind === "player_moment" && typeof payload.resolvedSegmentId === "string" && typeof payload.originalChinese === "string") {
+    targetSegments = [{ id: payload.resolvedSegmentId, text: payload.originalChinese,
+      startSeconds: typeof payload.startSeconds === "number" ? payload.startSeconds : row.startSeconds ?? 0,
+      endSeconds: typeof payload.endSeconds === "number" ? payload.endSeconds : row.startSeconds ?? 0 }];
+  }
+  const context = (key: "contextBefore" | "contextAfter", max: number) => Array.isArray(payload[key])
+    ? payload[key].filter((value): value is string => typeof value === "string").slice(0, max) : resolved[key];
   return {
     id: row.id,
     kind: row.kind as SavedItemKind,
@@ -281,6 +308,11 @@ function itemView(row: SavedItemRow, source: SourceRow, evidence: readonly Evide
     rawText: rawSavedText(row, evidence),
     englishTranslation: translation(row, evidence),
     youtubeUrl: timestampUrl(source.canonicalUrl, row.startSeconds),
+    targetSegments,
+    contextBefore: context("contextBefore", 3), contextAfter: context("contextAfter", 2),
+    highlights: highlights.filter(highlight => highlight.savedItemId === row.id && highlight.status === "active").map(({ userId: owner, ...highlight }) => { void owner; return highlight; }),
+    highlightStatus: row.highlightStatus ?? (row.kind === "video" ? null : "unavailable"),
+    gatewayAvailable,
   };
 }
 
@@ -313,6 +345,7 @@ function rowsBelongTo(userId: string, rows: SavedLibraryRows, expectedSourceId?:
   )) return false;
   if (rows.jobs.some((row) => row.userId !== userId || !sourceIds.has(row.sourceId))) return false;
   if (rows.evidence.some((row) => row.userId !== userId || !snapshots.has(row.snapshotId))) return false;
+  if (rows.highlights?.some(row => row.userId !== userId || !items.has(row.savedItemId))) return false;
   return true;
 }
 
@@ -346,7 +379,7 @@ export function createSavedLibraryService(repository: SavedLibraryRepository, re
       const summary = listRows(rows)[0];
       const source = rows.sources[0];
       if (!summary || !source) return null;
-      const items = sortSavedTimeline(rows.items.map((row) => itemView(row, source, rows.evidence)));
+      const items = sortSavedTimeline(rows.items.map((row) => itemView(row, source, rows.evidence, rows.highlights, rows.gatewayAvailable)));
       const savedItemIds = new Set(rows.items.map(({ id }) => id));
       return {
         ...await withVideoMetadata(summary),
@@ -428,7 +461,7 @@ function throwQueryError(error: unknown) {
 
 type VideoSourceDbRow = Pick<Database["public"]["Tables"]["video_sources"]["Row"], "id" | "user_id" | "youtube_video_id" | "canonical_url">;
 type VideoSnapshotDbRow = Pick<Database["public"]["Tables"]["video_snapshots"]["Row"], "id" | "user_id" | "video_source_id" | "title" | "channel" | "thumbnail_url" | "captured_at">;
-type SavedItemDbRow = Pick<Database["public"]["Tables"]["saved_items"]["Row"], "id" | "user_id" | "video_source_id" | "snapshot_id" | "youtube_video_id" | "kind" | "status" | "captured_at" | "start_seconds" | "payload">;
+type SavedItemDbRow = Pick<Database["public"]["Tables"]["saved_items"]["Row"], "id" | "user_id" | "video_source_id" | "snapshot_id" | "youtube_video_id" | "kind" | "status" | "captured_at" | "start_seconds" | "payload" | "highlight_status">;
 type ArtifactDbRow = Pick<Database["public"]["Tables"]["generated_artifacts"]["Row"], "id" | "user_id" | "video_source_id" | "saved_item_id" | "artifact_type" | "prompt_version" | "content" | "created_at">;
 type JobDbRow = Pick<Database["public"]["Tables"]["knowledge_jobs"]["Row"], "id" | "user_id" | "video_source_id" | "saved_item_id" | "job_type" | "status" | "last_error_code" | "created_at">;
 
@@ -441,7 +474,7 @@ function mapSnapshot(row: VideoSnapshotDbRow): SnapshotRow {
 }
 
 function mapItem(row: SavedItemDbRow): SavedItemRow {
-  return { id: row.id, userId: row.user_id, sourceId: row.video_source_id, snapshotId: row.snapshot_id, youtubeVideoId: row.youtube_video_id, kind: row.kind, status: row.status, capturedAt: row.captured_at, startSeconds: row.start_seconds, payload: row.payload };
+  return { id: row.id, userId: row.user_id, sourceId: row.video_source_id, snapshotId: row.snapshot_id, youtubeVideoId: row.youtube_video_id, kind: row.kind, status: row.status, capturedAt: row.captured_at, startSeconds: row.start_seconds, payload: row.payload, highlightStatus: row.highlight_status as HighlightStatus | null };
 }
 
 function mapArtifact(row: ArtifactDbRow): ArtifactRow {
@@ -461,17 +494,6 @@ function mapJob(row: JobDbRow): JobRow {
   return { id: row.id, userId: row.user_id, sourceId: row.video_source_id, savedItemId: row.saved_item_id, type: row.job_type, status: row.status, errorCode: row.last_error_code, createdAt: row.created_at };
 }
 
-function segmentIds(items: readonly SavedItemRow[]) {
-  return [...new Set(items.flatMap(({ payload }) => {
-    const value = objectPayload(payload);
-    const one = text(value, "segmentId");
-    const many = value.segmentIds;
-    return [
-      ...(one ? [one] : []),
-      ...(Array.isArray(many) ? many.filter((entry): entry is string => typeof entry === "string") : []),
-    ];
-  }))].slice(0, 224);
-}
 
 export function createSavedLibraryRepository(client: SupabaseClient<Database>): SavedLibraryRepository {
   async function readSources(userId: string, sourceId?: string) {
@@ -491,7 +513,7 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
       client.from("video_snapshots").select("id,user_id,video_source_id,title,channel,thumbnail_url,captured_at")
         .eq("user_id", userId).in("video_source_id", sourceIds)
         .order("captured_at", { ascending: false }).limit(100),
-      client.from("saved_items").select("id,user_id,video_source_id,snapshot_id,youtube_video_id,kind,status,captured_at,start_seconds,payload")
+      client.from("saved_items").select("id,user_id,video_source_id,snapshot_id,youtube_video_id,kind,status,captured_at,start_seconds,payload,highlight_status")
         .eq("user_id", userId).in("video_source_id", sourceIds)
         .is("removed_from_saved_at", null)
         .order("captured_at", { ascending: false }).limit(500),
@@ -512,52 +534,43 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
       .eq("user_id", userId).in("video_source_id", sourceIds)
       .order("created_at", { ascending: true }).limit(500);
     throwQueryError(artifactResult.error);
-    const ids = segmentIds(items);
     const snapshotIds = [...new Set(items.flatMap(({ snapshotId }) => snapshotId ? [snapshotId] : []))];
-    let evidence: EvidenceRow[] = [];
-    if (ids.length > 0 && snapshotIds.length > 0) {
-      const segmentResult = await client.from("transcript_segments")
-        .select("stable_id,user_id,snapshot_id,original_chinese,english_translation,start_seconds,end_seconds")
-        .eq("user_id", userId).in("snapshot_id", snapshotIds).in("stable_id", ids).limit(224);
-      throwQueryError(segmentResult.error);
-      evidence = (segmentResult.data ?? []).map((row) => ({
-        id: row.stable_id,
-        userId: row.user_id,
-        snapshotId: row.snapshot_id,
-        originalChinese: row.original_chinese,
-        englishTranslation: row.english_translation,
-        startSeconds: row.start_seconds,
-        endSeconds: row.end_seconds,
-      }));
-    }
-    // Player moments contain a timestamp rather than a stable subtitle ID.
-    // Fetch only their matching lines, with bounded concurrency and owner/snapshot scope.
-    const moments = [...new Map(items
-      .filter((item) => item.kind === "player_moment" && item.snapshotId !== null && item.startSeconds !== null)
-      .map((item) => [`${item.snapshotId}:${item.startSeconds}`, item])).values()];
-    for (let offset = 0; offset < moments.length; offset += 20) {
-      const results = await Promise.all(moments.slice(offset, offset + 20).map((item) =>
-        client.from("transcript_segments")
-          .select("stable_id,user_id,snapshot_id,original_chinese,english_translation,start_seconds,end_seconds")
-          .eq("user_id", userId).eq("snapshot_id", item.snapshotId!)
-          .lte("start_seconds", item.startSeconds!).gt("end_seconds", item.startSeconds!)
-          .order("start_seconds", { ascending: true }).order("stable_id", { ascending: true }).limit(1),
-      ));
-      for (const result of results) {
+    const evidence: EvidenceRow[] = [];
+    // Read the authoritative snapshot order for exact targets and small context windows.
+    // Pagination preserves late-video saves beyond PostgREST's default 1000-row page.
+    for (const snapshotId of snapshotIds) {
+      for (let from = 0; ; from += 1000) {
+        const result = await client.from("transcript_segments")
+          .select("stable_id,user_id,snapshot_id,position,original_chinese,english_translation,start_seconds,end_seconds")
+          .eq("user_id", userId).eq("snapshot_id", snapshotId)
+          .order("position", { ascending: true }).range(from, from + 999);
         throwQueryError(result.error);
-        evidence.push(...(result.data ?? []).map((row) => ({
-          id: row.stable_id,
-          userId: row.user_id,
-          snapshotId: row.snapshot_id,
-          originalChinese: row.original_chinese,
-          englishTranslation: row.english_translation,
-          startSeconds: row.start_seconds,
-          endSeconds: row.end_seconds,
+        evidence.push(...(result.data ?? []).map(row => ({
+          id: row.stable_id, userId: row.user_id, snapshotId: row.snapshot_id, position: row.position,
+          originalChinese: row.original_chinese, englishTranslation: row.english_translation,
+          startSeconds: row.start_seconds, endSeconds: row.end_seconds,
         })));
+        if ((result.data?.length ?? 0) < 1000) break;
       }
     }
+    const [highlightResult, gatewayResult] = await Promise.all([
+      visibleItemIds.size ? client.from("saved_item_highlights")
+        .select("id,user_id,saved_item_id,start_segment_id,start_offset,end_segment_id,end_offset,text,origin,reason_en,status")
+        .eq("user_id", userId).in("saved_item_id", [...visibleItemIds]).eq("status", "active")
+        .order("created_at", { ascending: true }) : Promise.resolve({ data: [], error: null }),
+      client.from("user_model_gateway_configs").select("id").eq("user_id", userId).eq("state", "active").limit(1),
+    ]);
+    throwQueryError(highlightResult.error ?? gatewayResult.error);
+    const highlights = (highlightResult.data ?? []).map(row => ({
+      id: row.id, userId: row.user_id, savedItemId: row.saved_item_id,
+      startSegmentId: row.start_segment_id, startOffset: row.start_offset,
+      endSegmentId: row.end_segment_id, endOffset: row.end_offset,
+      text: row.text, origin: row.origin as SavedHighlight["origin"], reasonEn: row.reason_en,
+      status: row.status as SavedHighlight["status"],
+    }));
+
     return {
-      sources, snapshots, items, jobs, evidence,
+      sources, snapshots, items, jobs, evidence, highlights, gatewayAvailable: Boolean(gatewayResult.data?.length),
       artifacts: (artifactResult.data ?? []).map(mapArtifact),
     };
   }

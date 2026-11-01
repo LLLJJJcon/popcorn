@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-import { CandidateExpressionListSchema } from "@/contracts/knowledge";
+import { CandidateExpressionListSchema, HighlightAnalysisStateSchema, type HighlightAnalysisState } from "@/contracts/knowledge";
+import { candidateMatchesHighlight } from "@/server/jobs/handlers/marked-learning-cards";
+import { ANALYZE_MARKED_EXPRESSIONS_PROMPT_VERSION } from "@/server/ai/prompts/analyze-saved-item.v3";
 import { failure, success } from "@/server/api/respond";
 import type { WebSessionResult } from "@/server/auth/web-session";
 import {
@@ -19,9 +21,10 @@ import type {
 
 const IdSchema = z.string().uuid();
 const HashSchema = z.string().regex(/^[a-f0-9]{64}$/);
-const ArtifactContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema });
+const ArtifactContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema, highlightStates: z.array(HighlightAnalysisStateSchema).optional() });
 const RecoveryBodySchema = z.strictObject({
   retryId: z.string().uuid().optional(),
+  highlightId: z.string().uuid().optional(),
 });
 
 type RegistrarResult = {
@@ -36,6 +39,7 @@ type SavedItemAnalysisRegistrar = {
 
 class CandidateAccessError extends Error {}
 class CandidateArtifactError extends Error {}
+class NothingToAnalyzeError extends Error {}
 
 function ready(context: CandidateSourceContext) {
   const artifact = context.artifact;
@@ -56,7 +60,38 @@ function ready(context: CandidateSourceContext) {
     youtubeVideoId: context.youtubeVideoId,
     canonicalUrl: context.canonicalUrl,
     candidates: content.data.candidates,
+    ...(context.highlights !== undefined || artifact.promptVersion === ANALYZE_MARKED_EXPRESSIONS_PROMPT_VERSION ? {
+      promptVersion: artifact.promptVersion,
+      highlightStates: (context.highlights ?? []).flatMap((highlight): HighlightAnalysisState[] => {
+        if (content.data.candidates.some((candidate) => candidateMatchesHighlight(candidate, highlight))) {
+          return [{ highlightId: highlight.id, text: highlight.text, status: "ready" }];
+        }
+        const previous = content.data.highlightStates?.find((state) => state.highlightId === highlight.id);
+        return previous ? [previous] : [];
+      }),
+    } : {}),
   };
+}
+
+function modernJobState(source: CandidateSourceContext, job: CandidateAnalysisJobStatus) {
+  const current = ready(source);
+  const highlightStates = (source.highlights ?? []).map((highlight): HighlightAnalysisState => ({
+    highlightId: highlight.id, text: highlight.text,
+    status: current?.candidates.some((candidate) => candidateMatchesHighlight(candidate, highlight))
+      ? "ready" : job.status === "terminal_failed" ? "failed" : "pending",
+  }));
+  const artifact = current ? { artifactId: current.artifactId, savedItemId: current.savedItemId,
+    candidates: current.candidates, promptVersion: source.artifact!.promptVersion } : undefined;
+  if (job.status === "pending" || job.status === "leased") return {
+    state: "processing" as const, jobId: job.jobId, status: job.status,
+    ...(artifact ? { artifact } : {}), highlightStates,
+  };
+  if (job.status === "terminal_failed") {
+    if (current) return { ...current, highlightStates };
+    return { state: "failed" as const, jobId: job.jobId,
+      failureCategory: publicFailureCategory(job.status, job.lastErrorCode) ?? "internal", highlightStates };
+  }
+  return current;
 }
 
 function validateContext(userId: string, savedItemId: string, value: CandidateSourceContext | null) {
@@ -115,6 +150,10 @@ export function createCandidateService(
 
   async function readJob(userId: string, savedItemId: string, jobId: string) {
     const { source, job } = await boundJob(userId, savedItemId, jobId);
+    if (source.highlights !== undefined) {
+      const result = modernJobState(source, job);
+      if (result) return result;
+    }
     const current = ready(source);
     if (current) return current;
     return nonReadyJobState(job);
@@ -123,28 +162,48 @@ export function createCandidateService(
   return {
     async read(userId: string, savedItemId: string) {
       const source = await context(userId, savedItemId);
+      if (source.highlights !== undefined && source.latestJob) {
+        const result = modernJobState(source, source.latestJob);
+        if (result) return result;
+      }
       const current = ready(source);
       if (current) return current;
-      return { state: "gateway_required" as const };
+      return source.highlights !== undefined && source.gatewayAvailable
+        ? { state: "idle" as const, highlightStates: [] }
+        : { state: "gateway_required" as const };
     },
     readJob,
-    async recover(userId: string, savedItemId: string, retryId?: string) {
+    async recover(userId: string, savedItemId: string, retryId?: string, highlightId?: string) {
       const source = await context(userId, savedItemId);
       const current = ready(source);
-      if (current) return current;
+      const modern = source.highlights !== undefined;
+      const missing = source.highlights?.filter((highlight) => highlight.status === "active" &&
+        (highlightId === undefined || highlight.id === highlightId) &&
+        !current?.candidates.some((candidate) => candidateMatchesHighlight(candidate, highlight)));
+      if (modern && missing?.length === 0) throw new NothingToAnalyzeError();
+      if (!modern && current) return current;
+      if (modern && source.latestJob && ["pending", "leased"].includes(source.latestJob.status)) {
+        return { ...modernJobState(source, source.latestJob)!, created: false };
+      }
+      const needsFreshRetry = modern && (source.latestJob?.status === "terminal_failed" ||
+        current?.highlightStates?.some((state) => state.status === "failed"));
+      const effectiveRetryId = retryId ?? (needsFreshRetry ? crypto.randomUUID() : undefined);
       const registered = await registrar.register({
         userId: source.userId,
         sourceId: source.sourceId,
         savedItemId: source.savedItemId,
         snapshotId: source.snapshotId,
         transcriptHash: source.transcriptHash,
-        promptVersion: ANALYZE_SAVED_ITEM_PROMPT_VERSION,
-        ...(retryId ? { retryId } : {}),
+        promptVersion: modern ? ANALYZE_MARKED_EXPRESSIONS_PROMPT_VERSION : ANALYZE_SAVED_ITEM_PROMPT_VERSION,
+        ...(modern ? { highlightIds: missing!.map((highlight) => highlight.id) } : {}),
+        ...(effectiveRetryId ? { retryId: effectiveRetryId } : {}),
         now: now(),
       });
       if (!registered) return { state: "gateway_required" as const };
       if (registered.created && (registered.status === "pending" || registered.status === "leased")) {
-        return { state: "processing" as const, ...registered };
+        return modern
+          ? { ...modernJobState(source, { ...registered, status: registered.status as "pending" | "leased", lastErrorCode: null })!, created: true }
+          : { state: "processing" as const, ...registered };
       }
       if (
         registered.status !== "pending" && registered.status !== "leased"
@@ -153,6 +212,10 @@ export function createCandidateService(
       const replay = await boundJob(source.userId, source.savedItemId, registered.jobId);
       if (!replayMayAdvance(registered.status, replay.job.status)) {
         throw new CandidateArtifactError();
+      }
+      if (modern) {
+        const result = modernJobState(replay.source, replay.job);
+        if (result) return result.state === "processing" ? { ...result, created: registered.created } : result;
       }
       if (replay.job.status === "terminal_failed") return nonReadyJobState(replay.job);
       const replayArtifact = ready(replay.source);
@@ -170,6 +233,7 @@ type CandidateService = ReturnType<typeof createCandidateService>;
 const MAX_BODY_BYTES = 256;
 
 async function boundedRecoveryBody(request: Request) {
+  if (!request.body) return {};
   const mediaType = request.headers.get("content-type")
     ?.split(";", 1)[0]
     ?.trim()
@@ -198,6 +262,9 @@ async function boundedRecoveryBody(request: Request) {
   } finally {
     reader.releaseLock();
   }
+  // Next's Node adapter can represent a bodyless POST as an empty stream.
+  // It has passed the same media-type and size checks as a nonempty body.
+  if (byteLength === 0) return {};
   const bytes = new Uint8Array(byteLength);
   let offset = 0;
   for (const chunk of chunks) {
@@ -220,6 +287,9 @@ function authFailure(result: Extract<WebSessionResult, { ok: false }>, requestId
 }
 
 function routeError(error: unknown, requestId: string) {
+  if (error instanceof NothingToAnalyzeError) {
+    return noStore(failure({ code: "NOTHING_TO_ANALYZE", message: "Mark at least one expression that has no learning card.", retryable: false }, requestId), 409);
+  }
   if (error instanceof CandidateAccessError) {
     return noStore(failure({ code: "FORBIDDEN", message: "Saved item is unavailable.", retryable: false }, requestId), 404);
   }
@@ -269,7 +339,7 @@ export function createCandidateHttpHandlers({
         return noStore(failure({ code: "VALIDATION_FAILED", message: "Invalid request.", retryable: false }, id), 400);
       }
       try {
-        const value = await service.recover(auth.userId, savedItemId, body.retryId);
+        const value = await service.recover(auth.userId, savedItemId, body.retryId, body.highlightId);
         return noStore(success(value, id), value.state === "processing" ? 202 : 200);
       } catch (error) {
         return routeError(error, id);

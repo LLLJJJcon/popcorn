@@ -516,6 +516,20 @@ describe("learner-first practice activation", () => {
     expect(store.drafts).toHaveLength(0);
   });
 
+  test("resumes a retained marked card after a newer aggregate analysis is published", async () => {
+    const retained = { ...candidate, highlightId: CONFIG, highlightKey: JSON.stringify(["seg-42", 2, "seg-42", 6, candidate.expression]) };
+    const store = memoryRepository();
+    store.repository.findCandidate = async (userId, selection) => userId === USER_A
+      ? artifact({ id: selection.candidateArtifactId, content: { candidates: [retained], highlightStates: [] } })
+      : null;
+    const service = activationService(store).service;
+    const first = await service.activate(USER_A, { savedItemId: SAVE, candidateArtifactId: ARTIFACT, candidateIndex: 0 });
+    const resumed = await service.activate(USER_A, { savedItemId: SAVE, candidateArtifactId: CONFIG, candidateIndex: 0 });
+    expect(resumed.id).toBe(first.id);
+    expect(resumed.userExpressionId).toBe(first.userExpressionId);
+    expect(store.drafts).toHaveLength(1);
+  });
+
   test("rejects malformed candidate content before Provider use", async () => {
     const store = memoryRepository(artifact({ content: { candidates: [{ expression: "太离谱了" }] } }));
     const fixture = gateway(activationWire);
@@ -701,6 +715,17 @@ describe("evaluation and append-only revisions", () => {
       { revision: 1, passed: true, independentUse: true },
       { revision: 2, passed: false, independentUse: false },
     ]);
+  });
+
+  test("records and revises a 6000-character response accepted for a long learning card", async () => {
+    const store = memoryRepository();
+    const task = await activate(store);
+    const harness = attemptService(store, { ids: [ATTEMPT, USER_B] });
+    const responseChinese = "汉".repeat(6000);
+    const original = await harness.service.submitOriginal(USER_A, { taskId: task.id, responseChinese });
+    expect(original.attempt.responseChinese).toBe(responseChinese);
+    const revised = await harness.service.submitRevision(USER_A, original.attempt.id, responseChinese + "。", "none");
+    expect(revised.attempt.responseChinese).toBe(responseChinese + "。");
   });
 
   test("returns transient coaching from the sole Provider call without persisting it", async () => {

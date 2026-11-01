@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-import { CandidateExpressionListSchema, type CandidateExpression } from "@/contracts/knowledge";
+import { CandidateExpressionListSchema, HighlightAnalysisStateSchema, type CandidateExpression } from "@/contracts/knowledge";
 import { PracticeTaskSchema, type PracticeTask } from "@/contracts/practice";
 import { failure, success } from "@/server/api/respond";
 import type { WebSessionResult } from "@/server/auth/web-session";
@@ -57,10 +57,10 @@ export type CandidateSelection = {
 export const CandidateSelectionSchema = z.strictObject({
   savedItemId: z.string().uuid(),
   candidateArtifactId: z.string().uuid(),
-  candidateIndex: z.number().int().min(0).max(2),
+  candidateIndex: z.number().int().min(0).max(100_000),
 });
 
-const CandidateContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema });
+const CandidateContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema, highlightStates: z.array(HighlightAnalysisStateSchema).optional() });
 const UserIdSchema = z.string().uuid();
 const PRACTICE_INSTRUCTIONS_ENGLISH = "Reply with one natural Simplified Chinese sentence.";
 const PRACTICE_GOAL_ENGLISH = "Use the target expression naturally in this new situation.";
@@ -110,7 +110,7 @@ export function practiceErrorFromUnknown(error: unknown): PracticeError {
   return new PracticeError("INTERNAL_ERROR", true);
 }
 
-const MAX_BODY_BYTES = 8 * 1_024;
+const MAX_BODY_BYTES = 64 * 1_024;
 
 async function boundedJson(request: Request): Promise<unknown> {
   const declared = request.headers.get("content-length");
@@ -298,6 +298,22 @@ export function createPracticeTaskService(dependencies: {
       const existing = await dependencies.repository.findDraftBySelection(userId.data, selection.data);
       if (existing) return practiceTaskView(existing);
 
+      // Aggregate analyses append cards to new artifacts. A retained mark keeps
+      // its practice identity even when its containing artifact changes.
+      const taskId = deterministicUuid(candidate.highlightKey ? [
+        "practice-mark-v3", userId.data, selection.data.savedItemId, candidate.highlightKey,
+      ].join(":") : [
+        "practice-draft-v1", userId.data, selection.data.savedItemId,
+        selection.data.candidateArtifactId, String(selection.data.candidateIndex),
+      ].join(":"));
+      if (candidate.highlightKey) {
+        const retained = await dependencies.repository.findDraft(userId.data, taskId);
+        if (retained && retained.savedItemId === selection.data.savedItemId &&
+          retained.targetExpression === candidate.expression && retained.status !== "abandoned") {
+          return practiceTaskView(retained);
+        }
+      }
+
       const resolved = await resolvePracticeEgress(userId.data, dependencies);
       let output: z.infer<typeof ActivationOutputSchema>;
       try {
@@ -319,10 +335,6 @@ export function createPracticeTaskService(dependencies: {
         throw practiceErrorFromUnknown(error);
       }
 
-      const taskId = deterministicUuid([
-        "practice-draft-v1", userId.data, selection.data.savedItemId,
-        selection.data.candidateArtifactId, String(selection.data.candidateIndex),
-      ].join(":"));
       const now = dependencies.now();
       const draft: PracticeDraftRecord = {
         id: taskId,

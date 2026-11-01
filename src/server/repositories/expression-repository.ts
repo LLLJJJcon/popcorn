@@ -1,3 +1,4 @@
+import { SavedHighlightSchema, type SavedHighlight } from "@/contracts/highlights";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { KnowledgeJobStatusSchema, type KnowledgeJobStatus } from "@/contracts/knowledge";
@@ -24,6 +25,9 @@ export type CandidateSourceContext = {
   readonly youtubeVideoId: string;
   readonly canonicalUrl: string;
   readonly artifact: CandidateArtifactRecord | null;
+  readonly highlights?: readonly SavedHighlight[];
+  readonly gatewayAvailable?: boolean;
+  readonly latestJob?: CandidateAnalysisJobStatus | null;
 };
 
 export type CandidateAnalysisJobStatus = {
@@ -61,7 +65,7 @@ export function createSupabaseExpressionRepository(
 
       const sourceId = saved.data.video_source_id;
       const snapshotId = saved.data.snapshot_id;
-      const [source, snapshot, artifact] = await Promise.all([
+      const [source, snapshot, artifact, highlights, latestJob, pin] = await Promise.all([
         client.from("video_sources")
           .select("id,user_id,youtube_video_id,canonical_url")
           .eq("user_id", userId)
@@ -87,8 +91,16 @@ export function createSupabaseExpressionRepository(
           .order("id", { ascending: false })
           .limit(1)
           .maybeSingle(),
+        client.from("saved_item_highlights").select("*")
+          .eq("user_id", userId).eq("saved_item_id", savedItemId).eq("status", "active")
+          .order("created_at", { ascending: true }),
+        client.from("knowledge_jobs").select("id,user_id,saved_item_id,job_type,status,last_error_code")
+          .eq("user_id", userId).eq("saved_item_id", savedItemId).eq("job_type", "analyze_saved_item")
+          .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle(),
+        client.from("user_model_gateway_configs").select("id")
+          .eq("user_id", userId).eq("state", "active").limit(1).maybeSingle(),
       ]);
-      queryFailed(source.error ?? snapshot.error ?? artifact.error);
+      queryFailed(source.error ?? snapshot.error ?? artifact.error ?? highlights.error ?? latestJob.error ?? pin?.error);
       if (!source.data || !snapshot.data) return null;
       return {
         userId: saved.data.user_id,
@@ -98,6 +110,20 @@ export function createSupabaseExpressionRepository(
         transcriptHash: snapshot.data.transcript_hash,
         youtubeVideoId: saved.data.youtube_video_id,
         canonicalUrl: source.data.canonical_url,
+        highlights: (highlights.data ?? []).flatMap((row) => {
+          if (row.user_id !== userId || row.saved_item_id !== savedItemId || row.status !== "active") throw new Error("highlight owner mismatch");
+          const parsed = SavedHighlightSchema.safeParse({
+            id: row.id, savedItemId: row.saved_item_id, startSegmentId: row.start_segment_id,
+            startOffset: row.start_offset, endSegmentId: row.end_segment_id, endOffset: row.end_offset,
+            text: row.text, origin: row.origin, reasonEn: row.reason_en, status: row.status,
+          });
+          return parsed.success ? [parsed.data] : [];
+        }),
+        gatewayAvailable: Boolean(pin?.data),
+        latestJob: latestJob.data && latestJob.data.user_id === userId &&
+          latestJob.data.saved_item_id === savedItemId && latestJob.data.job_type === "analyze_saved_item"
+          ? { jobId: latestJob.data.id, status: KnowledgeJobStatusSchema.parse(latestJob.data.status), lastErrorCode: latestJob.data.last_error_code }
+          : null,
         artifact: artifact.data ? {
           artifactId: artifact.data.id,
           userId: artifact.data.user_id,

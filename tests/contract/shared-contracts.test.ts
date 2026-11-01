@@ -1076,6 +1076,7 @@ describe("shared contracts", () => {
       "translate_segments",
       "explain_selection",
       "analyze_saved_item",
+      "highlight_saved_item",
     ]);
     expect(KnowledgeJobStatusSchema.options).toEqual([
       "pending",
@@ -1107,6 +1108,7 @@ describe("shared contracts", () => {
       "JOB_RETRY_EXHAUSTED",
       "VALIDATION_FAILED",
       "CONFLICT",
+      "NOTHING_TO_ANALYZE",
       "INTERNAL_ERROR",
     ]);
   });

@@ -434,6 +434,8 @@ test("key quote and AI explanation preserve displayed text and grounded evidence
     exactQuote: "这也太离谱了吧。",
     quoteSeconds: 44,
     segmentIds: [SEGMENT_A],
+    contextBefore: [],
+    contextAfter: [],
   });
   assert.deepEqual(JSON.parse(JSON.stringify(explanation)), {
     clientEventId: EVENT_ID,
@@ -1035,6 +1037,8 @@ test("the actual Key Quote Save click enqueues the exact displayed quote once wi
       exactQuote: "这也太离谱了吧。",
       quoteSeconds: 44,
       segmentIds: [SEGMENT_A],
+      contextBefore: ["你刚才看到了吗？"],
+      contextAfter: ["我完全没想到。"],
     },
   ]);
   assert.deepEqual(harness.runtimeMessages, []);
@@ -1284,4 +1288,29 @@ test("the save controller accepts only six exact variants before one injected qu
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], valid);
   assert.equal(result.status, "queued_locally");
+});
+
+test("save payloads use three preceding and two following context lines", () => {
+  const values = {
+    videoId: VIDEO_ID,
+    segment: { id: SEGMENT_A, text: "这杯咖啡高得要命。", start: 4, end: 6 },
+    contextBefore: ["第一句。", "第二句。", "第三句。"],
+    contextAfter: ["第五句。", "第六句。"],
+  };
+  const saved = panel.buildSubtitleRowSaveInput(values, identity);
+  assert.equal(saved.contextBefore.length, 3);
+  assert.equal(saved.contextAfter.length, 2);
+  assert.throws(() => panel.buildSubtitleRowSaveInput({
+    ...values, contextAfter: [...values.contextAfter, "第七句。"],
+  }, identity), /context after/);
+});
+
+test("key-quote save builder includes its source context", () => {
+  const saved = panel.buildKeyQuoteSaveInput({
+    videoId: VIDEO_ID,
+    quote: { quote: "高得要命", timestampSeconds: 4, sourceSegmentIds: [SEGMENT_A] },
+    contextBefore: ["之前的话。"], contextAfter: ["之后的话。"],
+  }, identity);
+  assert.deepEqual(jsonValue(saved.contextBefore), ["之前的话。"]);
+  assert.deepEqual(jsonValue(saved.contextAfter), ["之后的话。"]);
 });

@@ -202,12 +202,17 @@ function dueGraph(overrides: DueGraphOverrides = {}): readonly Result[] {
 }
 
 describe("Practice material repository", () => {
-  test.each(["analyze-saved-item-v1", "analyze-saved-item-v2"])(
+  test.each(["analyze-saved-item-v1", "analyze-saved-item-v2", "analyze-saved-item-v3"])(
     "builds an owner-scoped immediate material view from compatible %s candidate provenance",
     async (promptVersion) => {
     const scripted = scriptedClient([
       { data: draft(), error: null },
-      { data: candidateArtifact({ prompt_version: promptVersion }), error: null },
+      { data: candidateArtifact({
+        prompt_version: promptVersion,
+        ...(promptVersion === "analyze-saved-item-v3" ? {
+          content: { ...candidateArtifact().content, highlightStates: [] },
+        } : {}),
+      }), error: null },
       { data: { id: SAVED, user_id: USER, video_source_id: SOURCE, snapshot_id: SNAPSHOT }, error: null },
       { data: { id: SNAPSHOT, user_id: USER, video_source_id: SOURCE, title: "Fixture video" }, error: null },
       { data: { id: SOURCE, user_id: USER, canonical_url: "https://www.youtube.com/watch?v=abcdefghijk" }, error: null },

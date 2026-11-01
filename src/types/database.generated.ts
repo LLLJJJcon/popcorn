@@ -448,6 +448,15 @@ export type Database = {
       }
       expression_senses: {
         Row: {
+          meaning_here: string | null
+          use_it_when: string | null
+          compared_with: string | null
+          how_it_fits: string | null
+          tone_and_who: string | null
+          watch_out: string | null
+          examples: Json | null
+          function_categories: string[]
+          usage_settings: string[]
           communicative_function: string
           created_at: string
           english_explanation: string
@@ -464,6 +473,15 @@ export type Database = {
           video_source_id: string | null
         }
         Insert: {
+          meaning_here?: string | null
+          use_it_when?: string | null
+          compared_with?: string | null
+          how_it_fits?: string | null
+          tone_and_who?: string | null
+          watch_out?: string | null
+          examples?: Json | null
+          function_categories?: string[]
+          usage_settings?: string[]
           communicative_function: string
           created_at?: string
           english_explanation: string
@@ -480,6 +498,15 @@ export type Database = {
           video_source_id?: string | null
         }
         Update: {
+          meaning_here?: string | null
+          use_it_when?: string | null
+          compared_with?: string | null
+          how_it_fits?: string | null
+          tone_and_who?: string | null
+          watch_out?: string | null
+          examples?: Json | null
+          function_categories?: string[]
+          usage_settings?: string[]
           communicative_function?: string
           created_at?: string
           english_explanation?: string
@@ -1175,8 +1202,57 @@ export type Database = {
           },
         ]
       }
+      saved_item_highlights: {
+        Row: {
+          id: string
+          user_id: string
+          saved_item_id: string
+          start_segment_id: string
+          start_offset: number
+          end_segment_id: string
+          end_offset: number
+          text: string
+          origin: string
+          reason_en: string | null
+          status: string
+          created_at: string
+          removed_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          saved_item_id: string
+          start_segment_id: string
+          start_offset: number
+          end_segment_id: string
+          end_offset: number
+          text: string
+          origin: string
+          reason_en?: string | null
+          status?: string
+          created_at?: string
+          removed_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          saved_item_id?: string
+          start_segment_id?: string
+          start_offset?: number
+          end_segment_id?: string
+          end_offset?: number
+          text?: string
+          origin?: string
+          reason_en?: string | null
+          status?: string
+          created_at?: string
+          removed_at?: string | null
+        }
+        Relationships: []
+      }
       saved_items: {
         Row: {
+          highlight_status: string | null
           removed_from_saved_at: string | null
           captured_at: string
           client_event_id: string
@@ -1193,6 +1269,7 @@ export type Database = {
           youtube_video_id: string
         }
         Insert: {
+          highlight_status?: string | null
           removed_from_saved_at?: string | null
           captured_at: string
           client_event_id: string
@@ -1209,6 +1286,7 @@ export type Database = {
           youtube_video_id: string
         }
         Update: {
+          highlight_status?: string | null
           removed_from_saved_at?: string | null
           captured_at?: string
           client_event_id?: string
@@ -1479,6 +1557,47 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      mutate_saved_item_highlight: {
+        Args: {
+          p_user_id: string
+          p_saved_item_id: string
+          p_action: string
+          p_highlight_id: string | null
+          p_start_segment_id: string | null
+          p_start_offset: number | null
+          p_end_segment_id: string | null
+          p_end_offset: number | null
+          p_text: string | null
+          p_now: string
+        }
+        Returns: boolean
+      }
+      complete_saved_item_highlights: {
+        Args: {
+          p_user_id: string
+          p_job_id: string
+          p_expected_lease_expires_at: string
+          p_expected_attempt_count: number
+          p_highlights: Json
+          p_unavailable: boolean
+          p_now: string
+        }
+        Returns: boolean
+      }
+      register_saved_item_highlight_suggestion: {
+        Args: {
+          p_user_id: string
+          p_saved_item_id: string
+          p_dedupe_key: string
+          p_input: Json
+          p_config_id: string
+          p_expected_config_revision: number
+          p_expected_config_fingerprint: string
+          p_now: string
+        }
+        Returns: boolean
+      }
+
       activate_user_model_gateway_config: {
         Args: {
           p_config_id: string

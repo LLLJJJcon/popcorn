@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { z } from "zod";
 
-import { CandidateExpressionListSchema } from "@/contracts/knowledge";
+import { CandidateExpressionListSchema, HighlightAnalysisStateSchema } from "@/contracts/knowledge";
 import {
   isReadableOverviewPromptVersion,
   OverviewContentSchema,
@@ -15,7 +15,7 @@ import { ProcessingState } from "./processing-state";
 import { SavedTimeline } from "./saved-timeline";
 import styles from "./saved-workspace.module.css";
 
-const CandidateArtifactContentSchema = z.strictObject({ candidates: CandidateExpressionListSchema });
+const CandidateArtifactContentSchema = z.object({ candidates: CandidateExpressionListSchema, highlightStates: z.array(HighlightAnalysisStateSchema).optional() });
 
 function latestCandidateAnalysis(
   artifacts: readonly SavedArtifactView[],
@@ -35,6 +35,8 @@ function latestCandidateAnalysis(
         artifactId: artifact.artifactId,
         savedItemId,
         candidates: parsed.data.candidates,
+        promptVersion: artifact.promptVersion,
+        highlightStates: parsed.data.highlightStates,
       },
     };
   }
@@ -118,8 +120,9 @@ export function SavedVideoDetailView({
       ))}
 
       <section className={styles.paperSection} aria-labelledby="saved-moments-heading">
-        <p className={styles.eyebrow}>Your source material</p>
+        <p className={styles.eyebrow}>From watching to using</p>
         <h2 id="saved-moments-heading">Saved moments</h2>
+        <p className={styles.sectionIntroduction}>Keep the expressions you want to use. Mark the words, explore their meaning, then try them in a new situation.</p>
         <SavedTimeline
           videoSourceId={video.sourceId}
           items={video.items}
@@ -129,6 +132,7 @@ export function SavedVideoDetailView({
               videoSourceId={video.sourceId}
               youtubeUrl={video.canonicalUrl}
               analysis={latestCandidateAnalysis(video.artifacts, item.id)}
+              item={item}
             />
           )}
         />
