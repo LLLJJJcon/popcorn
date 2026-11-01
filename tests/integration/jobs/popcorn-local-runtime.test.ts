@@ -1020,6 +1020,30 @@ describe("Popcorn local launcher", () => {
     expect(events).toEqual(["exec supabase stop"]);
   });
 
+  test("waits for signal cleanup before the startup command resolves", async () => {
+    const signals = new EventEmitter();
+    const startup = deferred();
+    const cleanup = deferred();
+    const events: string[] = [];
+    const { runLauncherCommand } = await launcherModule();
+    const pending = runLauncherCommand({
+      action: "start",
+      launcher: { start: async () => { await startup.promise; }, stop: async () => {
+        await cleanup.promise;
+        events.push("cleanup finished");
+      } },
+      processRef: signals,
+    }).then(() => { events.push("command finished"); });
+    signals.emit("SIGTERM");
+    startup.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    const finishedBeforeCleanup = events.includes("command finished");
+    cleanup.resolve();
+    await pending;
+    expect(finishedBeforeCleanup).toBe(false);
+    expect(events).toEqual(["cleanup finished", "command finished"]);
+  });
+
   test("SIGTERM requests the launcher cleanup path", async () => {
     const signals = new EventEmitter();
     const events: string[] = [];
