@@ -45,11 +45,11 @@ Files: create `supabase/migrations/202611010039_legacy_learning_card_upgrade.sql
 
 Produces the frozen repository interface plus `createLegacyLearningCardUpgradeRuntime()` returning `{plan(owner,page),upgrade(owner,request)}` from B's factory with existing consented gateway resolver. Runtime has no browser import or automatic worker registration.
 
-- [ ] Write and observe RED for owned canonical/linked/source contexts, private ACL/RLS, deterministic opaque hashes, same-ID claims/replays and changed-ID signature conflict.
-- [ ] Implement read-only paged contexts, exact linked-card proof and bounded original occurrence/segments. No phrase-only l→h mapping.
-- [ ] Observe publication RED for source/manual/pin/lease changes, partial metadata, foreign owner and malformed/not_expression card; implement metadata-only atomic CAS plus complete receipts/outcomes.
-- [ ] Prove actual official/Source/Saved/artifact/preparation-cycle projections unchanged. Add actual independent-connection contention and response-loss recovery evidence.
-- [ ] Apply039 only to dedicated test stack, regenerate types, run affected/full SQL/types/lint and report. Runtime may be wired after B's actual factory exists; do not invent a fallback implementation.
+- [x] Write and observe RED for owned canonical/linked/source contexts, private ACL/RLS, deterministic opaque hashes, same-ID claims/replays and changed-ID signature conflict.
+- [x] Implement read-only paged contexts, exact linked-card proof and bounded original occurrence/segments. No phrase-only l→h mapping.
+- [x] Observe publication RED for source/manual/pin/lease changes, partial metadata, foreign owner and malformed/not_expression card; implement metadata-only atomic CAS plus complete receipts/outcomes.
+- [x] Prove actual official/Source/Saved/artifact/preparation-cycle projections unchanged. Add actual independent-connection contention and response-loss recovery evidence.
+- [x] Apply039–044 only to dedicated test stack, regenerate types, run affected/full SQL/types/lint and report. Actual runtime is wired to B's real factory. Backend self-test evidence:1806 application,1139 SQL and9 actual races; frozen source12569275, independent D acceptance remains separate.
 
 ### Task 2 — B: source proof and coordinator, parallel after Task0
 
