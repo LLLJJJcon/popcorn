@@ -297,6 +297,54 @@ export type Database = {
           user_expression_id: string
         }[]
       }
+      today_candidate_cards: {
+        Args: { p_user_id: string }
+        Returns: {
+          candidate_artifact_id: string
+          candidate_index: number
+          candidate_key: string
+          captured_at: string
+          card: Json
+          saved_item_id: string
+          source_id: string
+          source_title: string
+          visible: boolean
+        }[]
+      }
+      today_candidate_id: {
+        Args: { p_candidate_key: string; p_user_id: string }
+        Returns: string
+      }
+      today_candidate_rows: {
+        Args: { p_now: string; p_user_id: string }
+        Returns: {
+          eligible: boolean
+          id: string
+          item: Json
+          resumable: boolean
+          sort_at: string
+          source_id: string
+          task_id: string
+        }[]
+      }
+      today_needs_analysis: {
+        Args: { p_user_id: string }
+        Returns: {
+          saved_item_id: string
+          source_id: string
+        }[]
+      }
+      today_practice_rows: {
+        Args: { p_now: string; p_user_id: string }
+        Returns: {
+          id: string
+          item: Json
+          priority: number
+          sort_at: string
+          source_id: string
+        }[]
+      }
+      today_valid_card: { Args: { c: Json }; Returns: boolean }
       utf16_length: { Args: { p_text: string }; Returns: number }
       utf16_slice: {
         Args: { p_end: number; p_start: number; p_text: string }
@@ -1932,9 +1980,42 @@ export type Database = {
         Args: { p_task_id: string; p_user_id: string }
         Returns: Json
       }
+      get_today_practice_next: {
+        Args: {
+          p_current_item_id: string | null
+          p_current_task_id: string | null
+          p_exclude: string[]
+          p_now: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      get_today_practice_summary: {
+        Args: { p_now: string; p_user_id: string }
+        Returns: Json
+      }
       has_user_model_gateway_secret: {
         Args: { p_config_id: string; p_user_id: string }
         Returns: boolean
+      }
+      list_today_practice_items: {
+        Args: {
+          p_limit: number
+          p_now: string
+          p_offset: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      list_today_practice_videos: {
+        Args: {
+          p_limit: number
+          p_needs_analysis_only: boolean
+          p_now: string
+          p_offset: number
+          p_user_id: string
+        }
+        Returns: Json
       }
       mutate_saved_item_highlight: {
         Args: {

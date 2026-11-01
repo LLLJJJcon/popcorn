@@ -12,9 +12,8 @@ import { SavedTimeline } from "@/features/saved/saved-timeline";
 const SOURCE_ID = "11111111-1111-4111-8111-111111111111";
 const homeView: HomeView = {
   hasActiveGateway: true,
-  duePracticeCount: 0,
-  unsortedSaveCount: 0,
-  recentVideo: null,
+  summary: { reviewCount: 0, secondTryCount: 0, newCount: 0, estimatedMinutes: 0, needsAnalysisCount: 0, processingCount: 0, nextPracticeAt: null },
+  recentVideos: [],
   masteryDistribution: { tried: 0, reused: 0, owned: 0 },
 };
 
@@ -105,15 +104,15 @@ describe("Saved video grouping and timeline", () => {
 });
 
 describe("Home next action", () => {
-  it("shows exactly one action and gives due Practice precedence over unsorted saves", () => {
-    const action = selectNextAction({ ...homeView, duePracticeCount: 2, unsortedSaveCount: 7 });
-    expect(action).toEqual({ kind: "practice", href: "/practice", count: 2 });
+  it("shows exactly one action and gives today's queue precedence over unanalyzed saves", () => {
+    const action = selectNextAction({ ...homeView, summary: { ...homeView.summary, reviewCount: 2, needsAnalysisCount: 7, estimatedMinutes: 4 } });
+    expect(action).toEqual({ kind: "practice", href: "/practice/session", estimatedMinutes: 4 });
 
     render(<NextAction action={action} />);
     expect(screen.getAllByRole("link")).toHaveLength(1);
-    expect(screen.getByRole("link", { name: /Practice 2 due expressions/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Start today's practice" })).toHaveAttribute(
       "href",
-      "/practice",
+      "/practice/session",
     );
     expect(screen.queryByRole("link", { name: /Saved/i })).not.toBeInTheDocument();
   });
@@ -122,14 +121,14 @@ describe("Home next action", () => {
     expect(selectNextAction({
       ...homeView,
       hasActiveGateway: false,
-      unsortedSaveCount: 1,
+      summary: { ...homeView.summary, needsAnalysisCount: 1 },
     })).toEqual({
       kind: "gateway",
       href: "/settings/model-gateway",
     });
-    expect(selectNextAction({ ...homeView, unsortedSaveCount: 1 })).toEqual({
+    expect(selectNextAction({ ...homeView, summary: { ...homeView.summary, needsAnalysisCount: 1 } })).toEqual({
       kind: "saved",
-      href: "/saved",
+      href: "/saved?filter=needs-analysis",
       count: 1,
     });
     expect(selectNextAction(homeView)).toEqual({

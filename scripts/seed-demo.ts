@@ -4,11 +4,12 @@ import { pathToFileURL } from "node:url";
 
 import { createClient } from "@supabase/supabase-js";
 
+import type { LearningCardFields } from "../src/contracts/knowledge";
 import { practiceCandidateKey } from "../src/server/domain/practice-rounds";
 import { highlightIdentity } from "../src/server/jobs/handlers/marked-learning-cards";
 import type { Database } from "../src/types/database.generated";
-import artifacts from "../tests/fixtures/demo/generated-artifacts.json";
-import transcript from "../tests/fixtures/demo/transcript.zh-CN.json";
+import artifacts from "../tests/fixtures/demo/generated-artifacts.json" with { type: "json" };
+import transcript from "../tests/fixtures/demo/transcript.zh-CN.json" with { type: "json" };
 import { DEMO_VIDEO } from "../tests/fixtures/demo/youtube-video";
 
 export const DEMO_TABLES = [
@@ -328,9 +329,9 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
       status: "active", removed_at: null, created_at: FIXED_AT });
     return highlightId;
   };
-  const card = (saveId: string, highlightId: string, text: string, segmentIndex: number, notExpression = false) => {
+  const card = (saveId: string, highlightId: string, text: string, segmentIndex: number, notExpression = false, overrides: Partial<LearningCardFields> = {}) => {
     const segment = transcript[segmentIndex];
-    const fields = {
+    const fields: LearningCardFields = {
       meaningHere: notExpression ? "We: the speaker and their companions." : "The speaker thinks this approach is dependable.",
       useItWhen: notExpression ? "When referring to yourself together with other people." : "When you want to reassure someone that an idea is dependable.",
       comparedWith: notExpression ? "咱们 explicitly includes the listener; 我们 may not." : "可靠 is more neutral; 挺靠谱 sounds conversational and reassuring.",
@@ -341,6 +342,7 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
       functionCategories: [notExpression ? "other" : "praise"], usageSettings: ["casual_chat"],
       suitability: notExpression ? "not_expression" : "expression",
       notExpressionReasonEn: notExpression ? "This is a basic pronoun most intermediate learners already know." : null,
+      ...overrides,
     };
     tables.generated_artifacts.push({ id: id(`group1:artifact:${highlightId}`), user_id: ownerId,
       video_source_id: sourceId, saved_item_id: saveId, artifact_type: "saved_item_analysis",
@@ -386,6 +388,30 @@ export function buildDemoSeedPlan(ownerId: string, referenceNow: string): DemoSe
     }
     practiceScenarios.push({name,rounds,removeAfter:name==="removed"});
   }
+
+  // Together with group1's unpractised card, these give the mixed queue three New items.
+  const patientSave = groupOneSave("group3-new-patient", 1, "ready");
+  card(patientSave, mark(patientSave, "group3-new-patient", "慢慢来", 1, "user"), "慢慢来", 1, false, {
+    meaningHere: "Take your time; work patiently instead of rushing.",
+    useItWhen: "When someone feels hurried and you want to suggest a calmer pace.",
+    comparedWith: "别着急 reassures someone not to worry; 慢慢来 suggests taking time over the task.",
+    howItFits: "Use it as a short suggestion, optionally followed by a reason not to rush.",
+    toneAndWho: "Calm and encouraging; natural with friends and classmates.",
+    functionCategories: ["suggest"],
+    examples: [{ zh: "第一次做这个，慢慢来就好。", en: "It is your first time doing this; just take your time." },
+      { zh: "还有时间，你慢慢来。", en: "There is still time; take it at your own pace." }],
+  });
+  const outrageousSave = groupOneSave("group3-new-outrageous", 2, "ready");
+  card(outrageousSave, mark(outrageousSave, "group3-new-outrageous", "太离谱了", 2, "user"), "太离谱了", 2, false, {
+    meaningHere: "That is outrageous; the speaker objects to an unreasonable price.",
+    useItWhen: "When you want to complain that a price or decision is unreasonable.",
+    comparedWith: "太贵了 only describes price; 太离谱了 also expresses disbelief and disapproval.",
+    howItFits: "Use after the price or decision you are reacting to, or as a short reaction.",
+    toneAndWho: "Strong and informal; natural with friends, but blunt in a formal complaint.",
+    functionCategories: ["complain"],
+    examples: [{ zh: "一瓶水卖三十块，太离谱了。", en: "Thirty yuan for a bottle of water is outrageous." },
+      { zh: "只迟到一分钟就罚这么多，太离谱了。", en: "Such a large fine for being one minute late is outrageous." }],
+  });
 
   const states = ["tried", "reused", "owned"] as const;
   const originalDayOffsets = [-1, -2, -10] as const;

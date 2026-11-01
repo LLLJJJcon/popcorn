@@ -4,6 +4,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
 import { buildAnalyzeMarkedExpressionsPrompt, createAnalyzeMarkedExpressionsFixtureGateway, normalizeMarkedAnalysisWire } from "../../src/server/ai/prompts/analyze-saved-item.v3";
 import { cleanupDatabasePortForApi, runSavedLearningLoopCleanup } from "./saved-learning-loop-cleanup";
+import { seedDemo, createSupabaseDemoSeedRepository } from "../../scripts/seed-demo";
 
 const USER_ID = "53000000-0000-4000-8000-000000000001";
 const SOURCE_ID = "53000000-0000-4000-8000-000000000002";
@@ -95,7 +96,7 @@ async function cleanupFixture() {
   });
 }
 
-async function installSeedSession(context: BrowserContext) {
+async function installSeedSession(context: BrowserContext, account = { id: USER_ID, email: FIXTURE_EMAIL, password: FIXTURE_PASSWORD }) {
   const cookieJar = new Map<string, string>();
   const auth = createServerClient(supabaseUrl, anonKey, {
     cookies: {
@@ -115,11 +116,11 @@ async function installSeedSession(context: BrowserContext) {
     },
   });
   const signedIn = await auth.auth.signInWithPassword({
-    email: FIXTURE_EMAIL,
-    password: FIXTURE_PASSWORD,
+    email: account.email,
+    password: account.password,
   });
   expect(signedIn.error).toBeNull();
-  expect((await auth.auth.getUser()).data.user?.id).toBe(USER_ID);
+  expect((await auth.auth.getUser()).data.user?.id).toBe(account.id);
   await context.addCookies([...cookieJar].map(([name, value]) => ({ name, value, url: appUrl })));
 }
 
@@ -451,16 +452,17 @@ test("a returning learner completes due Practice without increasing saved volume
   await expect(metric(page, "Current mastery distribution", "Reused")).toHaveText("0");
 
   await page.goto("/practice");
-  await expect(page.getByRole("heading", { name: "Practice" })).toBeVisible();
-  await expect(page.getByText(EXPRESSION, { exact: true })).toBeVisible();
-  await expect(page.getByText(/tried/)).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Today's practice", exact: true })).toBeVisible();
+  const reviewRow = page.locator("#reviews");
+  await expect(reviewRow.getByRole("link", { name: EXPRESSION, exact: true })).toBeVisible();
+  await expect(reviewRow.getByText(/Overdue \d+ days/)).toBeVisible();
 
   const [transferResponse] = await Promise.all([
     page.waitForResponse((response) =>
       response.request().method() === "GET"
       && new URL(response.url()).pathname === `/api/v1/practice/due/${REVIEW_ID}`,
     ),
-    page.getByRole("button", { name: "Start practice" }).click(),
+    reviewRow.getByRole("link", { name: EXPRESSION, exact: true }).click(),
   ]);
   expect(transferResponse.status()).toBe(200);
   await expect(page.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
@@ -476,6 +478,8 @@ test("a returning learner completes due Practice without increasing saved volume
   ]);
   expect(completionResponse.status(), `Due completion: ${await completionResponse.text()}`).toBe(201);
   await expect(page.getByText(/^Nice — tried → reused\. Next practice/)).toBeVisible();
+  await page.getByRole("link", { name: "Back to Today's practice", exact: true }).click();
+  await expect(page).toHaveURL(/\/practice$/);
 
   await page.goto("/progress");
   await expect(metric(page, "Weekly learning evidence", "Attempts this week")).toHaveText("1");
@@ -498,4 +502,112 @@ test("a returning learner completes due Practice without increasing saved volume
   expect(completedReview.data?.completed_attempt_id).toBeTruthy();
   expect(pendingReview.count).toBe(1);
 });
+});
+
+const MIXED_ID = "55000000-0000-4000-8000-000000000001";
+const MIXED_EMAIL = "today-session@popcorn.test";
+const MIXED_CONFIG_ID = "55000000-0000-4000-8000-000000000014";
+const MIXED_CLEANUP_SQL = CLEANUP_SQL.replaceAll(USER_ID, MIXED_ID).replaceAll(FIXTURE_EMAIL, MIXED_EMAIL)
+  .replace("delete from public.mastery_events", `delete from private.practice_promotion_receipts where user_id='${MIXED_ID}';\ndelete from public.mastery_events`)
+  .replace("delete from public.user_expressions", `delete from public.practice_draft_attempts where user_id='${MIXED_ID}';\ndelete from public.practice_drafts where user_id='${MIXED_ID}';\ndelete from public.user_expressions`)
+  .replace("delete from public.profiles", `delete from vault.secrets where name='popcorn:model-gateway:${MIXED_CONFIG_ID}';\ndelete from private.user_model_gateway_secrets where user_id='${MIXED_ID}';\ndelete from public.user_model_gateway_configs where user_id='${MIXED_ID}';\ndelete from public.profiles`);
+
+async function cleanupMixedFixture() {
+  await runSavedLearningLoopCleanup({ cleanupSql: MIXED_CLEANUP_SQL,
+    databaseUrl: requiredEnvironment("POPCORN_E2E_DATABASE_URL"), expectedDatabasePort: cleanupDatabasePortForApi(supabaseUrl) });
+}
+
+test.describe("today's mixed practice session", () => {
+  test.beforeAll(async () => {
+    await cleanupMixedFixture();
+    const user = await admin.auth.admin.createUser({ id: MIXED_ID, email: MIXED_EMAIL,
+      password: FIXTURE_PASSWORD, email_confirm: true });
+    expect(user.error).toBeNull();
+    await seedDemo({ repository: createSupabaseDemoSeedRepository(admin), userSelector: MIXED_ID, referenceNow: new Date().toISOString() });
+    // A fake, consenting configuration makes Home's queue priority testable; all AI stays in fixtures.
+    expect((await admin.rpc("create_user_model_gateway_config", { p_user_id: MIXED_ID, p_config_id: MIXED_CONFIG_ID,
+      p_canonical_origin: "https://api.example.com", p_base_path: "/v1", p_display_name: "Today fixture",
+      p_model: "fixture/analyze-saved-item-v3", p_api_key: "e2e-fake-key-not-a-credential", p_now: new Date().toISOString() })).error).toBeNull();
+    const active = await admin.rpc("activate_user_model_gateway_config", { p_user_id: MIXED_ID,
+      p_config_id: MIXED_CONFIG_ID, p_exact_origin: "https://api.example.com/v1", p_policy_version: "model-egress-v1", p_now: new Date().toISOString() });
+    expect(active.error).toBeNull();
+    expect(active.data).toBe(true);
+  });
+  test.afterAll(cleanupMixedFixture);
+
+  test("six real items resume, keep a new round in place, Undo across items and finish with one summary", async ({ context, page }) => {
+    test.setTimeout(180_000);
+    await installSeedSession(context, { id: MIXED_ID, email: MIXED_EMAIL, password: FIXTURE_PASSWORD });
+    await page.goto("/home");
+    await expect(page.getByRole("link", { name: "Start today's practice", exact: true })).toHaveAttribute("href", "/practice/session");
+    await page.goto("/practice");
+    await expect(page.getByText("2 reviews · 1 second try · 3 new · about 12 min", { exact: true })).toBeVisible();
+    for (const [id, count] of [["reviews", 2], ["second-tries", 1], ["new-expressions", 3]] as const) {
+      await expect(page.locator(`#${id}`).getByRole("listitem")).toHaveCount(count);
+    }
+    await page.getByRole("link", { name: "Start", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 6 left", exact: true })).toBeVisible();
+    await expect(page.getByRole("main")).toHaveCount(1);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+    await page.getByLabel("Your Chinese response").fill("我觉得这个安排挺靠谱的。");
+    await page.getByRole("button", { name: "Check my response", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Next", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "← Exit session", exact: true }).click();
+    await expect(page).toHaveURL(/\/practice$/);
+    await expect(page.getByRole("heading", { name: "Your session summary", exact: true })).toBeVisible();
+    await expect(page.getByText("1 review · 1 second try · 3 new · about 10 min", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Start", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 5 left", exact: true })).toBeVisible();
+    await page.getByLabel("Your Chinese response").fill("我觉得这个安排挺靠谱的。");
+    await page.getByRole("button", { name: "Check my response", exact: true }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+
+    await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 4 left", exact: true })).toBeVisible();
+    await expect(page.getByText(/^Round 2 · Not in your Vault yet$/)).toBeVisible();
+    await page.getByRole("button", { name: "Show examples", exact: true }).click();
+    await page.getByLabel("Your answer in Chinese").fill("我觉得这个建议挺靠谱的。");
+    await page.getByRole("button", { name: "Check my answer", exact: true }).click();
+    await page.getByRole("button", { name: "Try a new situation", exact: true }).click();
+    await expect(page.getByText(/^Round 3 · Not in your Vault yet$/)).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 4 left", exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByText(/^Round 3 · Not in your Vault yet$/)).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 4 left", exact: true })).toBeVisible();
+    await page.getByLabel("Your answer in Chinese").fill("我觉得这个办法挺靠谱的。");
+    await page.getByRole("button", { name: "Check my answer", exact: true }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+
+    await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 3 left", exact: true })).toBeVisible();
+    await expect(page.getByRole("main")).toHaveCount(1);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+    await page.getByRole("button", { name: "Show examples", exact: true }).click();
+    await page.getByLabel("Your answer in Chinese").fill("这个表达很适合现在的情况。");
+    await page.getByRole("button", { name: "Check my answer", exact: true }).click();
+    await page.getByRole("button", { name: "Remove from practice", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 2 left", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1, name: "Today's practice · 2 left", exact: true })).toBeVisible();
+    for (const left of [2, 1]) {
+      await expect(page.getByRole("heading", { level: 1, name: `Today's practice · ${left} left`, exact: true })).toBeVisible();
+      await page.getByLabel("Your answer in Chinese").fill("这个表达很适合现在的情况。");
+      await page.getByRole("button", { name: "Check my answer", exact: true }).click();
+      await page.getByRole("button", { name: left === 1 ? "Finish" : "Next", exact: true }).click();
+    }
+    await expect(page.getByRole("heading", { name: "All done for today", exact: true })).toBeVisible();
+    await expect(page.getByText("3 added to your Vault · 2 moved up", { exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Your session summary" }).getByRole("listitem")).toHaveCount(6);
+    await page.screenshot({ path: test.info().outputPath("group3-session-finished.png"), fullPage: true });
+    await page.getByRole("link", { name: "Back to Home", exact: true }).click();
+    await expect(page.getByRole("link", { name: "Analyze 1 saves", exact: true })).toBeVisible();
+    expect((await admin.from("saved_item_highlights").update({ status: "removed", removed_at: new Date().toISOString() })
+      .eq("user_id", MIXED_ID).eq("text", "试试看")).error).toBeNull();
+    await page.reload();
+    await expect(page.getByRole("link", { name: "Watch something on YouTube", exact: true })).toBeVisible();
+    await page.goto("/practice");
+    await expect(page.getByRole("heading", { name: "You're all caught up.", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Watch something on YouTube", exact: true })).toBeVisible();
+    await expect(page.getByText(/^Next practice:/).last()).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath("group3-queue-empty.png"), fullPage: true });
+  });
 });

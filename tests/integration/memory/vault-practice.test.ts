@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { createElement } from "react";
 
-import { DuePractice } from "@/features/practice/due-practice";
+import { TodayPractice } from "@/features/practice/today-practice";
+vi.mock("next/navigation",()=>({useRouter:()=>({push:vi.fn()})}));
 import { ExpressionCard } from "@/features/vault/expression-card";
 import { VaultList } from "@/features/vault/vault-list";
 import {
@@ -559,11 +560,13 @@ describe("Vault and due Practice boundaries", () => {
     expect(screen.queryByRole("heading", { name: "Attempt history" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Watch source/i })).not.toBeInTheDocument();
 
-    rerender(createElement(DuePractice, { key: "empty", tasks: [] }));
-    expect(screen.getByRole("heading", { name: "You are caught up" })).toBeInTheDocument();
-    rerender(createElement(DuePractice, { key: "due", tasks: [due] }));
-    expect(screen.getByRole("heading", { name: "Practice" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start practice" })).toBeInTheDocument();
+    const summary={reviewCount:0,secondTryCount:0,newCount:0,estimatedMinutes:0,needsAnalysisCount:0,processingCount:0,nextPracticeAt:null};
+    rerender(createElement(TodayPractice,{key:"empty",userId:USER,initialData:{summary,items:[]}}));
+    expect(screen.getByRole("heading",{name:"You're all caught up."})).toBeInTheDocument();
+    rerender(createElement(TodayPractice,{key:"due",userId:USER,initialData:{summary:{...summary,reviewCount:1,estimatedMinutes:2},items:[{id:due.reviewTaskId,kind:"review",reviewTaskId:due.reviewTaskId,userExpressionId:due.userExpressionId,expression:due.expression,meaningHere:due.englishMeaning,mastery:due.masteryState,dueAt:due.dueAt,overdueDays:0,roundNumber:null,sourceVideoTitle:null,sourceId:null}]}}));
+    expect(screen.getByRole("heading",{name:"Today's practice"})).toBeInTheDocument();
+    expect(screen.getByRole("link",{name:"Start"})).toHaveAttribute("href","/practice/session");
+    expect(screen.getByRole("link",{name:due.expression})).toHaveAttribute("href",`/practice/review/${due.reviewTaskId}?returnTo=%2Fpractice`);
     expect(document.body).not.toHaveTextContent(/queue/i);
   });
 

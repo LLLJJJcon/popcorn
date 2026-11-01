@@ -11,7 +11,7 @@ function rows(): SavedLibraryRows { return {
   artifacts: [], jobs: [],
   evidence: Array.from({ length: 7 }, (_, index) => ({ id: `s${index}`, userId, snapshotId, originalChinese: index === 3 ? "这杯咖啡高得要命" : `字幕第${index}行`, englishTranslation: null, startSeconds: index * 4, endSeconds: index * 4 + 2 })),
 }; }
-async function detail(data: SavedLibraryRows) { return createSavedLibraryService({ list: async () => data, detail: async () => data, home: async () => ({ duePracticeCount: 0, unsortedSaveCount: 0 }) }).detail(userId, sourceId); }
+async function detail(data: SavedLibraryRows) { return createSavedLibraryService({ list: async () => data, detail: async () => data }).detail(userId, sourceId); }
 it("uses preceding line for a player moment in a gap with a 3-before / 2-after context", async () => {
   const value = await detail(rows());
   expect(value?.items[0]).toMatchObject({ rawText: "这杯咖啡高得要命", targetSegments: [{ id: "s3", text: "这杯咖啡高得要命", startSeconds: 12, endSeconds: 14 }], contextBefore: ["字幕第0行", "字幕第1行", "字幕第2行"], contextAfter: ["字幕第4行", "字幕第5行"] });

@@ -118,6 +118,20 @@ function idsByTable(repository: MemoryRepository): Record<string, string[]> {
 }
 
 describe("deterministic classroom demo seed", () => {
+  it("keeps three distinct expression cards available for first practice alongside round scenarios", async () => {
+    const repository = new MemoryRepository([{ id: OWNER_A, email: "owner@example.com" }]);
+    await seedDemo({ repository, userSelector: OWNER_A, referenceNow: REFERENCE_NOW });
+    const drafts = [...repository.rows.get("practice_drafts")!.values()];
+    const newExpressions = [...repository.rows.get("generated_artifacts")!.values()].flatMap((artifact) => {
+      if (artifact.prompt_version !== "analyze-saved-item-v3") return [];
+      const cards = (artifact.content as { candidates: Record<string, unknown>[] }).candidates;
+      return cards.flatMap((card, index) => card.suitability === "expression" && !drafts.some((draft) =>
+        draft.candidate_artifact_id === artifact.id && draft.candidate_index === index,
+      ) ? [card.expression] : []);
+    });
+    expect(newExpressions.sort()).toEqual(["太离谱了", "慢慢来", "挺靠谱"]);
+  });
+
   it("covers group 1 automatic success, empty, fallback and analyzed/unanalysed marks", () => {
     const plan = buildDemoSeedPlan(OWNER_A, REFERENCE_NOW);
     const saves = rowsFor(plan, "saved_items");

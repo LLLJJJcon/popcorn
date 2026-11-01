@@ -11,10 +11,12 @@ import type { PracticeMaterialView } from "./material-schema";
 import { PracticeMaterial } from "./practice-material";
 import { practiceTaskHref, resolvePracticeReturnTarget } from "./return-target";
 import styles from "./practice-workspace.module.css";
+export type PracticeRemoval = { taskId: string; undoUntil: string; roundState: PracticeRoundState };
 const emptyRound: PracticeRoundState = { roundNumber: 1, status: "open", firstAnswer: null, latestRevision: null, examplesOpened: false, promotion: null, retryDueAt: null };
-export function PracticeSession({ material, savedReturnTarget, mode = "standalone", onNext, nextLabel = "Next", onCompleted, onRemoved, onRoundCreated }: {
-  readonly material: PracticeMaterialView; readonly savedReturnTarget: string | null; readonly mode?: "standalone" | "session"; readonly onNext?: () => void; readonly nextLabel?: "Next" | "Finish"; readonly onCompleted?: (state: PracticeRoundState) => void; readonly onRemoved?: () => void; readonly onRoundCreated?: (taskId: string) => void;
+export function PracticeSession({ material, savedReturnTarget, mode = "standalone", onNext, nextLabel = "Next", onCompleted, onRemoved, onRoundCreated, onPromotedElsewhere }: {
+  readonly material: PracticeMaterialView; readonly savedReturnTarget: string | null; readonly mode?: "standalone" | "session"; readonly onNext?: () => void; readonly nextLabel?: "Next" | "Finish"; readonly onCompleted?: (state: PracticeRoundState) => void; readonly onRemoved?: (receipt: PracticeRemoval) => void; readonly onRoundCreated?: (taskId: string) => void; readonly onPromotedElsewhere?: () => void;
 }) {
+  const Container = mode === "session" ? "section" : "main";
   const router = useRouter(), target = resolvePracticeReturnTarget(savedReturnTarget);
   const [round, setRound] = useState(material.roundState ?? emptyRound);
   const [text, setText] = useState((material.roundState?.latestRevision ?? material.roundState?.firstAnswer)?.text ?? "");
@@ -25,6 +27,8 @@ export function PracticeSession({ material, savedReturnTarget, mode = "standalon
   const [undoUntil, setUndoUntil] = useState<string | null>(null);
   const inFlight = useRef(false), nextRequestId = useRef<string | null>(null), slowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const formRef = useRef<HTMLFormElement>(null), inputTouched = useRef(false), retryAction = useRef<() => void>(() => {});
+  const emittedAnswer = useRef<string | null>(null), mounted = useRef(true);
+  function emitCompleted(state: PracticeRoundState) { const id = state.firstAnswer?.attemptId; if (id && emittedAnswer.current !== id) { emittedAnswer.current = id; onCompleted?.(state); } }
   const draftKey = `popcorn:answer:${material.task.id}`;
   const latest = round.latestRevision ?? round.firstAnswer;
   useEffect(() => {
@@ -41,10 +45,10 @@ export function PracticeSession({ material, savedReturnTarget, mode = "standalon
     const timer = setTimeout(() => { try { if (text) localStorage.setItem(draftKey, text); else localStorage.removeItem(draftKey); } catch { /* Keep the answer in memory. */ } }, 500);
     return () => clearTimeout(timer);
   }, [draftKey, editing, hydrated, text]);
-  useEffect(() => () => { if (slowTimer.current) clearTimeout(slowTimer.current); }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; if (slowTimer.current) clearTimeout(slowTimer.current); }; }, []);
   useEffect(() => {
     if (!undoUntil) return;
-    const timer = setTimeout(() => { setUndoUntil(null); if (mode === "session" && onRemoved) onRemoved(); else router.push(target.href); }, Math.max(0, Date.parse(undoUntil) - Date.now()));
+    const timer = setTimeout(() => { setUndoUntil(null); router.push(target.href); }, Math.max(0, Date.parse(undoUntil) - Date.now()));
     return () => clearTimeout(timer);
   }, [undoUntil, mode, onRemoved, router, target.href]);
   function applyResult(result: PracticeAttemptResponse): PracticeRoundState {
@@ -55,8 +59,9 @@ export function PracticeSession({ material, savedReturnTarget, mode = "standalon
     return state;
   }
   function handleError(caught: unknown, fallback = "provider") {
-    if (caught instanceof PracticeRequestError && caught.roundState) { setRound(caught.roundState); setText((caught.roundState.latestRevision ?? caught.roundState.firstAnswer)?.text ?? ""); setEditing(false); setNotice("You already answered this round. Here's your feedback."); try { localStorage.removeItem(draftKey); } catch {} return; }
-    if (caught instanceof PracticeRequestError && caught.userExpressionId) { router.push(`/vault/${caught.userExpressionId}`); return; }
+    if (!mounted.current) return;
+    if (caught instanceof PracticeRequestError && caught.roundState) { setRound(caught.roundState); setText((caught.roundState.latestRevision ?? caught.roundState.firstAnswer)?.text ?? ""); setEditing(false); setNotice("You already answered this round. Here's your feedback."); emitCompleted(caught.roundState); try { localStorage.removeItem(draftKey); } catch {} return; }
+    if (caught instanceof PracticeRequestError && caught.userExpressionId) { if (mode === "session") onPromotedElsewhere?.(); else router.push(`/vault/${caught.userExpressionId}`); return; }
     setError(caught instanceof PracticeRequestError && caught.code === "MODEL_GATEWAY_CONFIGURATION_REQUIRED" ? "gateway" : fallback);
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -66,27 +71,28 @@ export function PracticeSession({ material, savedReturnTarget, mode = "standalon
     inFlight.current = true; setBusy(true); setSlow(false); setError(null); setNotice(null);
     slowTimer.current = setTimeout(() => setSlow(true), 8_000);
     const isRevision = Boolean(round.firstAnswer);
-    try { const result = isRevision ? await submitAttemptRevision(round.firstAnswer!.attemptId, text) : await submitOriginalAttempt(material.task.id, text); const state = applyResult(result); if (!isRevision) onCompleted?.(state); }
+    try { const result = isRevision ? await submitAttemptRevision(round.firstAnswer!.attemptId, text) : await submitOriginalAttempt(material.task.id, text); if (!mounted.current) return; const state = applyResult(result); if (!isRevision) emitCompleted(state); }
     catch (caught) { handleError(caught); }
     finally { if (slowTimer.current) clearTimeout(slowTimer.current); setSlow(false); setBusy(false); inFlight.current = false; }
   }
   async function newRound() {
-    if (inFlight.current) return; inFlight.current = true; setBusy(true); setError(null);
+    if (inFlight.current) return; inFlight.current = true; setBusy(true); setError(null); setSlow(false);
+    slowTimer.current = setTimeout(() => setSlow(true), 8_000);
     retryAction.current = () => void newRound();
     nextRequestId.current ??= crypto.randomUUID();
-    try { const result = await startPracticeRound(material.task.id, nextRequestId.current); if (onRoundCreated) onRoundCreated(result.taskId); else router.push(practiceTaskHref(result.taskId, target.href)); }
-    catch (caught) { handleError(caught, "preparation"); } finally { inFlight.current = false; setBusy(false); }
+    try { const result = await startPracticeRound(material.task.id, nextRequestId.current); if (!mounted.current) return; if (onRoundCreated) onRoundCreated(result.taskId); else router.push(practiceTaskHref(result.taskId, target.href)); }
+    catch (caught) { handleError(caught, "preparation"); } finally { if (slowTimer.current) clearTimeout(slowTimer.current); setSlow(false); inFlight.current = false; setBusy(false); }
   }
   async function remove() {
     retryAction.current = () => void remove();
     if (inFlight.current) return; inFlight.current = true; setBusy(true); setError(null);
-    try { const result = await removePractice(material.task.id); setRound(result.roundState); setUndoUntil(result.undoUntil); }
+    try { const result = await removePractice(material.task.id); if (!mounted.current) return; setRound(result.roundState); if (mode === "session" && onRemoved) onRemoved({taskId: material.task.id, undoUntil: result.undoUntil, roundState: result.roundState}); else setUndoUntil(result.undoUntil); }
     catch (caught) { handleError(caught); } finally { inFlight.current = false; setBusy(false); }
   }
   async function undo() {
     retryAction.current = () => void undo();
     if (inFlight.current) return; inFlight.current = true; setBusy(true); setError(null);
-    try { const result = await restorePractice(material.task.id); setRound(result.roundState); setUndoUntil(null); }
+    try { const result = await restorePractice(material.task.id); if (!mounted.current) return; setRound(result.roundState); setUndoUntil(null); }
     catch (caught) { handleError(caught); } finally { inFlight.current = false; setBusy(false); }
   }
   function revise() { setEditing(true); setText(latest?.text ?? ""); setError(null); }
@@ -99,10 +105,10 @@ export function PracticeSession({ material, savedReturnTarget, mode = "standalon
   }
   const full = latest && evaluationDimensions(latest.evaluation).every(d => d.result.score === 5);
   const actions = <div className={styles.buttonRow}>
-    {mode === "session" && onNext ? <button type="button" className={styles.primaryButton} onClick={onNext}>{nextLabel}</button> : round.promotion ? <Link className={styles.primaryButton} href={`/vault/${round.promotion.userExpressionId}`}>Open in Vault</Link> : <button type="button" className={styles.primaryButton} disabled={busy} onClick={() => void newRound()}>Try a new situation</button>}
+    {mode === "session" && onNext ? <button type="button" className={styles.primaryButton} disabled={busy || examplesPending} onClick={onNext}>{nextLabel}</button> : round.promotion ? <Link className={styles.primaryButton} href={`/vault/${round.promotion.userExpressionId}`}>Open in Vault</Link> : <button type="button" className={styles.primaryButton} disabled={busy} onClick={() => void newRound()}>Try a new situation</button>}
     {round.promotion ? mode === "session" ? null : <Link href={target.href} className={styles.secondaryButton}>Back to {target.label}</Link> : <>{mode === "session" ? <button type="button" className={styles.secondaryButton} disabled={busy} onClick={() => void newRound()}>Try a new situation</button> : null}{!full && !round.latestRevision?.evaluation.passed ? <button type="button" className={styles.secondaryButton} disabled={busy} onClick={revise}>Revise this answer</button> : null}<button type="button" className={styles.tertiaryButton} disabled={busy} onClick={() => void remove()}><span aria-hidden="true">−</span>Remove from practice</button></>}
   </div>;
-  return <main><PracticeMaterial material={{ ...material, roundState: round }} navigation={<p className={styles.savedReturnLink}><Link href={target.href}>← Back to {target.label}</Link></p>} examplesOpened={round.examplesOpened} onExamplesPendingChange={setExamplesPending} onExamplesOpen={async () => { await openPracticeExamples(material.task.id); setRound(current => ({ ...current, examplesOpened: true })); }}>
+  return <Container><PracticeMaterial headingLevel={mode === "session" ? 2 : 1} material={{ ...material, roundState: round }} navigation={mode === "session" ? null : <p className={styles.savedReturnLink}><Link href={target.href}>← Back to {target.label}</Link></p>} examplesOpened={round.examplesOpened} onExamplesPendingChange={setExamplesPending} onExamplesOpen={async () => { await openPracticeExamples(material.task.id); setRound(current => ({ ...current, examplesOpened: true })); }}>
     {notice ? <p role="status">{notice}</p> : null}
     {round.status === "removed" ? <section><p>Removed from practice.</p>{undoUntil ? <button type="button" className={styles.secondaryButton} disabled={busy} onClick={() => void undo()}>Undo</button> : <Link href={target.href} className={styles.secondaryButton}>Back to {target.label}</Link>}</section> : <>
       {editing ? <>{round.firstAnswer ? <section className={styles.firstAnswer}><h3>Your first answer</h3><p lang="zh-CN">{round.firstAnswer.text}</p><p>{evaluationDimensions(round.firstAnswer.evaluation).map(d => `${d.name} ${d.result.score}/5`).join(" · ")}</p></section> : null}<form ref={formRef} className={styles.responseForm} onSubmit={submit}>
@@ -117,5 +123,5 @@ export function PracticeSession({ material, savedReturnTarget, mode = "standalon
     </>}
     {busy ? <p role="status" className={styles.checking}>Checking your Chinese…</p> : null}{slow ? <p role="status">Your configured model is still working. Your answer is still here.</p> : null}
     {error ? <div className={styles.alert} role="alert">{error === "chinese" ? "Write your answer in Chinese." : error === "gateway" ? <>Connect a model to continue. <Link href="/settings/model-gateway">Set up model gateway</Link></> : <>{error === "preparation" ? "We couldn't prepare a situation." : "The model didn't respond. Your answer is still here."} <button type="button" className={styles.tertiaryButton} onClick={() => retryAction.current()}>Try again</button></>}</div> : null}
-  </PracticeMaterial></main>;
+  </PracticeMaterial></Container>;
 }
