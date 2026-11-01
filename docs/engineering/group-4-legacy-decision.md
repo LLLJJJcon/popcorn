@@ -1,4 +1,16 @@
-# Group 4 legacy metadata decision — product review required
+# Group 4 legacy metadata decision — source-grounded upgrade approved
+
+## 2026-11-01 user decision, superseding the earlier alternatives
+
+The user requested “将旧记录同步更新”, then explicitly approved “允许按原来源补齐新版学习卡（推荐）” in response to a question specifying additional model calls, modern learning-card fields and preservation of existing questions, answers, mastery and schedules. This selects metadata modernization using retained original evidence; it does **not** approve the raw-field legacy-generation prompt in option B below.
+
+Use exact owned existing modern cards where provable; otherwise the expressly authorized upgrade may reuse the unchanged Analyze-v3 prompt against the original owned subtitle occurrence. Do not reinterpret free-text legacy descriptions as enums, match different senses by spelling, modify old learning history or introduce a production template bank. Already-prepared historical questions retain their old compatibility contract; subsequent newly prepared questions use modern generation/v5 when the modern card is available.
+
+The controller's read-only current-account audit found7 senses,1 valid modern and6 fully empty modern cards with retained sources,0 partial. No upgrade model call or personal-data write has occurred yet. Source ambiguity, deletion, partial edits and invalid/not-expression outputs must be reported rather than forcibly overwritten. Explicit one-time application, private operation receipts, provenance/CAS/source/consent fences and independent testing are specified in [the upgrade design](../superpowers/specs/2026-11-01-legacy-learning-card-upgrade-design.md). A fresh builder review found no important missing decision.
+
+The original proposal's SHA256 at the time of the question was `fb575beb7647c65d571833d5c4d3f5154cfb43b4b7299ff13c379053b346a0b2`. Its A/B/C alternatives and exact B prompt are retained below as historical review material, not implementation authorization. The new approved upgrade remains to be implemented and independently accepted before application/merge.
+
+## Original proposal retained for audit
 
 2026-11-01. Proposal only: no production legacy-generation prompt or missing-metadata behavior has been implemented. Modern8.6 work can proceed independently. Existing prepared legacy tasks remain readable with their original question and v4 evaluation; they are never rewritten into modern questions.
 
