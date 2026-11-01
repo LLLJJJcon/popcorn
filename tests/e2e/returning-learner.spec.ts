@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
+import { buildAnalyzeMarkedExpressionsPrompt, createAnalyzeMarkedExpressionsFixtureGateway, normalizeMarkedAnalysisWire } from "../../src/server/ai/prompts/analyze-saved-item.v3";
 import { runSavedLearningLoopCleanup } from "./saved-learning-loop-cleanup";
 
 const USER_ID = "53000000-0000-4000-8000-000000000001";
@@ -53,6 +54,8 @@ where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
 delete from public.expression_occurrences
 where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
 delete from public.expression_senses
+where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
+delete from public.generated_artifacts
 where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
 delete from public.saved_items
 where user_id = '53000000-0000-4000-8000-000000000001'::uuid;
@@ -225,6 +228,28 @@ test.beforeAll(async () => {
     updated_at: createdAt,
   });
   expect(save.error).toBeNull();
+
+  const highlightId = "53000000-0000-4000-8000-000000000014";
+  const evidence = "这件事真的太离谱了。";
+  const startOffset = evidence.indexOf(EXPRESSION);
+  const highlight = await admin.from("saved_item_highlights").insert({ id: highlightId, user_id: USER_ID, saved_item_id: SAVE_ID,
+    start_segment_id: SEGMENT_ID, end_segment_id: SEGMENT_ID, start_offset: startOffset, end_offset: startOffset + EXPRESSION.length,
+    text: EXPRESSION, origin: "user", status: "active", removed_at: null, created_at: createdAt });
+  expect(highlight.error).toBeNull();
+  const prompt = buildAnalyzeMarkedExpressionsPrompt({ lines: [{ line: 1, role: "TARGET", text: evidence }], highlights: [{ id: "h1", text: EXPRESSION, line: 1 }] });
+  const wire = await createAnalyzeMarkedExpressionsFixtureGateway().complete("analyze-saved-item-v3", prompt.userPrompt,
+    { systemPrompt: prompt.systemPrompt, timeoutMs: 30_000, maxTokens: 600, normalize: normalizeMarkedAnalysisWire });
+  const { id: shortId, ...fields } = wire.cards[0];
+  expect(shortId).toBe("h1");
+  const artifact = await admin.from("generated_artifacts").insert({ id: "53000000-0000-4000-8000-000000000015", user_id: USER_ID,
+    video_source_id: SOURCE_ID, saved_item_id: SAVE_ID, artifact_type: "saved_item_analysis", native_language: "en", target_language: "zh-CN",
+    prompt_version: "analyze-saved-item-v3", model: "fixture/analyze-saved-item-v3", result_key: "a".repeat(64), created_at: createdAt,
+    content: { candidates: [{ expression: EXPRESSION, ...fields, highlightId,
+      highlightKey: JSON.stringify([SEGMENT_ID, startOffset, SEGMENT_ID, startOffset + EXPRESSION.length, EXPRESSION]),
+      englishMeaning: fields.meaningHere, englishExplanation: fields.useItWhen, tone: fields.toneAndWho,
+      communicativeFunction: "other", register: "casual_chat", evidenceText: evidence, segmentIds: [SEGMENT_ID], startSeconds: 42, endSeconds: 45 }],
+      highlightStates: [{ highlightId, text: EXPRESSION, status: "ready" }] } });
+  expect(artifact.error).toBeNull();
 
   const sense = await admin.from("expression_senses").insert({
     id: SENSE_ID,
@@ -404,6 +429,17 @@ test("a returning learner completes due Practice without increasing saved volume
   expect(savesBefore.error).toBeNull();
   expect(savesBefore.count).toBe(1);
 
+  await page.goto(`/saved/${SOURCE_ID}`);
+  const saved = page.locator(`#saved-item-${SAVE_ID}`);
+  await expect(saved.getByTestId("raw-text").locator("mark")).toHaveText(EXPRESSION);
+  const card = saved.locator("article").filter({ has: page.getByRole("heading", { name: EXPRESSION, exact: true }) });
+  await expect(card.getByText("Meaning here", { exact: true })).toBeVisible();
+  await expect(card.getByText("Used to:", { exact: true })).toBeVisible();
+  await expect(card.getByText("Good for:", { exact: true })).toBeVisible();
+  await expect(saved.getByRole("button", { name: "Analyze", exact: true })).toBeDisabled();
+  await card.getByText("More", { exact: true }).click();
+  await expect(card.getByText("How it fits", { exact: true })).toBeVisible();
+  await expect(card.getByText("Tone & who", { exact: true })).toBeVisible();
   await page.goto("/progress");
   await expect(page.getByRole("heading", { name: "Your Mandarin in use" })).toBeVisible();
   await expect(metric(page, "Weekly learning evidence", "Attempts this week")).toHaveText("0");
@@ -437,7 +473,7 @@ test("a returning learner completes due Practice without increasing saved volume
     ),
     page.getByRole("button", { name: "Check my response" }).click(),
   ]);
-  expect(completionResponse.status()).toBe(201);
+  expect(completionResponse.status(), `Due completion: ${await completionResponse.text()}`).toBe(201);
   await expect(page.getByText("Mastery moved from tried to reused.", { exact: false })).toBeVisible();
 
   await page.goto("/progress");

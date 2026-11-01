@@ -1,0 +1,265 @@
+[
+  {
+    "id": "cards-1",
+    "input": {
+      "task": "learning_cards",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "这边的房价高得要命"
+        }
+      ],
+      "highlights": [
+        {
+          "id": "h1",
+          "text": "高得要命",
+          "line": 1
+        }
+      ]
+    },
+    "expect": {
+      "fields": {
+        "sameIdsAndOrder": true,
+        "oneCardPerHighlight": true,
+        "noExpressionField": true,
+        "englishMaxWords": 40,
+        "examplesCount": 2,
+        "exampleZhMaxCharacters": 30,
+        "examplesContainExactMark": true,
+        "validEnums": true
+      },
+      "suitability": "expression",
+      "primaryFunctionAny": [
+        "complain",
+        "emphasize"
+      ],
+      "comparedWithAny": [
+        "很高",
+        "非常高"
+      ],
+      "examplesMustNotContain": [
+        "房价"
+      ],
+      "manualReview": [
+        "Alternative may be another similarly plain form.",
+        "Examples use two different everyday topics, neither house prices."
+      ]
+    }
+  },
+  {
+    "id": "cards-2",
+    "input": {
+      "task": "learning_cards",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "说白了，就是没钱"
+        }
+      ],
+      "highlights": [
+        {
+          "id": "h1",
+          "text": "说白了",
+          "line": 1
+        }
+      ]
+    },
+    "expect": {
+      "fields": {
+        "sameIdsAndOrder": true,
+        "oneCardPerHighlight": true,
+        "noExpressionField": true,
+        "englishMaxWords": 40,
+        "examplesCount": 2,
+        "exampleZhMaxCharacters": 30,
+        "examplesContainExactMark": true,
+        "validEnums": true
+      },
+      "suitability": "expression",
+      "primaryFunctionAny": [
+        "explain_sum_up"
+      ],
+      "comparedWithAny": [
+        "简单地说",
+        "简而言之"
+      ],
+      "manualReview": [
+        "Alternative may be a similar plain phrase."
+      ]
+    }
+  },
+  {
+    "id": "cards-3",
+    "input": {
+      "task": "learning_cards",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "我叫李明"
+        }
+      ],
+      "highlights": [
+        {
+          "id": "h1",
+          "text": "李明",
+          "line": 1
+        }
+      ]
+    },
+    "expect": {
+      "fields": {
+        "sameIdsAndOrder": true,
+        "oneCardPerHighlight": true,
+        "noExpressionField": true,
+        "englishMaxWords": 40,
+        "examplesCount": 2,
+        "exampleZhMaxCharacters": 30,
+        "examplesContainExactMark": true,
+        "validEnums": true
+      },
+      "suitability": "not_expression",
+      "reasonRequired": true,
+      "manualReview": [
+        "Reason identifies a personal name."
+      ]
+    }
+  },
+  {
+    "id": "cards-4",
+    "input": {
+      "task": "learning_cards",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "话虽如此，我还是想试试"
+        }
+      ],
+      "highlights": [
+        {
+          "id": "h1",
+          "text": "话虽如此",
+          "line": 1
+        }
+      ]
+    },
+    "expect": {
+      "fields": {
+        "sameIdsAndOrder": true,
+        "oneCardPerHighlight": true,
+        "noExpressionField": true,
+        "englishMaxWords": 40,
+        "examplesCount": 2,
+        "exampleZhMaxCharacters": 30,
+        "examplesContainExactMark": true,
+        "validEnums": true
+      },
+      "suitability": "expression",
+      "primaryFunctionAny": [
+        "concede_contrast"
+      ],
+      "mayIncludeUsageSettings": [
+        "work_school"
+      ],
+      "manualReview": [
+        "Concession and contrast are explained naturally."
+      ]
+    }
+  },
+  {
+    "id": "cards-5",
+    "input": {
+      "task": "learning_cards",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "他还真有两把刷子"
+        }
+      ],
+      "highlights": [
+        {
+          "id": "h1",
+          "text": "有两把刷子",
+          "line": 1
+        }
+      ]
+    },
+    "expect": {
+      "fields": {
+        "sameIdsAndOrder": true,
+        "oneCardPerHighlight": true,
+        "noExpressionField": true,
+        "englishMaxWords": 40,
+        "examplesCount": 2,
+        "exampleZhMaxCharacters": 30,
+        "examplesContainExactMark": true,
+        "validEnums": true
+      },
+      "suitability": "expression",
+      "primaryFunctionAny": [
+        "praise"
+      ],
+      "toneAny": [
+        "casual",
+        "informal",
+        "colloquial",
+        "spoken",
+        "conversational"
+      ],
+      "manualReview": [
+        "Tone is conversational and not formal."
+      ]
+    }
+  },
+  {
+    "id": "cards-6",
+    "input": {
+      "task": "learning_cards",
+      "lines": [
+        {
+          "line": 1,
+          "role": "TARGET",
+          "text": "说白了，房价高得要命，但我心里有数。"
+        }
+      ],
+      "highlights": [
+        {
+          "id": "h1",
+          "text": "说白了",
+          "line": 1
+        },
+        {
+          "id": "h2",
+          "text": "高得要命",
+          "line": 1
+        },
+        {
+          "id": "h3",
+          "text": "心里有数",
+          "line": 1
+        }
+      ]
+    },
+    "expect": {
+      "fields": {
+        "sameIdsAndOrder": true,
+        "oneCardPerHighlight": true,
+        "noExpressionField": true,
+        "englishMaxWords": 40,
+        "examplesCount": 2,
+        "exampleZhMaxCharacters": 30,
+        "examplesContainExactMark": true,
+        "validEnums": true
+      },
+      "cardCount": 3,
+      "manualReview": [
+        "Each card keeps the exact supplied id and expression identity.",
+        "No expression text field is returned."
+      ]
+    }
+  }
+]

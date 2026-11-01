@@ -10,6 +10,9 @@ import {
   type DemoSeedRow,
   type DemoTable,
 } from "../../../scripts/seed-demo";
+import { candidateMatchesHighlight } from "../../../src/server/jobs/handlers/marked-learning-cards";
+import { CandidateExpressionSchema } from "../../../src/contracts/knowledge";
+import { SavedHighlightSchema } from "../../../src/contracts/highlights";
 import { DEMO_VIDEO } from "../../fixtures/demo/youtube-video";
 import transcript from "../../fixtures/demo/transcript.zh-CN.json";
 import artifacts from "../../fixtures/demo/generated-artifacts.json";
@@ -93,6 +96,32 @@ function idsByTable(repository: MemoryRepository): Record<string, string[]> {
 }
 
 describe("deterministic classroom demo seed", () => {
+  it("covers group 1 automatic success, empty, fallback and analyzed/unanalysed marks", () => {
+    const plan = buildDemoSeedPlan(OWNER_A, REFERENCE_NOW);
+    const saves = rowsFor(plan, "saved_items");
+    const marks = rowsFor(plan, "saved_item_highlights");
+    const modern = rowsFor(plan, "generated_artifacts").filter(row => row.prompt_version === "analyze-saved-item-v3");
+    expect(saves.some(row => row.highlight_status === "ready" && marks.some(mark => mark.saved_item_id === row.id && mark.origin === "model"))).toBe(true);
+    expect(saves.some(row => row.highlight_status === "ready" && !marks.some(mark => mark.saved_item_id === row.id))).toBe(true);
+    expect(saves.some(row => row.highlight_status === "unavailable")).toBe(true);
+    const cards = modern.flatMap(row => (row.content as { candidates: Record<string, unknown>[] }).candidates);
+    for (const card of cards) {
+      const mark = marks.find(mark => mark.id === card.highlightId)!;
+      const recreated = SavedHighlightSchema.parse({ id: OWNER_B, savedItemId: mark.saved_item_id,
+        startSegmentId: mark.start_segment_id, endSegmentId: mark.end_segment_id, startOffset: mark.start_offset,
+        endOffset: mark.end_offset, text: mark.text, origin: mark.origin, reasonEn: mark.reason_en,
+        status: "active" });
+      expect(candidateMatchesHighlight(CandidateExpressionSchema.parse(card), recreated)).toBe(true);
+    }
+    expect(cards.some(card => card.suitability === "not_expression" && card.notExpressionReasonEn)).toBe(true);
+    expect(marks.some(mark => cards.some(card => card.highlightId === mark.id))).toBe(true);
+    expect(marks.some(mark => !cards.some(card => card.highlightId === mark.id))).toBe(true);
+    for (const mark of marks) {
+      const segment = rowsFor(plan, "transcript_segments").find(row => row.stable_id === mark.start_segment_id);
+      expect(String(segment?.original_chinese).slice(Number(mark.start_offset), Number(mark.end_offset))).toBe(mark.text);
+    }
+  });
+
   it("uses a short fixture-only zh-CN YouTube snapshot with no media fields", () => {
     expect(DEMO_VIDEO).toMatchObject({
       youtubeVideoId: "PopcornD3mo",
@@ -480,6 +509,21 @@ describe("deterministic classroom demo seed", () => {
       userSelector: "duplicate@example.com",
       referenceNow: REFERENCE_NOW,
     })).rejects.toThrow(/exactly one existing local account/i);
+  });
+
+  it("never resets existing mastery, review scheduling or edited marks on a later seed run", async () => {
+    const repository = new MemoryRepository([{ id: OWNER_A, email: "owner@example.com" }]);
+    await seedDemo({ repository, userSelector: OWNER_A, referenceNow: REFERENCE_NOW });
+    const expression = [...repository.rows.get("user_expressions")!.values()][0];
+    const pending = [...repository.rows.get("review_tasks")!.values()].find(row => row.user_expression_id === expression.id && row.status === "pending")!;
+    const mark = [...repository.rows.get("saved_item_highlights")!.values()][0];
+    repository.rows.get("user_expressions")!.set(expression.id, { ...expression, mastery_state: "owned" });
+    repository.rows.get("review_tasks")!.set(pending.id, { ...pending, due_at: "2027-01-01T00:00:00.000Z", interval_days: 30 });
+    repository.rows.get("saved_item_highlights")!.set(mark.id, { ...mark, status: "removed", removed_at: REFERENCE_NOW });
+    await seedDemo({ repository, userSelector: OWNER_A, referenceNow: "2026-11-01T12:00:00.000Z" });
+    expect(repository.rows.get("user_expressions")!.get(expression.id)?.mastery_state).toBe("owned");
+    expect(repository.rows.get("review_tasks")!.get(pending.id)).toMatchObject({ due_at: "2027-01-01T00:00:00.000Z", interval_days: 30 });
+    expect(repository.rows.get("saved_item_highlights")!.get(mark.id)?.status).toBe("removed");
   });
 
   it("is network-free, owner-scoped, idempotent, and leaves unrelated rows untouched", async () => {

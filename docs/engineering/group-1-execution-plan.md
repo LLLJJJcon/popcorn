@@ -39,25 +39,29 @@ Shared-file/interface scan: A/B share only existing highlight/card interfaces; A
 
 ## Task A: Backend reconciliation
 
-- [ ] Complete all four checks in 4.12, report conclusion + evidence + impact, and flag any user-visible conflict before implementation.
-- [ ] Write failing tests for uncovered section 4 / 8.0–8.2 behavior; run them and record RED evidence.
-- [ ] Apply exact prompt text, input framing/short IDs and line references, prescribed deterministic fixtures, shared constants and any confirmed runtime gaps. Preserve retry and promotion invariants.
-- [ ] Run covering backend/contract/integration tests and return exact commands, output, changed paths and unresolved items.
+- [x] Complete all four checks in 4.12, report conclusion + evidence + impact, and flag any user-visible conflict before implementation.
+- [x] Write failing tests for uncovered section 4 / 8.0–8.2 behavior; run them and record RED evidence.
+- [x] Apply exact prompt text, input framing/short IDs and line references, prescribed deterministic fixtures, shared constants and any confirmed runtime gaps. Preserve retry and promotion invariants.
+- [x] Run covering backend/contract/integration tests and return exact commands, output, changed paths and unresolved items.
 
 ## Task B: Saved UI reconciliation
 
-- [ ] Map 4.5–4.8 and 4.13 to existing UI and tests, retaining completed work.
-- [ ] Add meaningful failing interaction tests for uncovered Mark POST/selection/replacement/persistence, undo, status, Analyze and card behavior.
-- [ ] Make only necessary fixes within the allowlist; preserve all specified English copy and legacy cards.
-- [ ] Run focused UI/extension tests and return evidence and remaining browser-verification needs.
+- [x] Map 4.5–4.8 and 4.13 to existing UI and tests, retaining completed work.
+- [x] Add meaningful interaction tests for uncovered Mark POST/selection/replacement/persistence, undo, status, Analyze and card behavior. Existing editing logic passed directly; no artificial failing implementation condition was introduced.
+- [x] Make only necessary fixes within the allowlist; preserve all specified English copy and legacy cards.
+- [x] Run focused UI/extension tests and return evidence and remaining browser-verification needs. Backend agent corrected unsupported Testing Library role-query options after cross-task typecheck; controller reran 30 focused tests and typecheck successfully.
 
 ## Task C: Demo and prompt verification tooling
 
-- [ ] Extend `scripts/seed-demo.ts` with every group 1 state in 15.1, using owner-scoped deterministic/idempotent fixtures; add seed assertions.
-- [ ] Add the six prescribed samples for each group 1 prompt under `tests/prompt-golden/`, with input/expect constraints. Test prompt text, normalization and fixture validity without requiring fixture semantics to imitate a live model.
-- [ ] Add `scripts/try-prompts.ts` and `pnpm prompts:try -- <prompt-version>`; real calls are opt-in, use the existing configured gateway, and write bounded output/expect comparisons to `docs/engineering/prompt-runs/`. No credentials or user responses in logs.
-- [ ] Update both named E2E suites for group 1 while preserving existing practice/review behavior, and ensure extension default test command includes new save-payload coverage.
-- [ ] Run covering tests and return command/output evidence; do not claim live quality without a real run.
+- [x] Extend `scripts/seed-demo.ts` with every group 1 state in 15.1, using owner-scoped deterministic/idempotent fixtures; add seed assertions.
+- [x] Add the six prescribed samples for each group 1 prompt under `tests/prompt-golden/`, with input/expect constraints. Test prompt text, normalization and fixture validity without requiring fixture semantics to imitate a live model.
+- [x] Add `scripts/try-prompts.ts` and `pnpm prompts:try -- <prompt-version>`; real calls are opt-in, use the existing configured gateway, and write bounded output/expect comparisons to `docs/engineering/prompt-runs/`. No credentials or user responses in logs.
+- [x] Update both named E2E suites for group 1 while preserving existing practice/review behavior, and ensure extension default test command includes new save-payload coverage.
+- [x] Run covering tests and return command/output evidence; do not claim live quality without a real run. Implementer evidence: 63 focused, 180 extension, 4 E2E; typecheck/lint passed. Independent review caught missing stable card keys in demo/E2E seeds; implementer added keys and regression coverage.
+
+### Freeze boundary
+
+At final freeze, two concurrent unassigned working-tree edits appeared: `src/server/ai/openai-compatible-provider.ts` and `tests/integration/model-gateway/structured-json-gateway.test.ts`. They introduce model-specific thinking/token behavior, including increasing Analyze's prescribed budget. They are preserved in the user's workspace, excluded from this group's commits, and excluded from the frozen acceptance snapshot. This run does not approve or implement those changes. Final verification targets the exact committed group 1 snapshot in a temporary directory, with separate build artifacts and no copied dotenv files.
 
 ## Task D: Independent acceptance and checkpoint
 

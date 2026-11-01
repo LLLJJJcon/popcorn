@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type BrowserContext } from "@playwright/test";
 
+import { completeFixtureAnalysis, selectUnmarkedText } from "./group-one-fixtures";
 import { runSavedLearningLoopCleanup } from "./saved-learning-loop-cleanup";
 
 const USER_ID = "52000000-0000-4000-8000-000000000001";
@@ -10,7 +11,6 @@ const SNAPSHOT_ID = "52000000-0000-4000-8000-000000000003";
 const SEGMENT_ID = "e2e-saved-analysis-segment";
 const ACTION_SAVE_ID = "52000000-0000-4000-8000-000000000011";
 const IGNORED_SAVE_ID = "52000000-0000-4000-8000-000000000012";
-const ARTIFACT_ID = "52000000-0000-4000-8000-000000000013";
 const EVIDENCE_TEXT = "这个表达在口语里很常见。";
 const EXPRESSION = "这个表达";
 const FIXTURE_EMAIL = "learning-loop@popcorn.test";
@@ -70,6 +70,9 @@ delete from public.saved_items
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
 delete from public.video_snapshots
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
+-- Remove the reserved fake credential, including remnants of an interrupted test.
+delete from vault.secrets
+where name = 'popcorn:model-gateway:52000000-0000-4000-8000-000000000014';
 delete from private.user_model_gateway_secrets
 where user_id = '52000000-0000-4000-8000-000000000001'::uuid;
 delete from public.user_model_gateway_configs
@@ -320,36 +323,6 @@ test.beforeAll(async () => {
   ]);
   expect(saves.error).toBeNull();
 
-  const artifact = await admin.from("generated_artifacts").insert({
-    id: ARTIFACT_ID,
-    user_id: USER_ID,
-    video_source_id: SOURCE_ID,
-    saved_item_id: ACTION_SAVE_ID,
-    artifact_type: "saved_item_analysis",
-    native_language: "en",
-    target_language: "zh-CN",
-    content: {
-      candidates: [{
-        expression: EXPRESSION,
-        englishMeaning: "This expression.",
-        englishExplanation: "A phrase highlighted as common in everyday spoken Mandarin.",
-        tone: "Neutral and conversational.",
-        communicativeFunction: "Referring to the expression under discussion.",
-        register: "Everyday spoken Mandarin.",
-        evidenceText: EVIDENCE_TEXT,
-        segmentIds: [SEGMENT_ID],
-        startSeconds: 4,
-        endSeconds: 9,
-        confidence: 0.9,
-      }],
-    },
-    prompt_version: "analyze-saved-item-v1",
-    model: "fixture/saved-analysis-v1",
-    result_key: "b".repeat(64),
-    created_at: createdAt,
-  });
-  expect(artifact.error).toBeNull();
-
   const ignored = await admin.from("saved_items")
     .select("status,payload,start_seconds,snapshot_id,updated_at")
     .eq("id", IGNORED_SAVE_ID).eq("user_id", USER_ID).single();
@@ -379,12 +352,61 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   await navigation.getByRole("link", { name: "Saved", exact: true }).click();
   await expect(page).toHaveURL(/\/saved$/);
   await expect(page.getByRole("heading", { name: "Saved" })).toBeVisible();
-  await page.getByRole("link", { name: "E2E 中文学习示例" }).click();
+  await Promise.all([
+    page.waitForResponse(response => response.request().method() === "GET" && new URL(response.url()).pathname === `/api/v1/saved-items/${ACTION_SAVE_ID}/candidates`),
+    page.getByRole("link", { name: "E2E 中文学习示例" }).click(),
+  ]);
   await expect(page.getByRole("heading", { name: "Saved moments" })).toBeVisible();
-  await expect(page.getByTestId("raw-text").filter({ hasText: EVIDENCE_TEXT })).toBeVisible();
-  const candidate = page.getByRole("heading", { name: EXPRESSION, exact: true }).locator("..");
-  await expect(candidate.getByText(EVIDENCE_TEXT, { exact: true })).toBeVisible();
-  await expect(candidate.getByRole("link", { name: "Watch at 0:04" })).toBeVisible();
+  const saved = page.locator(`#saved-item-${ACTION_SAVE_ID}`);
+  const raw = saved.getByTestId("raw-text");
+  await expect(raw).toContainText(EVIDENCE_TEXT);
+  await expect(saved.getByRole("button", { name: "Analyze", exact: true })).toBeDisabled();
+  await expect(saved.getByRole("status").filter({ hasText: "Mark an expression to get started." })).toBeVisible();
+  await selectUnmarkedText(raw, EXPRESSION);
+  await expect(saved.getByRole("button", { name: "Mark", exact: true })).toBeVisible();
+  const [markResponse] = await Promise.all([
+    page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/v1/saved-items/${ACTION_SAVE_ID}/highlights`, { timeout: 10000 }),
+    saved.getByRole("button", { name: "Mark", exact: true }).click(),
+  ]);
+  expect(markResponse.status()).toBe(200);
+  await expect(raw.locator("mark")).toHaveText(EXPRESSION);
+
+  // A configured, consenting owner pin is still required for Analyze registration.
+  // This key is fake; this suite uses the deterministic fixture gateway only.
+  const configId = "52000000-0000-4000-8000-000000000014";
+  const config = await admin.rpc("create_user_model_gateway_config", { p_user_id: USER_ID, p_config_id: configId,
+    p_canonical_origin: "https://api.example.com", p_base_path: "/v1", p_display_name: "E2E fixture", p_model: "fixture/analyze-saved-item-v3",
+    p_api_key: "e2e-fake-key-not-a-credential", p_now: new Date().toISOString() });
+  expect(config.error).toBeNull();
+  const consent = await admin.rpc("activate_user_model_gateway_config", { p_user_id: USER_ID, p_config_id: configId,
+    p_exact_origin: "https://api.example.com/v1", p_policy_version: "model-egress-v1", p_now: new Date().toISOString() });
+  expect(consent.error).toBeNull();
+  expect(consent.data).toBe(true);
+  const [analysisResponse] = await Promise.all([
+    page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/v1/saved-items/${ACTION_SAVE_ID}/candidates`),
+    saved.getByRole("button", { name: "Analyze", exact: true }).click(),
+  ]);
+  expect(analysisResponse.status()).toBe(202);
+  const registration = await analysisResponse.json();
+  await completeFixtureAnalysis(admin, registration.data.jobId, USER_ID);
+  const candidate = saved.locator("article").filter({ has: page.getByRole("heading", { name: EXPRESSION, exact: true }) });
+  await expect(candidate.getByText("Meaning here", { exact: true })).toBeVisible();
+  await expect(candidate.getByText("Compared with", { exact: true })).toBeVisible();
+  await expect(candidate.getByText(`${EXPRESSION}，真的。`, { exact: true })).toBeVisible();
+  await expect(candidate.getByRole("link", { name: "Watch at 0:04 on YouTube" })).toBeVisible();
+  await expect(saved.getByRole("button", { name: "Analyze", exact: true })).toBeDisabled();
+  const analyzed = await admin.from("generated_artifacts").select("prompt_version,content").eq("user_id", USER_ID).eq("saved_item_id", ACTION_SAVE_ID).single();
+  expect(analyzed.error).toBeNull();
+  expect(analyzed.data?.prompt_version).toBe("analyze-saved-item-v3");
+  expect(analyzed.data?.content.candidates[0]).not.toHaveProperty("confidence");
+  // Removing a mark must retain its immutable learning card and practice identity.
+  await saved.getByRole("button", { name: `Remove highlight ${EXPRESSION}` }).click();
+  await expect(raw.locator("mark")).toHaveCount(0);
+  await expect(candidate.getByRole("heading", { name: EXPRESSION, exact: true })).toBeVisible();
+  await saved.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(raw.locator("mark")).toHaveText(EXPRESSION);
+  await page.reload();
+  await expect(raw.locator("mark")).toHaveText(EXPRESSION);
   const activationButton = candidate.getByRole("button", { name: "Practice this expression" });
   await expect(activationButton).toBeEnabled();
 
@@ -523,7 +545,7 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
     ),
     page.getByRole("button", { name: "Check my response" }).click(),
   ]);
-  expect(dueResponse.status()).toBe(201);
+  expect(dueResponse.status(), `Due completion: ${await dueResponse.text()}`).toBe(201);
   await expect(page.getByText("Practice recorded")).toBeVisible();
   await expect(page.getByText(/Mastery moved from tried to reused/)).toBeVisible();
 
