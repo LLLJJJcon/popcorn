@@ -5,8 +5,8 @@ import { DisclosureButton } from "./practice-controls";
 import styles from "./practice-workspace.module.css";
 const settingLabels = { casual_chat: "Casual chat", daily_errands: "Daily errands", work_school: "Work & school", formal_writing: "Formal writing & speeches", online_social: "Online posts" };
 function timestamp(seconds: number) { const n = Math.max(0, Math.floor(seconds)); return n >= 3600 ? `${Math.floor(n / 3600)}:${String(Math.floor(n / 60) % 60).padStart(2,"0")}:${String(n % 60).padStart(2,"0")}` : `${Math.floor(n / 60)}:${String(n % 60).padStart(2,"0")}`; }
-export function PracticeMaterial({ material, onExamplesOpen, onExamplesPendingChange, examplesOpened, sessionStatus, navigation, children }: {
-  readonly material: PracticeMaterialView; readonly onHintUsed?: () => void; readonly onExamplesOpen?: () => Promise<void>; readonly onExamplesPendingChange?: (pending: boolean) => void; readonly examplesOpened?: boolean; readonly sessionStatus?: ReactNode; readonly navigation?: ReactNode; readonly children: ReactNode;
+export function PracticeMaterial({ material, onExamplesOpen, onExamplesPendingChange, examplesOpened, sessionStatus, navigation, headingLevel = 1, children }: {
+  readonly headingLevel?: 1 | 2; readonly material: PracticeMaterialView; readonly onHintUsed?: () => void; readonly onExamplesOpen?: () => Promise<void>; readonly onExamplesPendingChange?: (pending: boolean) => void; readonly examplesOpened?: boolean; readonly sessionStatus?: ReactNode; readonly navigation?: ReactNode; readonly children: ReactNode;
 }) {
   const [about, setAbout] = useState(false), [english, setEnglish] = useState(false);
   const [opened, setOpened] = useState(Boolean(examplesOpened ?? material.roundState?.examplesOpened ?? material.examplesOpened));
@@ -20,11 +20,12 @@ export function PracticeMaterial({ material, onExamplesOpen, onExamplesPendingCh
     try { await onExamplesOpen(); setOpened(true); } catch { setFailed(true); }
     finally { inFlight.current = false; setPending(false); onExamplesPendingChange?.(false); }
   }
+  const Heading = headingLevel === 2 ? "h2" : "h1";
   const roundNumber = material.roundState?.roundNumber ?? 1;
   const phaseLabel = due ? `Current mastery: ${material.masteryState}` : material.roundState?.promotion ? "In your Vault" : roundNumber > 1 ? `Round ${roundNumber} · Not in your Vault yet` : "New · Not in your Vault yet";
-  return <article className={styles.workspace}>
+  return <article className={headingLevel === 2 ? styles.embeddedWorkspace : styles.workspace}>
     {navigation}
-    <header className={styles.practiceHeader}><h1 lang="zh-CN">{material.task.targetExpression}</h1><p className={styles.meaning}>{card?.meaningHere ?? material.expression.englishMeaning}</p><div className={styles.metaRow}><span className={styles.mastery}>{phaseLabel}</span>{sessionStatus}</div></header>
+    <header className={styles.practiceHeader}><Heading lang="zh-CN">{material.task.targetExpression}</Heading><p className={styles.meaning}>{card?.meaningHere ?? material.expression.englishMeaning}</p><div className={styles.metaRow}><span className={styles.mastery}>{phaseLabel}</span>{sessionStatus}</div></header>
     <section className={styles.materialGrid} aria-label="Practice context"><div className={styles.paperCard}>
       {situation ? <><p>You&apos;re talking to: {situation.interlocutor} · {settingLabels[situation.targetSetting]}</p><div className={styles.segmented} aria-label="Situation language"><button type="button" aria-pressed={!english} onClick={() => setEnglish(false)}>中文</button><button type="button" aria-pressed={english} onClick={() => setEnglish(true)}>EN</button></div></> : null}
       <p className={styles.prompt} lang="zh-CN">{situation?.situationZh ?? material.task.promptChinese}</p>

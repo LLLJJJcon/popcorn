@@ -1,11 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
-import {
-  createSavedLibraryRepository,
-  createSavedLibraryService,
-  type SavedVideoSummary,
-} from "@/features/saved/api";
+import { createTodayPracticeService } from "@/server/domain/build-today-queue";
+import { createTodayPracticeRepository } from "@/server/repositories/today-practice-repository";
 import type { HomeView } from "@/features/home/home-view";
 import {
   createNextCookieAdapter,
@@ -21,21 +18,13 @@ import {
 } from "@/server/repositories/progress-repository";
 import type { Database } from "@/types/database.generated";
 
-type HomeSavedService = {
-  readonly home: (userId: string, now: string) => Promise<{
-    readonly duePracticeCount: number;
-    readonly unsortedSaveCount: number;
-  }>;
-  readonly list: (userId: string) => Promise<readonly SavedVideoSummary[]>;
-};
-
 type HomeGatewayRepository = {
   readonly listConfigs: (userId: string) => Promise<readonly { readonly state: string }[]>;
 };
 
 type HomeLoaderDependencies = {
   readonly authenticate: (request: Request) => Promise<WebSessionResult>;
-  readonly saved: HomeSavedService;
+  readonly today: Pick<ReturnType<typeof createTodayPracticeService>, "home">;
   readonly progress: ProgressRepository;
   readonly gateways: HomeGatewayRepository;
 };
@@ -49,9 +38,8 @@ export function createHomeLoader(dependencies: HomeLoaderDependencies) {
     const session = await dependencies.authenticate(request);
     if (!session.ok) return session;
 
-    const [counts, videos, progress, configs] = await Promise.all([
-      dependencies.saved.home(session.userId, now),
-      dependencies.saved.list(session.userId),
+    const [today, progress, configs] = await Promise.all([
+      dependencies.today.home(session.userId, now),
       dependencies.progress.read(session.userId, now),
       dependencies.gateways.listConfigs(session.userId),
     ]);
@@ -60,9 +48,8 @@ export function createHomeLoader(dependencies: HomeLoaderDependencies) {
       ok: true,
       view: {
         hasActiveGateway: configs.some(({ state }) => state === "active"),
-        duePracticeCount: counts.duePracticeCount,
-        unsortedSaveCount: counts.unsortedSaveCount,
-        recentVideo: videos[0] ?? null,
+        summary: today.summary,
+        recentVideos: today.recentVideos,
         masteryDistribution: progress.masteryDistribution,
       },
     };
@@ -85,7 +72,7 @@ export async function createHomeRuntime() {
   );
   const load = createHomeLoader({
     authenticate,
-    saved: createSavedLibraryService(createSavedLibraryRepository(client)),
+    today: createTodayPracticeService(createTodayPracticeRepository(client)),
     progress: createProgressRepository(createSupabaseProgressEvidenceSource(client)),
     gateways: createModelGatewaySettingsRepository(client),
   });

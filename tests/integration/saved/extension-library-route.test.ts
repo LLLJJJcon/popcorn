@@ -58,9 +58,6 @@ function repository() {
     async detail() {
       throw new Error("detail must not be called by the extension list route");
     },
-    async home() {
-      throw new Error("home must not be called by the extension list route");
-    },
   };
   return { value, calls };
 }

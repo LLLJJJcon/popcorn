@@ -8,8 +8,8 @@ import type { LearningCardFields } from "../src/contracts/knowledge";
 import { practiceCandidateKey } from "../src/server/domain/practice-rounds";
 import { highlightIdentity } from "../src/server/jobs/handlers/marked-learning-cards";
 import type { Database } from "../src/types/database.generated";
-import artifacts from "../tests/fixtures/demo/generated-artifacts.json";
-import transcript from "../tests/fixtures/demo/transcript.zh-CN.json";
+import artifacts from "../tests/fixtures/demo/generated-artifacts.json" with { type: "json" };
+import transcript from "../tests/fixtures/demo/transcript.zh-CN.json" with { type: "json" };
 import { DEMO_VIDEO } from "../tests/fixtures/demo/youtube-video";
 
 export const DEMO_TABLES = [

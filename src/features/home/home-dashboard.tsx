@@ -1,18 +1,14 @@
 import Link from "next/link";
 
+import { TODAY_PRACTICE_GROUPS } from "@/contracts/today-practice";
 import type { HomeView } from "@/features/home/home-view";
+import { LocalDate } from "@/features/home/local-date";
 import { NextAction, selectNextAction } from "@/features/home/next-action";
-import { ProcessingState } from "@/features/saved/processing-state";
 import styles from "./home-dashboard.module.css";
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-  timeZone: "UTC",
-});
-
 export function HomeDashboard({ view }: { readonly view: HomeView }) {
+  const action = selectNextAction(view);
+  const counts = { review: view.summary.reviewCount, second_try: view.summary.secondTryCount, new: view.summary.newCount };
   const mastery = [
     ["Tried", view.masteryDistribution.tried],
     ["Reused", view.masteryDistribution.reused],
@@ -22,15 +18,23 @@ export function HomeDashboard({ view }: { readonly view: HomeView }) {
   return (
     <main className={styles.dashboard}>
       <header className={styles.pageHeader}>
-        <p className={styles.eyebrow}>Your learning workspace</p>
         <h1>Home</h1>
         <p>Keep turning moments from the Chinese YouTube videos you watch into language you can use.</p>
       </header>
 
       <section className={styles.actionCard} aria-labelledby="next-action-heading">
-        <p className={styles.cardEyebrow}>Most useful now</p>
         <h2 id="next-action-heading">Next action</h2>
-        <NextAction action={selectNextAction(view)} className={styles.primaryAction} />
+        <NextAction action={action} className={styles.primaryAction} />
+        {action.kind === "practice" ? <p className={styles.actionDetail}>about {action.estimatedMinutes} min</p> : null}
+        {action.kind === "youtube" && view.summary.nextPracticeAt ? <p className={styles.actionDetail}>Next practice: <LocalDate instant={view.summary.nextPracticeAt} /></p> : null}
+        <ul className={styles.practiceCounts} aria-label="Today's practice">
+          {TODAY_PRACTICE_GROUPS.map(({ kind, id, label, description }) => (
+            <li key={kind} className={counts[kind] === 0 ? styles.emptyCount : undefined}>
+              <Link href={`/practice#${id}`}><span>{label}</span><strong>{counts[kind]}</strong><p>{description}</p></Link>
+            </li>
+          ))}
+        </ul>
+        {view.summary.processingCount > 0 ? <p className={styles.processingNotice}>{view.summary.processingCount} saves are still processing</p> : null}
       </section>
 
       <div className={styles.supportGrid}>
@@ -49,41 +53,37 @@ export function HomeDashboard({ view }: { readonly view: HomeView }) {
         </section>
 
         <section className={styles.paperCard} aria-labelledby="recent-saved-heading">
-          <h2 id="recent-saved-heading">Recent Saved video</h2>
-          {view.recentVideo ? (
-            <article className={styles.recentVideo} aria-label="Most recently saved video">
+          <h2 id="recent-saved-heading">Recent Saved videos</h2>
+          {view.recentVideos.length > 0 ? (
+            <ul className={styles.recentVideos} aria-label="Recent Saved videos">{view.recentVideos.map((video) => <li key={video.sourceId} className={styles.recentVideo}>
               {/* eslint-disable-next-line @next/next/no-img-element -- persisted YouTube thumbnail URL is constrained by the accepted Saved summary contract. */}
               <img
                 className={styles.thumbnail}
-                src={view.recentVideo.thumbnailUrl}
-                alt={`${view.recentVideo.title} thumbnail`}
+                src={video.thumbnailUrl}
+                alt={`${video.title} thumbnail`}
                 width={480}
                 height={270}
               />
               <div>
                 <h3>
-                  <Link href={`/saved/${view.recentVideo.sourceId}`}>{view.recentVideo.title}</Link>
+                  <Link href={`/saved/${video.sourceId}`}>{video.title}</Link>
                 </h3>
-                <p className={styles.videoMeta}>{view.recentVideo.channel}</p>
+                <p className={styles.videoMeta}>{video.channel}</p>
                 <p className={styles.videoMeta}>
-                  {view.recentVideo.savedCount} saved {view.recentVideo.savedCount === 1 ? "moment" : "moments"}
+                  {video.practiceCount > 0 ? `${video.practiceCount} ready to practice` : video.needsAnalysisCount > 0 ? `${video.needsAnalysisCount} ${video.needsAnalysisCount === 1 ? "save needs" : "saves need"} analysis` : `${video.savedCount} saved ${video.savedCount === 1 ? "moment" : "moments"}`}
                 </p>
                 <p className={styles.videoMeta}>
-                  Latest activity {dateFormatter.format(new Date(view.recentVideo.latestSavedAt))}
+                  Latest activity <LocalDate instant={video.latestSavedAt} />
                 </p>
-                <ProcessingState state={view.recentVideo.processingState} />
               </div>
-            </article>
+            </li>)}</ul>
           ) : (
             <div className={styles.emptySaved}>
               <h3>Your next save starts on YouTube</h3>
               <p>Use the Popcorn extension to capture a useful moment, then return here to keep learning.</p>
-              <Link className={styles.secondaryLink} href="/saved">Open Saved</Link>
             </div>
           )}
-          {view.recentVideo ? (
-            <Link className={styles.secondaryLink} href="/saved">View all Saved videos</Link>
-          ) : null}
+          <Link className={styles.secondaryLink} href="/saved">View all Saved videos</Link>
         </section>
       </div>
     </main>

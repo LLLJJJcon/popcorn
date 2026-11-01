@@ -142,10 +142,6 @@ export type SavedVideoDetail = SavedVideoSummary & {
 export interface SavedLibraryRepository {
   list(userId: string): Promise<SavedLibraryRows>;
   detail(userId: string, sourceId: string): Promise<SavedLibraryRows | null>;
-  home(userId: string, now: string): Promise<{
-    readonly duePracticeCount: number;
-    readonly unsortedSaveCount: number;
-  }>;
 }
 
 const emptyRows = (): SavedLibraryRows => ({
@@ -399,9 +395,6 @@ export function createSavedLibraryService(repository: SavedLibraryRepository, re
         processingErrors: [],
       };
     },
-    home(userId: string, now: string) {
-      return repository.home(userId, now);
-    },
   };
 }
 
@@ -610,17 +603,6 @@ export function createSavedLibraryRepository(client: SupabaseClient<Database>): 
     async detail(userId, sourceId) {
       const sources = await readSources(userId, sourceId);
       return sources.length === 1 ? readRows(userId, sources, true) : null;
-    },
-    async home(userId, now) {
-      const [due, unsorted] = await Promise.all([
-        client.from("review_tasks").select("id", { count: "exact", head: true })
-          .eq("user_id", userId).eq("status", "pending").lte("due_at", now),
-        client.from("saved_items").select("id", { count: "exact", head: true })
-          .eq("user_id", userId).is("removed_from_saved_at", null)
-          .in("status", ["saved", "resolving_source", "organizing"]),
-      ]);
-      throwQueryError(due.error ?? unsorted.error);
-      return { duePracticeCount: due.count ?? 0, unsortedSaveCount: unsorted.count ?? 0 };
     },
   };
 }

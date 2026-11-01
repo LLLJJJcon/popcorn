@@ -1,6 +1,6 @@
 # Group 3 current preflight and differences
 
-2026-11-01, Task3A, read-only application audit plus interface documents only. No functional code, model call, migration or personal DB mutation in this phase. Group2 accepted at515de29; controller is reconciling main and will announce the implementation gate. Read AGENTS and installed Next16.3.1 Route Handler/page guides: await params/searchParams, authenticate server reads, no-store request-specific data, storage only in clients.
+2026-11-01, Task3A. This document records the initial read-only audit; implementation was subsequently released on isolated `codex/phase1-group3-confirmed` after independent group2 merged-source PASS, and group2 has now merged main at `0ff3bce4d3fba15e839cac9509b63e9bd4d11b54`. Actual implementation and self-test evidence are in `group-3-backend-report.md`; this initial audit alone does not constitute acceptance. Read AGENTS and installed Next16.3.1 Route Handler/page guides: await params/searchParams, authenticate server reads, no-store request-specific data, storage only in clients.
 
 Sources read: confirmed full §6/16.3 plus §5.2/5.13/5.14, current plan, group2 contracts and real accepted code, and historical `preflight-phase1/groups-3-4.md`. The latter's baseline was pre-group2; its fallback/open-round/mark-filter assumptions below are superseded by explicit user/controller rulings, not silently applied.
 
@@ -28,7 +28,7 @@ Sources read: confirmed full §6/16.3 plus §5.2/5.13/5.14, current plan, group2
 
 ## Remaining gate and risks
 
-- Await controller's group2 merge/CI/acceptance confirmation before any group3 application/SQL implementation. Parent's main merge may alter provider/runtime budgets but is not authority to change these product DTOs; recheck after merge.
+- The initial group2 merge gate is satisfied. Group3's independent acceptance still gates group4; this backend task makes no group4 changes. Upstream runtime/provider reconciliation does not authorize changing product DTOs.
 - Card pool needs minimal projections and shared SQL predicates; do not repeat group2's per-historical-card full-state RPC defect. Counts must not load draft answers/coaching/situations.
 - Legacy artifact schemas and malformed newer artifacts need deterministic readable/schema-valid fallback; count/list/needs-analysis must agree about valid cards. SQL identity must preserve exact JSON highlightKey hashing, not a differently spaced reserialization.
 - sessionStorage is summary/navigation convenience only. It cannot invent official completion, promotion, assistance or mastery. Exclusion IDs only select among the authenticated owner's current eligible items.

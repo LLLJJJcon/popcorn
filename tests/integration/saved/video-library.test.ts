@@ -88,10 +88,6 @@ function repository(data = rows()): SavedLibraryRepository & { calls: string[] }
       calls.push(`detail:${userId}:${sourceId}`);
       return sourceId === SOURCE_A ? data : null;
     },
-    async home(userId, now) {
-      calls.push(`home:${userId}:${now}`);
-      return { duePracticeCount: 0, unsortedSaveCount: 7 };
-    },
   };
 }
 

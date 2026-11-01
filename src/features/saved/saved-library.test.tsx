@@ -82,4 +82,31 @@ describe("Saved library", () => {
     expect(screen.getByText(/Save a moment from the Popcorn extension while watching/i)).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
+
+  it("keeps server-qualified needs-analysis results distinct from the full library", () => {
+    render(<SavedLibrary videos={[video()]} initialFilter="needs-analysis" />);
+    expect(screen.getByRole("heading", { level: 1, name: "Saved" })).toBeInTheDocument();
+    expect(screen.getByText("Needs analysis")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "All" })).toHaveAttribute("href", "/saved");
+    expect(screen.getByRole("article", { name: "A Mandarin interview" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Processing" })).not.toBeInTheDocument();
+  });
+
+  it("explains an empty needs-analysis result without claiming the whole library is empty", () => {
+    render(<SavedLibrary videos={[]} initialFilter="needs-analysis" />);
+    expect(screen.getByText("No saves need analysis")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "All" })).toHaveAttribute("href", "/saved");
+    expect(screen.queryByText("Your Saved library is ready")).not.toBeInTheDocument();
+  });
+
+  it("shows qualified ready videos after navigating from a local Processing filter", async () => {
+    const ready = video();
+    const processing = video({ sourceId: "processing-source", title: "Still processing", processingState: "organizing" });
+    const { rerender } = render(<SavedLibrary videos={[ready, processing]} />);
+    await userEvent.click(screen.getByRole("button", { name: "Processing" }));
+    expect(screen.queryByRole("article", { name: ready.title })).not.toBeInTheDocument();
+    rerender(<SavedLibrary videos={[ready]} initialFilter="needs-analysis" />);
+    expect(screen.getByRole("article", { name: ready.title })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "All" })).toHaveAttribute("href", "/saved");
+  });
 });

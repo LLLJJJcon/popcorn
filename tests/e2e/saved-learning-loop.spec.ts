@@ -519,7 +519,7 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   expect(review.error).toBeNull();
   expect((await admin.from("review_tasks").update({due_at:new Date(Date.now()-60000).toISOString()}).eq("id",review.data!.id).eq("user_id",USER_ID)).error).toBeNull();
   await page.goto("/practice");
-  await page.getByRole("button",{name:"Start practice",exact:true}).click();
+  await page.getByRole("link",{name:"Start",exact:true}).click();
   await expect(page.getByRole("heading",{name:EXPRESSION,exact:true})).toBeVisible();
   await page.getByRole("button",{name:"About this expression",exact:true}).click();
   await expect(page.getByText("How it fits",{exact:true})).toBeVisible();

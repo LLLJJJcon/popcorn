@@ -5,9 +5,8 @@ import type { HomeView } from "@/features/home/home-view";
 
 const view: HomeView = {
   hasActiveGateway: false,
-  duePracticeCount: 2,
-  unsortedSaveCount: 3,
-  recentVideo: {
+  summary: { reviewCount: 2, secondTryCount: 0, newCount: 0, estimatedMinutes: 4, needsAnalysisCount: 3, processingCount: 1, nextPracticeAt: null },
+  recentVideos: [{
     sourceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     youtubeVideoId: "recentVid01",
     canonicalUrl: "https://www.youtube.com/watch?v=recentVid01",
@@ -17,7 +16,9 @@ const view: HomeView = {
     savedCount: 3,
     latestSavedAt: "2026-09-04T18:00:00.000Z",
     processingState: "organizing",
-  },
+    practiceCount: 0,
+    needsAnalysisCount: 0,
+  }],
   masteryDistribution: { tried: 4, reused: 2, owned: 1 },
 };
 
@@ -40,14 +41,14 @@ describe("Home dashboard", () => {
     expect(within(mastery).getByText("Owned")).toBeInTheDocument();
     expect(within(mastery).getByText("1")).toBeInTheDocument();
 
-    const recent = screen.getByRole("article", { name: "Most recently saved video" });
+    const recent = screen.getByRole("list", { name: "Recent Saved videos" });
     expect(within(recent).getByRole("link", { name: "The newest Mandarin interview" })).toHaveAttribute(
       "href",
       "/saved/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     );
     expect(recent).toHaveTextContent("Everyday Chinese");
     expect(recent).toHaveTextContent("3 saved moments");
-    expect(recent).toHaveTextContent("Organizing this save.");
+    expect(screen.getByText("1 saves are still processing")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View all Saved videos" })).toHaveAttribute("href", "/saved");
   });
 
@@ -55,17 +56,16 @@ describe("Home dashboard", () => {
     const { container } = render(<HomeDashboard view={{
       ...view,
       hasActiveGateway: true,
-      duePracticeCount: 0,
-      unsortedSaveCount: 0,
-      recentVideo: null,
+      summary: { ...view.summary, reviewCount: 0, needsAnalysisCount: 0 },
+      recentVideos: [],
     }} />);
 
-    expect(screen.getByRole("link", { name: "Continue watching on YouTube" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Watch something on YouTube" })).toHaveAttribute(
       "href",
       "https://www.youtube.com/",
     );
     expect(container.querySelectorAll('[class*="primaryAction"]')).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Your next save starts on YouTube" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Saved" })).toHaveAttribute("href", "/saved");
+    expect(screen.getByRole("link", { name: "View all Saved videos" })).toHaveAttribute("href", "/saved");
   });
 });

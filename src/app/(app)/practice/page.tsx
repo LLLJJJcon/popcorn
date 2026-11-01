@@ -1,12 +1,11 @@
 import { redirect } from "next/navigation";
-
-import { DuePractice } from "@/features/practice/due-practice";
-import { createLearningMemoryRuntime } from "@/server/repositories/review-task-repository";
-
+import { TodayPractice } from "@/features/practice/today-practice";
+import { createTodayPracticeRuntime } from "@/server/today-practice-runtime";
 export default async function PracticePage() {
-  const runtime = await createLearningMemoryRuntime();
+  const runtime = await createTodayPracticeRuntime();
   const session = await runtime.authenticate(new Request(runtime.appUrl));
-  if (!session.ok) redirect("/sign-in");
-  const tasks = await runtime.repository.listDue(session.userId, new Date().toISOString());
-  return <main><DuePractice tasks={tasks} /></main>;
+  if (!session.ok)
+    redirect("/sign-in");
+  const data = await runtime.service.today(session.userId, new Date().toISOString());
+  return <main><TodayPractice userId={session.userId} initialData={data}/></main>;
 }

@@ -1,6 +1,6 @@
 # Group 3 frozen interface document
 
-2026-11-01, Task3A. Controller released implementation on the separate `codex/phase1-group3-confirmed` branch after independent merged-source group2 verification PASS (1387 plus107 focused), while its PR waits only for GitHub CI/publication. Group2 remote head remains isolated. This controller engineering-flow adjustment does not change the product acceptance gate. Shared schemas are now being implemented against this frozen document before B/C parallel consumers.
+2026-11-01, Task3A. Controller released implementation on the separate `codex/phase1-group3-confirmed` branch after independent merged-source group2 verification PASS (1387 plus107 focused), initially while its PR waited only for publication. Group2 subsequently passed all GitHub CI and merged main at `0ff3bce4d3fba15e839cac9509b63e9bd4d11b54`. Shared schemas were tested RED/GREEN and published before B/C consumers began implementation. This engineering-flow adjustment does not change the product acceptance gate; group3 still requires separate independent acceptance before group4.
 
 Authority: confirmed specification §5.2/5.13/5.14, full §6/16.3, the plan, and the explicit rulings below. Group2's accepted material/round-state/error/activation contracts remain unchanged. §6.12 has **nine** acceptance items, not six.
 
@@ -115,7 +115,7 @@ New `src/server/domain/build-today-queue.ts`:
 
 ```ts
 export type TodayNextInput = {
-  exclude?:readonly string[];
+  exclude?:string[];
   currentItemId?:string; currentTaskId?:string;
 };
 export function createTodayPracticeService(repository:TodayPracticeRepository): {
@@ -131,7 +131,7 @@ export function createTodayPracticeService(repository:TodayPracticeRepository): 
 - B's `createHomeLoader` dependency becomes `today:Pick<ReturnType<typeof createTodayPracticeService>,'home'>`. It calls `today.home(session.userId,now)` together with the existing gateway/progress reads. HomeView has hasActiveGateway, summary, recentVideos and the existing masteryDistribution; old duePracticeCount/unsortedSaveCount/recentVideo fields are removed.
 - B's SavedPage recognizes only string `filter=needs-analysis`, awaits searchParams, and calls `service.needsAnalysisVideos(userId,now)` for the full qualified list. B owns its URL/local-tab behavior and routes All back to `/saved`; it must not label a prefiltered list as the full library.
 
-New `src/server/today-practice-runtime.ts` exports `createTodayPracticeRuntime()` returning `{appUrl,authenticate,service}` for Practice pages and HTTP handlers. B Home runtime can construct repository/service using its existing client/authentication rather than self-fetching HTTP. All helpers operate only on the authenticated owner and one explicit UTC now per invocation.
+New `src/server/today-practice-runtime.ts` exports `createTodayPracticeRuntime()` returning `{appUrl,authenticate,service,material}` for Practice pages and HTTP handlers. `material(userId:string,taskId:string):Promise<PracticeMaterialView|null>` delegates to the existing owned material reader. B Home runtime can construct repository/service using its existing client/authentication rather than self-fetching HTTP. All helpers operate only on the authenticated owner and one explicit UTC now per invocation.
 
 ## HTTP contracts, session entry and recovery
 
@@ -153,6 +153,7 @@ Entry rules for C:
 - New open1 / Second open≥2: GET currentTaskId's material directly, no new-round creation/model call. Standalone item entry returns to `/practice`; session mode stays in `/practice/session`.
 - A valid **refresh hint** is `(currentItemId,currentTaskId)` for the owner's same stable candidate's current latest open task with no first answer. Restore that task even if its inherited retry date is future after manual Try a new situation. This does not enroll future retries in normal today counts. Invalid, foreign, superseded, removed or already answered hints are ignored and normal ordered next is chosen. Refresh/start may send the hint; explicit Next omits it.
 - `resumed=true` identifies that validated continuation. remainingCount counts eligible nonexcluded items and includes a manually resumed current item exactly once if it was otherwise outside the queue/excluded. It never increments once per new round. Summary remains the ordinary queue summary used by Home.
+- A Review refresh hint likewise requires the owner's pending due review and that same review's owned canonical due-practice task. It restores persisted material and does not generate another question. Once the review completes, its old hint is ignored.
 - C may keep the refresh hint in URL/sessionStorage; it is untrusted navigation data, never evidence. Summary storage is optional/try-catch, owner/version scoped. Completed outcomes deduplicate by stable item ID; replacing the result after another round updates the same item, and revisions never add completed items.
 
 ## Session component handshake (C ownership)
