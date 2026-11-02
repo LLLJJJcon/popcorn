@@ -104,6 +104,20 @@ const POPCORN_SYNC_QUEUE = (() => {
         });
         const results = Array.isArray(response?.data?.results) ? response.data.results : [];
         const selectedIds = new Set(due.map((event) => event.clientEventId));
+        const outcomes = {};
+        for (const event of due) {
+          outcomes[event.clientEventId] = { ok: false, code: "SYNC_RETRYING", retryable: true };
+        }
+        for (const result of results) {
+          if (!selectedIds.has(result?.clientEventId)) continue;
+          outcomes[result.clientEventId] = result.ok === true
+            ? { ok: true }
+            : {
+              ok: false,
+              code: typeof result?.error?.code === "string" ? result.error.code : "SYNC_RETRYING",
+              retryable: result?.error?.retryable !== false,
+            };
+        }
         const acknowledged = new Set(results.filter((result) => (
           result?.ok === true && selectedIds.has(result.clientEventId)
         )).map((result) => result.clientEventId));
@@ -122,10 +136,14 @@ const POPCORN_SYNC_QUEUE = (() => {
           await scheduleRetry(next.filter((event) => event.ownerUserId === session.user.id));
           return next;
         });
-        return { success: true, synced: acknowledged.size, pending: updated.length, trigger };
+        return { success: true, synced: acknowledged.size, pending: updated.length, outcomes, trigger };
       } catch (_error) {
         const updated = await retrySelected(selectedKeys, session.user.id);
-        return { success: true, synced: 0, pending: updated.length, code: "SYNC_RETRYING", trigger };
+        const outcomes = Object.fromEntries(due.map((event) => [
+          event.clientEventId,
+          { ok: false, code: "SYNC_RETRYING", retryable: true },
+        ]));
+        return { success: true, synced: 0, pending: updated.length, code: "SYNC_RETRYING", outcomes, trigger };
       }
     }
 
@@ -162,11 +180,22 @@ const POPCORN_SYNC_QUEUE = (() => {
         return { success: false, synced: false, pending: false, code: "SYNC_QUEUE_FULL" };
       }
       const flushed = await flushPendingEvents("new-save");
+      // Report this save's own outcome. A batch may acknowledge other queued
+      // events while this one is rejected or still waiting.
+      const outcome = flushed.outcomes?.[input.clientEventId];
+      if (outcome?.ok === true) {
+        return { success: true, synced: true, pending: false };
+      }
+      if (outcome && outcome.retryable === false) {
+        // Kept in the queue so it can still sync once Popcorn accepts it.
+        return { success: true, synced: false, pending: true, code: "SYNC_REJECTED", rejectionCode: outcome.code };
+      }
+      const code = flushed.code || (outcome ? outcome.code : undefined);
       return {
         success: true,
-        synced: flushed.synced > 0,
-        pending: flushed.pending > 0,
-        ...(flushed.code ? { code: flushed.code } : {}),
+        synced: false,
+        pending: true,
+        ...(code ? { code } : {}),
       };
     }
 
@@ -196,13 +225,32 @@ const POPCORN_SYNC_QUEUE = (() => {
       });
     }
 
+    async function pendingInputsForVideo(youtubeVideoId) {
+      const session = await authClient.getSession();
+      if (!session?.user?.id) return [];
+      const events = await readEvents();
+      return events
+        .filter((event) => (
+          event.ownerUserId === session.user.id &&
+          event.input?.youtubeVideoId === youtubeVideoId
+        ))
+        .map((event) => structuredClone(event.input));
+    }
+
     async function recoverOnStartup(trigger) {
       const events = await readEvents();
       await scheduleRetry(events);
       return flushPendingEvents(trigger);
     }
 
-    return { enqueueSavedItem, flushPendingEvents, getSyncSummary, discardPendingEvents, recoverOnStartup };
+    return {
+      enqueueSavedItem,
+      flushPendingEvents,
+      getSyncSummary,
+      discardPendingEvents,
+      recoverOnStartup,
+      pendingInputsForVideo,
+    };
   }
 
   return { createSyncQueue };

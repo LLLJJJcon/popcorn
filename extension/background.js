@@ -311,6 +311,75 @@ async function getSavedLibrary() {
   return { success: true, summaries: result.data };
 }
 
+const SAVED_MARKER_VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+function emptySavedMarkers(videoId) {
+  return { youtubeVideoId: videoId, segmentIds: [], rowStartSeconds: [], capturedSeconds: [] };
+}
+
+function addQueuedMarkers(markers, inputs) {
+  const segmentIds = new Set(markers.segmentIds);
+  const rowStartSeconds = new Set(markers.rowStartSeconds);
+  const capturedSeconds = new Set(markers.capturedSeconds);
+  for (const input of inputs) {
+    if (input?.kind === "subtitle_row") {
+      if (typeof input.segmentId === "string" && input.segmentId) segmentIds.add(input.segmentId);
+      if (Number.isFinite(input.startSeconds)) rowStartSeconds.add(input.startSeconds);
+    } else if (input?.kind === "player_moment" && Number.isFinite(input.capturedSecond)) {
+      capturedSeconds.add(Math.floor(input.capturedSecond));
+    }
+  }
+  return {
+    youtubeVideoId: markers.youtubeVideoId,
+    segmentIds: [...segmentIds],
+    rowStartSeconds: [...rowStartSeconds],
+    capturedSeconds: [...capturedSeconds],
+  };
+}
+
+/**
+ * Saved labels for one video's transcript rows: what Popcorn already holds,
+ * plus saves still waiting in this browser's queue. Either source alone is
+ * enough, so a signed-out or offline panel still shows queued saves.
+ */
+async function getSavedMarkers(videoId) {
+  if (!SAVED_MARKER_VIDEO_ID.test(videoId || "")) {
+    throw new Error("Invalid YouTube video ID.");
+  }
+  let markers = emptySavedMarkers(videoId);
+  let serverAvailable = false;
+  try {
+    await ensurePopcornAuthReady();
+    const session = await popcornAuthClient.getSession();
+    if (session?.user?.id) {
+      const result = await apiFetch(
+        `/api/v1/extension/saved/markers?videoId=${encodeURIComponent(videoId)}`,
+        { method: "GET" },
+      );
+      const data = result?.data;
+      if (
+        data?.youtubeVideoId === videoId &&
+        Array.isArray(data.segmentIds) &&
+        Array.isArray(data.rowStartSeconds) &&
+        Array.isArray(data.capturedSeconds)
+      ) {
+        markers = {
+          youtubeVideoId: videoId,
+          segmentIds: data.segmentIds.filter((id) => typeof id === "string" && id),
+          rowStartSeconds: data.rowStartSeconds.filter(Number.isFinite),
+          capturedSeconds: data.capturedSeconds.filter(Number.isInteger),
+        };
+        serverAvailable = true;
+      }
+    }
+  } catch (_error) {
+    // Fall back to queued saves only.
+  }
+  const queue = getPopcornSyncQueue();
+  const queued = queue ? await queue.pendingInputsForVideo(videoId).catch(() => []) : [];
+  return { success: true, serverAvailable, markers: addQueuedMarkers(markers, queued) };
+}
+
 function isSavedSourceId(value) {
   return typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -483,6 +552,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
     return respondFrom(getSavedLibrary(), sendResponse);
+  }
+
+  if (message?.action === "getSavedMarkers") {
+    if (!isTrustedSidePanelSender(sender)) {
+      sendResponse({ success: false, error: "forbidden" });
+      return false;
+    }
+    return respondFrom(getSavedMarkers(message.videoId), sendResponse);
   }
 
   if (message?.action === "openPopcorn") {

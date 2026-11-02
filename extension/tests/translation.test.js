@@ -1730,6 +1730,7 @@ test("persisted English transcript rows avoid translation requests in English an
       windowImpl: dom.window,
       sendMessage(message) {
         if (message.action === "fetchTranscript") return Promise.resolve(transcriptResult);
+        if (message.action === "getSavedMarkers") return Promise.resolve({ success: true, serverAvailable: false, markers: null });
         sent.push({ ...message });
         return Promise.resolve({ success: true, content: { segments: [] } });
       },
@@ -1785,6 +1786,7 @@ test("persisted English transcript rows request only missing stable IDs", async 
     windowImpl: dom.window,
     sendMessage(message) {
       if (message.action === "fetchTranscript") return Promise.resolve(transcriptResult);
+        if (message.action === "getSavedMarkers") return Promise.resolve({ success: true, serverAvailable: false, markers: null });
       sent.push({ ...message });
       return Promise.resolve({
         success: true,
@@ -2099,6 +2101,7 @@ test("switching a fresh persisted-English transcript from English to bilingual s
           })),
         });
       }
+      if (message.action === "getSavedMarkers") return Promise.resolve({ success: true, serverAvailable: false, markers: null });
       sent.push({ ...message });
       return Promise.resolve({ success: true, content: { segments: [] } });
     },

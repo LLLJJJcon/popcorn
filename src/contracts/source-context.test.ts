@@ -17,8 +17,13 @@ describe("saved context window", () => {
   it("accepts three preceding and two following lines", () => {
     expect(SavedItemInputSchema.parse(row)).toEqual(row);
   });
-  it("rejects a third following line", () => {
-    expect(SavedItemInputSchema.safeParse({ ...row, contextAfter: [...row.contextAfter, "第七句。"] }).success).toBe(false);
+  it("accepts a legacy third following line and keeps the two nearest", () => {
+    const legacy = { ...row, contextAfter: [...row.contextAfter, "第七句。"] };
+    expect(SavedItemInputSchema.parse(legacy)).toEqual(row);
+  });
+  it("rejects more than three following lines", () => {
+    const tooMany = { ...row, contextAfter: [...row.contextAfter, "第七句。", "第八句。"] };
+    expect(SavedItemInputSchema.safeParse(tooMany).success).toBe(false);
   });
   it("preserves key-quote context and accepts old clients without it", () => {
     const quote = { ...base, kind: "key_quote", exactQuote: row.originalChinese, quoteSeconds: 4, segmentIds: ["line-4"] };

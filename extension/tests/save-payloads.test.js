@@ -159,6 +159,10 @@ function createSidePanelHandlerHarness() {
           ) {
             return { success: true, response: { currentTime: 42.8 } };
           }
+          if (message?.action === "getSavedMarkers") {
+            // Read-only label restore after rendering; never persistence.
+            return { success: true, serverAvailable: false, markers: null };
+          }
           recordForbiddenCall("runtimePersistence", [message]);
           throw new Error(`unexpected runtime persistence: ${message?.action}`);
         },
@@ -1313,4 +1317,87 @@ test("key-quote save builder includes its source context", () => {
   }, identity);
   assert.deepEqual(jsonValue(saved.contextBefore), ["之前的话。"]);
   assert.deepEqual(jsonValue(saved.contextAfter), ["之后的话。"]);
+});
+
+function renderMarkerRows(harness, markersResponse) {
+  vm.runInContext(
+    `
+      renderTranscriptModeRows(getActiveTranscriptSegments(), "zh");
+      globalThis.__markerResponse = ${JSON.stringify(markersResponse)};
+      chrome.runtime.sendMessage = async (message) => {
+        if (message?.action !== "getSavedMarkers") throw new Error("unexpected " + message?.action);
+        return globalThis.__markerResponse;
+      };
+    `,
+    harness.context,
+  );
+  return [...harness.document.querySelectorAll(".transcript-save-btn")];
+}
+
+const markerResponse = (markers, serverAvailable = true) => ({
+  success: true,
+  serverAvailable,
+  markers: { youtubeVideoId: VIDEO_ID, segmentIds: [], rowStartSeconds: [], capturedSeconds: [], ...markers },
+});
+
+test("Saved labels are restored from Popcorn when the transcript is shown again", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const buttons = renderMarkerRows(harness, markerResponse({ segmentIds: [SEGMENT_A] }));
+
+  await vm.runInContext(`loadSavedTranscriptMarkers(${JSON.stringify(VIDEO_ID)}, { force: true })`, harness.context);
+
+  assert.deepEqual(buttons.map((button) => [button.textContent, button.disabled]), [
+    ["Save", false], ["Saved", true], ["Save", false],
+  ]);
+});
+
+test("a saved row whose segment ID changed is still matched by its start time", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const buttons = renderMarkerRows(harness, markerResponse({ segmentIds: ["older-id"], rowStartSeconds: [48] }));
+
+  await vm.runInContext(`loadSavedTranscriptMarkers(${JSON.stringify(VIDEO_ID)}, { force: true })`, harness.context);
+
+  assert.deepEqual(buttons.map((button) => button.textContent), ["Save", "Save", "Saved"]);
+});
+
+test("Popcorn's list replaces local labels, but an unreachable Popcorn removes none", async () => {
+  const harness = createSidePanelHandlerHarness();
+  const buttons = renderMarkerRows(harness, markerResponse({}, false));
+  vm.runInContext(
+    `recordSavedTranscriptMarker({ videoId: ${JSON.stringify(VIDEO_ID)}, segmentId: ${JSON.stringify(SEGMENT_A)} });
+     updateTranscriptSavedButtons();`,
+    harness.context,
+  );
+  assert.equal(buttons[1].textContent, "Saved");
+
+  await vm.runInContext(`loadSavedTranscriptMarkers(${JSON.stringify(VIDEO_ID)}, { force: true })`, harness.context);
+  assert.equal(buttons[1].textContent, "Saved");
+
+  vm.runInContext(`globalThis.__markerResponse = ${JSON.stringify(markerResponse({}, true))};`, harness.context);
+  await vm.runInContext(`loadSavedTranscriptMarkers(${JSON.stringify(VIDEO_ID)}, { force: true })`, harness.context);
+  assert.equal(buttons[1].textContent, "Save");
+  assert.equal(buttons[1].disabled, false);
+});
+
+test("a subtitle-row save Popcorn rejects is shown as not synced and is not marked", async () => {
+  const harness = createSidePanelHandlerHarness();
+  vm.runInContext(
+    `
+      enqueueSavedItem = async (input) => {
+        globalThis.__saveCalls.push(JSON.parse(JSON.stringify(input)));
+        return { success: true, synced: false, pending: true, code: "SYNC_REJECTED" };
+      };
+      renderTranscriptModeRows(getActiveTranscriptSegments(), "zh");
+    `,
+    harness.context,
+  );
+  const saveButton = harness.document.querySelectorAll(".transcript-save-btn")[1];
+
+  await clickAndFlush(harness, saveButton);
+
+  assert.equal(saveButton.textContent, "Not synced");
+  assert.equal(harness.document.getElementById("saveStatus").dataset.state, "rejected");
+  harness.scheduledResets.at(-1).callback();
+  assert.equal(saveButton.textContent, "Save");
+  assert.equal(saveButton.disabled, false);
 });

@@ -96,6 +96,14 @@ const getYouTubeThumbnailVideoId = (value: string) =>
 const SegmentIdsSchema = z.array(StableSegmentIdSchema).min(1).max(32);
 export const ContextBeforeSchema = z.array(TargetChineseTextSchema.max(2_000)).max(3);
 export const ContextAfterSchema = z.array(TargetChineseTextSchema.max(2_000)).max(2);
+// Extension builds before 2026-11-01 (and saves still queued from them) send
+// three following lines. Accept them and keep only the two nearest lines, the
+// same normalization the database applies on resolution, so those saves are
+// not rejected forever by the sync endpoint.
+const LegacyTolerantContextAfterSchema = z
+  .array(TargetChineseTextSchema.max(2_000))
+  .max(3)
+  .transform((lines) => lines.slice(0, 2));
 
 export const VideoSourceSchema = z
   .strictObject({
@@ -195,7 +203,7 @@ const saveVariants = {
     startSeconds: SecondSchema,
     endSeconds: SecondSchema,
     contextBefore: ContextBeforeSchema,
-    contextAfter: ContextAfterSchema,
+    contextAfter: LegacyTolerantContextAfterSchema,
   },
   subtitleSelection: {
     kind: z.literal("subtitle_selection"),
@@ -207,7 +215,7 @@ const saveVariants = {
     startOffset: OffsetSchema,
     endOffset: OffsetSchema,
     contextBefore: ContextBeforeSchema,
-    contextAfter: ContextAfterSchema,
+    contextAfter: LegacyTolerantContextAfterSchema,
   },
   keyQuote: {
     kind: z.literal("key_quote"),
@@ -215,7 +223,7 @@ const saveVariants = {
     quoteSeconds: SecondSchema,
     segmentIds: SegmentIdsSchema,
     contextBefore: ContextBeforeSchema.optional(),
-    contextAfter: ContextAfterSchema.optional(),
+    contextAfter: LegacyTolerantContextAfterSchema.optional(),
   },
   aiExplanation: {
     kind: z.literal("ai_explanation"),
@@ -225,7 +233,7 @@ const saveVariants = {
     startSeconds: SecondSchema,
     endSeconds: SecondSchema,
     contextBefore: ContextBeforeSchema,
-    contextAfter: ContextAfterSchema,
+    contextAfter: LegacyTolerantContextAfterSchema,
   },
 };
 

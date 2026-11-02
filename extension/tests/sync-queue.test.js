@@ -399,3 +399,55 @@ test("queue module has no interval or durable-secret surface", () => {
   const source = fs.readFileSync(path.join(root, "sync-queue.js"), "utf8");
   assert.doesNotMatch(source, /setInterval|accessToken|refreshToken|apiKey|gateway/i);
 });
+
+test("a save reports its own outcome, not whether another queued event synced", async () => {
+  const older = { ownerUserId: USER_A, clientEventId: EVENT_A, input: savedInput(EVENT_A), attempts: 0, nextAttemptAt: 0 };
+  const harness = createChrome({ popcorn_pending_events: [older] });
+  const queue = await createQueue({
+    chrome: harness.chrome,
+    authClient: authFor(USER_A),
+    apiFetch: async () => ({ data: { results: [
+      { clientEventId: EVENT_A, ok: true },
+      { clientEventId: EVENT_B, ok: false, error: { code: "VALIDATION_FAILED", retryable: false } },
+    ] } }),
+    now: () => 1_000,
+  });
+
+  const result = await queue.enqueueSavedItem(savedInput(EVENT_B));
+
+  assert.equal(result.success, true);
+  assert.equal(result.synced, false);
+  assert.equal(result.pending, true);
+  assert.equal(result.code, "SYNC_REJECTED");
+  assert.equal(result.rejectionCode, "VALIDATION_FAILED");
+  // The rejected save stays queued so it can sync once Popcorn accepts it.
+  assert.deepEqual(harness.values.popcorn_pending_events.map((event) => event.clientEventId), [EVENT_B]);
+});
+
+test("a save is synced only when its own event is acknowledged", async () => {
+  const harness = createChrome();
+  const queue = await createQueue({
+    chrome: harness.chrome,
+    authClient: authFor(USER_A),
+    apiFetch: async (_path, options) => ({ data: { results: JSON.parse(options.body).events.map((input) => ({ clientEventId: input.clientEventId, ok: true })) } }),
+    now: () => 1_000,
+  });
+
+  const result = await queue.enqueueSavedItem(savedInput(EVENT_C));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { success: true, synced: true, pending: false });
+});
+
+test("queued saves for one video are listed for the signed-in owner only", async () => {
+  const other = { ...savedInput(EVENT_B), youtubeVideoId: "abcdefghijk" };
+  const harness = createChrome({ popcorn_pending_events: [
+    { ownerUserId: USER_A, clientEventId: EVENT_A, input: savedInput(EVENT_A), attempts: 1, nextAttemptAt: 9_999 },
+    { ownerUserId: USER_A, clientEventId: EVENT_B, input: other, attempts: 1, nextAttemptAt: 9_999 },
+    { ownerUserId: USER_B, clientEventId: EVENT_C, input: savedInput(EVENT_C), attempts: 1, nextAttemptAt: 9_999 },
+  ] });
+  const queue = await createQueue({ chrome: harness.chrome, authClient: authFor(USER_A), apiFetch: async () => ({ data: { results: [] } }), now: () => 1 });
+
+  const inputs = await queue.pendingInputsForVideo("dQw4w9WgXcQ");
+
+  assert.deepEqual(inputs.map((input) => input.clientEventId), [EVENT_A]);
+});

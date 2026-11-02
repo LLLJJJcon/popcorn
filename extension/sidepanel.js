@@ -759,6 +759,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
 });
 
 function saveSuccessLabel(result) {
+  if (result?.code === "SYNC_REJECTED") return "Not synced";
   if (result?.code === "AUTH_REQUIRED" && result?.pending) {
     return "Saved locally; sign in to retry";
   }
@@ -772,6 +773,7 @@ const SAVE_STATUS_COPY = Object.freeze({
   "sign-in-required": "Saved locally. Your save stays queued; sign in to retry.",
   organizing: "Saved to Popcorn. Organizing your learning material…",
   "save-failed": "This save was not completed. Try again when Popcorn is ready.",
+  rejected: "Saved locally, but Popcorn could not accept this save yet. It stays queued and will sync once the extension and Popcorn are up to date.",
   unsupported: "Popcorn works only with the YouTube video you are currently watching.",
 });
 
@@ -817,7 +819,7 @@ function createSaveStatusPresenter(doc, appUrl = "") {
     retryAction = typeof retry === "function" ? retry : null;
 
     if (raw) {
-      const showsRawText = state === "retrying" && Boolean(rawText);
+      const showsRawText = ["retrying", "rejected"].includes(state) && Boolean(rawText);
       raw.hidden = !showsRawText;
       raw.textContent = showsRawText ? rawText : "";
     }
@@ -849,6 +851,7 @@ function createSaveStatusPresenter(doc, appUrl = "") {
 }
 
 function saveStateForResult(result) {
+  if (result?.code === "SYNC_REJECTED") return "rejected";
   if (result?.code === "AUTH_REQUIRED" && result?.pending) {
     return "sign-in-required";
   }
@@ -892,9 +895,9 @@ async function saveWithFeedback({
   let succeeded = false;
   try {
     const result = await save(input);
-    succeeded = true;
     const state = saveStateForResult(result);
-    button.textContent = persistentSuccess ? "Saved" : saveSuccessLabel(result);
+    succeeded = state !== "rejected";
+    button.textContent = persistentSuccess && succeeded ? "Saved" : saveSuccessLabel(result);
     presenter.show({
       state,
       rawText: savedRawText(input),
@@ -938,7 +941,11 @@ async function saveWithButton(
     idleLabel,
     save: async (savedInput) => {
       const result = await saveController.save(savedInput);
-      if (result?.success === true && typeof onSuccess === "function") {
+      if (
+        result?.success === true &&
+        result?.code !== "SYNC_REJECTED" &&
+        typeof onSuccess === "function"
+      ) {
         await onSuccess(savedInput, result);
       }
       return result;
@@ -1543,6 +1550,7 @@ async function saveTranscriptRow(segment, button) {
       recordSavedTranscriptMarker({
         videoId: savedInput.youtubeVideoId,
         segmentId: savedInput.segmentId,
+        rowStartSecond: savedInput.startSeconds,
       });
       updateTranscriptSavedButtons();
     },
@@ -1608,6 +1616,7 @@ function renderTranscript() {
   // Start tracking video playback for auto-scroll
   startPlaybackTracking();
   updateRetryFailedTranslationsButton();
+  void loadSavedTranscriptMarkers(currentVideoId);
 }
 
 function copyTranscript() {
@@ -2796,28 +2805,95 @@ function onContentAreaScroll() {
 
 const savedTranscriptMarkers = new Map();
 
+function emptySavedMarkerState() {
+  return { capturedSeconds: new Set(), segmentIds: new Set(), rowStartSeconds: new Set() };
+}
+
 function savedMarkerState(videoId) {
   let state = savedTranscriptMarkers.get(videoId);
   if (!state) {
-    state = { capturedSeconds: new Set(), segmentIds: new Set() };
+    state = emptySavedMarkerState();
     savedTranscriptMarkers.set(videoId, state);
   }
   return state;
 }
 
-function recordSavedTranscriptMarker({ videoId, capturedSecond, segmentId } = {}) {
+function recordSavedTranscriptMarker({
+  videoId,
+  capturedSecond,
+  segmentId,
+  rowStartSecond,
+} = {}) {
   if (!SAVE_VIDEO_ID_PATTERN.test(videoId || "")) return;
   const state = savedMarkerState(videoId);
   if (Number.isInteger(capturedSecond) && capturedSecond >= 0 && capturedSecond <= SAVE_LIMITS.maxSeconds) {
     state.capturedSeconds.add(capturedSecond);
   }
   if (typeof segmentId === "string" && segmentId) state.segmentIds.add(segmentId);
+  if (Number.isFinite(rowStartSecond) && rowStartSecond >= 0 && rowStartSecond <= SAVE_LIMITS.maxSeconds) {
+    state.rowStartSeconds.add(rowStartSecond);
+  }
+}
+
+/**
+ * Restore the Saved labels for a video from Popcorn and this browser's queue,
+ * so they survive closing the panel, reloading YouTube or switching videos.
+ * When Popcorn answered, its list replaces the local one (a moment deleted on
+ * the web is unmarked); when it did not, nothing already shown is removed.
+ */
+function applySavedMarkers(videoId, markers, { replace = false } = {}) {
+  if (!SAVE_VIDEO_ID_PATTERN.test(videoId || "") || markers?.youtubeVideoId !== videoId) return;
+  if (replace) savedTranscriptMarkers.set(videoId, emptySavedMarkerState());
+  for (const segmentId of Array.isArray(markers.segmentIds) ? markers.segmentIds : []) {
+    recordSavedTranscriptMarker({ videoId, segmentId });
+  }
+  for (const rowStartSecond of Array.isArray(markers.rowStartSeconds) ? markers.rowStartSeconds : []) {
+    recordSavedTranscriptMarker({ videoId, rowStartSecond });
+  }
+  for (const capturedSecond of Array.isArray(markers.capturedSeconds) ? markers.capturedSeconds : []) {
+    recordSavedTranscriptMarker({ videoId, capturedSecond });
+  }
+}
+
+let savedMarkerRequest = 0;
+let savedMarkersLoadedFor = null;
+
+// Coming back from the web app (where moments may have been saved or deleted)
+// refreshes the labels without reopening the panel.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (!document.querySelector("#transcriptList .transcript-entry")) return;
+  void loadSavedTranscriptMarkers(currentVideoId, { force: true });
+});
+
+async function loadSavedTranscriptMarkers(videoId = currentVideoId, { force = false } = {}) {
+  if (!SAVE_VIDEO_ID_PATTERN.test(videoId || "")) return;
+  // Re-rendering for a transcript mode switch keeps the labels already loaded.
+  if (!force && savedMarkersLoadedFor === videoId) return;
+  savedMarkersLoadedFor = videoId;
+  const request = ++savedMarkerRequest;
+  try {
+    const response = await chrome.runtime.sendMessage({ action: "getSavedMarkers", videoId });
+    if (request !== savedMarkerRequest || videoId !== currentVideoId) return;
+    if (!response?.success) return;
+    applySavedMarkers(videoId, response.markers, { replace: response.serverAvailable === true });
+    updateTranscriptSavedButtons();
+  } catch (_error) {
+    // Labels recorded during this panel session stay as they are.
+  }
 }
 
 function isTranscriptSegmentSaved(segment, index, segments, videoId = currentVideoId) {
   const state = savedTranscriptMarkers.get(videoId);
   if (!state || !segment) return false;
   if (state.segmentIds.has(segment.id)) return true;
+  const segmentStart = Number(segment.start);
+  if (
+    Number.isFinite(segmentStart) &&
+    [...state.rowStartSeconds].some((second) => Math.abs(second - segmentStart) < 0.01)
+  ) {
+    return true;
+  }
   const start = parseInt(segment.start);
   const nextStart = segments[index + 1]
     ? parseInt(segments[index + 1].start)
@@ -3357,6 +3433,9 @@ globalThis.__YTD_TRANSCRIPT_TESTING__ = {
 };
 
 globalThis.__YTD_SAVE_TESTING__ = {
+  applySavedMarkers,
+  isTranscriptSegmentSaved,
+  loadSavedTranscriptMarkers,
   buildVideoSaveInput,
   buildSubtitleRowSaveInput,
   buildSubtitleSelectionSaveInput,
