@@ -2,110 +2,153 @@
 
 **把 YouTube 中看懂的中文表达，变成自己能够使用的表达。**
 
-Popcorn 是一款面向以英语为辅助语言的中级中文学习者的 AI 学习产品，由 Chrome 扩展与 Web 工作台组成：在观看中理解并保存感兴趣的表达，再通过原创回答、AI 反馈与后续复习，把素材连接到实际使用。
+Popcorn 面向以英语为辅助语言的中级中文学习者，由 **Chrome 扩展 + Web 学习工作台**组成。在视频中理解和保存真实语料，在 Saved 标注想学的表达、生成学习卡，再通过新情境作答、AI 反馈和间隔复习，留下自己的使用记录。
 
-采用个人本地自托管方式运行。
+采用个人本地自托管方式运行，支持配置自己的 OpenAI-compatible 模型服务。
 
-[产品预览](#产品预览) · [技术选型](#技术选型) · [本地运行](#本地运行)
-
-供产品评估与 Agent 交接使用的完整功能、用户闭环、实现边界和代码导航，见[产品完整说明与 Agent 交接](docs/product/Popcorn产品完整说明与Agent交接.md)。
+[学习流程](#学习流程) · [功能与界面](#功能与界面) · [技术选型](#技术选型) · [本地运行](#本地运行) · [验证与边界](#验证与边界)
 
 ## 为什么做 Popcorn
 
-**看懂一次，不代表下次能说出来。** 学习者可以借助字幕理解视频，却仍需要自己整理语境、设计练习，并判断收藏的表达是否真正用过。
+**看懂一次，不代表下次能说出来。** 字幕和翻译能帮助理解，却不能替学习者完成表达选择、主动输出和之后的复用。Popcorn 把这些步骤连接起来：每个表达保留原始语境，每次作答留下反馈，学习进展由独立使用的证据推动。
 
-Popcorn 聚焦这一断点：保留让表达产生意义的视频上下文，为它安排主动输出和后续复用，让学习进度有记录可查。
+## 学习流程
 
-## 产品预览
+```mermaid
+flowchart TD
+    A[YouTube：字幕、翻译、概览与选段解释] --> B[保存视频、字幕行或片段]
+    B --> C[Saved：标注表达并 Analyze]
+    C --> D[学习卡：含义、用法、对比、例句、意图与场合]
+    D --> E[首次练习：在新情境中自己作答]
+    E --> F{本轮首次作答是否独立通过？}
+    F -->|是| G[进入 Vault · tried]
+    F -->|未通过或看过例句| H[保留本轮回答与反馈]
+    H --> M[同题修改：练习，不入库]
+    M --> N[换新情境，开启新轮次]
+    H --> N
+    N --> E
+    H --> I[24 小时后进入 Second tries]
+    I --> N
+    G --> J[到期 Reviews：近迁移与远迁移]
+    J --> K[独立复用证据：tried → reused → owned]
+    K --> J
+    L[Home / 今日学习会话] -. 汇总 Reviews、Second tries、New .-> E
+    L -. 按队列连续练习 .-> J
+```
 
-**在 YouTube 理解与保存 → 从 Saved 完成首次练习 → 日后回到 Practice 复习 → 在 Vault / Progress 查看积累。**
+保存、阅读学习卡和看反馈不会自动提升掌握度。**Saved 管想学的素材，Vault 管已经留下正式使用证据的表达**；改好同一道题是练习记录，换情境后的独立首次作答才可能建立新的有效证据。
 
-截图展示实际使用场景与不同学习记录；固定数据的练习演示另作说明。点击图片可查看大图。
+## 功能与界面
 
-### 1. 看 YouTube 时：理解内容，留下想学的表达
+下方扩展截图来自实际观看场景；新版 Web 截图来自当前一期代码的生产构建与隔离测试账号。Web 学习卡、题目、作答和评分均为固定演示数据，用于展示交互，**不代表实时模型生成质量或学习效果**。截图可点击放大，来源说明见[截图记录](docs/assets/readme/SCREENSHOTS.md)。
 
-打开侧栏查看中文、英文或双语字幕，按时间戳回到原句；按需生成视频概览、查看章节与关键句，或选段解释。遇到有用的内容，保存字幕行、选段或当前视频片段，继续观看。
+### 1. 在 YouTube 理解和保存
 
-[![实际观看场景：YouTube 播放器与 Popcorn 字幕侧栏同屏，展示时间定位、Save moment 与 Save Video 入口](docs/assets/readme/youtube-watching.png)](docs/assets/readme/youtube-watching.png)
+扩展在观看现场提供中文、英文或双语字幕，支持按时间戳定位原句；按需生成视频概览、章节和表达推荐，也可选中原文查看英语解释。可以保存整条视频的学习快照、当前时刻、字幕行或选段，之后在同账号 Web 的 Saved 查看。
 
-视频与字幕同屏呈现：边看边定位原句，通过 **Save moment** 保存当前片段，或用 **Save Video** 保存整条视频的学习快照。
+[![YouTube 播放器与 Popcorn 侧栏：字幕、时间定位、Save moment 和 Save Video](docs/assets/readme/youtube-watching.png)](docs/assets/readme/youtube-watching.png)
 
-**Overview：从理解视频，到发现值得练习的表达。**
-
-- **总结与章节导航**：基于视频字幕概括主要内容，按章节呈现要点与时间戳，帮助快速理解脉络、回到相关片段。
-- **地道表达推荐**：从原始语境提取值得学习的表达，附英文释义与来源时间戳；可直接 **Save** 或 **Copy**，为后续练习留下素材。
-
-| Overview · 总结与章节导航 | Overview · 地道表达推荐 |
+| Overview · 总结与章节导航 | Overview · 表达推荐 |
 | :---: | :---: |
-| [![Overview 总结：视频内容概要、章节要点与来源时间戳](docs/assets/readme/extension-overview.png)](docs/assets/readme/extension-overview.png) | [![Overview 表达推荐：从视频提取的中文表达、英文释义、时间戳及 Save 和 Copy 入口](docs/assets/readme/extension-overview-expressions.png)](docs/assets/readme/extension-overview-expressions.png) |
+| [![视频内容概要、章节要点与来源时间戳](docs/assets/readme/extension-overview.png)](docs/assets/readme/extension-overview.png) | [![中文表达、英文释义、时间戳及 Save 和 Copy 入口](docs/assets/readme/extension-overview-expressions.png)](docs/assets/readme/extension-overview-expressions.png) |
 
-### 2. 第一次练习：把收藏变成自己写出的一句话
+保存先落下原始内容，再由后台补齐字幕与学习材料；临时同步失败时扩展保留待同步内容并重试。**Save Video 保存来源和学习快照，不下载视频文件。**
 
-从侧栏打开 Web，在 **Saved** 选择候选表达，点击 **Practice this expression**，进入“先作答、再反馈”的练习：
+### 2. 在 Saved 选择表达，生成可练习的学习卡
 
-1. **用户输入**：面对“一杯普通咖啡卖一百元”的新场景，写下“这个价格也太离谱了。”，点击 **Check my response**。
-2. **模型反馈**：界面分别展示准确性、自然度、语境适配的评分与解释，并提供改进重点和 **Natural revision** 示例。
-3. **修改再试**：根据建议改为“这个价格也太离谱了吧。”，点击 **Check revised response** 再次检查。合格的独立首次尝试进入 **Vault** 成为 `tried` 证据；参考示范后的修改单独记录，不额外算作独立复用。
+Saved 按视频整理保存的片段和原始语境。用户可以在原文中选中、标注想学的表达，也可调整自动标注；点击 **Analyze** 分析标注内容，逐条显示成功、处理中或失败状态，保留已成功的卡片。
 
-下方作答与反馈截图由项目实际前端组件加载固定演示数据生成，评分和反馈用于说明交互，非实时模型评测。
+学习卡回答的不只是“它是什么意思”，还包括“什么时候能这样说”：
 
-| 用户输入：新场景、原始来源与中文回答 | 反馈输出：三维评分、改进建议与自然改写 |
-| :---: | :---: |
-| [![首次作答：用户输入“这个价格也太离谱了。”并准备提交](docs/assets/readme/practice-input.png)](docs/assets/readme/practice-input.png) | [![反馈演示：准确性、自然度、语境适配评分，Natural revision 与再次修改入口](docs/assets/readme/practice-feedback.png)](docs/assets/readme/practice-feedback.png) |
+| 内容 | 帮助解决的问题 |
+| --- | --- |
+| **Meaning here / Use it when** | 在这段视频里是什么意思？遇到什么情况可以使用？ |
+| **Compared with** | 与近义说法相比，有什么区别？ |
+| **Examples** | 两个中英例句，展示表达如何落进具体句子。 |
+| **More：How it fits / Tone & who / Watch out** | 如何放进句子？适合对谁说？有哪些语气或用法限制？ |
+| **Used to / Good for** | 交际意图与适用场合，供后续出题和评分使用。 |
+| **来源时间戳** | 随时回到 YouTube 的原始语境。 |
+
+[![新版学习卡：挺靠谱的含义、使用条件、近义对比、两个例句、交际意图与场合](docs/assets/readme/learning-cards.png)](docs/assets/readme/learning-cards.png)
+
+人名、基础词等不适合当作可复用表达的内容会附上原因，可选择 **Practice anyway**，不会自动加入今日新表达。卡片按练习状态提供 **Practice this expression / Continue / In your Vault** 等入口。
+
+### 3. 首次练习：自己作答，再看反馈
+
+从 Saved 或今日新表达进入练习。题面按学习卡的交际意图和场合生成，包含对话对象、中文情境、可切换的英文说明与具体任务；来源时间链接始终保留。例如练“挺靠谱”，任务会让你在一个新场景中表达认可或信任。
+
+- **提示分层**：About this expression 提供用法与语气；Show examples 显示例句并记录辅助。切换英文、查看 About 不算示范辅助。
+- **三维反馈**：Accuracy、Naturalness、Context fit 分别给分并解释，指出优先改进处；可展开自然版本，逐字对照自己的回答。全满分时显示 Nothing to fix。
+- **修改与新轮次分开**：保留首次回答、最新修改和首次反馈；同题修改不额外算独立复用。未入库时可继续修改、换一个新情境，或等待 Second try；不设练习轮次上限。
+- **入库条件**：本轮首次作答独立通过后进入 Vault，成为 `tried`。看过例句或首次未通过的轮次不会靠反复修改入库，需在新情境中再次独立尝试；已作答但未入库、也未移除的表达，在重试时间到达后进入 Second tries（首次安排为 24 小时后）。
+- **可以中断**：未发送的草稿在浏览器存储可用时自动保存，已提交的回答和反馈由服务端恢复。第一轮题目已生成但尚未作答，仍算 New，刷新继续同一道题。可 Remove from practice，并在 5 秒内 Undo。
 
 <details>
-<summary>查看 Saved 练习入口与修改后再次检查的结果</summary>
+<summary>查看首次练习的回答对照与反馈</summary>
 
-| 从收藏的候选表达进入练习 | 修改回答后再次提交，查看更新反馈 |
-| :---: | :---: |
-| [![首次练习入口：Saved 保留原始语境，并提供候选表达与 Practice this expression 按钮](docs/assets/readme/saved-detail.png)](docs/assets/readme/saved-detail.png) | [![修改演示：用户改为“这个价格也太离谱了吧。”并再次检查，输入与更新反馈同时保留](docs/assets/readme/practice-revision.png)](docs/assets/readme/practice-revision.png) |
+[![首次练习反馈：保留首次回答与修改，展示三维评分；看过例句的本轮仍需新情境独立尝试](docs/assets/readme/first-practice-feedback.png)](docs/assets/readme/first-practice-feedback.png)
 
 </details>
 
-### 3. 日后复习：换个场景再用一次，查看积累
+### 4. Home 与今日学习会话：打开就知道下一步
 
-再次打开产品时，从 **Home** 的下一步提示或 **Practice** 的到期列表开始。在新场景中重新作答、接收反馈，符合规则的独立复用推动掌握状态；**Vault** 保留来源与尝试历史，**Progress** 汇总练习、复用和当前掌握情况。
+Home 汇总三类内容，与 Practice 使用同一套计数和分组；同时保留掌握度概览和最近保存的视频。主行动依次考虑：**配置模型 → 开始今日练习 → 分析待处理素材 → 去 YouTube 看视频**。
 
-| 找到到期表达，开始短时复习 | 在新场景中重新使用，原始来源仍可查看 |
+| 分组 | 收录什么 | 学习顺序 |
+| --- | --- | --- |
+| **Reviews** | Vault 中已到期的表达，在新情境中再次使用。 | 优先 |
+| **Second tries** | 尚未入库、重试时间已到的表达。 | 其次 |
+| **New expressions** | 已分析、尚未作答的可练习表达。 | 最后 |
+
+点击 **Start** 连续完成今日会话，也可单独打开某一项。支持 Next / Finish / Exit、刷新恢复和会话结果汇总；每次前进都重新读取当前队列。不限制每日新表达数或会话总条数；新表达列表先展示 10 条，更多内容可用 **Show all** 展开。预计时长按每项 2 分钟估算。
+
+| Home · 今日计数与下一步 | Practice · 三类完整队列 |
 | :---: | :---: |
-| [![日后复习入口：Practice 展示到期表达与 Start practice 按钮](docs/assets/readme/practice.png)](docs/assets/readme/practice.png) | [![日后复习任务：已有 tried 状态的表达、新场景与原始视频来源](docs/assets/readme/practice-task.png)](docs/assets/readme/practice-task.png) |
+| [![Home：两项 Reviews、一项 Second try、三项 New，保留掌握度与最近视频；演示账号尚未配置模型](docs/assets/readme/home.png)](docs/assets/readme/home.png) | [![Today's practice：Reviews、Second tries 和 New expressions 分组，共六项，预计十二分钟](docs/assets/readme/today-practice.png)](docs/assets/readme/today-practice.png) |
 
-<details>
-<summary>查看复习后的表达记录与学习进度</summary>
+### 5. 到期复习：隐藏表达，换场景再用一次
 
-| Vault：回溯表达来源与练习记录 | Progress：查看练习与独立复用证据 |
+复习以学习卡的意图和场合生成题目，并避开已经使用过的情境：
+
+- **近迁移**：保持主要交际意图和首选场合，检验能否在相近的新场景中复用。
+- **远迁移**：优先切换次要意图或其他适用场合；没有可切换项时更换话题与对话对象。`tried` 使用近迁移，`reused` 使用远迁移，`owned` 交替练习。
+- **先回想再求助**：目标中文表达默认遮蔽。Show the expression 可揭示表达，本身不算示范辅助；Show examples 会记录辅助，本次复习不推进掌握度。
+- **提交前可换题**：每次复习允许成功更换情境一次；更换失败保留原题和换题次数。已准备好的题目直接复用。
+- **正式结果与修改分开**：首次提交决定本次正式记录、掌握变化和后续排程；之后可修改并看反馈，但不重写正式作答，也不再次改变掌握度或排程。
+
+| 近迁移 · 相近场合中的独立回想 | 远迁移 · 更换使用场合 |
 | :---: | :---: |
-| [![Vault 表达详情：原始语境与 reused 状态](docs/assets/readme/vault-detail.png)](docs/assets/readme/vault-detail.png) | [![Progress：到期练习、独立复用与掌握状态](docs/assets/readme/progress.png)](docs/assets/readme/progress.png) |
+| [![近迁移复习：遮蔽表达，在朋友聊天场合表达认可，提供揭示表达和更换情境入口](docs/assets/readme/review-near.png)](docs/assets/readme/review-near.png) | [![远迁移复习：在工作学习场合给出建议，展开用法提示和英文情境，目标表达仍被遮蔽](docs/assets/readme/review-far.png)](docs/assets/readme/review-far.png) |
 
-</details>
+首次练习与复习都提供失败恢复：出题失败显示 **Try again** 并保留状态，评分失败保留回答。生产环境不使用通用模板兜底，也不把失败输出当作已完成练习。
 
-## 关键设计亮点
+### 6. Vault、Progress 与资料管理
 
-- **让理解自然衔接到输出**：字幕、翻译、概览和选段解释帮助理解；候选表达与练习承接下一步，原始来源始终可追溯。
-- **收藏与掌握分开计算**：保存只记录兴趣；`tried → reused → owned` 按有效尝试及跨时间、场景的使用证据推进，避免用收藏量代替学习进展。
-- **保留学习者的主动性**：练习先要求原创回答，再给反馈和示范，减少直接照抄 AI 答案的依赖。
-- **让 AI 延迟不打断收藏**：先持久化原始内容，再后台生成学习材料；任务可恢复，重复提交避免产生重复记录。
+**Vault** 按表达保存来源、当前掌握状态和练习历史，并提供检索；**Progress** 汇总正式作答、复习完成、独立复用和掌握分布。`tried → reused → owned` 由有效独立作答及跨日期、情境的复用证据推进，复习沿用 1 / 7 / 30 天的间隔规则。
 
-### AI 在哪里创造价值
+不同删除入口分别管理素材和学习记录，确认弹窗会说明影响：
 
-AI 负责翻译、概览、语境解释、候选表达、练习生成与反馈。系统保留来源、校验生成内容，并依据可信的作答记录更新进度；模型输出不会直接成为掌握状态。用户可在 Web 设置中配置自己的 OpenAI-compatible 模型服务。
+| 操作 | 结果 |
+| --- | --- |
+| **删除 Saved 学习卡** | 从 Saved 隐藏这张卡；保留原句、Vault 和练习历史。 |
+| **删除 Saved 片段** | 从 Saved 移除该条素材；保留练习历史、掌握度和复习。 |
+| **删除 Saved 视频来源** | 删除保存的片段与来源内容；已练表达的 Vault、作答、掌握度和复习保留，但来源链接、时间戳和原文证据会移除。 |
+| **删除 Vault 表达** | 从 Vault 移除并取消后续复习；保留过往练习历史和 Saved 来源。已完成复习仍可查看，不再提供新的修改入口。 |
+
+旧记录保留原题与作答版本。缺少新版学习卡的记录可通过显式维护工具按原来源补齐，之后的新题使用新版路径；升级不改写旧题、作答、掌握度或排程。操作约束与验收见[旧记录升级方案](docs/superpowers/specs/2026-11-01-legacy-learning-card-upgrade-design.md)。
 
 ## 技术选型
 
-| 技术 | 承担的角色与选择理由 |
+| 技术 | 承担的角色 |
 | --- | --- |
-| **Next.js 16 + React 19 + TypeScript** | 在同一项目中承载 Web 交互与服务端 API，便于迭代完整链路；类型约束连接页面、接口和学习记录。 |
-| **Chrome Extension · Manifest V3** | 通过 Side Panel 在观看现场提供帮助；Service Worker 管理会话与待同步事件，使捕获贴近用户当前任务。 |
-| **Supabase · PostgreSQL / Auth / RLS** | 统一账号与关系数据管理，用事务、约束和行级权限维护来源、作答、复习之间的一致性及用户隔离。 |
-| **PostgreSQL 持久任务队列 + Node.js worker** | 将慢速字幕与模型请求移出即时操作，记录任务状态、重试和完成结果，支持进程中断后的恢复。 |
-| **Supadata + OpenAI-compatible 网关 + Zod** | 分离字幕获取与模型生成；服务端规范化、校验 AI 输出后再保存，兼顾模型选择与数据可靠性。 |
-| **Vitest + Playwright** | 覆盖业务规则、API 契约、集成与浏览器链路；自动化使用固定数据，真实服务另做验证。 |
+| **Next.js 16 + React 19 + TypeScript** | Web 页面、服务端 API 与共享类型。 |
+| **Chrome Extension · Manifest V3** | YouTube 侧栏、现场捕获、扩展会话与待同步队列。 |
+| **Supabase · PostgreSQL / Auth / RLS** | 账号、来源、学习卡、作答、复习与用户隔离；事务约束维护正式学习记录。 |
+| **PostgreSQL 持久任务队列 + Node.js worker** | 后台处理字幕与模型请求，保存状态、重试及完成结果，支持中断恢复。 |
+| **Supadata + OpenAI-compatible 网关 + Zod** | 字幕获取、可配置模型服务与结构化输出校验。 |
+| **Vitest + Playwright + SQL 测试** | 业务规则、接口契约、集成、权限、真实并发与浏览器链路验证。 |
 
-## 验证与边界
-
-已实现从视频捕获到后续练习与进度记录的完整链路，验证记录覆盖数据库权限、幂等保存、任务恢复、扩展及 Web 体验，详见[执行与验收记录](docs/engineering/execution-ledger.md)。
-
-当前聚焦支持原生简体中文字幕的 YouTube 视频。工程验证支持功能与可靠性判断；长期学习效果仍需用户研究验证，后续可关注收藏到首次练习转化、复习完成及独立复用情况。
+模型负责翻译、概览、解释、学习卡、出题和反馈；程序负责来源校验、独立性判定、幂等提交、掌握度与排程。**模型分数不会直接覆盖学习状态。**
 
 ## 本地运行
 
@@ -121,7 +164,7 @@ pnpm install --frozen-lockfile
 
 随后按[中文使用指南](docs/operations/user-guide.zh-CN.md)或 [English self-host guide](docs/operations/local-self-host.md) 完成一次性配置：
 
-1. 启动本地 Supabase，将 `.env.example` 复制为 `.env.local`，填写本地配置及 Supadata Key（从 [Supadata dashboard](https://dash.supadata.ai/) 获取，参阅[官方文档](https://docs.supadata.ai/)）。
+1. 启动本地 Supabase，将 `.env.example` 复制为 `.env.local`，填写本地配置及 Supadata Key（从 [Supadata dashboard](https://dash.supadata.ai/) 获取）。
 2. 按指南初始化数据库、创建本地账号，生成并加载未打包扩展。
 3. 在已登录的 Web 设置中填写模型服务名称、HTTPS API 根地址、模型 ID 与 API Key。地址必须为公开 HTTPS DNS 地址，不接受 IP、内部主机名、端口、凭证、查询参数或片段。
 
@@ -134,11 +177,28 @@ pnpm popcorn:start
 pnpm popcorn:stop
 ```
 
-macOS 也可双击 `Start Popcorn.command` / `Stop Popcorn.command`。详细手动启动与排障步骤见上述指南；`pnpm db:reset` 会清空本地数据，不用于日常启动。
+macOS 也可双击 `Start Popcorn.command` / `Stop Popcorn.command`。手动启动与排障见上述指南；**`pnpm db:reset` 会清空本地数据，不用于日常启动或已有数据升级。** 已有部署更新前应备份数据，并按迁移与升级方案操作。
 
 模型 Key 只在已登录的 Web 设置中输入；`.env.local`、Supadata/模型密钥、密码和 Token 不应提交到 Git 或粘贴到聊天中。
 
 相关文档：[扩展安装](docs/operations/extension-install.md) · [任务与保存恢复](docs/operations/job-recovery.md) · [账号重置](docs/operations/account-reset.md)
+
+## 验证与边界
+
+当前已交付一期组 1–4：**表达标注与学习卡、分轮首次练习、今日会话与 Home、新版到期复习**，并完成旧记录升级及资料移除兼容处理。二期的扩展回流、Vault / Progress 新版设计不属于本次已交付功能。
+
+截至 2026-11-02，独立验收记录包含：1833 项应用测试、1188 条 SQL 断言、15 组真实并发、180 项扩展测试和 5 条生产构建浏览器流程。真实模型的 20 道新版复习题另经人工逐题审核通过；固定数据测试与真实模型审核分别留档，详见[最终集成验收](docs/engineering/group-4-main-integration-acceptance.md)、[真实题目审阅](docs/engineering/prompt-runs/2026-11-01-transfer-scenario-v1-review-set.md)和[执行记录](docs/engineering/execution-ledger.md)。这些是已记录版本的验收结果，后续提交应重新运行相关检查。
+
+```bash
+pnpm verify          # lint、类型、应用测试、来源校验与生产构建
+pnpm test:extension  # 扩展测试
+pnpm db:test         # SQL 测试；先确认连接的是隔离测试数据库
+pnpm test:e2e        # 浏览器测试；按测试配置准备隔离环境
+```
+
+当前聚焦支持原生简体中文字幕的 YouTube 视频，界面以英文辅助中文学习；语音练习、主动通知和游戏化尚未实现。工程验收验证功能和可靠性，长期学习效果仍需用户研究。
+
+更早的[产品说明与 Agent 交接](docs/product/Popcorn产品完整说明与Agent交接.md)保留了历史版本的设计与代码导航；其中旧练习入口、轮次和候选分析规则应以当前 README、代码及一期验收为准。
 
 ## 开源与致谢
 
