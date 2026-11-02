@@ -72,6 +72,16 @@ export interface DurableJobStore {
     snapshotId: string,
     completedAt: string,
   ): Promise<boolean>;
+  /**
+   * A complete snapshot already stored for the job's source that contains
+   * every subtitle segment its saved item names (any one, for saves that name
+   * none). Reusing it attaches the save to the same transcript the side panel
+   * showed and avoids a new Provider request; null means fetch as before.
+   */
+  findReusableSnapshot?(
+    expectedUserId: string,
+    leased: Extract<KnowledgeJob, { status: "leased" }>,
+  ): Promise<string | null>;
   readLearningArtifactEvidence(
     expectedUserId: string,
     sourceId: string,
@@ -626,6 +636,53 @@ export function createSupabaseDurableJobStore(
       if (segmentWrite.error) throw segmentWrite.error;
 
       return persisted.data.id;
+    },
+
+    async findReusableSnapshot(expectedUserId, leased) {
+      if (leased.userId !== expectedUserId) throw new Error("job owner mismatch");
+      const wanted = new Set<string>();
+      if (leased.savedItemId) {
+        const item = await client.from("saved_items")
+          .select("user_id,video_source_id,payload")
+          .eq("user_id", expectedUserId)
+          .eq("video_source_id", leased.sourceId)
+          .eq("id", leased.savedItemId)
+          .maybeSingle();
+        if (item.error) throw item.error;
+        if (!item.data || item.data.user_id !== expectedUserId) return null;
+        const payload = item.data.payload;
+        if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
+          if (typeof payload.segmentId === "string" && payload.segmentId) wanted.add(payload.segmentId);
+          if (Array.isArray(payload.segmentIds)) {
+            for (const id of payload.segmentIds) if (typeof id === "string" && id) wanted.add(id);
+          }
+        }
+      }
+      const snapshots = await client.from("video_snapshots")
+        .select("id,user_id,video_source_id,transcript_hash,transcript_language")
+        .eq("user_id", expectedUserId)
+        .eq("video_source_id", leased.sourceId)
+        .eq("transcript_language", "zh-CN")
+        .order("captured_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(10);
+      if (snapshots.error) throw snapshots.error;
+      for (const persistedSnapshot of snapshots.data) {
+        if (
+          persistedSnapshot.user_id !== expectedUserId ||
+          persistedSnapshot.video_source_id !== leased.sourceId
+        ) continue;
+        const snapshot = await readPersistedTranscriptSnapshot(
+          client,
+          expectedUserId,
+          persistedSnapshot,
+          true,
+        );
+        if (!snapshot || snapshot.segments.length === 0) continue;
+        const present = new Set(snapshot.segments.map((segment) => segment.stableId));
+        if ([...wanted].every((id) => present.has(id))) return persistedSnapshot.id;
+      }
+      return null;
     },
 
     async completeResolved(expectedUserId, leased, snapshotId, completedAt) {

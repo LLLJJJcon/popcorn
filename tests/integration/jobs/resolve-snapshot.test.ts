@@ -497,6 +497,50 @@ describe("durable resolve_snapshot processing", () => {
     expect(result).toMatchObject({ claimed: 1, deferred: 1 });
   });
 
+  test("attaches a new save to the snapshot the side panel already stored without a Provider request", async () => {
+    const store = storeFixture(job());
+    store.privateInput = null;
+    const lookups: string[] = [];
+    store.findReusableSnapshot = async (expectedUserId, leased) => {
+      expect(expectedUserId).toBe(USER_A);
+      lookups.push(leased.savedItemId!);
+      return SNAPSHOT_ID;
+    };
+    const provider: TranscriptProvider = { request: vi.fn(), poll: vi.fn() };
+    const processor = createJobProcessor({
+      store,
+      handlers: { resolve_snapshot: createResolveSnapshotHandler({ store, provider }) },
+    });
+
+    const result = await processor.processBounded(NOW, 1);
+
+    expect(lookups).toEqual([SAVE_ID]);
+    expect(provider.request).not.toHaveBeenCalled();
+    expect(store.persisted).toEqual([]);
+    expect(store.privateResult).toEqual({ snapshotId: SNAPSHOT_ID });
+    expect(store.states.at(-1)).toMatchObject({ status: "succeeded", updatedAt: NOW });
+    expect(result).toMatchObject({ claimed: 1 });
+  });
+
+  test("requests the Provider when no stored snapshot covers the save", async () => {
+    const store = storeFixture(job());
+    store.privateInput = null;
+    store.findReusableSnapshot = async () => null;
+    const provider: TranscriptProvider = {
+      request: vi.fn(async () => ({ kind: "pending" as const, providerJobId: "provider-new-456" })),
+      poll: vi.fn(),
+    };
+    const processor = createJobProcessor({
+      store,
+      handlers: { resolve_snapshot: createResolveSnapshotHandler({ store, provider }) },
+    });
+
+    await processor.processBounded(NOW, 1);
+
+    expect(provider.request).toHaveBeenCalledWith("abc123XYZ00");
+    expect(store.privateInput).toEqual({ providerJobId: "provider-new-456" });
+  });
+
   test("uses frozen retry and terminal failure rules", async () => {
     const store = storeFixture(job({
       status: "leased",

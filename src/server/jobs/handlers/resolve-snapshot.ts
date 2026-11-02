@@ -85,6 +85,14 @@ export function createResolveSnapshotHandler({
         !Array.isArray(privateInput) &&
         Object.keys(privateInput).length === 0)
     ) {
+      // The side panel already stored the transcript it displayed. Attach the
+      // save to it rather than asking the Provider for the same transcript
+      // again on every save (which also trips its rate limit).
+      const reusable = await store.findReusableSnapshot?.(expectedUserId, job) ?? null;
+      if (reusable) {
+        const completed = await store.completeResolved(expectedUserId, job, reusable, now);
+        return completed ? "completed" : "deferred";
+      }
       const videoId = await store.readVideoId(expectedUserId, job.sourceId);
       const initialResult = await provider.request(videoId);
       if (initialResult.kind === "pending") {
