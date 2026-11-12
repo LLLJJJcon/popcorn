@@ -1,160 +1,162 @@
 # Popcorn
 
-**把 YouTube 中看懂的中文表达，变成自己能够使用的表达。**
+**Turn Chinese expressions you understand on YouTube into expressions you can use yourself.**
 
-Popcorn 面向以英语为辅助语言的中级中文学习者，由 **Chrome 扩展 + Web 学习工作台**组成。在视频中理解和保存真实语料，在 Saved 标注想学的表达、生成学习卡，再通过新情境作答、AI 反馈和间隔复习，留下自己的使用记录。
+Popcorn is for intermediate learners of Mandarin Chinese who use English as a support language. It combines a **Chrome extension + web learning workspace**. Understand and save authentic material from videos, mark expressions in Saved and generate learning cards, then build a record of your own use through responses in new scenarios, AI feedback, and spaced review.
 
-采用个人本地自托管方式运行，支持配置自己的 OpenAI-compatible 模型服务。
+Popcorn runs locally as a personal, self-hosted application and supports your own OpenAI-compatible model service.
 
-[学习流程](#学习流程) · [功能与界面](#功能与界面) · [技术选型](#技术选型) · [本地运行](#本地运行) · [验证与边界](#验证与边界)
+**English** · [简体中文](README.zh-CN.md)
 
-## 为什么做 Popcorn
+[Learning workflow](#learning-workflow) · [Features and interface](#features-and-interface) · [Tech stack](#tech-stack) · [Run locally](#run-locally) · [Validation and boundaries](#validation-and-boundaries)
 
-**看懂一次，不代表下次能说出来。** 字幕和翻译能帮助理解，却不能替学习者完成表达选择、主动输出和之后的复用。Popcorn 把这些步骤连接起来：每个表达保留原始语境，每次作答留下反馈，学习进展由独立使用的证据推动。
+## Why Popcorn
 
-## 学习流程
+**Understanding an expression once does not mean you can use it next time.** Subtitles and translation help with comprehension, but learners still need to choose expressions, produce their own responses, and reuse them later. Popcorn connects these steps: each expression retains its original context, each response receives feedback, and progress depends on evidence of independent use.
+
+## Learning workflow
 
 ```mermaid
 flowchart TD
-    A[YouTube：字幕、翻译、概览与选段解释] --> B[保存视频、字幕行或片段]
-    B --> C[Saved：标注表达并 Analyze]
-    C --> D[学习卡：含义、用法、对比、例句、意图与场合]
-    D --> E[首次练习：在新情境中自己作答]
-    E --> F{本轮首次作答是否独立通过？}
-    F -->|是| G[进入 Vault · tried]
-    F -->|未通过或看过例句| H[保留本轮回答与反馈]
-    H --> M[同题修改：练习，不入库]
-    M --> N[换新情境，开启新轮次]
+    A[YouTube: subtitles, translation, overviews and passage explanations] --> B[Save a video, subtitle line or passage]
+    B --> C[Saved: mark expressions and Analyze]
+    C --> D[Learning cards: meaning, usage, comparisons, examples, intent and setting]
+    D --> E[First practice: write your own response in a new scenario]
+    E --> F{Did the first response in this round pass independently?}
+    F -->|Yes| G[Enter Vault · tried]
+    F -->|Did not pass or viewed examples| H[Keep this round's responses and feedback]
+    H --> M[Revise the same task: practice without entering Vault]
+    M --> N[Start a new round in a new scenario]
     H --> N
     N --> E
-    H --> I[24 小时后进入 Second tries]
+    H --> I[Enter Second tries after 24 hours]
     I --> N
-    G --> J[到期 Reviews：近迁移与远迁移]
-    J --> K[独立复用证据：tried → reused → owned]
+    G --> J[Due Reviews: near and far transfer]
+    J --> K[Evidence of independent reuse: tried → reused → owned]
     K --> J
-    L[Home / 今日学习会话] -. 汇总 Reviews、Second tries、New .-> E
-    L -. 按队列连续练习 .-> J
+    L[Home / today's learning session] -. Collect Reviews, Second tries and New .-> E
+    L -. Practice continuously through the queue .-> J
 ```
 
-保存、阅读学习卡和看反馈不会自动提升掌握度。**Saved 管想学的素材，Vault 管已经留下正式使用证据的表达**；改好同一道题是练习记录，换情境后的独立首次作答才可能建立新的有效证据。
+Saving, reading learning cards, and viewing feedback do not automatically advance mastery. **Saved holds material you want to learn; Vault holds expressions with formal evidence of use.** Improving a response to the same task creates a practice record; an independent first response in a new scenario can establish new qualifying evidence.
 
-## 功能与界面
+## Features and interface
 
-下方扩展截图来自实际观看场景；新版 Web 截图来自当前一期代码的生产构建与隔离测试账号。Web 学习卡、题目、作答和评分均为固定演示数据，用于展示交互，**不代表实时模型生成质量或学习效果**。截图可点击放大，来源说明见[截图记录](docs/assets/readme/SCREENSHOTS.md)。
+The extension screenshots below show actual viewing sessions. The updated web screenshots come from a production build of the current Phase 1 code with an isolated test account. Web learning cards, tasks, responses, and scores use fixed demo data to illustrate the interaction; **they do not represent live model output quality or learning outcomes**. Click screenshots to enlarge them. See the [screenshot record](docs/assets/readme/SCREENSHOTS.md) for their provenance.
 
-### 1. 在 YouTube 理解和保存
+### 1. Understand and save on YouTube
 
-扩展在观看现场提供中文、英文或双语字幕，支持按时间戳定位原句；按需生成视频概览、章节和表达推荐，也可选中原文查看英语解释。可以保存整条视频的学习快照、当前时刻、字幕行或选段，之后在同账号 Web 的 Saved 查看。
+The extension provides Chinese, English, or bilingual subtitles while watching, with timestamps linking to the original lines. Generate video overviews, chapters, and expression recommendations as needed, or select original text for an English explanation. Save a learning snapshot of the whole video, the current moment, a subtitle line, or a selected passage, then view it in Saved on the web using the same account.
 
-[![YouTube 播放器与 Popcorn 侧栏：字幕、时间定位、Save moment 和 Save Video](docs/assets/readme/youtube-watching.png)](docs/assets/readme/youtube-watching.png)
+[![YouTube player and Popcorn side panel: subtitles, timestamp navigation, Save moment, and Save Video](docs/assets/readme/youtube-watching.png)](docs/assets/readme/youtube-watching.png)
 
-| Overview · 总结与章节导航 | Overview · 表达推荐 |
+| Overview · Summary and chapter navigation | Overview · Expression recommendations |
 | :---: | :---: |
-| [![视频内容概要、章节要点与来源时间戳](docs/assets/readme/extension-overview.png)](docs/assets/readme/extension-overview.png) | [![中文表达、英文释义、时间戳及 Save 和 Copy 入口](docs/assets/readme/extension-overview-expressions.png)](docs/assets/readme/extension-overview-expressions.png) |
+| [![Video synopsis, chapter highlights, and source timestamps](docs/assets/readme/extension-overview.png)](docs/assets/readme/extension-overview.png) | [![Chinese expressions, English meanings, timestamps, and Save and Copy actions](docs/assets/readme/extension-overview-expressions.png)](docs/assets/readme/extension-overview-expressions.png) |
 
-保存先落下原始内容，再由后台补齐字幕与学习材料；临时同步失败时扩展保留待同步内容并重试。**Save Video 保存来源和学习快照，不下载视频文件。**
+Saving persists the original content first; background jobs then fill in subtitles and learning material. If sync temporarily fails, the extension retains pending content and retries. **Save Video stores the source and a learning snapshot; it does not download video files.**
 
-### 2. 在 Saved 选择表达，生成可练习的学习卡
+### 2. Select expressions in Saved and generate learning cards for practice
 
-Saved 按视频整理保存的片段和原始语境。用户可以在原文中选中、标注想学的表达，也可调整自动标注；点击 **Analyze** 分析标注内容，逐条显示成功、处理中或失败状态，保留已成功的卡片。
+Saved organizes captured passages and their original context by video. Select and mark expressions in the original text, or adjust automatic markings. Click **Analyze** to analyze the marked content, with success, processing, or failure shown for each item and successful cards retained.
 
-学习卡回答的不只是“它是什么意思”，还包括“什么时候能这样说”：
+Learning cards explain both what an expression means and when you can use it:
 
-| 内容 | 帮助解决的问题 |
+| Content | What it helps you understand |
 | --- | --- |
-| **Meaning here / Use it when** | 在这段视频里是什么意思？遇到什么情况可以使用？ |
-| **Compared with** | 与近义说法相比，有什么区别？ |
-| **Examples** | 两个中英例句，展示表达如何落进具体句子。 |
-| **More：How it fits / Tone & who / Watch out** | 如何放进句子？适合对谁说？有哪些语气或用法限制？ |
-| **Used to / Good for** | 交际意图与适用场合，供后续出题和评分使用。 |
-| **来源时间戳** | 随时回到 YouTube 的原始语境。 |
+| **Meaning here / Use it when** | What does it mean in this video? In what situations can you use it? |
+| **Compared with** | How does it differ from similar expressions? |
+| **Examples** | Two Chinese–English examples showing the expression in complete sentences. |
+| **More: How it fits / Tone & who / Watch out** | How does it fit into a sentence? Who can you say it to? What tone or usage restrictions apply? |
+| **Used to / Good for** | Communicative intent and suitable settings, used in later task generation and scoring. |
+| **Source timestamp** | Return to the original context on YouTube at any time. |
 
-[![新版学习卡：挺靠谱的含义、使用条件、近义对比、两个例句、交际意图与场合](docs/assets/readme/learning-cards.png)](docs/assets/readme/learning-cards.png)
+[![Updated learning card for 挺靠谱: meaning, usage conditions, comparisons, two examples, communicative intent, and settings](docs/assets/readme/learning-cards.png)](docs/assets/readme/learning-cards.png)
 
-人名、基础词等不适合当作可复用表达的内容会附上原因，可选择 **Practice anyway**，不会自动加入今日新表达。卡片按练习状态提供 **Practice this expression / Continue / In your Vault** 等入口。
+Items unsuitable as reusable expressions, such as personal names or basic words, include an explanation. You can choose **Practice anyway**, but these items do not automatically enter today's new expressions. Cards offer actions such as **Practice this expression / Continue / In your Vault**, depending on practice status.
 
-### 3. 首次练习：自己作答，再看反馈
+### 3. First practice: respond yourself, then view feedback
 
-从 Saved 或今日新表达进入练习。题面按学习卡的交际意图和场合生成，包含对话对象、中文情境、可切换的英文说明与具体任务；来源时间链接始终保留。例如练“挺靠谱”，任务会让你在一个新场景中表达认可或信任。
+Start from Saved or today's new expressions. Tasks are generated from the learning card's communicative intent and settings, with a conversation partner, a Chinese scenario, an optional English explanation, and a specific task. The source timestamp link remains available. For example, practicing “挺靠谱” involves expressing approval or trust in a new scenario.
 
-- **提示分层**：About this expression 提供用法与语气；Show examples 显示例句并记录辅助。切换英文、查看 About 不算示范辅助。
-- **三维反馈**：Accuracy、Naturalness、Context fit 分别给分并解释，指出优先改进处；可展开自然版本，逐字对照自己的回答。全满分时显示 Nothing to fix。
-- **修改与新轮次分开**：保留首次回答、最新修改和首次反馈；同题修改不额外算独立复用。未入库时可继续修改、换一个新情境，或等待 Second try；不设练习轮次上限。
-- **入库条件**：本轮首次作答独立通过后进入 Vault，成为 `tried`。看过例句或首次未通过的轮次不会靠反复修改入库，需在新情境中再次独立尝试；已作答但未入库、也未移除的表达，在重试时间到达后进入 Second tries（首次安排为 24 小时后）。
-- **可以中断**：未发送的草稿在浏览器存储可用时自动保存，已提交的回答和反馈由服务端恢复。第一轮题目已生成但尚未作答，仍算 New，刷新继续同一道题。可 Remove from practice，并在 5 秒内 Undo。
+- **Layered hints**: About this expression explains usage and tone. Show examples reveals example sentences and records assistance. Switching to English or viewing About does not count as example assistance.
+- **Feedback across three dimensions**: Accuracy, Naturalness, and Context fit each receive a score and explanation, with priorities for improvement. Expand a natural version to compare it with your response word by word. Full scores display Nothing to fix.
+- **Revisions and new rounds are separate**: the first response, latest revision, and initial feedback are retained. Revisions to the same task do not count as additional independent reuse. Before an expression enters Vault, you can keep revising, switch to a new scenario, or wait for a Second try. There is no limit on practice rounds.
+- **Entering Vault**: an expression enters Vault as `tried` when the first response in a round passes independently. If you viewed examples or the first response did not pass, repeated revisions cannot qualify that round for Vault; you need another independent attempt in a new scenario. Expressions that have received a response but have neither entered Vault nor been removed enter Second tries when due, initially after 24 hours.
+- **Pause and resume**: unsent drafts are saved automatically when browser storage is available; submitted responses and feedback are restored from the server. An expression with a generated first-round task but no response remains New, and refreshing resumes the same task. Use Remove from practice with a 5-second Undo window.
 
 <details>
-<summary>查看首次练习的回答对照与反馈</summary>
+<summary>View response comparisons and feedback from first practice</summary>
 
-[![首次练习反馈：保留首次回答与修改，展示三维评分；看过例句的本轮仍需新情境独立尝试](docs/assets/readme/first-practice-feedback.png)](docs/assets/readme/first-practice-feedback.png)
+[![First-practice feedback: the initial response and revision are retained with three scoring dimensions; a round with examples viewed still requires an independent attempt in a new scenario](docs/assets/readme/first-practice-feedback.png)](docs/assets/readme/first-practice-feedback.png)
 
 </details>
 
-### 4. Home 与今日学习会话：打开就知道下一步
+### 4. Home and today's learning session: know what to do next
 
-Home 汇总三类内容，与 Practice 使用同一套计数和分组；同时保留掌握度概览和最近保存的视频。主行动依次考虑：**配置模型 → 开始今日练习 → 分析待处理素材 → 去 YouTube 看视频**。
+Home summarizes three groups using the same counts and grouping as Practice, while retaining a mastery overview and recently saved videos. The primary action follows this priority: **configure a model → start today's practice → analyze pending material → watch on YouTube**.
 
-| 分组 | 收录什么 | 学习顺序 |
+| Group | What it contains | Practice order |
 | --- | --- | --- |
-| **Reviews** | Vault 中已到期的表达，在新情境中再次使用。 | 优先 |
-| **Second tries** | 尚未入库、重试时间已到的表达。 | 其次 |
-| **New expressions** | 已分析、尚未作答的可练习表达。 | 最后 |
+| **Reviews** | Expressions in Vault that are due for reuse in a new scenario. | First |
+| **Second tries** | Expressions that have not entered Vault and are due for another attempt. | Second |
+| **New expressions** | Analyzed expressions suitable for practice that have not yet received a response. | Last |
 
-点击 **Start** 连续完成今日会话，也可单独打开某一项。支持 Next / Finish / Exit、刷新恢复和会话结果汇总；每次前进都重新读取当前队列。不限制每日新表达数或会话总条数；新表达列表先展示 10 条，更多内容可用 **Show all** 展开。预计时长按每项 2 分钟估算。
+Click **Start** to work through today's session, or open an item individually. Sessions support Next / Finish / Exit, recovery after refresh, and a results summary. Each step forward reloads the current queue. There is no daily limit on new expressions or total session items. The new-expression list initially shows 10 items; use **Show all** to expand it. Estimated time is 2 minutes per item.
 
-| Home · 今日计数与下一步 | Practice · 三类完整队列 |
+| Home · Today's counts and next step | Practice · All three queues |
 | :---: | :---: |
-| [![Home：两项 Reviews、一项 Second try、三项 New，保留掌握度与最近视频；演示账号尚未配置模型](docs/assets/readme/home.png)](docs/assets/readme/home.png) | [![Today's practice：Reviews、Second tries 和 New expressions 分组，共六项，预计十二分钟](docs/assets/readme/today-practice.png)](docs/assets/readme/today-practice.png) |
+| [![Home: two Reviews, one Second try, and three New expressions, plus mastery and recent videos; the demo account has not yet configured a model](docs/assets/readme/home.png)](docs/assets/readme/home.png) | [![Today's practice: Reviews, Second tries, and New expressions, with six items and an estimated twelve minutes](docs/assets/readme/today-practice.png)](docs/assets/readme/today-practice.png) |
 
-### 5. 到期复习：隐藏表达，换场景再用一次
+### 5. Due reviews: recall the hidden expression in a new scenario
 
-复习以学习卡的意图和场合生成题目，并避开已经使用过的情境：
+Review tasks use the learning card's intent and settings while avoiding scenarios already used:
 
-- **近迁移**：保持主要交际意图和首选场合，检验能否在相近的新场景中复用。
-- **远迁移**：优先切换次要意图或其他适用场合；没有可切换项时更换话题与对话对象。`tried` 使用近迁移，`reused` 使用远迁移，`owned` 交替练习。
-- **先回想再求助**：目标中文表达默认遮蔽。Show the expression 可揭示表达，本身不算示范辅助；Show examples 会记录辅助，本次复习不推进掌握度。
-- **提交前可换题**：每次复习允许成功更换情境一次；更换失败保留原题和换题次数。已准备好的题目直接复用。
-- **正式结果与修改分开**：首次提交决定本次正式记录、掌握变化和后续排程；之后可修改并看反馈，但不重写正式作答，也不再次改变掌握度或排程。
+- **Near transfer**: retain the main communicative intent and preferred setting to test reuse in a similar new scenario.
+- **Far transfer**: prioritize a secondary intent or another suitable setting. When neither is available, change the topic and conversation partner. `tried` uses near transfer, `reused` uses far transfer, and `owned` alternates between them.
+- **Recall before seeking help**: the target Chinese expression is hidden by default. Show the expression reveals it without counting as example assistance. Show examples records assistance, so that review does not advance mastery.
+- **Change the task before submitting**: each review allows one successful scenario change. A failed change preserves the original task and the remaining allowance. Previously prepared tasks are reused directly.
+- **Formal results and revisions are separate**: the first submission determines the review's formal record, mastery change, and next schedule. You can revise afterward and receive feedback, but revisions do not overwrite the formal response or change mastery or scheduling again.
 
-| 近迁移 · 相近场合中的独立回想 | 远迁移 · 更换使用场合 |
+| Near transfer · Independent recall in a similar setting | Far transfer · A different setting |
 | :---: | :---: |
-| [![近迁移复习：遮蔽表达，在朋友聊天场合表达认可，提供揭示表达和更换情境入口](docs/assets/readme/review-near.png)](docs/assets/readme/review-near.png) | [![远迁移复习：在工作学习场合给出建议，展开用法提示和英文情境，目标表达仍被遮蔽](docs/assets/readme/review-far.png)](docs/assets/readme/review-far.png) |
+| [![Near-transfer review: the expression is hidden while the learner expresses approval in a conversation with a friend, with options to reveal the expression and change the scenario](docs/assets/readme/review-near.png)](docs/assets/readme/review-near.png) | [![Far-transfer review: giving advice in a work or study setting, with usage hints and the English scenario expanded while the target expression stays hidden](docs/assets/readme/review-far.png)](docs/assets/readme/review-far.png) |
 
-首次练习与复习都提供失败恢复：出题失败显示 **Try again** 并保留状态，评分失败保留回答。生产环境不使用通用模板兜底，也不把失败输出当作已完成练习。
+Both first practice and reviews support failure recovery: task-generation failures show **Try again** and preserve state; scoring failures preserve the response. Production does not fall back to generic templates or treat failed output as completed practice.
 
-### 6. Vault、Progress 与资料管理
+### 6. Vault, Progress, and material management
 
-**Vault** 按表达保存来源、当前掌握状态和练习历史，并提供检索；**Progress** 汇总正式作答、复习完成、独立复用和掌握分布。`tried → reused → owned` 由有效独立作答及跨日期、情境的复用证据推进，复习沿用 1 / 7 / 30 天的间隔规则。
+**Vault** stores each expression's source, current mastery status, and practice history, with search. **Progress** summarizes formal responses, completed reviews, independent reuse, and the mastery distribution. `tried → reused → owned` advances through valid independent responses and evidence of reuse across dates and scenarios. Reviews follow the existing 1 / 7 / 30-day interval rules.
 
-不同删除入口分别管理素材和学习记录，确认弹窗会说明影响：
+Deletion actions manage material and learning records separately. Confirmation dialogs explain the impact:
 
-| 操作 | 结果 |
+| Action | Result |
 | --- | --- |
-| **删除 Saved 学习卡** | 从 Saved 隐藏这张卡；保留原句、Vault 和练习历史。 |
-| **删除 Saved 片段** | 从 Saved 移除该条素材；保留练习历史、掌握度和复习。 |
-| **删除 Saved 视频来源** | 删除保存的片段与来源内容；已练表达的 Vault、作答、掌握度和复习保留，但来源链接、时间戳和原文证据会移除。 |
-| **删除 Vault 表达** | 从 Vault 移除并取消后续复习；保留过往练习历史和 Saved 来源。已完成复习仍可查看，不再提供新的修改入口。 |
+| **Delete a Saved learning card** | Hide the card from Saved; retain the original sentence, Vault entry, and practice history. |
+| **Delete a Saved passage** | Remove the item from Saved; retain practice history, mastery, and reviews. |
+| **Delete a Saved video source** | Delete saved passages and source content. Vault entries, responses, mastery, and reviews for practiced expressions remain, but source links, timestamps, and original-text evidence are removed. |
+| **Delete a Vault expression** | Remove it from Vault and cancel future reviews; retain past practice history and Saved sources. Completed reviews remain viewable without new revision actions. |
 
-旧记录保留原题与作答版本。缺少新版学习卡的记录可通过显式维护工具按原来源补齐，之后的新题使用新版路径；升级不改写旧题、作答、掌握度或排程。操作约束与验收见[旧记录升级方案](docs/superpowers/specs/2026-11-01-legacy-learning-card-upgrade-design.md)。
+Legacy records retain their original task and response versions. An explicit maintenance tool can fill in missing updated learning cards from the original source, after which new tasks use the updated path. The upgrade does not rewrite old tasks, responses, mastery, or schedules. See the [legacy record upgrade plan](docs/superpowers/specs/2026-11-01-legacy-learning-card-upgrade-design.md) for operational constraints and acceptance details.
 
-## 技术选型
+## Tech stack
 
-| 技术 | 承担的角色 |
+| Technology | Role |
 | --- | --- |
-| **Next.js 16 + React 19 + TypeScript** | Web 页面、服务端 API 与共享类型。 |
-| **Chrome Extension · Manifest V3** | YouTube 侧栏、现场捕获、扩展会话与待同步队列。 |
-| **Supabase · PostgreSQL / Auth / RLS** | 账号、来源、学习卡、作答、复习与用户隔离；事务约束维护正式学习记录。 |
-| **PostgreSQL 持久任务队列 + Node.js worker** | 后台处理字幕与模型请求，保存状态、重试及完成结果，支持中断恢复。 |
-| **Supadata + OpenAI-compatible 网关 + Zod** | 字幕获取、可配置模型服务与结构化输出校验。 |
-| **Vitest + Playwright + SQL 测试** | 业务规则、接口契约、集成、权限、真实并发与浏览器链路验证。 |
+| **Next.js 16 + React 19 + TypeScript** | Web pages, server APIs, and shared types. |
+| **Chrome Extension · Manifest V3** | YouTube side panel, capture while watching, extension sessions, and pending sync queue. |
+| **Supabase · PostgreSQL / Auth / RLS** | Accounts, sources, learning cards, responses, reviews, and user isolation; transactional constraints protect formal learning records. |
+| **Durable PostgreSQL job queue + Node.js worker** | Background subtitle and model requests, with persisted state, retries, and results for recovery after interruptions. |
+| **Supadata + OpenAI-compatible gateway + Zod** | Subtitle retrieval, configurable model services, and structured output validation. |
+| **Vitest + Playwright + SQL tests** | Business rules, API contracts, integration, permissions, actual concurrency, and browser workflows. |
 
-模型负责翻译、概览、解释、学习卡、出题和反馈；程序负责来源校验、独立性判定、幂等提交、掌握度与排程。**模型分数不会直接覆盖学习状态。**
+Models handle translation, overviews, explanations, learning cards, tasks, and feedback. Application logic handles source validation, independence checks, idempotent submissions, mastery, and scheduling. **Model scores do not directly overwrite learning state.**
 
-## 本地运行
+## Run locally
 
-### 首次安装
+### One-time setup
 
-需要 Node.js 24.5+、pnpm 11.19.0、Docker 和 Chrome 116+。
+Requires Node.js 24.5+, pnpm 11.19.0, Docker, and Chrome 116+.
 
 ```bash
 git clone https://github.com/LLLJJJcon/popcorn.git
@@ -162,44 +164,44 @@ cd popcorn
 pnpm install --frozen-lockfile
 ```
 
-随后按[中文使用指南](docs/operations/user-guide.zh-CN.md)或 [English self-host guide](docs/operations/local-self-host.md) 完成一次性配置：
+Then follow the [English self-hosting guide](docs/operations/local-self-host.md) or the [Chinese user guide](docs/operations/user-guide.zh-CN.md) to complete the one-time configuration:
 
-1. 启动本地 Supabase，将 `.env.example` 复制为 `.env.local`，填写本地配置及 Supadata Key（从 [Supadata dashboard](https://dash.supadata.ai/) 获取）。
-2. 按指南初始化数据库、创建本地账号，生成并加载未打包扩展。
-3. 在已登录的 Web 设置中填写模型服务名称、HTTPS API 根地址、模型 ID 与 API Key。地址必须为公开 HTTPS DNS 地址，不接受 IP、内部主机名、端口、凭证、查询参数或片段。
+1. Start local Supabase, copy `.env.example` to `.env.local`, and fill in the local configuration and Supadata key. Get the key from the [Supadata dashboard](https://dash.supadata.ai/).
+2. Follow the guide to initialize the database, create a local account, and generate and load the unpacked extension.
+3. In the signed-in web settings, enter the model service name, HTTPS API base URL, model ID, and API key. The URL must use a public HTTPS DNS address; IP addresses, internal hostnames, ports, credentials, query parameters, and fragments are not accepted.
 
-### 日常启停
+### Daily start and stop
 
-完成首次配置后：
+After completing the one-time setup:
 
 ```bash
 pnpm popcorn:start
 pnpm popcorn:stop
 ```
 
-macOS 也可双击 `Start Popcorn.command` / `Stop Popcorn.command`。手动启动与排障见上述指南；**`pnpm db:reset` 会清空本地数据，不用于日常启动或已有数据升级。** 已有部署更新前应备份数据，并按迁移与升级方案操作。
+On macOS, you can also double-click `Start Popcorn.command` / `Stop Popcorn.command`. See the guides above for manual startup and troubleshooting. **`pnpm db:reset` erases local data and is not part of daily startup or upgrades of existing data.** Back up existing deployments before updating, and follow the migration and upgrade plans.
 
-模型 Key 只在已登录的 Web 设置中输入；`.env.local`、Supadata/模型密钥、密码和 Token 不应提交到 Git 或粘贴到聊天中。
+Enter model API keys only in the signed-in web settings. Do not commit `.env.local`, Supadata or model keys, passwords, or tokens to Git, or paste them into chats.
 
-相关文档：[扩展安装](docs/operations/extension-install.md) · [任务与保存恢复](docs/operations/job-recovery.md) · [账号重置](docs/operations/account-reset.md)
+Related documentation: [Extension installation](docs/operations/extension-install.md) · [Job and save recovery](docs/operations/job-recovery.md) · [Account reset](docs/operations/account-reset.md)
 
-## 验证与边界
+## Validation and boundaries
 
-当前已交付一期组 1–4：**表达标注与学习卡、分轮首次练习、今日会话与 Home、新版到期复习**，并完成旧记录升级及资料移除兼容处理。二期的扩展回流、Vault / Progress 新版设计不属于本次已交付功能。
+Phase 1 groups 1–4 have been delivered: **expression marking and learning cards, first practice in rounds, today's session and Home, and updated due reviews**, along with legacy record upgrades and compatibility handling for material removal. Phase 2 extension return flows and the redesigned Vault / Progress are outside the delivered scope.
 
-截至 2026-11-02，独立验收记录包含：1833 项应用测试、1188 条 SQL 断言、15 组真实并发、180 项扩展测试和 5 条生产构建浏览器流程。真实模型的 20 道新版复习题另经人工逐题审核通过；固定数据测试与真实模型审核分别留档，详见[最终集成验收](docs/engineering/group-4-main-integration-acceptance.md)、[真实题目审阅](docs/engineering/prompt-runs/2026-11-01-transfer-scenario-v1-review-set.md)和[执行记录](docs/engineering/execution-ledger.md)。这些是已记录版本的验收结果，后续提交应重新运行相关检查。
+As of 2026-11-02, independent acceptance records include 1,833 application tests, 1,188 SQL assertions, 15 actual concurrency scenarios, 180 extension tests, and 5 browser workflows against a production build. A separate set of 20 updated review tasks from a live model passed individual human review. Fixed-data tests and live-model reviews are documented separately in the [final integration acceptance](docs/engineering/group-4-main-integration-acceptance.md), [live task review](docs/engineering/prompt-runs/2026-11-01-transfer-scenario-v1-review-set.md), and [execution ledger](docs/engineering/execution-ledger.md). These results apply to the recorded versions; later commits should rerun the relevant checks.
 
 ```bash
-pnpm verify          # lint、类型、应用测试、来源校验与生产构建
-pnpm test:extension  # 扩展测试
-pnpm db:test         # SQL 测试；先确认连接的是隔离测试数据库
-pnpm test:e2e        # 浏览器测试；按测试配置准备隔离环境
+pnpm verify          # Lint, types, application tests, provenance checks, and production build
+pnpm test:extension  # Extension tests
+pnpm db:test         # SQL tests; first confirm an isolated test database is connected
+pnpm test:e2e        # Browser tests; prepare an isolated environment per the test configuration
 ```
 
-当前聚焦支持原生简体中文字幕的 YouTube 视频，界面以英文辅助中文学习；语音练习、主动通知和游戏化尚未实现。工程验收验证功能和可靠性，长期学习效果仍需用户研究。
+The current focus is YouTube videos with native Simplified Chinese subtitles, with English UI support for learning Chinese. Speaking practice, proactive notifications, and gamification are not implemented. Engineering acceptance verifies functionality and reliability; long-term learning outcomes still require user research.
 
-更早的[产品说明与 Agent 交接](docs/product/Popcorn产品完整说明与Agent交接.md)保留了历史版本的设计与代码导航；其中旧练习入口、轮次和候选分析规则应以当前 README、代码及一期验收为准。
+The earlier [product overview and agent handoff (Chinese)](docs/product/Popcorn产品完整说明与Agent交接.md) retains historical design and code navigation. For practice entry points, rounds, and candidate analysis rules, the current README, code, and Phase 1 acceptance records take precedence.
 
-## 开源与致谢
+## License and acknowledgments
 
-项目采用 [MIT License](LICENSE)。扩展基于 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest) 的部分能力开发，并保留原作者署名与许可证；复用范围见 [Upstream record](extension/UPSTREAM.md) 与 [Third-party notices](THIRD_PARTY_NOTICES.md)。
+This project is licensed under the [MIT License](LICENSE). Parts of the extension are based on [YouTube Digest](https://github.com/zarazhangrui/youtube-digest), with the original attribution and license retained. See the [upstream record](extension/UPSTREAM.md) and [third-party notices](THIRD_PARTY_NOTICES.md) for the scope of reuse.
