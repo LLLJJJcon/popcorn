@@ -1,13 +1,10 @@
 .workspace {
   width: min(72rem, 100%);
   margin: 0 auto;
-  padding: clamp(1.25rem, 3vw, 3rem);
+  container-type: inline-size;
 }
 
-.workspace h1,
-.workspace h2,
-.workspace h3,
-.workspace p {
+.workspace :where(h1, h2, h3, p) {
   margin-top: 0;
 }
 
@@ -491,7 +488,7 @@
   outline-offset: 3px;
 }
 
-@media (max-width: 42rem) {
+@container (max-width: 42rem) {
   .detailHeader {
     grid-template-columns: 1fr;
   }
@@ -636,9 +633,10 @@ generated cards have their own reading surface. */ .highlightEditor {
 
 .learningCardHeading {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
+  align-items: flex-start;
+  gap: 0.75rem;
 }
 
 .learningCardHeading h4 {
@@ -853,6 +851,7 @@ generated cards have their own reading surface. */ .highlightEditor {
 
 .failedHighlight {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -881,7 +880,7 @@ generated cards have their own reading surface. */ .highlightEditor {
   font-size: 0.92rem;
 }
 
-@media (max-width: 42rem) {
+@container (max-width: 42rem) {
   .examplesSection ol {
     grid-template-columns: 1fr;
   }
@@ -1008,5 +1007,43 @@ generated cards have their own reading surface. */ .highlightEditor {
 .cardHeading > h2 { min-width: 0; flex: 1; margin: 0; }
 .videoCard .cardHeading { margin-bottom: 0.55rem; }
 .cardHeadingActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.4rem; }
-.detailToolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0.75rem 0; color: color-mix(in srgb, var(--cocoa) 60%, var(--paper)); font-size: 0.78rem; }
-.learningCardHeading > h4 { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.detailToolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin: 0.75rem 0; color: color-mix(in srgb, var(--cocoa) 60%, var(--paper)); font-size: 0.78rem; }
+.learningCardHeading > h4 { min-width: min(100%, 12rem); flex: 1; overflow-wrap: anywhere; }
+
+/* Approved Saved desktop workspace. */
+.pageHeader h1{font-size:32px;line-height:1.25}.pageHeader>p:last-child{color:var(--muted)}.eyebrow{font-size:12px;letter-spacing:0;text-transform:none;font-weight:500;color:var(--muted)}.videoGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}.videoCard{border-color:var(--line);box-shadow:var(--shadow-paper);border-radius:12px}.videoCard h2{font-size:17px;line-height:1.6}.videoCard h2 a{font-weight:550;text-decoration:none}.videoCardBody{padding:18px 20px}.videoMeta,.latestActivity{color:var(--muted);font-size:12px}.videoThumbnail{border-radius:0;aspect-ratio:16/9}.paperSection,.detailHeader,.emptyState,.deleteSection{border-color:var(--line);box-shadow:none;border-radius:12px}.detailHeader{padding:18px;gap:18px;grid-template-columns:118px minmax(0,1fr);align-items:center;margin-bottom:24px}.detailThumbnail{width:118px;border-radius:8px}.detailHeader h1{font-size:18px;line-height:1.6;letter-spacing:0;display:block}.detailInfo>p{font-size:12px;margin:5px 0;color:var(--muted)}.detailInfo>.eyebrow{display:none}.detailInfo .sourceUpdated{font-size:12px}.detailToolbar{font-size:12px;color:var(--muted)}.workspace>.paperSection:has(.learningWorkspace){padding:0;border:0;background:none}.sectionIntroduction{font-size:13px;color:var(--muted);margin-bottom:24px}.learningWorkspace{display:grid;grid-template-columns:minmax(280px,.7fr) minmax(0,1.3fr);gap:26px;align-items:start}.sentenceColumn{padding:20px;background:#f1f7ff;border:1px solid #d9e7f5;border-radius:14px;min-width:0}.sentenceColumnHeading{display:flex;align-items:center;justify-content:space-between;gap:16px}.sentenceColumnHeading h3{font-size:20px;margin:0}.sentenceColumnHeading>span{padding:3px 9px;font-size:12px;background:var(--yellow-soft);border:1px solid #edda8b;border-radius:5px}.sentenceList{list-style:none;padding:0;margin:20px 0 0;display:grid;gap:13px}.sentenceRow{border:1px solid var(--line);border-radius:10px;padding:14px;background:#fff;min-width:0;scroll-margin-top:30px}.sentenceRow[data-selected="true"]{border-color:#ff9b56;background:#fff}.sentenceToolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.sentenceSelect{background:none;border:0;color:#356c98;font-size:12px;font-variant-numeric:tabular-nums;padding:3px 0;min-height:28px;text-align:left}.sentenceTextButton{border:0;background:none;padding:0;text-align:left;width:100%;font-size:19px;line-height:2;color:var(--ink)}.sentenceColumn .rawText{font-size:19px;line-height:2;margin:0}.sentenceColumn .targetLine{margin:0}.sentenceColumn .highlightGuidance{font-size:12px;line-height:1.7;margin-top:12px;color:var(--muted)}.sentenceColumn .sourceGuidance{font-size:12px;line-height:1.7;margin:10px 0 0;color:var(--muted)}.learningPane{min-width:0}.selectedMoment{font-size:12px;color:var(--muted);margin:0 0 5px}.learningPaneTitle{font-size:21px;margin-bottom:18px}.expressionGroupHeading h3{font-size:14px;color:var(--muted)}.expressionGroupHeading>span{font-size:12px}.expressionGrid{display:grid;grid-template-columns:1fr;gap:18px}.expressionSwitcher{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px}.expressionSwitcher a{display:flex;gap:8px;align-items:center;text-decoration:none;border:1px solid #cfe2f2;border-radius:8px;background:#fff;padding:6px 12px 6px 7px;font-size:14px;color:#3c6e94;min-height:40px}.expressionSwitcher span{display:grid;place-items:center;background:var(--blue-soft);width:25px;height:25px;border-radius:6px;font-size:12px}.expressionSwitcher b{font-weight:500}.expressionSwitcher a:first-child{background:var(--orange-soft);border-color:#ffbe8b;color:#9a481e}.candidateCard.learningCard{padding:0;border-color:#d4e2ef;border-radius:14px;overflow:hidden;box-shadow:0 4px 0 #e2eefb;scroll-margin-top:24px}.learningCardHeading{padding:22px;gap:12px;align-items:center;border-bottom:1px solid var(--line)}.expressionTitle{display:flex;align-items:center;gap:15px;min-width:0}.learningCardHeading h4{font-size:32px;line-height:1.35;color:var(--ink);letter-spacing:2px;overflow-wrap:anywhere}.kernelNumber{display:flex;align-items:center;gap:3px;justify-content:center;flex-shrink:0;position:relative;border:1px solid #edcf6b;background:#fff4bb;color:#806119;border-radius:14px 14px 9px 9px;width:44px;height:44px;transform:rotate(-5deg)}.kernelNumber:before{content:"";position:absolute;top:-5px;left:14px;width:12px;height:7px;border:1px solid #edcf6b;border-bottom:0;border-radius:8px 8px 0 0;background:#fff4bb}.kernelNumber b{font-size:21px}.kernelNumber small{font-size:10px;margin-top:6px}.learningTags{padding:0 22px;margin:16px 0;font-size:12px;gap:8px 14px}.functionTag{background:var(--orange-soft);color:#94552c;font-weight:500}.settingTag{background:var(--blue-soft);color:#3b749a;font-weight:500}.learningCard>.learningSections{padding:0 22px;grid-template-columns:1fr 1fr;gap:14px}.learningSections>div.meaningModule,.learningSections>div.usageModule{padding:16px;border:1px solid #ffba87;border-radius:10px;background:var(--orange-soft)}.learningSections>div.usageModule{background:var(--blue-soft);border-color:#b9def9}.learningSections dt,.examplesSection h5{display:flex;align-items:center;gap:8px;font-size:13px;letter-spacing:0;text-transform:none;font-weight:600;margin-bottom:12px;color:#9e4a23}.learningSections dt svg,.examplesSection h5 svg{height:24px;width:24px;background:#ffc391;border-radius:6px;padding:4px}.usageModule dt{color:#246a9e}.usageModule dt svg{background:#bce3ff}.learningSections dd{font-size:14px;line-height:1.8;color:var(--ink)}.meaningModule dd{font-size:18px;font-weight:500}.comparisonSection{grid-column:1/-1;border:1px solid #dce7f1;background:#f7fbff;border-radius:8px;padding:12px 15px}.comparisonSection dt{color:#557790;font-size:12px;margin-bottom:6px}.comparisonSection dt svg{height:20px;width:20px;background:#e8f5ff}.comparisonSection dd{font-size:13px;color:var(--muted)}.examplesSection{padding:0 22px;margin-top:18px}.examplesSection h5{color:#557790;font-size:12px;font-weight:500}.examplesSection h5 svg{height:20px;width:20px;background:var(--blue-soft)}.examplesSection ol{grid-template-columns:1fr;gap:10px}.examplesSection li{padding:13px 16px;background:#fff;border:1px solid #d6e5f0;border-radius:3px 12px 12px 12px}.examplesSection p[lang="zh-CN"]{font-size:20px}.examplesSection p[lang="en"]{color:var(--muted);font-size:12px}.cardMore{margin:18px 22px 0;border:1px solid #d6e5f0;border-radius:8px;padding:0 12px}.cardMore summary{font-size:13px;color:#477494}.cardMore .learningSections{padding:5px 0 14px;gap:12px}.cardMore .learningSections>div{border:1px solid #dce7f1;border-radius:8px;padding:12px}.cardMore dt{color:#557790;font-size:12px}.learningCardFooter{margin-top:20px;padding:16px 22px;display:flex;gap:12px;justify-content:flex-end;align-items:center;background:#f4faff;border-top:1px solid #d5e6f4}.practiceAction,.analysisAction{border-radius:7px;background:var(--coral);color:#362618;border:1px solid #eb6f29;box-shadow:1px 2px 0 #ffd0a9;font-size:13px;min-height:42px;font-weight:600}.analysisPanel{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;margin:0 0 18px}.analysisMessage,.subtleMessage{font-size:12px;color:var(--muted)}.analysisPanel p{margin:0}.rawText,.rawText [data-target-text],.expressionHighlight{cursor:url('/brand/word-net.svg') 15 8,text}.removeHighlight{cursor:pointer}.expressionHighlight{background:#fff0ad;box-shadow:0 1px 0 #ebc545;color:var(--ink)}.markSelection{background:#fff;color:#98451e;border:1px solid #ffb47f;border-radius:6px;box-shadow:0 2px 5px #27313f15;font-size:12px}.translation{font-size:13px;color:var(--muted)}.sourceTimestamp{font-size:12px;border-color:var(--line);color:var(--muted)}.legacyNotice{font-size:12px}.filterButton{border-radius:6px}.filterButton[aria-pressed="true"]{background:var(--orange-soft);color:var(--coral-active)}
+@container(max-width:52rem){.learningWorkspace{grid-template-columns:minmax(250px,.8fr) minmax(0,1.2fr);gap:18px}.learningCard>.learningSections{grid-template-columns:1fr}.videoGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.learningCardHeading h4{font-size:27px}.sentenceColumn{padding:15px}}
+@container(max-width:40rem){.learningWorkspace{grid-template-columns:1fr}.videoGrid{grid-template-columns:1fr}.detailHeader{grid-template-columns:90px minmax(0,1fr)}.detailThumbnail{width:90px}}
+.learningCard>.candidateEyebrow{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+
+/* Two-stage scrolling: source first, then the two independent learning panes. */
+.detailWorkspace{display:block;height:auto;min-height:0;container-type:normal;overflow:visible}
+.detailWorkspace>p:first-child{margin:0 0 8px}
+.detailWorkspace>.detailToolbar{margin:0 0 6px}
+.detailWorkspace>.detailHeader{margin-bottom:12px;padding:14px 18px}
+.detailPanels{display:block;min-height:0;overflow:visible}
+.detailTabs{display:flex;align-items:center;gap:20px;border-bottom:1px solid var(--line);margin:2px 0 18px}
+.detailTabs button{font-size:13px;min-height:40px;padding:8px 0;background:none;border:0;border-bottom:2px solid transparent;color:var(--muted)}
+.detailTabs button[aria-pressed="true"]{border-bottom-color:var(--coral);color:var(--ink);font-weight:550}
+.detailTabContent{display:block;min-height:0;overflow:visible}
+.detailTabContent>.paperSection{display:block;padding:0;border:0;margin:0;background:none;box-shadow:none;overflow:visible}
+.detailTabContent>.paperSection>h2{font-size:16px;margin:0 0 4px}
+.detailWorkspace .sectionIntroduction{font-size:12px;margin:0 0 12px}
+.detailWorkspace .learningWorkspace{height:calc(100dvh - 24px);min-height:0;align-items:stretch;overflow:hidden;grid-template-columns:minmax(280px,.7fr) minmax(0,1.3fr)}
+.detailWorkspace .sentenceColumn{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.detailWorkspace .sentenceColumnHeading,.detailWorkspace .sentenceColumn>.sourceGuidance{flex-shrink:0}
+.detailWorkspace .sentenceList{overflow-y:auto;overscroll-behavior-y:auto;scrollbar-gutter:stable;min-height:0;padding:0 6px 18px 0;margin-bottom:0;display:block;contain:paint}
+.detailWorkspace .sentenceRow+.sentenceRow{margin-top:13px}
+.detailWorkspace .learningPane{overflow-y:auto;overscroll-behavior-y:auto;scrollbar-gutter:stable;min-height:0;padding:0 8px 24px 0;contain:paint}
+.detailWorkspace .learningWorkspace[data-scroll-phase="source"] .sentenceList,.detailWorkspace .learningWorkspace[data-scroll-phase="source"] .learningPane{overflow-y:hidden}
+.overviewTab{min-height:60vh;overflow:visible}.overviewTab>.paperSection{margin:0}
+.previewHighlight{background:#fff0ad;color:inherit;box-shadow:0 1px 0 #ebc545;border-radius:2px;padding:1px 0}
+.sentenceTextButton{cursor:pointer}
+.sentenceList::-webkit-scrollbar,.learningPane::-webkit-scrollbar{width:7px}
+.sentenceList::-webkit-scrollbar-thumb,.learningPane::-webkit-scrollbar-thumb{background:#c9ddeb;border-radius:7px}
+.sentenceList:focus-visible,.learningPane:focus-visible{outline:2px solid #a85220;outline-offset:2px}
+.sentenceColumn .rawText{background:transparent;border:0;padding:0;border-radius:0;font-weight:400}
+:global(html):has(.detailWorkspace),:global(body):has(.detailWorkspace){height:100%;overflow:hidden}
+@media(max-width:1100px){.detailWorkspace .learningWorkspace{grid-template-columns:minmax(250px,.8fr) minmax(0,1.2fr);gap:18px}}
+.pageHeader h1,.learningCardHeading h4,.learningPaneTitle,.sentenceColumnHeading h3{font-weight:650}
+.sentenceActions{display:inline-flex;align-items:center;gap:5px}.sentenceWatch{display:grid;place-items:center;min-width:26px;min-height:28px;color:#5b7f9b;border-radius:5px}.sentenceWatch:hover{background:var(--blue-soft)}.savedSelectionNote{display:block;margin-top:8px;font-size:12px;font-weight:400;line-height:1.7;color:var(--muted)}

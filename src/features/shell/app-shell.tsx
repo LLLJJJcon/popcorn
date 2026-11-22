@@ -19,7 +19,8 @@ export function AppShell({
       <a className={styles.skipLink} href="#main-content">Skip to main content</a>
       <div className={styles.shell}>
         <aside className={styles.rail} aria-label="Popcorn workspace">
-          <Link className={styles.brand} href="/home">Popcorn</Link>
+          {/* eslint-disable-next-line @next/next/no-img-element -- local vector brand mark. */}
+          <Link className={styles.brand} href="/home"><img src="/brand/popcorn.svg" width="36" height="36" alt="" />Popcorn</Link>
           <Suspense fallback={<div className={styles.navigationFallback} aria-hidden="true" />}>
             <AppNavigation />
           </Suspense>
@@ -31,7 +32,7 @@ export function AppShell({
             </form>
           </div>
         </aside>
-        <div className={styles.workspace}>
+        <div className={styles.workspace} data-workspace-scroll>
           <GatewayNotice />
           <div className={styles.content} id="main-content">{children}</div>
         </div>

@@ -1,5 +1,6 @@
 import { DeleteVaultExpression } from "./delete-vault-expression";
 import Link from "next/link";
+import { UiIcon } from "@/components/ui-icon";
 
 import type {
   ExpressionCardView,
@@ -29,8 +30,9 @@ export function VaultDetail({
 }) {
   return (
     <main className={styles.workspace}>
-      <Link className={styles.backLink} href="/vault">← Back to Vault</Link>
+      <Link className={styles.backLink} href="/vault"><UiIcon name="back" />Back to Vault</Link>
       <div className={styles.detailToolbar}><span>Manage expression</span><DeleteVaultExpression id={card.userExpressionId} expression={card.expression} detail /></div>
+      <div className={styles.detailColumns}><div className={styles.detailSourceColumn}>
       <header className={styles.detailHeader}>
         <div>
           <p className={styles.eyebrow}>Expression detail</p>
@@ -64,7 +66,7 @@ export function VaultDetail({
         </section>
       ) : null}
 
-      <section className={styles.paperSection} aria-labelledby="attempts-heading">
+      </div><div className={styles.detailHistoryColumn}><section className={styles.paperSection} aria-labelledby="attempts-heading">
         <h2 id="attempts-heading">Attempt history</h2>
         <p>Your attempts stay in the order you submitted them.</p>
         <ol className={styles.attemptList}>
@@ -83,7 +85,9 @@ export function VaultDetail({
             </li>
           ))}
         </ol>
+        <div className={styles.nextStep}><span className={styles.nextStepRocket} aria-hidden="true"><UiIcon name="rocket" /></span><div><p className={styles.nextStepLabel}>Next step</p><h3>Try a fresh conversation.</h3><p>Recall this expression in a new situation when it appears in your practice.</p><Link className={styles.textLink} href="/practice">Open today’s practice</Link></div></div>
       </section>
+      </div></div>
 
       {suggestions.length > 0 ? (
         <section className={styles.paperSection} aria-labelledby="related-heading">

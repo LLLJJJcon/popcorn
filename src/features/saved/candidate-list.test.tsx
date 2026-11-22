@@ -115,7 +115,7 @@ describe("Saved candidate expressions", () => {
     }), { status: 201, headers: { "Content-Type": "application/json" } }));
     render(<CandidateList {...props} />);
 
-    const action = screen.getByRole("button", { name: "Practice this expression" });
+    const action = screen.getByRole("button", { name: "Try it in a new situation" });
     await waitFor(() => expect(action).toBeEnabled());
     await userEvent.click(action);
 
@@ -252,7 +252,7 @@ describe("Saved candidate expressions", () => {
     expect(screen.getByText("最新表达")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete saved video 中文访谈" })).toBeInTheDocument();
     expect(screen.queryByText(/already.*Vault|added.*Vault/i)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Practice this expression" }));
+    await userEvent.click(screen.getByRole("button", { name: "Try it in a new situation" }));
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
     expect(JSON.parse(String(vi.mocked(globalThis.fetch).mock.calls[0]![1]?.body))).toEqual({
       savedItemId: SAVED_ITEM_ID,
@@ -334,7 +334,7 @@ describe("Saved candidate expressions", () => {
     expect(screen.getByText("仍然可用的表达")).toBeInTheDocument();
     expect(screen.queryByText("未知版本表达")).not.toBeInTheDocument();
     expect(screen.queryByText("损坏的新表达")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Practice this expression" }));
+    await userEvent.click(screen.getByRole("button", { name: "Try it in a new situation" }));
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
       candidateArtifactId: readableArtifactId,
     });
@@ -377,7 +377,7 @@ describe("Saved candidate expressions", () => {
     render(await SavedVideoPage({ params: Promise.resolve({ videoSourceId: "ffffffff-ffff-4fff-8fff-ffffffffffff" }) }));
 
     expect(screen.getByTestId("raw-text")).toHaveTextContent("保留的原始字幕");
-    expect(screen.queryByRole("button", { name: "Practice this expression" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try it in a new situation" })).not.toBeInTheDocument();
     expect(screen.queryByText("未知版本表达")).not.toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -412,8 +412,8 @@ describe("Saved candidate expressions", () => {
       analysis={artifact(ambiguous)}
     />);
 
-    expect(screen.getAllByText("可以说")).toHaveLength(2);
-    const actions = screen.getAllByRole("button", { name: "Practice this expression" });
+    expect(screen.getAllByRole("heading", { name: "可以说" })).toHaveLength(2);
+    const actions = screen.getAllByRole("button", { name: "Try it in a new situation" });
     expect(actions).toHaveLength(2);
     await userEvent.click(actions[1]!);
 
@@ -448,7 +448,7 @@ describe("Saved candidate expressions", () => {
       analysis={{ state: "unavailable" }}
     />);
 
-    expect(screen.queryByRole("button", { name: "Practice this expression" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try it in a new situation" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry analysis" })).not.toBeInTheDocument();
     expect(screen.getByText("Candidate analysis is unavailable.")).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -585,7 +585,7 @@ describe("Saved candidate expressions", () => {
       [expect.any(String), expect.objectContaining({ credentials: "same-origin", cache: "no-store" })],
     ]));
     expect(screen.getByText("恢复的表达")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Practice this expression" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try it in a new situation" })).toBeInTheDocument();
   });
 
   it("polls at 1s then 5s, keeps processing safe at 60s, and stops with one status check at 5m", async () => {
@@ -887,8 +887,8 @@ describe("Saved candidate expressions", () => {
   it("keeps a failed first preparation available with the specified retry action", async () => {
     const fetcher=vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ok:false,requestId:"x",error:{code:"PROVIDER_OUTPUT_INVALID",message:"Unavailable",retryable:true}},{status:503})).mockResolvedValueOnce(Response.json({ok:true,requestId:"x",data:{redirect:`/vault/${EXPRESSION_ID}`}}));vi.stubGlobal("fetch",fetcher);
     render(<CandidateList savedItemId={SAVED_ITEM_ID} videoSourceId={VIDEO_SOURCE_ID} youtubeUrl="https://www.youtube.com/watch?v=dQw4w9WgXcQ" analysis={artifact([candidate()])}/>);
-    await waitFor(()=>expect(screen.getByRole("button",{name:"Practice this expression"})).toBeEnabled());
-    await userEvent.click(screen.getByRole("button",{name:"Practice this expression"}));
+    await waitFor(()=>expect(screen.getByRole("button",{name:"Try it in a new situation"})).toBeEnabled());
+    await userEvent.click(screen.getByRole("button",{name:"Try it in a new situation"}));
     expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't prepare a situation.");
     expect(screen.getByRole("article")).toHaveTextContent("挺有意思的");
     await userEvent.click(screen.getByRole("button",{name:"Try again"}));

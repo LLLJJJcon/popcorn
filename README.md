@@ -1,145 +1,240 @@
 # Popcorn
 
-**把 YouTube 中看懂的中文表达，变成自己能够使用的表达。**
+**Turn Mandarin you understand on YouTube into Mandarin you can use.**
 
-Popcorn 是一款面向以英语为辅助语言的中级中文学习者的 AI 学习产品，由 Chrome 扩展与 Web 工作台组成：在观看中理解并保存感兴趣的表达，再通过原创回答、AI 反馈与后续复习，把素材连接到实际使用。
+A **Chrome extension + web workspace** for intermediate Mandarin learners whose first language is English: save expressions from videos you enjoy, learn how they work, and practise using them in new situations.
 
-采用个人本地自托管方式运行。
+Personal project · Product design and AI-assisted development · Locally self-hosted
 
-[产品预览](#产品预览) · [技术选型](#技术选型) · [本地运行](#本地运行)
+**English** · [简体中文](README.zh-CN.md)
 
-供产品评估与 Agent 交接使用的完整功能、用户闭环、实现边界和代码导航，见[产品完整说明与 Agent 交接](docs/product/Popcorn产品完整说明与Agent交接.md)。
+[User journey](#one-expression-through-the-product) · [AI design](#ai-design) · [Product decisions](#product-decisions) · [Architecture](#architecture) · [Run locally](#run-locally)
 
-## 为什么做 Popcorn
+[![Popcorn Home: compact bilingual comic, today’s practice and learning evidence](docs/assets/readme/home-current.png)](docs/assets/readme/home-current.png)
 
-**看懂一次，不代表下次能说出来。** 学习者可以借助字幕理解视频，却仍需要自己整理语境、设计练习，并判断收藏的表达是否真正用过。
+*Desktop Web · orange, sky blue and lemon. Records below are isolated visual fixtures.*
 
-Popcorn 聚焦这一断点：保留让表达产生意义的视频上下文，为它安排主动输出和后续复用，让学习进度有记录可查。
+## The problem and the entry point
 
-## 产品预览
+Intermediate learners can already communicate basic ideas and follow familiar Chinese content. Their next challenge is **choosing a natural everyday expression**, even when they recognise it in a video.
 
-**在 YouTube 理解与保存 → 从 Saved 完成首次练习 → 日后回到 Practice 复习 → 在 Vault / Progress 查看积累。**
-
-截图展示实际使用场景与不同学习记录；固定数据的练习演示另作说明。点击图片可查看大图。
-
-### 1. 看 YouTube 时：理解内容，留下想学的表达
-
-打开侧栏查看中文、英文或双语字幕，按时间戳回到原句；按需生成视频概览、查看章节与关键句，或选段解释。遇到有用的内容，保存字幕行、选段或当前视频片段，继续观看。
-
-[![实际观看场景：YouTube 播放器与 Popcorn 字幕侧栏同屏，展示时间定位、Save moment 与 Save Video 入口](docs/assets/readme/youtube-watching.png)](docs/assets/readme/youtube-watching.png)
-
-视频与字幕同屏呈现：边看边定位原句，通过 **Save moment** 保存当前片段，或用 **Save Video** 保存整条视频的学习快照。
-
-**Overview：从理解视频，到发现值得练习的表达。**
-
-- **总结与章节导航**：基于视频字幕概括主要内容，按章节呈现要点与时间戳，帮助快速理解脉络、回到相关片段。
-- **地道表达推荐**：从原始语境提取值得学习的表达，附英文释义与来源时间戳；可直接 **Save** 或 **Copy**，为后续练习留下素材。
-
-| Overview · 总结与章节导航 | Overview · 地道表达推荐 |
-| :---: | :---: |
-| [![Overview 总结：视频内容概要、章节要点与来源时间戳](docs/assets/readme/extension-overview.png)](docs/assets/readme/extension-overview.png) | [![Overview 表达推荐：从视频提取的中文表达、英文释义、时间戳及 Save 和 Copy 入口](docs/assets/readme/extension-overview-expressions.png)](docs/assets/readme/extension-overview-expressions.png) |
-
-### 2. 第一次练习：把收藏变成自己写出的一句话
-
-从侧栏打开 Web，在 **Saved** 选择候选表达，点击 **Practice this expression**，进入“先作答、再反馈”的练习：
-
-1. **用户输入**：面对“一杯普通咖啡卖一百元”的新场景，写下“这个价格也太离谱了。”，点击 **Check my response**。
-2. **模型反馈**：界面分别展示准确性、自然度、语境适配的评分与解释，并提供改进重点和 **Natural revision** 示例。
-3. **修改再试**：根据建议改为“这个价格也太离谱了吧。”，点击 **Check revised response** 再次检查。合格的独立首次尝试进入 **Vault** 成为 `tried` 证据；参考示范后的修改单独记录，不额外算作独立复用。
-
-下方作答与反馈截图由项目实际前端组件加载固定演示数据生成，评分和反馈用于说明交互，非实时模型评测。
-
-| 用户输入：新场景、原始来源与中文回答 | 反馈输出：三维评分、改进建议与自然改写 |
-| :---: | :---: |
-| [![首次作答：用户输入“这个价格也太离谱了。”并准备提交](docs/assets/readme/practice-input.png)](docs/assets/readme/practice-input.png) | [![反馈演示：准确性、自然度、语境适配评分，Natural revision 与再次修改入口](docs/assets/readme/practice-feedback.png)](docs/assets/readme/practice-feedback.png) |
-
-<details>
-<summary>查看 Saved 练习入口与修改后再次检查的结果</summary>
-
-| 从收藏的候选表达进入练习 | 修改回答后再次提交，查看更新反馈 |
-| :---: | :---: |
-| [![首次练习入口：Saved 保留原始语境，并提供候选表达与 Practice this expression 按钮](docs/assets/readme/saved-detail.png)](docs/assets/readme/saved-detail.png) | [![修改演示：用户改为“这个价格也太离谱了吧。”并再次检查，输入与更新反馈同时保留](docs/assets/readme/practice-revision.png)](docs/assets/readme/practice-revision.png) |
-
-</details>
-
-### 3. 日后复习：换个场景再用一次，查看积累
-
-再次打开产品时，从 **Home** 的下一步提示或 **Practice** 的到期列表开始。在新场景中重新作答、接收反馈，符合规则的独立复用推动掌握状态；**Vault** 保留来源与尝试历史，**Progress** 汇总练习、复用和当前掌握情况。
-
-| 找到到期表达，开始短时复习 | 在新场景中重新使用，原始来源仍可查看 |
-| :---: | :---: |
-| [![日后复习入口：Practice 展示到期表达与 Start practice 按钮](docs/assets/readme/practice.png)](docs/assets/readme/practice.png) | [![日后复习任务：已有 tried 状态的表达、新场景与原始视频来源](docs/assets/readme/practice-task.png)](docs/assets/readme/practice-task.png) |
-
-<details>
-<summary>查看复习后的表达记录与学习进度</summary>
-
-| Vault：回溯表达来源与练习记录 | Progress：查看练习与独立复用证据 |
-| :---: | :---: |
-| [![Vault 表达详情：原始语境与 reused 状态](docs/assets/readme/vault-detail.png)](docs/assets/readme/vault-detail.png) | [![Progress：到期练习、独立复用与掌握状态](docs/assets/readme/progress.png)](docs/assets/readme/progress.png) |
-
-</details>
-
-## 关键设计亮点
-
-- **让理解自然衔接到输出**：字幕、翻译、概览和选段解释帮助理解；候选表达与练习承接下一步，原始来源始终可追溯。
-- **收藏与掌握分开计算**：保存只记录兴趣；`tried → reused → owned` 按有效尝试及跨时间、场景的使用证据推进，避免用收藏量代替学习进展。
-- **保留学习者的主动性**：练习先要求原创回答，再给反馈和示范，减少直接照抄 AI 答案的依赖。
-- **让 AI 延迟不打断收藏**：先持久化原始内容，再后台生成学习材料；任务可恢复，重复提交避免产生重复记录。
-
-### AI 在哪里创造价值
-
-AI 负责翻译、概览、语境解释、候选表达、练习生成与反馈。系统保留来源、校验生成内容，并依据可信的作答记录更新进度；模型输出不会直接成为掌握状态。用户可在 Web 设置中配置自己的 OpenAI-compatible 模型服务。
-
-## 技术选型
-
-| 技术 | 承担的角色与选择理由 |
+| A casual recommendation | A more conversational choice |
 | --- | --- |
-| **Next.js 16 + React 19 + TypeScript** | 在同一项目中承载 Web 交互与服务端 API，便于迭代完整链路；类型约束连接页面、接口和学习记录。 |
-| **Chrome Extension · Manifest V3** | 通过 Side Panel 在观看现场提供帮助；Service Worker 管理会话与待同步事件，使捕获贴近用户当前任务。 |
-| **Supabase · PostgreSQL / Auth / RLS** | 统一账号与关系数据管理，用事务、约束和行级权限维护来源、作答、复习之间的一致性及用户隔离。 |
-| **PostgreSQL 持久任务队列 + Node.js worker** | 将慢速字幕与模型请求移出即时操作，记录任务状态、重试和完成结果，支持进程中断后的恢复。 |
-| **Supadata + OpenAI-compatible 网关 + Zod** | 分离字幕获取与模型生成；服务端规范化、校验 AI 输出后再保存，兼顾模型选择与数据可靠性。 |
-| **Vitest + Playwright** | 覆盖业务规则、API 契约、集成与浏览器链路；自动化使用固定数据，真实服务另做验证。 |
+| 我认为他是一个可以信任的人。<br>“I think he is someone I can trust.” | 他挺靠谱的。<br>“He’s pretty dependable.” |
 
-## 验证与边界
+Both convey trust; the difference is expression choice in this setting.
 
-已实现从视频捕获到后续练习与进度记录的完整链路，验证记录覆盖数据库权限、幂等保存、任务恢复、扩展及 Web 体验，详见[执行与验收记录](docs/engineering/execution-ledger.md)。
+**Why YouTube?** For learners who already watch Chinese videos, interest and context are already present. Popcorn lets them save a useful moment and continue watching, then decide later when to study. Its focus is the connection from **self-chosen content to a personal response and later reuse**.
 
-当前聚焦支持原生简体中文字幕的 YouTube 视频。工程验证支持功能与可靠性判断；长期学习效果仍需用户研究验证，后续可关注收藏到首次练习转化、复习完成及独立复用情况。
+## One expression through the product
 
-## 本地运行
+*Illustrative user story: a learner notices 挺靠谱 (“pretty dependable”) and wants to use it themselves.*
 
-### 首次安装
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"system-ui, sans-serif","primaryColor":"#E8F5FF","primaryTextColor":"#27313F","primaryBorderColor":"#9CCFF3","lineColor":"#8299AD","secondaryColor":"#FFF0E4","tertiaryColor":"#FFF7CF"}}}%%
+flowchart LR
+    A["Watch & save"] --> B["Choose an expression"]
+    B --> C["Learn its use"]
+    C --> D["Respond in a new situation"]
+    D --> E["Return for review"]
+    classDef action fill:#FF803D,stroke:#EB6F29,color:#362618,stroke-width:2px
+    classDef learn fill:#E8F5FF,stroke:#8DC9F2,color:#27313F,stroke-width:1.5px
+    classDef evidence fill:#FFF7CF,stroke:#E9CA64,color:#64501D,stroke-width:1.5px
+    linkStyle default stroke:#8299AD,stroke-width:2px
+    class A action
+    class B,C,D learn
+    class E evidence
+```
 
-需要 Node.js 24.5+、pnpm 11.19.0、Docker 和 Chrome 116+。
+### 1. Save now, keep watching
+
+Timestamped Chinese / English subtitles and optional explanations support comprehension. Save a moment, line or passage with its source context; open it later in **Saved**. Original content is stored before slower background enrichment. Saving a video keeps a learning snapshot, not a video download.
+
+[![Actual YouTube viewing session: Popcorn subtitles, timestamps and save controls](docs/assets/readme/youtube-watching.png)](docs/assets/readme/youtube-watching.png)
+
+### 2. Choose what to learn, then understand how to use it
+
+AI suggests useful spans for supported saves. The learner can remove or adjust suggestions, mark other words in the original text, then select **Analyze**. Saved highlights remain visible on unselected sentences.
+
+[![Saved workspace: source sentences on the left and numbered learning cards on the right](docs/assets/readme/saved-workspace-current.png)](docs/assets/readme/saved-workspace-current.png)
+
+The navigation stays fixed. First scroll the source information away; the learning workspace then fills the right side of the screen, with independent sentence and card scrolling. Scroll back up at a column’s start to return to the video information.
+
+<p align="center"><a href="docs/assets/readme/learning-card-current.png"><img src="docs/assets/readme/learning-card-current.png" width="740" alt="Complete learning card for 挺靠谱: meaning, use conditions, comparison, examples and usage labels"></a></p>
+
+*The example card and scenario illustrate the interface; they are not a live model evaluation.*
+
+| Card content | The learner’s question |
+| --- | --- |
+| **Meaning here / Use it when** | What does it mean here, and when would I choose it? |
+| **Compared with / Examples** | How does it differ from familiar wording? How does it work in a sentence? |
+| **More** | How does it fit? Who can I say it to? Is there a real usage pitfall? |
+| **Used to / Good for** | What intention and setting should later practice use? |
+
+<details>
+<summary>See the learning card with More expanded</summary>
+
+The same **挺靠谱** fixture shows sentence placement, tone and the caution that confidence is not a guarantee.
+
+<p align="center"><a href="docs/assets/readme/learning-card-more-current.png"><img src="docs/assets/readme/learning-card-more-current.png" width="740" alt="Current learning card with How it fits, Tone and who, and Watch out expanded"></a></p>
+
+</details>
+
+### 3. Write a response before reading feedback
+
+For 挺靠谱, a new task asks the learner to respond to a friend’s recommendation of a mechanic. The learner writes their own Chinese response, then receives separate scores and explanations for **meaning, naturalness and contextual fit**.
+
+<p align="center"><a href="docs/assets/readme/practice-current.png"><img src="docs/assets/readme/practice-current.png" width="620" alt="Current single-expression practice: mechanic scenario, usage support and own-response workspace"></a></p>
+
+*An illustrative first-answer result, rendered by the current feedback component:*
+
+[![Accuracy, Naturalness and Context fit, each with a score and explanation](docs/assets/readme/feedback-panels-current.png)](docs/assets/readme/feedback-panels-current.png)
+
+*Fixed demo scores illustrate the layout only; the judgement rules are explained below.*
+
+**Saved holds learning material; Vault holds expressions with qualifying use.** Improving the same answer remains useful practice, but entering Vault requires a qualifying first response in a new round. Opening a single card’s practice preserves its source return path and does not add formal-session controls.
+
+### 4. Come back to use it again
+
+Today’s session prioritises **Reviews → Second tries → New expressions**. Reviews start with the target expression hidden and introduce another situation.
+
+| Evidence recorded | Mastery | Next review after success |
+| --- | --- | --- |
+| Qualifying first response | `tried` | 1 day |
+| Independent success in a due review | `reused` | 7 days |
+| Further qualifying use across 2+ contexts and 2+ UTC dates, including due practice | `owned` | 30 days |
+
+These are software evidence states and fixed scheduling rules. Failed or example-assisted reviews return after one day without advancing mastery.
+
+<details>
+<summary>See the current practice queue</summary>
+
+<p align="center"><a href="docs/assets/readme/today-practice-current.png"><img src="docs/assets/readme/today-practice-current.png" width="620" alt="Complete Today practice page with Reviews, Second tries and New expressions"></a></p>
+
+| Near transfer | Far transfer |
+| :---: | :---: |
+| Keep the main intention and setting; change the topic. | Change to another suitable intention or setting; otherwise change topic and relationship. |
+
+`tried` uses near transfer, `reused` uses far transfer, and `owned` alternates. The two review types follow the same evidence rules.
+
+</details>
+
+*Current Web screenshots render the real presentation components with isolated illustrative records. No personal account data or live model scores are used. Historical YouTube-extension captures are labelled in the [screenshot sources](docs/assets/readme/SCREENSHOTS.md).*
+
+## AI design
+
+**The learner chooses the expression. AI explains, generates and evaluates. Application rules control learning state.**
+
+| Stage | Input → output | Design constraint |
+| --- | --- | --- |
+| **Suggest** | Saved target lines + context → 0–2 useful spans | Select only from target lines; prefer reusable language; allow no suggestion. |
+| **Explain** | Confirmed spans + original context → learning cards | Keep the selected expression intact; explain its meaning here, tone and use. |
+| **Generate a task** | Meaning + intention + setting + past situations → scenario, interlocutor and reply task | Change the topic; avoid repeated situations and target wording in the task. Card examples are excluded from generation input. |
+| **Judge** | Target meaning + task + relationship + response → scores, reasons and optional minimal revision | Evaluate dimensions independently; ground deductions in a specific defect. |
+
+### LLM as Judge: three separate questions
+
+| Dimension | What it checks | Why it is separate |
+| --- | --- | --- |
+| **Accuracy** | Target meaning and semantic relations | Fluent Chinese can still reverse the intended meaning. |
+| **Naturalness** | Wording, collocations and sentence construction | Correct meaning can still sound awkward. |
+| **Context fit** | Communicative purpose, audience and setting | A correct sentence can still fail to answer the task. |
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"system-ui, sans-serif","primaryColor":"#E8F5FF","primaryTextColor":"#27313F","primaryBorderColor":"#9CCFF3","lineColor":"#8299AD","secondaryColor":"#FFF0E4","tertiaryColor":"#FFF7CF"}}}%%
+flowchart LR
+    A["LLM<br/>Three scores + reasons"] --> B{"Valid output<br/>and every score ≥ 3?"}
+    B -->|Yes| C["Check round + assistance<br/>Apply evidence rules"]
+    B -->|No| D["No advancement<br/>Preserve task / response"]
+    classDef action fill:#FF803D,stroke:#EB6F29,color:#362618,stroke-width:2px
+    classDef learn fill:#E8F5FF,stroke:#8DC9F2,color:#27313F,stroke-width:1.5px
+    classDef evidence fill:#FFF7CF,stroke:#E9CA64,color:#64501D,stroke-width:1.5px
+    linkStyle default stroke:#8299AD,stroke-width:2px
+    class A learn
+    class B evidence
+    class C action
+    class D learn
+```
+
+Passing scores alone do not establish independent use. Viewing examples records assistance; switching to English, reading usage notes or revealing a review expression does not. Revisions remain visible without rewriting the round’s formal result.
+
+<details>
+<summary>Scoring anchors and implementation references</summary>
+
+| Score | Accuracy | Naturalness | Context fit |
+| --- | --- | --- | --- |
+| 1 | Target absent or core sense wrong | No determinate message | Off-task or opposite act |
+| 2 | Core semantic relation wrong | Main grammar needs reconstruction | Primary purpose not achieved |
+| 3 | Meaning recoverable, but a relation needs repair | Understandable with clear awkwardness | Primary purpose met, substantial mismatch remains |
+| 4 | Minor semantic imprecision | Minor local wording defect | Slight supported tone / register mismatch |
+| 5 | No semantic correction needed | No language correction needed | Task fulfilled appropriately |
+
+Every score below 5 needs a concrete reason; a short, simple response can earn 5. These anchors guide the model; schema validation checks output structure, not the correctness of its judgement.
+
+[Expression suggestions](src/server/ai/prompts/highlight-expressions.v1.ts) · [Learning cards](src/server/ai/prompts/analyze-saved-item.v3.ts) · [Task generation](src/server/ai/prompts/activate.v2.ts) · [Judge input](src/server/ai/prompts/evaluate.v2.ts) · [Full rubric](src/server/ai/prompts/evaluate.v1.ts)
+
+</details>
+
+## Product decisions
+
+| Decision | Reason |
+| --- | --- |
+| **Separate watching from deliberate practice** | Preserve the existing viewing activity; let the learner choose when to study. |
+| **Let learners edit AI suggestions** | Reduce discovery effort while keeping the learning choice with the user. |
+| **Separate revision from independent reuse** | Distinguish improving one answer from using the expression in another situation. |
+| **Keep state and retry when generation fails** | Generic scenes can miss an expression’s meaning or tone. Preserve the task or response instead of substituting an unsuitable template. |
+
+**My role:** product definition and learning-flow design, using AI to assist software implementation and iteration. The decisions above translate the product goal into selection controls, generation constraints and explicit evidence rules. Parts of the extension adapt YouTube Digest, with attribution retained below.
+
+## Architecture
+
+```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"system-ui, sans-serif","primaryColor":"#E8F5FF","primaryTextColor":"#27313F","primaryBorderColor":"#9CCFF3","lineColor":"#8299AD","secondaryColor":"#FFF0E4","tertiaryColor":"#FFF7CF"}}}%%
+flowchart TD
+    X["Chrome extension · MV3"] --> W["Next.js / React / TypeScript · Web + API"]
+    W --> DB[("Supabase · Auth / PostgreSQL / RLS")]
+    W --> Q["PostgreSQL job queue + Node worker"]
+    Q --> S["Supadata subtitles / OpenAI-compatible model"]
+    classDef action fill:#FF803D,stroke:#EB6F29,color:#362618,stroke-width:2px
+    classDef learn fill:#E8F5FF,stroke:#8DC9F2,color:#27313F,stroke-width:1.5px
+    classDef evidence fill:#FFF7CF,stroke:#E9CA64,color:#64501D,stroke-width:1.5px
+    linkStyle default stroke:#8299AD,stroke-width:2px
+    class X action
+    class W,Q learn
+    class DB,S evidence
+```
+
+The side panel supports capture while watching. Web/API handles practice and state transitions. Auth and row-level security separate users; the durable queue retains slow work and retries. **Zod validates structured results; the server controls qualifying attempts, mastery and review dates.**
+
+## Delivery and evidence
+
+Implemented: expression selection and cards, practice rounds, daily sessions, near/far reviews, and existing Vault / Progress views. Current scope uses English support, typed Chinese responses and YouTube videos with native Simplified Chinese subtitles. The confirmed desktop redesign includes Home, Saved, Practice, feedback, Vault and Progress; voice practice remains outside scope.
+
+| Expression evidence | Learning progress |
+| :---: | :---: |
+| [![Current Vault source and attempt history](docs/assets/readme/vault-current.png)](docs/assets/readme/vault-current.png) | [![Current Progress evidence metrics](docs/assets/readme/progress-current.png)](docs/assets/readme/progress-current.png) |
+
+Recorded acceptance on **2 Nov 2026**: 1,833 application tests, 1,188 SQL assertions, 15 concurrency scenarios, 180 extension tests and 5 production browser workflows. Separately, 20 live-model review tasks passed individual human review. These are version-specific engineering and content checks, not measured learner improvement.
+
+[Engineering acceptance](https://github.com/LLLJJJcon/popcorn/blob/main/docs/engineering/group-4-main-integration-acceptance.md) · [Human review of generated tasks](https://github.com/LLLJJJcon/popcorn/blob/main/docs/engineering/prompt-runs/2026-11-01-transfer-scenario-v1-review-set.md)
+
+## Run locally
+
+Requires **Node.js 24.5+, pnpm 11.19.0, Docker and Chrome 116+**. Complete the one-time database, account, model and extension setup in the [English self-hosting guide](docs/operations/local-self-host.md) or [中文使用指南](docs/operations/user-guide.zh-CN.md).
 
 ```bash
 git clone https://github.com/LLLJJJcon/popcorn.git
 cd popcorn
 pnpm install --frozen-lockfile
-```
-
-随后按[中文使用指南](docs/operations/user-guide.zh-CN.md)或 [English self-host guide](docs/operations/local-self-host.md) 完成一次性配置：
-
-1. 启动本地 Supabase，将 `.env.example` 复制为 `.env.local`，填写本地配置及 Supadata Key（从 [Supadata dashboard](https://dash.supadata.ai/) 获取，参阅[官方文档](https://docs.supadata.ai/)）。
-2. 按指南初始化数据库、创建本地账号，生成并加载未打包扩展。
-3. 在已登录的 Web 设置中填写模型服务名称、HTTPS API 根地址、模型 ID 与 API Key。地址必须为公开 HTTPS DNS 地址，不接受 IP、内部主机名、端口、凭证、查询参数或片段。
-
-### 日常启停
-
-完成首次配置后：
-
-```bash
+# After completing the one-time setup:
 pnpm popcorn:start
 pnpm popcorn:stop
 ```
 
-macOS 也可双击 `Start Popcorn.command` / `Stop Popcorn.command`。详细手动启动与排障步骤见上述指南；`pnpm db:reset` 会清空本地数据，不用于日常启动。
+Use your own OpenAI-compatible model service. Keep keys in the documented local configuration / signed-in settings. **`pnpm db:reset` erases local data; it is not a daily startup or upgrade command.**
 
-模型 Key 只在已登录的 Web 设置中输入；`.env.local`、Supadata/模型密钥、密码和 Token 不应提交到 Git 或粘贴到聊天中。
+[Extension installation](docs/operations/extension-install.md) · [Save / job recovery](docs/operations/job-recovery.md) · [Account reset](docs/operations/account-reset.md) · [Legacy record upgrades](https://github.com/LLLJJJcon/popcorn/blob/main/docs/superpowers/specs/2026-11-01-legacy-learning-card-upgrade-design.md)
 
-相关文档：[扩展安装](docs/operations/extension-install.md) · [任务与保存恢复](docs/operations/job-recovery.md) · [账号重置](docs/operations/account-reset.md)
+## License and acknowledgments
 
-## 开源与致谢
-
-项目采用 [MIT License](LICENSE)。扩展基于 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest) 的部分能力开发，并保留原作者署名与许可证；复用范围见 [Upstream record](extension/UPSTREAM.md) 与 [Third-party notices](THIRD_PARTY_NOTICES.md)。
+[MIT License](LICENSE). Parts of the extension are based on [YouTube Digest](https://github.com/zarazhangrui/youtube-digest); see the [upstream record](extension/UPSTREAM.md) and [third-party notices](THIRD_PARTY_NOTICES.md).

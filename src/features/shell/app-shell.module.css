@@ -137,7 +137,7 @@
 .content {
   width: min(100%, 76rem);
   margin: 0 auto;
-  padding: clamp(1.25rem, 4vw, 3.5rem);
+  padding: clamp(1rem, 3vw, 3rem);
 }
 
 .gatewayNotice {
@@ -145,7 +145,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin: 1rem clamp(1.25rem, 4vw, 3.5rem) 0;
+  width: min(70rem, calc(100% - 2 * clamp(1rem, 3vw, 3rem)));
+  margin: 1rem auto 0;
   padding: 0.85rem 1rem;
   border: 1px solid color-mix(in srgb, var(--attention) 35%, transparent);
   border-radius: var(--radius-sm);
@@ -283,3 +284,16 @@
     flex-direction: column;
   }
 }
+
+/* Confirmed workspace shell. */
+.shell{grid-template-columns:204px minmax(0,1fr);background:var(--cream)}
+.rail{background:#fff;color:var(--ink);border-right:1px solid var(--line);padding:30px 18px}
+.brand{display:flex;align-items:center;gap:9px;margin:0 0 34px;font-family:inherit;font-size:24px;letter-spacing:-1px}.brand img{width:36px;height:36px}
+.navigation{min-height:0;gap:25px}.navigationList{gap:8px}.navigationLink,.settingsLink{display:flex;align-items:center;gap:12px;min-height:46px;font-size:15px;font-weight:550;color:var(--muted);padding:10px 12px;border-radius:8px}.navigationLink svg,.settingsLink svg{width:20px;height:20px}.navigationLink:hover,.settingsLink:hover{background:var(--blue-soft)}.navigationLink[aria-current="page"],.settingsLink[aria-current="page"]{background:var(--orange-soft);color:var(--coral-active)}.settingsLink{margin:0;border:0}.account{border-color:var(--line);padding:18px 10px 0}.accountLabel{letter-spacing:0;text-transform:none;color:var(--muted);font-weight:500}.accountName{font-size:12px}.account button{color:var(--muted);font-size:12px;font-weight:500}.content{max-width:1400px;padding:36px 44px}.gatewayNotice{background:var(--yellow-soft);border-color:#ecd779;font-size:13px;box-shadow:none}.gatewayNotice a{color:#765c1e}.skipLink{border:1px solid var(--line)}
+@media(max-width:1100px){.shell{grid-template-columns:184px minmax(0,1fr)}.content{padding:28px}.rail{padding:26px 14px}}
+@media(max-width:899px){.shell{display:block}.rail{height:auto;display:flex;position:relative;gap:14px}.brand{margin:0}.navigation,.navigationList{display:flex;gap:4px}.navigationLink,.settingsLink{font-size:13px;gap:6px}.account{display:none}.content{padding:24px}}
+/* Saved's right side scrolls to the full-height learning area; navigation stays put. */
+.shell:has([data-saved-workspace]){height:100dvh;overflow:hidden}
+.shell:has([data-saved-workspace]) .workspace{display:block;height:100dvh;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain}
+.shell:has([data-saved-workspace]) .content{flex:none;min-height:0;overflow:visible;padding-bottom:12px}
+.shell:has([data-saved-workspace]) .rail{height:100dvh;top:0}

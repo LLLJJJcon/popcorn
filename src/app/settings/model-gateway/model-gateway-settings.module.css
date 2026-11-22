@@ -212,7 +212,7 @@
 
 .details {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
   gap: 0.75rem;
   margin: 1rem 0;
 }
@@ -231,6 +231,7 @@
 }
 
 .details dd {
+  overflow-wrap: anywhere;
   margin: 0.25rem 0 0;
   font-weight: 700;
 }
@@ -315,3 +316,7 @@
     width: 100%;
   }
 }
+
+/* Match the confirmed workspace palette. */
+.pageHeader h1{font-size:32px;line-height:1.25}.eyebrow{font-size:12px;letter-spacing:0;text-transform:none}.primaryButton{background:var(--coral);color:#362618;border:1px solid #eb6f29;border-radius:7px;box-shadow:1px 2px 0 #ffd0a9}.secondaryButton{border-radius:7px;border-color:var(--line)}
+.header h1{font-family:inherit;font-size:32px;line-height:1.25;max-width:none}.sectionHeading h2{font-family:inherit;font-size:20px}.sectionHeading{border-color:var(--line)}.panel{padding:24px;border-color:var(--line);box-shadow:var(--shadow-paper)}

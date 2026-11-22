@@ -9,10 +9,12 @@ import {
 import type { DeletionImpact as SourceDeletionImpact } from "@/server/domain/plan-source-deletion";
 import type { SavedArtifactView, SavedVideoDetail } from "./api";
 import { isReadableSavedAnalysisPromptVersion } from "@/server/ai/prompts/analyze-saved-item.v1";
-import { CandidateList, type CandidateAnalysis } from "./candidate-list";
+import { type CandidateAnalysis } from "./candidate-list";
 import { DeleteSavedSource } from "./delete-saved-source";
 import { ProcessingState } from "./processing-state";
-import { SavedTimeline } from "./saved-timeline";
+import { SavedDetailPanels } from "./saved-detail-panels";
+import { SavedLearningWorkspace } from "./saved-learning-workspace";
+import { LocalDate } from "@/features/home/local-date";
 import styles from "./saved-workspace.module.css";
 
 const CandidateArtifactContentSchema = z.object({ candidates: CandidateExpressionListSchema, highlightStates: z.array(HighlightAnalysisStateSchema).optional() });
@@ -86,7 +88,7 @@ export function SavedVideoDetailView({
   readonly deletionImpact: SourceDeletionImpact;
 }): React.JSX.Element {
   return (
-    <main className={styles.workspace}>
+    <main data-saved-workspace className={`${styles.workspace} ${styles.detailWorkspace}`}>
       <p>
         <Link className={styles.backLink} href="/saved">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -103,6 +105,7 @@ export function SavedVideoDetailView({
           <p className={styles.eyebrow}>Saved YouTube video</p>
           <h1 title={video.title}>{video.title}</h1>
           <p>{video.channel} · {video.savedCount} saved {video.savedCount === 1 ? "moment" : "moments"}</p>
+          <p className={styles.sourceUpdated}>Latest activity <LocalDate instant={video.latestSavedAt} /></p>
           {video.processingState !== "failed" ? <ProcessingState state={video.processingState} /> : null}
           <p className={styles.detailAction}>
             <a className={styles.youtubeAction} href={video.canonicalUrl}>
@@ -119,26 +122,14 @@ export function SavedVideoDetailView({
         <p className={styles.alert} role="alert" key={`${message}-${index}`}>{message}</p>
       ))}
 
-      <section className={styles.paperSection} aria-labelledby="saved-moments-heading">
-        <p className={styles.eyebrow}>From watching to using</p>
+      <SavedDetailPanels overview={PersistedOverview({ video })}><section className={styles.paperSection} aria-labelledby="saved-moments-heading">
+
         <h2 id="saved-moments-heading">Saved moments</h2>
         <p className={styles.sectionIntroduction}>Keep the expressions you want to use. Mark the words, explore their meaning, then try them in a new situation.</p>
-        <SavedTimeline
-          videoSourceId={video.sourceId}
-          items={video.items}
-          renderAfter={(item) => (
-            <CandidateList
-              savedItemId={item.id}
-              videoSourceId={video.sourceId}
-              youtubeUrl={video.canonicalUrl}
-              analysis={latestCandidateAnalysis(video.artifacts, item.id)}
-              item={item}
-            />
-          )}
-        />
+        <SavedLearningWorkspace videoSourceId={video.sourceId} youtubeUrl={video.canonicalUrl} items={video.items} analyses={Object.fromEntries(video.items.map(item => [item.id, latestCandidateAnalysis(video.artifacts, item.id)]))} />
       </section>
 
-      <PersistedOverview video={video} />
+      </SavedDetailPanels>
 
 
     </main>

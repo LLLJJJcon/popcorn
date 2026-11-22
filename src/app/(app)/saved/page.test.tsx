@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 
 const h = vi.hoisted(() => ({
   authenticate: vi.fn(), list: vi.fn(), needsAnalysisVideos: vi.fn(),
@@ -52,11 +51,11 @@ describe("Saved URL filter", () => {
   it("restores the complete All library after returning from the URL filter", async () => {
     h.list.mockResolvedValue([video, { ...video, sourceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", title: "Processing video", processingState: "organizing" }]);
     const { rerender } = render(await SavedPage({ searchParams: Promise.resolve({}) }));
-    await userEvent.click(screen.getByRole("button", { name: "Processing" }));
+    expect(screen.getAllByRole("article")).toHaveLength(2);
     rerender(await SavedPage({ searchParams: Promise.resolve({ filter: "needs-analysis" }) }));
     expect(screen.getByRole("article", { name: "A qualified video" })).toBeInTheDocument();
     rerender(await SavedPage({ searchParams: Promise.resolve({}) }));
-    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: "All" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("article")).toHaveLength(2);
   });
 });

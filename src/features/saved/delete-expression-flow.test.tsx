@@ -18,7 +18,7 @@ test("deleting one card keeps the next card's original practice index and persis
  fireEvent.click(screen.getByRole("button",{name:"Delete expression"}));
  await waitFor(()=>expect(screen.queryByRole("heading",{name:"太离谱了"})).not.toBeInTheDocument());
  expect(fetch.mock.calls[0]?.[0]).toBe(`/api/v1/saved-items/${ITEM}/expressions/${ART}/0`);
- fireEvent.click(screen.getByRole("button",{name:"Practice this expression"}));
+ fireEvent.click(screen.getByRole("button",{name:"Try it in a new situation"}));
  await screen.findByRole("alert");
  expect(JSON.parse(String((fetch.mock.calls as unknown[][])[1]?.[1] && ((fetch.mock.calls as unknown[][])[1]?.[1] as RequestInit).body))).toMatchObject({candidateIndex:1});
  // A fresh server render has the same durable key even if analysis produced a new artifact.

@@ -1,12 +1,10 @@
 .dashboard {
   width: min(72rem, 100%);
   margin: 0 auto;
-  padding: clamp(1.25rem, 3vw, 3rem);
+  container-type: inline-size;
 }
 
-.dashboard h1,
-.dashboard h2,
-.dashboard p {
+.dashboard :where(h1, h2, h3, p) {
   margin-top: 0;
 }
 
@@ -85,7 +83,9 @@
 
 .metricCard {
   display: grid;
-  gap: 0.35rem;
+  grid-template-rows: 1fr auto;
+  min-width: 0;
+  gap: 0.6rem;
   border-radius: var(--radius-sm);
   padding: 1rem;
   background: var(--cream);
@@ -141,7 +141,7 @@
   background: var(--success);
 }
 
-@media (max-width: 42rem) {
+@container (max-width: 42rem) {
   .metricGrid,
   .masterySection {
     grid-template-columns: 1fr;
@@ -151,3 +151,8 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Shared evidence colors, with restrained saturated accents. */
+.pageHeader h1{font-size:32px;line-height:1.25}.pageHeader p{color:var(--muted);font-size:15px}.eyebrow{font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)}.panel,.paperCard,.paperSection,.metricCard,.masterySection,.scheduleSection,.emptyState{border-color:var(--line);border-radius:12px;box-shadow:var(--shadow-paper);background:#fff}.metricCard strong,.metricValue{color:#286e9e}.masteryItem{background:var(--blue-soft);border-color:#c7e2f6}.primaryAction{background:var(--coral);color:#362618;border:1px solid #eb6f29;border-radius:7px;font-size:13px}.secondaryLink{border-radius:7px;border-color:var(--line);font-size:13px}.masteryDistribution>li:nth-child(1){background:var(--orange-soft)}.masteryDistribution>li:nth-child(2){background:var(--blue-soft)}.masteryDistribution>li:nth-child(3){background:var(--yellow-soft)}
+.metricSection{border-color:var(--line);box-shadow:var(--shadow-paper);padding:24px}.metricCard{background:#f3faff;border:1px solid #cee3f4;box-shadow:none}.metricCard span{font-size:13px;color:var(--muted)}.masterySection{padding:24px}.masterySection>div>p{font-size:14px;color:var(--muted)}.masteryRow{padding:14px;border:1px solid #ffd1a9;border-radius:9px;background:var(--orange-soft)}.masteryRow:nth-child(2){border-color:#c1e0f6;background:var(--blue-soft)}.masteryRow:nth-child(3){border-color:#efdb8c;background:var(--yellow-soft)}.masteryLabel{font-size:14px}.masteryBar{background:#fff;border-radius:2px;height:8px}.masteryBar span{background:#ff9d60;border-radius:2px}.masteryRow:nth-child(2) .masteryBar span{background:#68bbf2}.masteryRow:nth-child(3) .masteryBar span{background:#ebca4d}
+.pageHeader h1{font-weight:650}

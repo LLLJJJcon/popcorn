@@ -1,13 +1,10 @@
 .workspace {
   width: min(66rem, 100%);
   margin: 0 auto;
-  padding: clamp(1rem, 3vw, 3rem);
+  container-type: inline-size;
 }
 
-.workspace h1,
-.workspace h2,
-.workspace h3,
-.workspace p {
+.workspace :where(h1, h2, h3, p) {
   margin-top: 0;
 }
 
@@ -66,6 +63,13 @@
 }
 
 .mastery {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  line-height: 1.5;
   border-radius: 999px;
   padding: 0.35rem 0.7rem;
   background: color-mix(in srgb, var(--coral) 12%, var(--paper));
@@ -85,6 +89,16 @@
   box-shadow: var(--shadow-paper);
 }
 
+.sessionCard {
+  margin-bottom: 1.25rem;
+}
+
+.sessionCard h2 {
+  margin-bottom: 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 750;
+}
+
 .sessionCard,
 .emptyCard {
   padding: clamp(1.1rem, 3vw, 1.8rem);
@@ -98,25 +112,45 @@
 
 .queue {
   display: grid;
-  gap: 0.65rem;
-  margin: 0 0 1.25rem;
+  gap: 0;
+  margin: 1.25rem 0;
   padding: 0;
   list-style: none;
 }
 
 .queue li {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: start;
   gap: 1rem;
   border-top: 1px solid color-mix(in srgb, var(--cocoa) 10%, transparent);
-  padding-top: 0.7rem;
+  padding: 1rem 0;
 }
 
 .queue li:first-child {
   border-top: 0;
   padding-top: 0;
+}
+
+.queue li > * {
+  min-width: 0;
+}
+
+.queue li:has(.queueSource) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.65fr);
+}
+
+.queueSource {
+  color: color-mix(in srgb, var(--cocoa) 68%, transparent);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.queueMeaning {
+  margin: 0.4rem 0 0;
+  font-size: 0.94rem;
+  line-height: 1.65;
 }
 
 .queueExpression {
@@ -284,6 +318,24 @@
   background: color-mix(in srgb, var(--danger) 8%, var(--paper));
 }
 
+.feedbackCard > * + * {
+  margin-top: 1rem;
+}
+
+.feedbackCard > h2 + .takeaway {
+  margin-top: 0.4rem;
+}
+
+.feedbackCard .buttonRow {
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in srgb, var(--cocoa) 12%, transparent);
+}
+
+.revision h3 {
+  margin-bottom: 0.35rem;
+  font-weight: 700;
+}
+
 .takeaway {
   font-size: 1.12rem;
   font-weight: 760;
@@ -367,7 +419,7 @@
   outline-offset: 3px;
 }
 
-@media (max-width: 44rem) {
+@container (max-width: 44rem) {
   .materialGrid,
   .dimensions,
   .comparisonGrid,
@@ -376,8 +428,15 @@
   }
 }
 
-@media (max-width: 22rem) {
+@container (max-width: 30rem) {
   .queue li,
+  .queue li:has(.queueSource) {
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
+  }
+}
+
+@media (max-width: 22rem) {
   .buttonRow,
   .emptyLinks {
     align-items: stretch;
@@ -425,3 +484,7 @@
 /* Give the exit target its own line box, separated from the large session title. */
 .sessionNavigation { margin:0 0 .75rem; }
 .sessionExit { display:inline-flex; align-items:center; min-height:36px; }
+
+/* Approved practice: distinct target, situation, reply and feedback surfaces. */
+.workspace{max-width:800px}.landingHeader h1,.practiceHeader h1{font-size:32px;line-height:1.3;letter-spacing:-.6px}.landingHeader p{font-size:14px;color:var(--muted)}.practiceHeader{position:relative;max-width:none;padding:22px 28px;background:var(--orange-soft);border:1px solid #ffc492;border-radius:14px;margin:0 0 22px}.practiceUseLabel{font-size:12px;color:#a34c20;margin:0 0 7px}.practiceBrand{position:absolute;right:28px;top:24px;display:grid;place-items:center;transform:rotate(6deg);width:43px;height:43px;background:#fff4bd;border:1px solid #ebd179;border-radius:11px;color:#ac6a27}.practiceBrand svg{height:23px;width:23px}.practiceHeader .meaning{font-size:14px;line-height:1.7;color:#765940;margin:8px 0 14px;max-width:calc(100% - 60px)}.mastery{background:var(--blue-soft);border:1px solid #bfdef5;color:#356e96;border-radius:5px;font-size:12px;padding:3px 8px}.metaRow{font-size:12px}.materialGrid{grid-template-columns:1fr;gap:8px}.materialGrid>.paperCard{background:var(--blue-soft);border:1px solid #b6defa;border-radius:12px;padding:20px;box-shadow:none}.scenarioHeading{display:flex;align-items:center;gap:8px;font-size:13px;color:#246a9e;margin:0 0 14px}.scenarioHeading svg{width:28px;height:28px;padding:5px;background:#bce3ff;border-radius:8px}.materialGrid>.paperCard>p:not(.prompt){font-size:13px;color:#456e91}.prompt{background:#fff;border:1px solid #bfddf2;border-radius:11px 11px 11px 2px;padding:16px 18px;font-size:23px;line-height:1.8;color:#293d50;margin:14px 0}.segmented{border:1px solid #bcdcf4;border-radius:6px;font-size:12px;box-shadow:none;width:fit-content}.segmented button{padding:4px 11px;min-height:30px}.segmented button[aria-pressed="true"]{background:#2999e8;color:#fff}.sourceCard{border:0;box-shadow:none;background:none;padding:6px 0 12px;font-size:12px}.sourceLink{font-size:12px;color:var(--muted)}.responseCard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:24px;box-shadow:var(--shadow-paper);display:flex;flex-direction:column;margin-top:12px}.responseForm{order:0;gap:12px}.responseForm label{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:16px;font-weight:600}.responseForm label:before{content:"";width:25px;height:25px;background:var(--yellow-soft);border:1px solid #edce73;border-radius:7px;flex-shrink:0}.responseForm textarea{min-height:132px;border:1px solid #c4d7e9;border-radius:10px;background:#fff;font-size:21px;line-height:1.8;box-shadow:none;padding:14px 16px}.responseForm>p{font-size:12px;color:var(--muted)}.primaryButton{background:var(--coral);border:1px solid #eb6f29;border-radius:7px;color:#362618;box-shadow:1px 2px 0 #ffd0a9;font-weight:600;font-size:13px;min-height:43px;padding:10px 17px}.primaryButton:hover{background:#ff955a}.secondaryButton{background:#fff;border:1px solid var(--line);border-radius:7px;color:#436f90;font-weight:550;font-size:13px;min-height:42px}.tertiaryButton{color:#47779b;font-size:12px}.buttonRow{gap:12px;align-items:center}.responseForm>.buttonRow{justify-content:flex-end;margin:0}.helpControls{order:2;border-top:1px dashed #cbddeb;margin-top:18px;padding-top:15px;display:flex;gap:9px 14px;flex-wrap:wrap;align-items:center}.helpControls>.muted{font-size:12px;width:100%;margin:0;color:var(--muted)}.helpControls>.hintPanel,.helpControls>[role="alert"]{width:100%}.disclosureButton{background:#f0f8ff;border:1px solid #cce2f3;border-radius:6px;color:#437294;font-size:12px;min-height:35px;padding:6px 10px;font-weight:500}.hintPanel{background:#f1f8ff;border-color:#cce2f4;border-radius:9px;font-size:14px}.hintPanel dt{font-size:12px}.hintPanel dd{font-size:14px}.feedbackCard{border:1px solid #d4e2ef;border-radius:14px;padding:24px;background:#fff;box-shadow:var(--shadow-paper)}.feedbackCard>h2{display:flex;align-items:center;gap:10px;font-size:22px}.feedbackCard>h2 svg{color:#a66a25;background:var(--yellow-soft);padding:6px;border:1px solid #ebd179;border-radius:8px;width:33px;height:33px}.takeaway{font-size:17px;color:var(--ink)}.dimensions{gap:12px}.dimension{border:1px solid #cde3f3;background:#f3faff;border-radius:9px;padding:14px}.dimension h3{font-size:14px;color:#276e9d}.dimension p{font-size:13px;color:#557088}.dimensionNeedsWork{background:var(--yellow-soft);border-color:#ead27b}.dimensionNeedsWork h3{color:#805f16}.revision{background:var(--orange-soft);border:1px solid #f4c3a2;border-radius:9px;padding:14px}.revision h3{font-size:14px}.revision p{font-size:14px}.sessionCard,.emptyCard{background:#fff;color:var(--ink);border-color:var(--line);box-shadow:var(--shadow-paper);padding:24px}.sessionCard h2{font-size:20px}.sessionSummary{font-size:14px;color:var(--muted)}.queue li{border-color:var(--line);background:#fff}.queueExpression,.itemButton{font-size:23px;color:var(--ink)}.queueMeaning,.queueSource{font-size:13px;color:var(--muted)}.sessionProgress{accent-color:#2999e8}.savedReturnLink a{display:inline-flex;align-items:center;color:var(--muted);text-decoration:none;font-size:13px;font-weight:500;min-height:36px}.embeddedWorkspace .practiceHeader{margin-top:18px}.alert{background:var(--yellow-soft);border-color:#ebd179;color:#805f16}
+.practiceHeader h1,.practiceHeader h2,.landingHeader h1,.feedbackCard>h2{font-weight:650}

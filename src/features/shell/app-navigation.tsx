@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { UiIcon, type IconName } from "@/components/ui-icon";
+
 import styles from "./app-shell.module.css";
 
 const learningNavigation = [
@@ -30,7 +32,7 @@ export function AppNavigation(): React.JSX.Element {
               href={href}
               aria-current={isActivePath(pathname, href) ? "page" : undefined}
             >
-              {label}
+              <UiIcon name={label.toLowerCase() as IconName} />{label}
             </Link>
           </li>
         ))}
@@ -40,7 +42,7 @@ export function AppNavigation(): React.JSX.Element {
         href="/settings/model-gateway"
         aria-current={isActivePath(pathname, "/settings/model-gateway") ? "page" : undefined}
       >
-        Settings
+        <UiIcon name="settings" />Settings
       </Link>
     </nav>
   );

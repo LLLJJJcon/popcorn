@@ -19,7 +19,7 @@ it("keeps repeated source evidence collapsed without hiding the expression or pr
   expect(screen.getByText(candidate.evidenceText)).toBeVisible();
   await userEvent.click(screen.getByText("Source sentence"));
   expect(screen.getByText(candidate.evidenceText)).not.toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Practice this expression" }));
+  await userEvent.click(screen.getByRole("button", { name: "Try it in a new situation" }));
   expect(onUse).toHaveBeenCalledOnce();
   expect(screen.getByRole("link", { name: "Watch at 0:15 on YouTube" })).toHaveAttribute("href", "https://www.youtube.com/watch?v=HkN9wpiOnAg&t=15s");
 });

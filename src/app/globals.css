@@ -26,5 +26,12 @@ body {
   margin: 0;
   background: var(--cream);
   color: var(--cocoa);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
   font-family: ui-rounded, "Avenir Next", Avenir, system-ui, sans-serif;
 }
+
+/* Confirmed Popcorn desktop palette: orange, sky blue, lemon; neutral reading surfaces. */
+:root{--paper:#fff;--cream:#f7faff;--cocoa:#27313f;--coral:#ff803d;--coral-active:#af4214;--success:#216c9e;--attention:#805f16;--danger:#ac3828;--ink:#27313f;--muted:#59687b;--line:#dae3ed;--blue:#2999e8;--blue-soft:#e8f5ff;--yellow:#ffdc63;--yellow-soft:#fff7cf;--orange-soft:#fff0e4;--radius-sm:.5rem;--radius-lg:.875rem;--shadow-paper:0 3px 0 #e7eff9}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;font-size:15px;color:var(--ink);background:var(--cream)}
+button,input,textarea,select{font:inherit}button,a,input,textarea,summary{touch-action:manipulation}button,summary{cursor:pointer}button:disabled{cursor:not-allowed}a{text-underline-offset:4px}h1,h2,h3,h4{letter-spacing:-.025em}button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #b74b18;outline-offset:3px}svg{flex-shrink:0;vertical-align:middle}[hidden]{display:none!important}

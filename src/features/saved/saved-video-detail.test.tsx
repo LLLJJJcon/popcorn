@@ -1,9 +1,9 @@
 import { Children, isValidElement, type ElementType, type ReactElement, type ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import type { SavedVideoDetail } from "@/features/saved/api";
 import { SavedVideoDetailView } from "@/features/saved/saved-video-detail";
-import { SavedTimeline } from "@/features/saved/saved-timeline";
+import { SavedLearningWorkspace } from "@/features/saved/saved-learning-workspace";
 import type { DeletionImpact } from "@/server/domain/plan-source-deletion";
 
 vi.mock("next/navigation", () => ({
@@ -117,6 +117,7 @@ describe("Saved video learning bridge", () => {
       deletionImpact={deletionImpact}
     />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Video overview" }));
     expect(screen.getByRole("heading", { name: "Video overview" })).toBeInTheDocument();
     expect(screen.getByText("A conversation about measured reactions.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Opening reactions" })).toBeInTheDocument();
@@ -210,13 +211,8 @@ describe("Saved video learning bridge", () => {
     });
 
     const tree = SavedVideoDetailView({ video, deletionImpact });
-    const timeline = findElement(tree, SavedTimeline);
-    const renderAfter = (timeline.props as {
-      readonly renderAfter: (item: SavedVideoDetail["items"][number]) => ReactElement;
-    }).renderAfter;
-    const candidateBoundary = renderAfter(video.items[0]!);
-
-    expect(candidateBoundary.props).toMatchObject({ analysis: { state: "unavailable" } });
-    expect(JSON.stringify(candidateBoundary.props)).not.toContain("sensitive-provider-body-must-stay-on-server");
+    const boundary = findElement(tree, SavedLearningWorkspace);
+    expect(boundary.props).toMatchObject({ analyses: { [video.items[0]!.id]: { state: "unavailable" } } });
+    expect(JSON.stringify(boundary.props)).not.toContain("sensitive-provider-body-must-stay-on-server");
   });
 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 
@@ -100,12 +101,16 @@ export function CandidateList({
   youtubeUrl,
   analysis,
   item,
+  editorTarget = null,
+  onHighlightsChange,
 }: {
   readonly savedItemId: string;
   readonly videoSourceId: string;
   readonly youtubeUrl: string;
   readonly analysis: CandidateAnalysis;
   readonly item?: SavedItemView;
+  readonly editorTarget?: HTMLElement | null;
+  readonly onHighlightsChange?: (highlights: readonly SavedHighlight[]) => void;
 }) {
   const router = useRouter();
   const [hydrationReady, setHydrationReady] = useState(false);
@@ -404,6 +409,8 @@ export function CandidateList({
     }
   }
 
+  const expressionNavigation = artifact && visibleCandidateCount > 1 ? <nav className={styles.expressionSwitcher} aria-label="Expressions in this sentence">{artifact.candidates.map((candidate,index) => isRemoved(candidate) ? null : <a key={index} href={`#expression-${savedItemId}-${index}`}><span>{artifact.candidates.slice(0,index+1).filter(value=>!isRemoved(value)).length}</span><b lang="zh-CN">{candidate.expression}</b></a>)}</nav> : null;
+
   if (editingEnabled && item?.targetSegments) {
     const pending = ["pending", "background", "checking"].includes(recoveryState);
     const queued = recoveryState === "queued" || recoveryState === "checking";
@@ -419,7 +426,7 @@ export function CandidateList({
       : "Mark an expression to get started.";
     return (
       <section aria-label="Expression learning workspace">
-        <HighlightEditor savedItemId={savedItemId} segments={item.targetSegments} highlights={highlights} highlightStatus={highlightStatus} gatewayAvailable={item.gatewayAvailable} onChange={(next, status) => { setHighlights(next); setHighlightStatus(status); router.refresh(); }} />
+        {editorTarget ? createPortal(<HighlightEditor savedItemId={savedItemId} segments={item.targetSegments} highlights={highlights} highlightStatus={highlightStatus} gatewayAvailable={item.gatewayAvailable} onChange={(next, status) => { setHighlights(next); setHighlightStatus(status); onHighlightsChange?.(next); router.refresh(); }} />, editorTarget) : <HighlightEditor savedItemId={savedItemId} segments={item.targetSegments} highlights={highlights} highlightStatus={highlightStatus} gatewayAvailable={item.gatewayAvailable} onChange={(next, status) => { setHighlights(next); setHighlightStatus(status); onHighlightsChange?.(next); router.refresh(); }} />}
         {item.englishTranslation ? <p className={styles.translation}>{item.englishTranslation}</p> : null}
         <div className={styles.analysisPanel} aria-label="Analysis status">
           <div className={styles.analysisMessage}>{pending ? <span className={styles.activityIndicator} role="progressbar" aria-label="Analysis in progress" /> : null}<p role="status">{message}</p></div>
@@ -428,7 +435,7 @@ export function CandidateList({
         {queued ? <button type="button" className={styles.inlineAction} onClick={() => void checkStatus()} disabled={recoveryState === "checking"}>{recoveryState === "checking" ? "Checking…" : "Check status"}</button> : null}
         {recoveryState === "gateway" ? <p className={styles.analysisMessage}>An active gateway is needed to create cards. <Link href="/settings/model-gateway">Set up model gateway</Link></p> : null}
         {recoveryState === "terminal" || recoveryState === "error" ? <p className={styles.editorError} role="alert">{recoveryState === "terminal" && failureCategory ? terminalFailureMessage(failureCategory) : "Analysis is taking longer than expected. Try again."}</p> : null}
-        {artifact?.candidates.length ? <div className={styles.expressionGroup}><div className={styles.expressionGroupHeading}><h3>Learning cards</h3><span>{visibleCandidateCount} {visibleCandidateCount === 1 ? "expression" : "expressions"}</span></div><div className={styles.expressionGrid}>{visibleCandidateCount===0?<p className={styles.sourceGuidance}>No learning cards here. Mark another expression to keep learning.</p>:null}{artifact.candidates.map((candidate, index) => isRemoved(candidate) ? null : <CandidateExpressionCard key={`${candidate.highlightKey ?? candidate.expression}-${index}`} candidate={candidate} canonicalUrl={youtubeUrl} disabled={!hydrationReady || pendingIndex !== null} activating={pendingIndex === index} onUse={() => void activate(index)} deleteAction={<DeleteSavedExpression savedItemId={savedItemId} artifactId={artifact!.artifactId} index={index} expression={candidate.expression} disabled={!hydrationReady || pendingIndex !== null} onDeleted={key=>setLocallyRemovedKeys(current=>[...current,key])}/>} />)}</div></div> : null}
+        {artifact?.candidates.length ? <div className={styles.expressionGroup}><div className={styles.expressionGroupHeading}><h3>Learning cards</h3><span>{visibleCandidateCount} {visibleCandidateCount === 1 ? "expression" : "expressions"}</span></div>{expressionNavigation}<div className={styles.expressionGrid}>{visibleCandidateCount===0?<p className={styles.sourceGuidance}>No learning cards here. Mark another expression to keep learning.</p>:null}{artifact.candidates.map((candidate, index) => isRemoved(candidate) ? null : <CandidateExpressionCard key={`${candidate.highlightKey ?? candidate.expression}-${index}`} position={artifact!.candidates.slice(0,index+1).filter(value=>!isRemoved(value)).length} total={visibleCandidateCount} cardId={`expression-${savedItemId}-${index}`} candidate={candidate} canonicalUrl={youtubeUrl} disabled={!hydrationReady || pendingIndex !== null} activating={pendingIndex === index} onUse={() => void activate(index)} deleteAction={<DeleteSavedExpression savedItemId={savedItemId} artifactId={artifact!.artifactId} index={index} expression={candidate.expression} disabled={!hydrationReady || pendingIndex !== null} onDeleted={key=>setLocallyRemovedKeys(current=>[...current,key])}/>} />)}</div></div> : null}
         {highlightStates.filter(state => state.status === "failed" && highlights.some(highlight => highlight.id === state.highlightId)).map(state => <div className={styles.failedHighlight} key={state.highlightId}><div><strong lang="zh-CN">{state.text}</strong><p>Couldn&apos;t analyze this one</p></div><button className={styles.inlineAction} type="button" disabled={pending} onClick={() => void requestAnalysis(true, state.highlightId)}>Try again</button></div>)}
         {activationError ? <p className={styles.editorError} role="alert">{activationGateway ? <>Connect a model to continue. <Link href="/settings/model-gateway">Set up model gateway</Link></> : <>We couldn&apos;t prepare a situation. <button type="button" className={styles.inlineAction} disabled={pendingIndex !== null} onClick={() => { if (lastActivationIndex.current !== null) void activate(lastActivationIndex.current); }}>Try again</button></>}</p> : null}
       </section>
@@ -509,11 +516,12 @@ export function CandidateList({
         <span>{visibleCandidateCount} {visibleCandidateCount === 1 ? "expression" : "expressions"}</span>
       </div>
       {activationError ? <p className={styles.editorError} role="alert">{activationGateway ? <>Connect a model to continue. <Link href="/settings/model-gateway">Set up model gateway</Link></> : <>We couldn&apos;t prepare a situation. <button type="button" className={styles.inlineAction} disabled={pendingIndex !== null} onClick={() => { if (lastActivationIndex.current !== null) void activate(lastActivationIndex.current); }}>Try again</button></>}</p> : null}
-      <div className={styles.expressionGrid}>
+      {expressionNavigation}<div className={styles.expressionGrid}>
         {visibleCandidateCount===0?<p className={styles.sourceGuidance}>No learning cards here. Mark another expression to keep learning.</p>:null}
         {artifact!.candidates.map((candidate, index) => isRemoved(candidate) ? null : (
           <CandidateExpressionCard
             key={`${candidate.expression}-${index}`}
+            position={artifact!.candidates.slice(0,index+1).filter(value=>!isRemoved(value)).length} total={visibleCandidateCount} cardId={`expression-${savedItemId}-${index}`}
             candidate={candidate}
             canonicalUrl={youtubeUrl}
             disabled={!hydrationReady || pendingIndex !== null}

@@ -22,11 +22,22 @@ export function HomeDashboard({ view }: { readonly view: HomeView }) {
         <p>Keep turning moments from the Chinese YouTube videos you watch into language you can use.</p>
       </header>
 
+      <section className={styles.hero} aria-label="Everyday Chinese in conversation">
+        <div className={styles.heroCopy}>
+          <h2>You know the words.<br />Make them feel natural.</h2>
+          <p>Pick up everyday Chinese from the videos you enjoy. Then make it part of your own conversations.</p>
+          <NextAction action={action} className={styles.primaryAction} />
+          {action.kind === "practice" ? <p className={styles.actionDetail}>about {action.estimatedMinutes} min</p> : null}
+          {action.kind === "youtube" && view.summary.nextPracticeAt ? <p className={styles.actionDetail}>Next practice: <LocalDate instant={view.summary.nextPracticeAt} /></p> : null}
+        </div>
+        <figure className={styles.comic}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- approved local comic, with accessible transcript below. */}
+          <img src="/brand/home-comic.png" width="1536" height="1024" alt="Making plans with a friend: an explanation, a puzzled listener, then a natural everyday reply." />
+          <figcaption className={styles.comicTranscript}>我明天有其他事务，需要重新安排我们的见面时间。I have other matters tomorrow and need to rearrange our meeting. 重新安排……？Rearrange…? 哦，你是说明天有事，咱们改天约？Oh, you’re busy tomorrow. You mean, let’s meet another day?</figcaption>
+        </figure>
+      </section>
       <section className={styles.actionCard} aria-labelledby="next-action-heading">
-        <h2 id="next-action-heading">Next action</h2>
-        <NextAction action={action} className={styles.primaryAction} />
-        {action.kind === "practice" ? <p className={styles.actionDetail}>about {action.estimatedMinutes} min</p> : null}
-        {action.kind === "youtube" && view.summary.nextPracticeAt ? <p className={styles.actionDetail}>Next practice: <LocalDate instant={view.summary.nextPracticeAt} /></p> : null}
+        <h2 id="next-action-heading">Today’s practice</h2>
         <ul className={styles.practiceCounts} aria-label="Today's practice">
           {TODAY_PRACTICE_GROUPS.map(({ kind, id, label, description }) => (
             <li key={kind} className={counts[kind] === 0 ? styles.emptyCount : undefined}>

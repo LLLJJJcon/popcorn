@@ -359,10 +359,11 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   ]);
   await expect(page.getByRole("heading", { name: "Saved moments" })).toBeVisible();
   const saved = page.locator(`#saved-item-${ACTION_SAVE_ID}`);
+  const learningPane = page.getByRole("region", { name: "Learning cards for selected sentence" });
   const raw = saved.getByTestId("raw-text");
   await expect(raw).toContainText(EVIDENCE_TEXT);
-  await expect(saved.getByRole("button", { name: "Analyze", exact: true })).toBeDisabled();
-  await expect(saved.getByRole("status").filter({ hasText: "Mark an expression to get started." })).toBeVisible();
+  await expect(learningPane.getByRole("button", { name: "Analyze", exact: true })).toBeDisabled();
+  await expect(learningPane.getByRole("status").filter({ hasText: "Mark an expression to get started." })).toBeVisible();
   await selectUnmarkedText(raw, EXPRESSION);
   await expect(saved.getByRole("button", { name: "Mark", exact: true })).toBeVisible();
   const [markResponse] = await Promise.all([
@@ -385,17 +386,17 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   expect(consent.data).toBe(true);
   const [analysisResponse] = await Promise.all([
     page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/v1/saved-items/${ACTION_SAVE_ID}/candidates`),
-    saved.getByRole("button", { name: "Analyze", exact: true }).click(),
+    learningPane.getByRole("button", { name: "Analyze", exact: true }).click(),
   ]);
   expect(analysisResponse.status()).toBe(202);
   const registration = await analysisResponse.json();
   await completeFixtureAnalysis(admin, registration.data.jobId, USER_ID);
-  const candidate = saved.locator("article").filter({ has: page.getByRole("heading", { name: EXPRESSION, exact: true }) });
+  const candidate = learningPane.locator("article").filter({ has: page.getByRole("heading", { name: EXPRESSION, exact: true }) });
   await expect(candidate.getByText("Meaning here", { exact: true })).toBeVisible();
   await expect(candidate.getByText("Compared with", { exact: true })).toBeVisible();
   await expect(candidate.getByText(`${EXPRESSION}，真的。`, { exact: true })).toBeVisible();
   await expect(candidate.getByRole("link", { name: "Watch at 0:04 on YouTube" })).toBeVisible();
-  await expect(saved.getByRole("button", { name: "Analyze", exact: true })).toBeDisabled();
+  await expect(learningPane.getByRole("button", { name: "Analyze", exact: true })).toBeDisabled();
   const analyzed = await admin.from("generated_artifacts").select("prompt_version,content").eq("user_id", USER_ID).eq("saved_item_id", ACTION_SAVE_ID).single();
   expect(analyzed.error).toBeNull();
   expect(analyzed.data?.prompt_version).toBe("analyze-saved-item-v3");
@@ -408,7 +409,7 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   await expect(raw.locator("mark")).toHaveText(EXPRESSION);
   await page.reload();
   await expect(raw.locator("mark")).toHaveText(EXPRESSION);
-  const activationButton = candidate.getByRole("button", { name: "Practice this expression" });
+  const activationButton = candidate.getByRole("button", { name: "Try it in a new situation" });
   await expect(activationButton).toBeEnabled();
 
   const [activationResponse, practiceNavigation] = await Promise.all([
@@ -515,6 +516,9 @@ test("one saved YouTube moment becomes tried knowledge and due Practice", async 
   await page.getByRole("link",{name:"Open in Vault",exact:true}).click();
   await expect(page).toHaveURL(new RegExp(`/vault/${expressionId}$`));
   await expect(page.getByRole("heading",{name:EXPRESSION,exact:true})).toBeVisible();
+  await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Vault", exact: true }).click();
+  await page.getByLabel("Search expressions").fill(EXPRESSION);
+  await expect(page.getByRole("list", { name: "Vault search results" })).toContainText(EXPRESSION);
   const review=await admin.from("review_tasks").select("id").eq("user_id",USER_ID).eq("user_expression_id",expressionId).eq("status","pending").single();
   expect(review.error).toBeNull();
   expect((await admin.from("review_tasks").update({due_at:new Date(Date.now()-60000).toISOString()}).eq("id",review.data!.id).eq("user_id",USER_ID)).error).toBeNull();

@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState, type ReactNode } from "react";
 import type { PracticeMaterialView } from "./material-schema";
+import { UiIcon } from "@/components/ui-icon";
 import { DisclosureButton } from "./practice-controls";
 import styles from "./practice-workspace.module.css";
 const settingLabels = { casual_chat: "Casual chat", daily_errands: "Daily errands", work_school: "Work & school", formal_writing: "Formal writing & speeches", online_social: "Online posts" };
@@ -25,8 +26,9 @@ export function PracticeMaterial({ material, onExamplesOpen, onExamplesPendingCh
   const phaseLabel = due ? `Current mastery: ${material.masteryState}` : material.roundState?.promotion ? material.roundState.promotion.removedFromVault ? "Removed from Vault" : "In your Vault" : roundNumber > 1 ? `Round ${roundNumber} · Not in your Vault yet` : "New · Not in your Vault yet";
   return <article className={headingLevel === 2 ? styles.embeddedWorkspace : styles.workspace}>
     {navigation}
-    <header className={styles.practiceHeader}><Heading lang="zh-CN">{material.task.targetExpression}</Heading><p className={styles.meaning}>{card?.meaningHere ?? material.expression.englishMeaning}</p><div className={styles.metaRow}><span className={styles.mastery}>{phaseLabel}</span>{sessionStatus}</div></header>
+    <header className={styles.practiceHeader}><span className={styles.practiceBrand} aria-hidden="true"><UiIcon name="chat" /></span><p className={styles.practiceUseLabel}>Use this expression</p><Heading lang="zh-CN">{material.task.targetExpression}</Heading><p className={styles.meaning}>{card?.meaningHere ?? material.expression.englishMeaning}</p><div className={styles.metaRow}><span className={styles.mastery}>{phaseLabel}</span>{sessionStatus}</div></header>
     <section className={styles.materialGrid} aria-label="Practice context"><div className={styles.paperCard}>
+      <h2 className={styles.scenarioHeading}><UiIcon name="people" />The situation</h2>
       {situation ? <><p>You&apos;re talking to: {situation.interlocutor} · {settingLabels[situation.targetSetting]}</p><div className={styles.segmented} aria-label="Situation language"><button type="button" aria-pressed={!english} onClick={() => setEnglish(false)}>中文</button><button type="button" aria-pressed={english} onClick={() => setEnglish(true)}>EN</button></div></> : null}
       <p className={styles.prompt} lang="zh-CN">{situation?.situationZh ?? material.task.promptChinese}</p>
       {english && situation ? <p lang="en">{situation.situationEn}</p> : null}<p>{situation?.taskEn ?? material.task.instructionsEnglish}</p>

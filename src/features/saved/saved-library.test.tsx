@@ -1,6 +1,5 @@
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 
 import type { SavedVideoSummary } from "@/features/saved/api";
 import { SavedLibrary } from "@/features/saved/saved-library";
@@ -21,7 +20,7 @@ function video(overrides: Partial<SavedVideoSummary> = {}): SavedVideoSummary {
 }
 
 describe("Saved library", () => {
-  it("filters mixed processing states while keeping each video card scan-friendly", async () => {
+  it("shows mixed processing states together while keeping video metadata", async () => {
     render(<SavedLibrary videos={[
       video(),
       video({
@@ -37,9 +36,8 @@ describe("Saved library", () => {
     ]} />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Saved" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Ready to learn" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Processing" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "All" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("article")).toHaveLength(2);
 
     const readyCard = screen.getByRole("article", { name: "A Mandarin interview" });
     expect(within(readyCard).getByRole("img", { name: "A Mandarin interview thumbnail" })).toHaveAttribute(
@@ -54,8 +52,7 @@ describe("Saved library", () => {
     expect(readyCard).toHaveTextContent("3 saved moments");
     expect(readyCard).toHaveTextContent("Latest activity Aug 21, 2026");
 
-    await userEvent.click(screen.getByRole("button", { name: "Processing" }));
-    expect(screen.queryByRole("article", { name: "A Mandarin interview" })).not.toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "A Mandarin interview" })).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Still processing" })).toBeInTheDocument();
   });
 
@@ -100,12 +97,11 @@ describe("Saved library", () => {
     expect(screen.queryByText("Your Saved library is ready")).not.toBeInTheDocument();
   });
 
-  it("shows qualified ready videos after navigating from a local Processing filter", async () => {
+  it("shows server-qualified videos when navigating from the full library", async () => {
     const ready = video();
     const processing = video({ sourceId: "processing-source", title: "Still processing", processingState: "organizing" });
     const { rerender } = render(<SavedLibrary videos={[ready, processing]} />);
-    await userEvent.click(screen.getByRole("button", { name: "Processing" }));
-    expect(screen.queryByRole("article", { name: ready.title })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("article")).toHaveLength(2);
     rerender(<SavedLibrary videos={[ready]} initialFilter="needs-analysis" />);
     expect(screen.getByRole("article", { name: ready.title })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "All" })).toHaveAttribute("href", "/saved");
