@@ -25,9 +25,10 @@ The Home comic is a generated illustration, created with built-in ImageGen from 
 
 ## Current Chrome extension
 
-The six `extension-*-current.png` images capture the actual unpacked `dist/popcorn-extension` HTML, CSS and JavaScript in isolated Chromium. The source is `tests/e2e/extension/explain-ui.spec.ts`, using the existing closed-egress mock-cloud fixture. A fresh temporary browser profile uses a fixed simulated account via an explicit test click; it never signs in to a real account or contacts a model. Save mutations exist only in fixture memory.
+The extension screenshots listed below capture the actual unpacked `dist/popcorn-extension` HTML, CSS and JavaScript in isolated Chromium. The source is `tests/e2e/extension/explain-ui.spec.ts`, using the existing closed-egress mock-cloud fixture. A fresh temporary browser profile uses a fixed simulated account via an explicit test click; it never signs in to a real account or contacts a model. Save mutations exist only in fixture memory.
 
-- `extension-transcript-current.png`: 384px sidebar, bilingual reading and selection toolbar kept inside the viewport.
+- `extension-transcript-compact.png`: latest 384px compact sidebar in bilingual mode, captured during the isolated density measurement.
+- `extension-transcript-chinese-compact.png`: the same real extension in Chinese-only mode, with timestamp and Save sharing a row. Captured by the isolated density measurement alongside the bilingual view.
 - `extension-explanation-current.png`: four real explanation fields and Save Explanation.
 - `extension-overview-current.png`: overview, chapters and key quotes.
 - `extension-saved-current.png`: video-level summary from a captured fixture save, with title, channel, count and processing state.
@@ -43,3 +44,5 @@ These records demonstrate UI and recovery behavior; they do not establish the or
 The English and Chinese README Mermaid diagrams use the same orange, sky blue and lemon families as the application; the source remains editable in Markdown.
 
 Transcript density was tightened after the desktop review: timestamp and Save share one row, Chinese text uses 18px / 1.6, and row padding is reduced. At a 384px viewport the same short fixture line measures about 78px in Chinese (previously 150px), or 103px bilingually (previously 181px). Longer text grows naturally; no subtitle content is clipped.
+
+The compact transcript assets use new filenames so both README language versions point directly to the new captures, without relying on an earlier image URL being refreshed.

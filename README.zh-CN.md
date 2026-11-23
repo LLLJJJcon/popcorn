@@ -50,11 +50,20 @@ flowchart LR
 
 带时间戳的中英字幕与按需解释辅助理解。保存当前时刻、字幕行或片段及其来源语境，之后在 **Saved** 中查看；原始内容先保存，较慢的补全任务在后台进行。保存视频保留学习快照，不下载视频文件。
 
-| 字幕与选词 | 四项解释 | 已保存视频 |
+| 紧凑字幕 | 四项解释 | 已保存视频 |
 | :---: | :---: | :---: |
-| [![新版插件字幕](docs/assets/readme/extension-transcript-current.png)](docs/assets/readme/extension-transcript-current.png) | [![新版插件解释](docs/assets/readme/extension-explanation-current.png)](docs/assets/readme/extension-explanation-current.png) | [![新版插件 Saved 视频列表](docs/assets/readme/extension-saved-current.png)](docs/assets/readme/extension-saved-current.png) |
+| [![紧凑版插件字幕](docs/assets/readme/extension-transcript-compact.png)](docs/assets/readme/extension-transcript-compact.png) | [![新版插件解释](docs/assets/readme/extension-explanation-current.png)](docs/assets/readme/extension-explanation-current.png) | [![新版插件 Saved 视频列表](docs/assets/readme/extension-saved-current.png)](docs/assets/readme/extension-saved-current.png) |
 
 *以上来自真实解压扩展，在隔离浏览器中使用模拟学习数据截图；与 Web 共用橙、天蓝、柠檬黄配色。*
+
+最新字幕布局将时间戳与 Save 放在同一行，并缩小单条字幕的上下留白。384px 侧栏中，同一条短中文示例从约 150px 降到 78px；长字幕正常换行。
+
+<details>
+<summary>查看纯中文模式的紧凑字幕</summary>
+
+<p align="center"><a href="docs/assets/readme/extension-transcript-chinese-compact.png"><img src="docs/assets/readme/extension-transcript-chinese-compact.png" width="320" alt="纯中文紧凑字幕：时间戳与 Save 同行"></a></p>
+
+</details>
 
 <details>
 <summary>插件概览、账号设置与恢复</summary>

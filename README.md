@@ -50,11 +50,20 @@ flowchart LR
 
 Timestamped Chinese / English subtitles and optional explanations support comprehension. Save a moment, line or passage with its source context; open it later in **Saved**. Original content is stored before slower background enrichment. Saving a video keeps a learning snapshot, not a video download.
 
-| Transcript and selection | Four-part explanation | Saved videos |
+| Compact transcript | Four-part explanation | Saved videos |
 | :---: | :---: | :---: |
-| [![Current extension transcript](docs/assets/readme/extension-transcript-current.png)](docs/assets/readme/extension-transcript-current.png) | [![Current extension explanation](docs/assets/readme/extension-explanation-current.png)](docs/assets/readme/extension-explanation-current.png) | [![Current extension Saved library](docs/assets/readme/extension-saved-current.png)](docs/assets/readme/extension-saved-current.png) |
+| [![Compact extension transcript](docs/assets/readme/extension-transcript-compact.png)](docs/assets/readme/extension-transcript-compact.png) | [![Current extension explanation](docs/assets/readme/extension-explanation-current.png)](docs/assets/readme/extension-explanation-current.png) | [![Current extension Saved library](docs/assets/readme/extension-saved-current.png)](docs/assets/readme/extension-saved-current.png) |
 
 *Actual unpacked Chrome-extension UI, captured in an isolated browser with mocked learning records. The extension uses the same orange, sky blue and lemon palette as Web.*
+
+The latest transcript layout places the timestamp and Save on one row and reduces the spacing around each subtitle. At 384px wide, the same short Chinese fixture row is about 78px high (previously 150px); longer subtitles wrap naturally.
+
+<details>
+<summary>See the compact Chinese-only transcript</summary>
+
+<p align="center"><a href="docs/assets/readme/extension-transcript-chinese-compact.png"><img src="docs/assets/readme/extension-transcript-chinese-compact.png" width="320" alt="Compact Chinese-only transcript with timestamp and Save on the same row"></a></p>
+
+</details>
 
 <details>
 <summary>Extension overview, account settings and recovery</summary>
