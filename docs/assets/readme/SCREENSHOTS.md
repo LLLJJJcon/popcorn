@@ -41,3 +41,5 @@ These records demonstrate UI and recovery behavior; they do not establish the or
 `youtube-watching.png` retains the earlier real YouTube / Chrome-extension viewing capture. It predates the extension redesign; the current extension screenshots are listed above. Other older images in this folder are retained as historical assets but are no longer referenced by the current README.
 
 The English and Chinese README Mermaid diagrams use the same orange, sky blue and lemon families as the application; the source remains editable in Markdown.
+
+Transcript density was tightened after the desktop review: timestamp and Save share one row, Chinese text uses 18px / 1.6, and row padding is reduced. At a 384px viewport the same short fixture line measures about 78px in Chinese (previously 150px), or 103px bilingually (previously 181px). Longer text grows naturally; no subtitle content is clipped.
