@@ -14,6 +14,18 @@ const CURRENT_VIDEO_ID = "dQw4w9WgXcQ";
 const CURRENT_SOURCE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const OTHER_SOURCE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
+test("the extension settings gear opens extension Options independently of the Web action", async () => {
+  const { document, messages } = loadSidepanel();
+  const gear = document.getElementById("extensionSettingsBtn");
+  assert.ok(gear, "Extension account settings must be reachable from the side panel");
+  gear.click();
+  await Promise.resolve();
+  assert.deepEqual(messages.at(-1), { action: "openOptions" });
+  document.getElementById("settingsBtn").click();
+  await Promise.resolve();
+  assert.deepEqual(messages.at(-1), { action: "openPopcorn" });
+});
+
 const summaries = [
   {
     sourceId: CURRENT_SOURCE_ID,
@@ -151,7 +163,7 @@ function loadBackground({
         initialize: async () => {},
         getSession: async () => session,
         getAccessToken: async () => {
-          if (accessTokenError) throw new Error(accessTokenError);
+          if (accessTokenError) throw Object.assign(new Error(accessTokenError), {code:"SESSION_EXPIRED"});
           return "owner-token";
         },
       }),

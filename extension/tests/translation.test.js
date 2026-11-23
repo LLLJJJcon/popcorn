@@ -108,6 +108,7 @@ function createStorageLocal(initial = {}) {
 
 function loadBackgroundHelpers({
   accessToken = "popcorn-access-token",
+  getAccessTokenImpl,
   fetchImpl = fetch,
   setTimeoutImpl = () => 0,
   clearTimeoutImpl = () => {},
@@ -158,7 +159,7 @@ function loadBackgroundHelpers({
     POPCORN_AUTH: {
       createAuthClient: () => ({
         initialize: async () => {},
-        getAccessToken: async () => accessToken,
+        getAccessToken: getAccessTokenImpl || (async () => accessToken),
       }),
       createAuthMessageHandler: () => async () => ({ ok: true }),
     },
@@ -2672,6 +2673,45 @@ const enrichedExplanation = {
   contextualFit: "It describes the selected transcript phrase.",
 };
 
+test("Explanation keyboard dismissal returns focus without losing the source selection", async () => {
+  const dom = new JSDOM('<body><button id="source">Explain selection</button></body>');
+  const source = dom.window.document.getElementById("source");
+  source.focus();
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage() { return Promise.resolve({ success: true, content: enrichedExplanation }); },
+  });
+  helpers.evaluateInSidepanel('currentVideoId = "abc123XYZ00"; currentSnapshotId = "40000000-0000-4000-8000-000000000001";');
+  await helpers.showExplanation(explanationEvidence);
+  const close = dom.window.document.getElementById("closeExplain");
+  close.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.equal(dom.window.document.getElementById("explainModal"), null);
+  assert.equal(dom.window.document.activeElement, source);
+  assert.equal(explanationEvidence.selectedChinese, "第一行结尾");
+});
+
+test("Explanation retry retains modal keyboard focus while waiting for its original job", async () => {
+  const dom = new JSDOM('<body><button id="outside">Outside</button></body>');
+  let retryStarted = false;
+  const helpers = loadSidepanelHelpers({
+    documentImpl: dom.window.document,
+    windowImpl: dom.window,
+    sendMessage() {
+      if (!retryStarted) { retryStarted = true; return Promise.resolve({ success: false }); }
+      return new Promise(() => {});
+    },
+  });
+  helpers.evaluateInSidepanel('currentVideoId = "abc123XYZ00"; currentSnapshotId = "40000000-0000-4000-8000-000000000001";');
+  await helpers.showExplanation(explanationEvidence);
+  const retry = dom.window.document.querySelector(".explanation-retry-btn");
+  retry.focus();
+  retry.click();
+  assert.equal(dom.window.document.activeElement, dom.window.document.getElementById("closeExplain"));
+  dom.window.document.activeElement.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.equal(dom.window.document.getElementById("explainModal"), null);
+});
+
 test("Explanation keeps the admitted job ID for bounded polling and renders the enriched result", async () => {
   const dom = new JSDOM("<body></body>");
   const sent = [];
@@ -2852,4 +2892,68 @@ test("translation prompt preserves Chinese-to-English learning direction", () =>
   assert.match(prompt, /English/i);
   assert.match(prompt, /stable ID/i);
   assert.doesNotMatch(prompt, /DeepSeek|API key|provider/i);
+});
+
+
+test("cloud requests classify missing and expired extension sessions before fetching", async () => {
+  for (const [message, code] of [["No Popcorn session.", "AUTH_REQUIRED"], ["Popcorn session refresh failed.", "SESSION_EXPIRED"]]) {
+    let fetched = false;
+    const helpers = loadBackgroundHelpers({getAccessTokenImpl: async () => {throw Object.assign(new Error(message),{code})}, fetchImpl: async () => {fetched=true; throw new Error("must not fetch")}});
+    await assert.rejects(helpers.explainSelection({videoId:"abc123XYZ00"}), (error) => error.code === code);
+    assert.equal(fetched, false);
+  }
+});
+
+test("a rejected existing bearer session is classified as expired for explanation recovery", async () => {
+  const helpers = loadBackgroundHelpers({fetchImpl: async () => new Response(JSON.stringify({ok:false,error:{code:"AUTH_REQUIRED",message:"Authentication is required"}}), {status:401})});
+  await assert.rejects(helpers.explainSelection({videoId:"abc123XYZ00"}), (error) => error.code === "SESSION_EXPIRED");
+});
+
+test("Explanation session expiry preserves selection and offers extension sign-in plus retry", async () => {
+  const dom = new JSDOM("<body></body>");const messages=[];
+  const helpers=loadSidepanelHelpers({documentImpl:dom.window.document,windowImpl:dom.window,sendMessage:async message=>{messages.push({...message});return message.action==="openOptions"?{success:true}:{success:false,code:"SESSION_EXPIRED",error:"raw provider detail"}}});
+  helpers.evaluateInSidepanel('currentVideoId="abc123XYZ00";currentSnapshotId="40000000-0000-4000-8000-000000000001";');
+  await helpers.showExplanation(explanationEvidence);
+  const content=dom.window.document.getElementById("explanationContent");
+  assert.match(content.textContent,/session expired/i);assert.doesNotMatch(content.textContent,/raw provider detail/);
+  const signIn=content.querySelector(".explanation-sign-in-btn");assert.ok(signIn);signIn.click();
+  assert.equal(messages.at(-1).action,"openOptions");assert.ok(content.querySelector(".explanation-retry-btn"));
+  assert.match(dom.window.document.getElementById("explainModal").textContent,/第一行结尾/);
+});
+
+test("Explanation retries a transient connection failure without creating a new learning artifact", async () => {
+  const dom=new JSDOM("<body></body>");const messages=[];
+  const helpers=loadSidepanelHelpers({documentImpl:dom.window.document,windowImpl:dom.window,cryptoImpl:{randomUUID(){throw new Error("transient retries must retain identity")}},sendMessage:async message=>{messages.push({...message});if(messages.length===1)throw new Error("message channel closed");return {success:true,content:enrichedExplanation}}});
+  helpers.evaluateInSidepanel('currentVideoId="abc123XYZ00";currentSnapshotId="40000000-0000-4000-8000-000000000001";');
+  await helpers.showExplanation(explanationEvidence);
+  const retry=dom.window.document.querySelector(".explanation-retry-btn");assert.ok(retry);retry.click();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(messages.length,2);assert.deepEqual(messages[0],messages[1]);
+  assert.match(dom.window.document.getElementById("explanationContent").textContent,/the end of the first line/);
+});
+
+
+test("Explanation pending recovery resumes its admitted job rather than registering another", async () => {
+  const dom=new JSDOM("<body></body>");const messages=[];
+  const helpers=loadSidepanelHelpers({documentImpl:dom.window.document,windowImpl:dom.window,cryptoImpl:{randomUUID(){throw new Error("pending retry must not create UUID")}},setTimeoutImpl(callback){Promise.resolve().then(callback);return 1},sendMessage:async message=>{messages.push({...message});return messages.length<=121?{success:true,pending:true,jobId:"same-admitted-job",status:"pending"}:{success:true,content:enrichedExplanation}}});
+  helpers.evaluateInSidepanel('currentVideoId="abc123XYZ00";currentSnapshotId="40000000-0000-4000-8000-000000000001";');
+  await helpers.showExplanation(explanationEvidence);
+  assert.equal(messages.length,121);
+  const retry=dom.window.document.querySelector(".explanation-retry-btn");assert.ok(retry);retry.click();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(messages[121].jobId,"same-admitted-job");assert.equal(messages[121].retryId,undefined);
+  assert.match(dom.window.document.getElementById("explanationContent").textContent,/the end of the first line/);
+});
+
+test("an invalidated extension context explains YouTube reload rather than offering a dead retry", async () => {
+  const dom=new JSDOM("<body></body>");
+  const helpers=loadSidepanelHelpers({documentImpl:dom.window.document,windowImpl:dom.window,sendMessage:async()=>{throw new Error("Extension context invalidated.")}});
+  helpers.evaluateInSidepanel('currentVideoId="abc123XYZ00";currentSnapshotId="40000000-0000-4000-8000-000000000001";');
+  await helpers.showExplanation(explanationEvidence);
+  const content=dom.window.document.getElementById("explanationContent");assert.match(content.textContent,/Reload this YouTube tab/);assert.equal(content.querySelector(".explanation-retry-btn"),null);
+});
+
+test("Explanation reports malformed HTTP responses as bounded API compatibility errors", async () => {
+  for (const [status, body, code] of [[500,"<html>PRIVATE_STACK</html>","API_RESPONSE_INVALID"],[404,"not found PRIVATE_PATH","API_ROUTE_UNAVAILABLE"],[200,'{"ok":false}',"API_RESPONSE_INVALID"],[401,"expired","SESSION_EXPIRED"]]) {
+    const helpers=loadBackgroundHelpers({fetchImpl:async()=>new Response(body,{status})});
+    await assert.rejects(helpers.explainSelection({videoId:"abc123XYZ00"}),error=>error.code===code&&!/PRIVATE_|<html>/.test(error.message));
+  }
 });

@@ -9,21 +9,25 @@
   <body>
     <main class="settings-shell">
       <header>
-        <div class="eyebrow">Popcorn</div>
-        <h1>Link your Popcorn account</h1>
-        <p class="lede">Your extension sends saved learning moments to your Popcorn account. Sign-in is optional until you want to sync.</p>
+        <div class="settings-brand"><img src="icons/icon128.png" alt="" width="36" height="36" />Popcorn</div>
+        <h1>Your extension account</h1>
+        <p class="lede">Connect the same Popcorn account to sync saved moments.</p>
+        <p class="help">Web and extension sign-ins are separate.</p>
       </header>
 
       <section class="card" aria-labelledby="accountHeading">
         <h2 id="accountHeading">Account</h2>
         <p id="accountEmail" class="account-email">Not signed in</p>
-        <label for="authEmail">Email address</label>
-        <input id="authEmail" name="email" type="email" autocomplete="email" maxlength="254" />
-        <label for="authPassword">Password</label>
-        <input id="authPassword" name="password" type="password" autocomplete="current-password" minlength="6" maxlength="128" />
+        <div id="credentialFields">
+          <label for="authEmail">Email address</label>
+          <input id="authEmail" name="email" type="email" autocomplete="email" maxlength="254" />
+          <label for="authPassword">Password</label>
+          <input id="authPassword" name="password" type="password" autocomplete="current-password" minlength="6" maxlength="128" />
+        </div>
         <div class="form-actions">
           <button id="signInBtn" class="primary" type="button">Sign in</button>
           <button id="signUpBtn" type="button">Create account</button>
+          <button id="reauthBtn" type="button" hidden>Sign in again</button>
           <button id="signOutBtn" type="button" hidden>Sign out</button>
         </div>
         <p id="authStatus" role="status" aria-live="polite"></p>
@@ -38,7 +42,7 @@
 
       <section class="card data-card" aria-labelledby="localDataHeading">
         <h2 id="localDataHeading">Local data</h2>
-        <p class="help">Clear the bounded display cache without removing pending sync descriptors.</p>
+        <p class="help">Clear cached display data. Pending saved moments stay on this device.</p>
         <button id="clearCacheBtn" type="button">Clear bounded cache</button>
         <p id="dataStatus" role="status" aria-live="polite"></p>
       </section>

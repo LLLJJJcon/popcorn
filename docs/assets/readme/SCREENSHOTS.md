@@ -4,7 +4,7 @@ Updated: 2026-11-23 (Asia/Shanghai).
 
 ## Current desktop Web
 
-The `*-current.png` images render the real React presentation components and CSS with isolated visual fixture records. They are not screenshots of a personal account, and no learning mutations, model calls, credentials or authentication bypass were used. Examples, answers, counts and feedback scores are illustrative UI records, not measured learning results. Source-video metadata in the fixture illustrates the retained fields; it does not establish that the demonstration sentences came from that video.
+The desktop Web images listed below render the real React presentation components and CSS with isolated visual fixture records. They are not screenshots of a personal account, and no learning mutations, model calls, credentials or authentication bypass were used. Examples, answers, counts and feedback scores are illustrative UI records, not measured learning results. Source-video metadata in the fixture illustrates the retained fields; it does not establish that the demonstration sentences came from that video.
 
 | File | Content |
 | --- | --- |
@@ -23,8 +23,21 @@ Captures use a 1440px browser viewport. Complete learning-card captures expand t
 
 The Home comic is a generated illustration, created with built-in ImageGen from the approved character and dialogue references. It is stored in `public/brand/home-comic.png`, with a text transcript in the Home component. Interface text outside the illustration remains ordinary HTML.
 
-## Extension and historical assets
+## Current Chrome extension
 
-`youtube-watching.png` retains the earlier real YouTube / Chrome-extension viewing capture. This redesign changes the shared extension mark; it does not claim that this historical screenshot shows a newly redesigned extension panel. Other older images in this folder are retained as historical assets but are no longer referenced by the current README.
+The six `extension-*-current.png` images capture the actual unpacked `dist/popcorn-extension` HTML, CSS and JavaScript in isolated Chromium. The source is `tests/e2e/extension/explain-ui.spec.ts`, using the existing closed-egress mock-cloud fixture. A fresh temporary browser profile uses a fixed simulated account via an explicit test click; it never signs in to a real account or contacts a model. Save mutations exist only in fixture memory.
+
+- `extension-transcript-current.png`: 384px sidebar, bilingual reading and selection toolbar kept inside the viewport.
+- `extension-explanation-current.png`: four real explanation fields and Save Explanation.
+- `extension-overview-current.png`: overview, chapters and key quotes.
+- `extension-saved-current.png`: video-level summary from a captured fixture save, with title, channel, count and processing state.
+- `extension-settings-current.png`: independent 800px extension-account page before sign-in; no credentials shown.
+- `extension-explanation-recovery-current.png`: a mocked 401 causes session-expired recovery while retaining the Chinese selection. The browser test also reconnects in a separate window and successfully retries the original selection.
+
+These records demonstrate UI and recovery behavior; they do not establish the original user's failed HTTP status or live-model availability.
+
+## Historical assets
+
+`youtube-watching.png` retains the earlier real YouTube / Chrome-extension viewing capture. It predates the extension redesign; the current extension screenshots are listed above. Other older images in this folder are retained as historical assets but are no longer referenced by the current README.
 
 The English and Chinese README Mermaid diagrams use the same orange, sky blue and lemon families as the application; the source remains editable in Markdown.

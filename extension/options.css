@@ -1,17 +1,31 @@
-:root { color-scheme: light; --bg: #f7f3ec; --surface: #fff; --border: #e7dfd2; --text: #2e2a24; --muted: #6b6258; --accent: #c8674f; --danger: #9f2d2d; }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, sans-serif; }
-.settings-shell { width: min(760px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0 72px; }
-header { margin-bottom: 28px; }
-.eyebrow { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-h1 { margin: 6px 0 8px; font-size: clamp(30px, 5vw, 46px); line-height: 1.08; letter-spacing: -.04em; }
-h2 { margin: 0 0 12px; font-size: 19px; }
-.lede, .help, #authStatus, #syncStatus, #dataStatus { color: var(--muted); }
-.card { margin: 18px 0; padding: 24px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: 0 10px 30px rgba(46,42,36,.05); }
-.account-email { margin: 0 0 14px; font-weight: 700; }
-.form-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-button { padding: 10px 15px; border: 1px solid var(--border); border-radius: 999px; background: #fff; color: var(--text); cursor: pointer; font: inherit; font-weight: 700; }
-button:hover { border-color: var(--accent); }
-button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
-button.danger { color: var(--danger); }
-.data-card { margin-top: 36px; }
+/* Shared Popcorn palette; extension account remains an independent page. */
+:root { color-scheme:light; --bg:#f7faff; --surface:#fff; --border:#dae3ed; --text:#27313f; --muted:#59687b; --accent:#ff803d; --blue-ink:#236b9f; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.7 system-ui,sans-serif; }
+.settings-shell { width:min(680px,calc(100% - 40px)); margin:0 auto; padding:42px 0 64px; }
+header { margin-bottom:28px; }
+.settings-brand { display:flex; align-items:center; gap:8px; font-size:23px; font-weight:700; letter-spacing:-.5px; }
+.settings-brand img { width:36px; height:36px; }
+h1 { margin:22px 0 10px; font-size:clamp(26px,4vw,34px); line-height:1.35; letter-spacing:-.6px; }
+h2 { margin:0 0 12px; font-size:18px; }
+.lede { font-size:15px; color:var(--muted); margin:0; }
+.help { font-size:14px; color:var(--muted); margin-top:9px; line-height:1.8; }
+.card { margin:20px 0; padding:23px; border:1px solid var(--border); border-radius:12px; background:#fff; }
+.card:has(#syncHeading) { border-color:#b9dbf4; background:#f5fbff; }
+#syncHeading { color:var(--blue-ink); }
+.account-email { margin:0 0 17px; font-size:14px; color:var(--muted); overflow-wrap:anywhere; }
+label { display:block; font-size:14px; margin:16px 0 6px; }
+input { display:block; width:100%; min-height:46px; border:1px solid #b8cbdd; border-radius:7px; background:#fff; padding:10px 12px; color:var(--text); font:inherit; }
+.form-actions { display:flex; flex-wrap:wrap; gap:9px; margin-top:19px; }
+button { min-height:44px; padding:8px 14px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--text); cursor:pointer; font:550 14px/1.5 system-ui,sans-serif; }
+button:hover { border-color:#b4d8f2; background:#f5fbff; }
+button.primary { border-color:#eb6f29; background:var(--accent); color:#362618; box-shadow:0 3px 0 #ffd0a9; font-weight:650; }
+button.primary:hover { background:#ff9458; }
+button.danger { color:#755a12; background:#fff7cf; border-color:#edd67b; }
+input:focus-visible,button:focus-visible { outline:3px solid #2999e8; outline-offset:3px; }
+#authStatus,#syncStatus,#dataStatus { color:var(--muted); font-size:14px; overflow-wrap:anywhere; }
+#authStatus:empty,#dataStatus:empty { display:none; }
+#signOutChoice { background:#fff7cf; border:1px solid #edd67b; border-radius:8px; padding:12px; color:#755a12; }
+#clearCacheBtn { color:var(--muted); }
+[hidden] { display:none!important; }
+@media(max-width:420px) { .settings-shell { padding-top:22px; } .card { padding:18px; } }

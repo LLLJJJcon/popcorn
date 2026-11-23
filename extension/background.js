@@ -29,7 +29,22 @@ function ensurePopcornAuthReady() {
 
 async function getPopcornAccessToken() {
   await ensurePopcornAuthReady();
-  return popcornAuthClient.getAccessToken();
+  try {
+    return await popcornAuthClient.getAccessToken();
+  } catch (error) {
+    // The auth owner classifies failures before crossing the worker boundary.
+    const copy = {
+      AUTH_REQUIRED: "Sign in to Popcorn in extension settings.",
+      SESSION_EXPIRED: "Your session expired. Sign in again.",
+      AUTH_SERVICE_UNAVAILABLE: "Popcorn authentication is temporarily unavailable. Retry shortly.",
+      AUTH_RESPONSE_INVALID: "Popcorn authentication returned an unexpected response. Retry shortly.",
+    };
+    if (Object.hasOwn(copy, error?.code)) {
+      error.message = copy[error.code];
+      error.retryable = ["AUTH_SERVICE_UNAVAILABLE", "AUTH_RESPONSE_INVALID"].includes(error.code);
+    }
+    throw error;
+  }
 }
 
 function isTrustedExtensionPageSender(sender, page) {
@@ -93,9 +108,26 @@ async function apiFetch(path, options = {}) {
     throw error;
   }
   const body = await response.json().catch(() => null);
-  if (!body || body.ok !== true) {
+  if (!body || (body.ok !== true && typeof body.error?.message !== "string")) {
+    // HTML/empty responses occur before the JSON API (wrong route, stale server
+    // or an unhandled server error). Never forward response text or HTML.
+    const error = new Error(response.status === 401
+      ? "Your session expired. Sign in again."
+      : "Unexpected Popcorn API response. Update or restart Popcorn and reload the extension.");
+    error.code = response.status === 401 ? "SESSION_EXPIRED"
+      : response.status === 404 ? "API_ROUTE_UNAVAILABLE" : "API_RESPONSE_INVALID";
+    error.httpStatus = response.status;
+    error.retryable = response.status >= 500;
+    throw error;
+  }
+  if (body.ok !== true) {
     const error = new Error(body?.error?.message || "Popcorn request failed.");
-    error.code = body?.error?.code || "INTERNAL_ERROR";
+    // A token was present: an auth rejection means this extension session is
+    // no longer accepted, even when its local expiry timestamp is in the future.
+    error.code = response.status === 401 && body?.error?.code === "AUTH_REQUIRED"
+      ? "SESSION_EXPIRED"
+      : body?.error?.code || "INTERNAL_ERROR";
+    if (error.code === "SESSION_EXPIRED") error.message = "Your session expired. Sign in again.";
     error.retryable = !!body?.error?.retryable;
     throw error;
   }
@@ -298,11 +330,6 @@ async function getSavedLibrary() {
   try {
     result = await apiFetch("/api/v1/extension/saved", { method: "GET" });
   } catch (error) {
-    if (!error.code && /session (?:refresh failed|was invalidated)/i.test(error.message || "")) {
-      error.message = "Your session expired. Sign in again.";
-      error.code = "SESSION_EXPIRED";
-      error.retryable = false;
-    }
     throw error;
   }
   if (!Array.isArray(result.data)) {
@@ -418,6 +445,7 @@ function respondFrom(promise, sendResponse) {
     success: false,
     error: error.message || "Popcorn request failed.",
     code: error.code,
+    ...(Number.isInteger(error.httpStatus) ? { httpStatus: error.httpStatus } : {}),
     retryable: !!error.retryable,
   }));
   return true;
@@ -615,6 +643,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.action === "openOptions" && isTrustedSidePanelSender(sender)) {
+    if (message.separateWindow === true) {
+      // Reconnect without replacing the YouTube tab that owns the open panel.
+      return respondFrom(chrome.windows.create({
+        url: chrome.runtime.getURL("options.html"),
+        type: "normal",
+      }).then(() => ({ success: true })), sendResponse);
+    }
     chrome.runtime.openOptionsPage();
     sendResponse({ success: true });
     return false;

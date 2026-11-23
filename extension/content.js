@@ -301,10 +301,10 @@ function createDigestButton() {
   const digestButton = document.createElement("button");
   digestButton.id = "ytd-digest-button";
   digestButton.type = "button";
-  digestButton.setAttribute("aria-label", "Open YouTube Digest");
+  digestButton.setAttribute("aria-label", "Open Popcorn");
   digestButton.innerHTML = `
     <span class="ytd-digest-icon" style="font-size: 11px;">▶</span>
-    <span class="ytd-digest-label">Digest</span>
+    <span class="ytd-digest-label">Open Popcorn</span>
   `;
 
   // Style the button — rounded pill in our terracotta accent, sized to sit
@@ -317,15 +317,15 @@ function createDigestButton() {
     height: 36px;
     border: none;
     border-radius: 18px;
-    background: #c8674f;
-    color: white;
+    background: #ff803d;
+    color: #362618;
     font-family: "Roboto", "Arial", sans-serif;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     margin-right: 8px;
     transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
-    box-shadow: 0 2px 8px rgba(200, 103, 79, 0.3);
+    box-shadow: 0 2px 8px rgba(255, 128, 61, 0.2);
     flex: 0 0 auto;
     align-self: center;
     width: max-content;
@@ -336,12 +336,12 @@ function createDigestButton() {
 
   // Hover effects
   digestButton.addEventListener("mouseenter", () => {
-    digestButton.style.background = "#b25742";
+    digestButton.style.background = "#ff9458";
     digestButton.style.transform = "scale(1.02)";
   });
 
   digestButton.addEventListener("mouseleave", () => {
-    digestButton.style.background = "#c8674f";
+    digestButton.style.background = "#ff803d";
     digestButton.style.transform = "scale(1)";
   });
 
@@ -529,8 +529,8 @@ function injectNoteButton() {
     display: flex;
     align-items: center;
     padding: 9px 16px;
-    background: #c8674f;
-    color: white;
+    background: #ff803d;
+    color: #362618;
     border: none;
     border-radius: 999px;
     font-family: system-ui, -apple-system, "Roboto", sans-serif;
@@ -566,13 +566,13 @@ function injectNoteButton() {
 
   // Hover effect — lift slightly
   noteButton.addEventListener("mouseenter", () => {
-    noteButton.style.background = "#b25742";
+    noteButton.style.background = "#ff9458";
     noteButton.style.boxShadow = "0 6px 18px rgba(0,0,0,0.35)";
     noteButton.style.transform = "translateY(-1px)";
   });
 
   noteButton.addEventListener("mouseleave", () => {
-    noteButton.style.background = "#c8674f";
+    noteButton.style.background = "#ff803d";
     noteButton.style.boxShadow = "0 4px 14px rgba(0,0,0,0.3)";
     noteButton.style.transform = "translateY(0)";
   });
@@ -668,7 +668,8 @@ async function saveCurrentNote() {
       if (noteButton) {
         noteButton.innerHTML =
           `<span style="letter-spacing: 0.2px;">${result.synced ? "Saved to Popcorn" : "Saved locally; sign in to sync"}</span>`;
-        noteButton.style.background = "#7c8b6f";
+        noteButton.style.background = "#e8f5ff";
+        noteButton.style.color = "#236b9f";
       }
       showNoteSavedToast(
         result.synced ? "Saved to Popcorn" : "Saved locally; sign in to sync",
@@ -685,7 +686,8 @@ async function saveCurrentNote() {
   setTimeout(() => {
     if (noteButton) {
       noteButton.innerHTML = originalContent;
-      noteButton.style.background = "#c8674f";
+      noteButton.style.background = "#ff803d";
+      noteButton.style.color = "#362618";
       noteButton.style.pointerEvents = "auto";
     }
   }, 2000);
@@ -702,7 +704,7 @@ function showNoteSavedToast(message) {
   const toast = document.createElement("div");
   toast.id = "ytd-note-toast";
   toast.innerHTML = `
-    <div style="font-weight: 700; color: #c8674f;">${escapeHtmlForContent(message)}</div>
+    <div style="font-weight: 600; color: #98420f;">${escapeHtmlForContent(message)}</div>
   `;
 
   toast.style.cssText = `

@@ -84,6 +84,8 @@ test("explicit sign-in, Chinese learning artifacts, six saves, and worker recove
       exactQuote: "这也太离谱了吧。",
       quoteSeconds: 10,
       segmentIds: [SEGMENT_ONE_ID],
+      contextBefore: [],
+      contextAfter: ["我完全没想到。"],
     }),
     expectExactEvent(primary.ai_explanation[0], {
       youtubeVideoId: VIDEO_ID,

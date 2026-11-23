@@ -31,6 +31,9 @@ const YTD_OPTIONS = (() => {
     const authEmail = doc.getElementById("authEmail");
     const authPassword = doc.getElementById("authPassword");
     const signIn = doc.getElementById("signInBtn");
+    const reauth = doc.getElementById("reauthBtn");
+    const credentialFields = doc.getElementById("credentialFields");
+    let reauthenticating = false;
     const signUp = doc.getElementById("signUpBtn");
     const signOut = doc.getElementById("signOutBtn");
     const authStatus = doc.getElementById("authStatus");
@@ -54,7 +57,9 @@ const YTD_OPTIONS = (() => {
     async function renderSession() {
       const { account } = await sendAuthCommand("popcorn-auth:session");
       email.textContent = account?.email ?? "Not signed in";
-      signIn.hidden = !!account;
+      signIn.hidden = !!account && !reauthenticating;
+      if (credentialFields) credentialFields.hidden = !!account && !reauthenticating;
+      if (reauth) reauth.hidden = !account || reauthenticating;
       if (signUp) signUp.hidden = !!account;
       signOut.hidden = !account;
       const summary = await sendQueueCommand("getSyncSummary");
@@ -74,6 +79,9 @@ const YTD_OPTIONS = (() => {
       try {
         await sendAuthCommand(command, credentials);
         authStatus.textContent = successText;
+        signOutChoice.hidden = true;
+        discard.hidden = true;
+        reauthenticating = false;
         await renderSession();
       } catch (_error) {
         authStatus.textContent = failureText;
@@ -82,6 +90,19 @@ const YTD_OPTIONS = (() => {
         if (authPassword) authPassword.value = "";
       }
     }
+    reauth?.addEventListener("click", () => {
+      // Reconnect in place: do not sign out or discard owner-bound saves.
+      // The user chooses and enters credentials; no account is prefilled.
+      reauthenticating = true;
+      signOutChoice.hidden = true;
+      discard.hidden = true;
+      if (credentialFields) credentialFields.hidden = false;
+      signIn.hidden = false;
+      if (signUp) signUp.hidden = true;
+      reauth.hidden = true;
+      authStatus.textContent = "Sign in again to reconnect. Pending saved moments stay queued.";
+      authEmail?.focus?.();
+    });
     signIn.addEventListener("click", () => submitPassword(
       "popcorn-auth:sign-in",
       "Signed in.",

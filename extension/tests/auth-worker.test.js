@@ -9,7 +9,7 @@ const background = fs.readFileSync(path.join(root, "background.js"), "utf8");
 const optionsSource = fs.readFileSync(path.join(root, "options.js"), "utf8");
 const legacyMessageSourceAccess = /\bmessage\s*(?:\??\.\s*source\b|\??\.\s*\[\s*["']source["']\s*\]|\[\s*["']source["']\s*\])/;
 
-function optionHarness({ authFailure = false } = {}) {
+function optionHarness({ authFailure = false, initialAccount = null, pendingCount = 0, signOutRequiresDecision = false } = {}) {
   const handlers = {};
   const messages = [];
   const elements = Object.fromEntries([
@@ -17,6 +17,8 @@ function optionHarness({ authFailure = false } = {}) {
     "authEmail",
     "authPassword",
     "signInBtn",
+    "reauthBtn",
+    "credentialFields",
     "signUpBtn",
     "signOutBtn",
     "authStatus",
@@ -34,7 +36,7 @@ function optionHarness({ authFailure = false } = {}) {
       handlers[`${id}:${type}`] = handler;
     },
   }]));
-  let account = null;
+  let account = initialAccount;
   const sandbox = {
     document: { getElementById: (id) => elements[id] },
     chrome: { runtime: { async sendMessage(message) {
@@ -49,8 +51,9 @@ function optionHarness({ authFailure = false } = {}) {
           ignoredAccessToken: "must-not-be-rendered",
         };
       }
-      if (message.action === "getSyncSummary") return { pendingCount: 0 };
+      if (message.action === "getSyncSummary") return { pendingCount };
       if (message.command === "popcorn-auth:sign-out") {
+        if (signOutRequiresDecision) return {ok:true, requiresDecision:true};
         account = null;
         return { ok: true };
       }
@@ -129,4 +132,45 @@ test("Options clears credentials and renders only a fixed message after rejectio
   assert.equal(harness.elements.authPassword.value, "");
   assert.equal(harness.elements.authStatus.textContent, "Account request was not completed.");
   assert.doesNotMatch(harness.elements.authStatus.textContent, /correct-horse|provider|raw|a@example/i);
+});
+
+
+test("Options reauthenticates an existing account without sign-out or discarding queued moments", async () => {
+  const h=optionHarness({initialAccount:{email:"existing@example.test"},pendingCount:3});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.elements.credentialFields.hidden,true);assert.equal(h.elements.signInBtn.hidden,true);assert.equal(h.elements.reauthBtn.hidden,false);
+  const before=h.messages.length;
+  h.handlers["reauthBtn:click"]();
+  assert.equal(h.messages.length,before);assert.equal(h.elements.credentialFields.hidden,false);assert.equal(h.elements.signInBtn.hidden,false);assert.equal(h.elements.signUpBtn.hidden,true);
+  assert.equal(h.elements.authEmail.value,"");assert.equal(h.elements.authPassword.value,"");
+  h.elements.authEmail.value="existing@example.test";h.elements.authPassword.value="typed-by-user";
+  await h.handlers["signInBtn:click"]();
+  assert.equal(h.elements.credentialFields.hidden,true);assert.equal(h.elements.signInBtn.hidden,true);assert.equal(h.elements.reauthBtn.hidden,false);
+  assert.match(h.elements.syncStatus.textContent,/3 saved moments waiting to sync/);
+  assert.equal(h.messages.some(m=>m.command==="popcorn-auth:sign-out"||m.action==="discardPendingEvents"),false);
+});
+
+test("Options keeps explicit reauthentication available after rejection while retaining the queued account", async () => {
+  const h=optionHarness({authFailure:true,initialAccount:{email:"existing@example.test"},pendingCount:2});
+  await new Promise(resolve=>setImmediate(resolve));
+  h.handlers["reauthBtn:click"]();h.elements.authEmail.value="existing@example.test";h.elements.authPassword.value="wrong-password";
+  await h.handlers["signInBtn:click"]();
+  assert.equal(h.elements.credentialFields.hidden,false);assert.equal(h.elements.signInBtn.hidden,false);assert.equal(h.elements.signUpBtn.hidden,true);
+  assert.equal(h.elements.accountEmail.textContent,"existing@example.test");assert.equal(h.elements.authPassword.value,"");
+  assert.match(h.elements.authStatus.textContent,/not completed/);
+  assert.equal(h.messages.some(m=>m.command==="popcorn-auth:sign-out"||m.action==="discardPendingEvents"),false);
+});
+
+
+test("Options invalidates an earlier discard decision when reauthentication starts and succeeds", async () => {
+  const h=optionHarness({initialAccount:{email:"existing@example.test"},pendingCount:3,signOutRequiresDecision:true});
+  await new Promise(resolve=>setImmediate(resolve));
+  await h.handlers["signOutBtn:click"]();assert.equal(h.elements.discardPendingBtn.hidden,false);
+  h.handlers["reauthBtn:click"]();assert.equal(h.elements.signOutChoice.hidden,true);assert.equal(h.elements.discardPendingBtn.hidden,true);
+  await h.handlers["signOutBtn:click"]();assert.equal(h.elements.discardPendingBtn.hidden,false);
+  h.elements.authEmail.value="existing@example.test";h.elements.authPassword.value="correct-horse";
+  await h.handlers["signInBtn:click"]();
+  assert.equal(h.elements.signOutChoice.hidden,true);assert.equal(h.elements.discardPendingBtn.hidden,true);
+  assert.equal(h.messages.some(m=>m.action==="discardPendingEvents"),false);
+  assert.match(h.elements.syncStatus.textContent,/3 saved moments waiting to sync/);
 });

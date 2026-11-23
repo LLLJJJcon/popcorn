@@ -42,3 +42,31 @@ When extension code or any runtime URL changes, run `pnpm extension:package`
 again. Then return to `chrome://extensions` and select **Reload** on Popcorn.
 If Chrome reports a missing file after regeneration, use **Load unpacked**
 again and select the newly generated `dist/popcorn-extension/` directory.
+
+## Apply an updated local build
+
+The approved desktop design updates the side panel, explanation, video Saved list,
+account page and YouTube capture controls. The six capture types and stable
+extension identity are retained.
+
+After regenerating the directory:
+
+1. Open `chrome://extensions` and select **Reload** on Popcorn.
+2. Refresh any YouTube tabs that were open before the reload, then reopen Popcorn.
+   A previously injected page script can otherwise keep an invalid extension
+   message connection or continue to show an older error interface.
+3. Use the gear in Popcorn for the extension's account settings. If an explanation
+   says the session expired, use **Sign in to Popcorn**, then **Sign in again**
+   with the same account. This recovery opens a separate browser window so the
+   original video, selected Chinese and admitted explanation request remain open.
+   Return to the video and select **Retry**. Queued moments are preserved.
+
+A new account requires explicit sign-out first; pending moments must be handled
+before switching owners. Authentication-service outages offer Retry rather than
+claiming the session expired. Non-JSON API responses point to updating/restarting
+Popcorn and reloading the extension; raw server output is never displayed.
+
+The legacy error `Failed to get explanation: Popcorn request failed.` identifies
+an older side-panel script. It does not by itself establish a particular HTTP
+status. Rebuild/reload the extension and refresh the old video tab before testing
+the new recovery behavior.

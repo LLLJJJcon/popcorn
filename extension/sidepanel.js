@@ -1008,6 +1008,9 @@ function setupEventListeners() {
   document.getElementById("settingsBtn")?.addEventListener("click", () => {
     chrome.runtime.sendMessage({ action: "openPopcorn" });
   });
+  document.getElementById("extensionSettingsBtn")?.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ action: "openOptions" });
+  });
   document.getElementById("saveVideoBtn")?.addEventListener("click", async (event) => {
     event.preventDefault();
     try {
@@ -1694,6 +1697,8 @@ function getTranscriptErrorPresentation(result) {
 // ============================================================
 
 function switchTab(tabName) {
+  const selectionTools = document.getElementById("explainTooltip");
+  if (selectionTools) selectionTools.style.display = "none";
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.tab === tabName);
   });
@@ -2118,7 +2123,7 @@ function setupExplainFeature() {
   tooltip.id = "explainTooltip";
   tooltip.className = "explain-tooltip";
   tooltip.innerHTML = `
-    <button class="explain-btn">💡 Explain</button>
+    <button class="explain-btn" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6m-5 3h4M8 15a7 7 0 1 1 8 0l-1 3H9z"/></svg> Explain</button>
     <button class="selection-save-btn" type="button">Save</button>
   `;
   tooltip.style.display = "none";
@@ -2141,6 +2146,13 @@ function setupExplainFeature() {
 
   // Listen for text selection
   document.addEventListener("mouseup", (e) => {
+    const panel = transcriptList.closest('.tab-panel');
+    const results = document.getElementById("resultsState");
+    if ((panel && !panel.classList.contains("active")) || results?.style.display === "none") {
+      selectedEvidence = null;
+      tooltip.style.display = "none";
+      return;
+    }
     const selection = window.getSelection();
     const text = selection?.toString().trim() || "";
 
@@ -2159,8 +2171,15 @@ function setupExplainFeature() {
       const rect = range.getBoundingClientRect();
 
       tooltip.style.display = "block";
-      tooltip.style.top = `${rect.bottom + window.scrollY + 8}px`;
-      tooltip.style.left = `${rect.left + rect.width / 2}px`;
+      const bounds = tooltip.getBoundingClientRect();
+      const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 384;
+      const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 800;
+      const center = Math.max(8 + bounds.width / 2,
+        Math.min(rect.left + rect.width / 2, viewportWidth - 8 - bounds.width / 2));
+      const top = rect.bottom + bounds.height + 8 <= viewportHeight
+        ? rect.bottom + 8 : Math.max(8, rect.top - bounds.height - 8);
+      tooltip.style.top = `${top + (window.scrollY || 0)}px`;
+      tooltip.style.left = `${center}px`;
     } else {
       selectedEvidence = null;
       tooltip.style.display = "none";
@@ -2313,6 +2332,7 @@ function createExplanationMessage(selectionEvidence, identity, retryId) {
  */
 async function showExplanation(selectionEvidence) {
   const selectedText = selectionEvidence.selectedChinese;
+  const returnFocus = document.activeElement;
   const identity = {
     videoId: currentVideoId,
     snapshotId: currentSnapshotId,
@@ -2323,12 +2343,12 @@ async function showExplanation(selectionEvidence) {
   modal.id = "explainModal";
   modal.className = "explain-modal-overlay";
   modal.innerHTML = `
-    <div class="explain-modal">
+    <div class="explain-modal" role="dialog" aria-modal="true" aria-labelledby="explainTitle">
       <div class="explain-modal-header">
-        <div class="explain-modal-title">Explain</div>
-        <button class="explain-modal-close" id="closeExplain">✕</button>
+        <div class="explain-modal-title" id="explainTitle">Explain</div>
+        <button class="explain-modal-close" id="closeExplain" type="button" aria-label="Close explanation">✕</button>
       </div>
-      <div class="explain-selected-text">"${escapeHtml(selectedText.substring(0, 200))}${selectedText.length > 200 ? "..." : ""}"</div>
+      <div class="explain-selected-text"><span lang="zh-CN">${escapeHtml(selectedText.substring(0, 200))}${selectedText.length > 200 ? "..." : ""}</span><p class="explain-source">Selected from ${formatTimestampSeconds(selectionEvidence.startSeconds)} · Original Chinese</p></div>
       <div class="explain-modal-content" id="explanationContent">
         <div class="explain-loading">
           <div class="loading-bar"></div>
@@ -2347,6 +2367,7 @@ async function showExplanation(selectionEvidence) {
   const close = () => {
     active = false;
     modal.remove();
+    if (returnFocus?.isConnected) returnFocus.focus?.();
   };
 
   // Close handlers
@@ -2356,6 +2377,23 @@ async function showExplanation(selectionEvidence) {
   modal.addEventListener("click", (e) => {
     if (e.target === modal) close();
   });
+  modal.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    } else if (event.key === "Tab") {
+      const focusable = [...modal.querySelectorAll('button:not(:disabled), a[href], [tabindex="0"]')];
+      const first = focusable[0], last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+  });
+  modal.querySelector("#closeExplain").focus();
 
   const renderReady = (explanation) => {
     if (!isCurrent()) return;
@@ -2366,7 +2404,12 @@ async function showExplanation(selectionEvidence) {
       `Contextual fit: ${explanation.contextualFit}`,
     ].join("\n\n");
     contentDiv.innerHTML = `
-      <div class="explain-text">${escapeHtml(text).replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>")}</div>
+      <dl class="explain-text">${[
+          ["meaning", "Meaning", explanation.meaning, "M9 18h6m-5 3h4M8 15a7 7 0 1 1 8 0l-1 3H9z"],
+          ["tone", "Tone", explanation.tone, ""],
+          ["function", "Communicative function", explanation.communicativeFunction, "M4 4h16v13H9l-5 4zM8 9h8m-8 4h5"],
+          ["context", "Contextual fit", explanation.contextualFit, "M5 5h14v14H5zM3 12h18M12 3v18"],
+        ].map(([kind, label, value, path]) => `<div class="explain-module ${kind}"><dt>${path ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>` : ""}${label}: </dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>
       <button class="explanation-save-btn" type="button">Save Explanation</button>
     `;
     const saveButton = contentDiv.querySelector(".explanation-save-btn");
@@ -2387,41 +2430,67 @@ async function showExplanation(selectionEvidence) {
     });
   };
 
-  const requestExplanation = async (retryId) => {
+  let explanationJobId;
+  let explanationRetryId;
+  const renderRecovery = (result, { terminal = false } = {}) => {
+    if (!isCurrent()) return;
+    const auth = ["AUTH_REQUIRED", "SESSION_EXPIRED"].includes(result?.code);
+    const unavailable = result?.code === "LOCAL_SERVICE_UNAVAILABLE";
+    const staleContext = /Extension context invalidated|Receiving end does not exist/i.test(result?.error || "");
+    const message = auth
+      ? result.code === "SESSION_EXPIRED"
+        ? "Your extension session expired. Sign in again, then retry this explanation."
+        : "Sign in to Popcorn in extension settings, then retry this explanation."
+      : ["AUTH_SERVICE_UNAVAILABLE", "AUTH_RESPONSE_INVALID"].includes(result?.code)
+        ? "Popcorn authentication is temporarily unavailable. Keep this selection and retry shortly."
+      : ["API_ROUTE_UNAVAILABLE", "API_RESPONSE_INVALID"].includes(result?.code)
+        ? "Popcorn returned an unexpected API response. Update or restart Popcorn and reload the extension."
+        : unavailable
+        ? "The local Popcorn service is unavailable. Start Popcorn, then retry."
+        : staleContext
+          ? "The extension connection changed. Reload this YouTube tab and reopen Popcorn."
+          : result?.pending
+            ? "Explanation is still processing. Retry to check the same request."
+            : terminal
+              ? learningArtifactStatusCopy(result, "Explanation")
+              : "Explanation could not be completed. Retry.";
+    contentDiv.innerHTML = `
+      <div class="${result?.pending ? "explain-loading" : "explain-error"}" role="status">${escapeHtml(message)}</div>
+      ${auth ? '<button class="explanation-sign-in-btn" type="button">Sign in to Popcorn</button>' : ""}
+      ${staleContext ? "" : '<button class="explanation-retry-btn" type="button">Retry</button>'}
+    `;
+    contentDiv.querySelector(".explanation-sign-in-btn")?.addEventListener("click", () => {
+      void chrome.runtime.sendMessage({ action: "openOptions", separateWindow: true }).catch(() => {});
+    });
+    const retryButton = contentDiv.querySelector(".explanation-retry-btn");
+    retryButton?.addEventListener("click", async () => {
+      if (retryInFlight || !isCurrent()) return;
+      retryInFlight = true;
+      retryButton.disabled = true;
+      if (terminal) {
+        explanationRetryId = crypto.randomUUID();
+        explanationJobId = undefined;
+      }
+      modal.querySelector("#closeExplain").focus();
+      contentDiv.innerHTML = '<div class="explain-loading" role="status">Retrying explanation…</div>';
+      try { await requestExplanation(); } finally { retryInFlight = false; }
+    });
+  };
+  const requestExplanation = async () => {
     try {
+      const message = createExplanationMessage(selectionEvidence, identity, explanationRetryId);
+      if (explanationJobId) message.jobId = explanationJobId;
       const result = await sendCloudAction(
-        createExplanationMessage(selectionEvidence, identity, retryId),
+        message,
         undefined,
-        undefined,
+        (jobId) => { explanationJobId = jobId; },
         isCurrent,
       );
       if (!isCurrent() || result.cancelled) return;
-      if (result.success && !result.pending) {
-        renderReady(result.content);
-      } else if (result.pending) {
-        contentDiv.innerHTML = `<div class="explain-loading">${escapeHtml(learningArtifactStatusCopy(result, "Explanation"))}</div>`;
-      } else if (result.terminal === true) {
-        contentDiv.innerHTML = `
-          <div class="explain-error">${escapeHtml(learningArtifactStatusCopy(result, "Explanation"))}</div>
-          <button class="explanation-save-btn explanation-retry-btn" type="button">Retry</button>
-        `;
-        const retryButton = contentDiv.querySelector(".explanation-retry-btn");
-        retryButton.addEventListener("click", async () => {
-          if (retryInFlight || !isCurrent()) return;
-          retryInFlight = true;
-          retryButton.disabled = true;
-          const freshRetryId = crypto.randomUUID();
-          contentDiv.innerHTML = '<div class="explain-loading">Retrying explanation…</div>';
-          await requestExplanation(freshRetryId);
-          retryInFlight = false;
-        });
-      } else {
-        contentDiv.innerHTML = `<div class="explain-error">${escapeHtml(learningArtifactStatusCopy(result, "Explanation"))}</div>`;
-      }
+      if (result.success && !result.pending) renderReady(result.content);
+      else renderRecovery(result, { terminal: result.terminal === true });
     } catch (error) {
-      if (isCurrent()) {
-        contentDiv.innerHTML = `<div class="explain-error">${escapeHtml(learningArtifactStatusCopy(null, "Explanation"))}</div>`;
-      }
+      if (isCurrent()) renderRecovery({ code: error?.code, error: error?.message });
     }
   };
 

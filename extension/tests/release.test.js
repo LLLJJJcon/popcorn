@@ -186,7 +186,7 @@ test("release copy documents current scope without em dashes", () => {
   assert.match(chineseReadme, /发布版本只支持 DeepSeek V4 Flash/);
 });
 
-test("notes filters preserve selected contrast and expose pressed state", () => {
+test("Saved filters expose pressed state and visible keyboard focus", () => {
   const html = read("sidepanel.html");
   const css = read("sidepanel.css");
   const js = read("sidepanel.js");
@@ -199,14 +199,8 @@ test("notes filters preserve selected contrast and expose pressed state", () => 
     html,
     /id="savedFilterAll"[\s\S]*?aria-pressed="false"[\s\S]*?>[\s\S]*?All saved/,
   );
-  assert.match(
-    css,
-    /\.saved-filter \.enhance-btn\.active:hover:not\(:disabled\)\s*\{[^}]*background:\s*var\(--accent-hover\);[^}]*color:\s*white;/,
-  );
-  assert.match(
-    css,
-    /\.saved-filter \.enhance-btn:hover:not\(:disabled\)\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-secondary\);/,
-  );
+  // Selected text contrast is checked from computed colors in browser QA;
+  // it must not require the retired white-on-terracotta presentation.
   assert.match(css, /\.saved-filter \.enhance-btn:focus-visible\s*\{[^}]*outline:/);
   assert.match(js, /setSavedFilter\(false\)/);
   assert.match(js, /setSavedFilter\(true\)/);

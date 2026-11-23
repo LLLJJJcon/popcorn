@@ -462,3 +462,40 @@ test("trusted Options messages return only bounded account state and never passw
     /forbidden/i,
   );
 });
+
+test("reconnecting cannot replace the owner of a signed-in session with queued saves", async () => {
+  const auth=await getAuth(),h=createChrome();
+  const original={accessToken:"old-a",refreshToken:"refresh-a",accessExpiresAt:0,user:{id:"user-a",email:"a@example.com"}};
+  const pending=[{ownerUserId:"user-a",clientEventId:"queued-a"}];
+  h.local.popcorn_session=structuredClone(original);h.local.popcorn_pending_events=structuredClone(pending);
+  const client=createClient(auth,h,async()=>response(providerSession({userId:"user-b",email:"b@example.com"})));
+  await assert.rejects(client.signInWithPassword({email:"b@example.com",password:"correct-horse"}),/sign-in could not be completed/);
+  assert.deepEqual(h.local.popcorn_session,original);assert.deepEqual(h.local.popcorn_pending_events,pending);
+});
+
+test("reconnecting the same owner refreshes credentials while preserving queued saves", async () => {
+  const auth=await getAuth(),h=createChrome();
+  h.local.popcorn_session={accessToken:"old-a",refreshToken:"refresh-a",accessExpiresAt:0,user:{id:"user-a",email:"a@example.com"}};
+  const pending=[{ownerUserId:"user-a",clientEventId:"queued-a"}];h.local.popcorn_pending_events=structuredClone(pending);
+  const client=createClient(auth,h,async()=>response(providerSession({accessToken:"reconnected-a"})));
+  await client.signInWithPassword({email:"a@example.com",password:"correct-horse"});
+  assert.equal(h.local.popcorn_session.accessToken,"reconnected-a");assert.deepEqual(h.local.popcorn_pending_events,pending);
+});
+
+test("refresh distinguishes temporary service failures, invalid credentials and invalid protocol without clearing session", async () => {
+  const auth=await getAuth();
+  for(const [name,fetch,code] of [
+    ["network",async()=>{throw new Error("PRIVATE_NETWORK")},"AUTH_SERVICE_UNAVAILABLE"],
+    ["server",async()=>({ok:false,status:503,json:async()=>{throw new Error("PRIVATE_HTML")}}),"AUTH_SERVICE_UNAVAILABLE"],
+    ["rate limit",async()=>response({error:"PRIVATE_PROVIDER"},false,429),"AUTH_SERVICE_UNAVAILABLE"],
+    ["invalid refresh",async()=>response({error:"PRIVATE_PROVIDER"},false,400),"SESSION_EXPIRED"],
+    ["rejected refresh",async()=>response({error:"PRIVATE_PROVIDER"},false,401),"SESSION_EXPIRED"],
+    ["invalid JSON",async()=>({ok:true,status:200,json:async()=>{throw new Error("PRIVATE_HTML")}}),"AUTH_RESPONSE_INVALID"],
+    ["invalid body",async()=>response({private:"PRIVATE_PROVIDER"}),"AUTH_RESPONSE_INVALID"]
+  ]){
+    const h=createChrome(),original={accessToken:"expired",refreshToken:"refresh-a",accessExpiresAt:0,user:{id:"user-a",email:"a@example.com"}};
+    h.local.popcorn_session=structuredClone(original);
+    await assert.rejects(createClient(auth,h,fetch).getAccessToken(),e=>e.code===code&&!/PRIVATE_/.test(e.message),name);
+    assert.deepEqual(h.local.popcorn_session,original,name);
+  }
+});

@@ -50,7 +50,22 @@ flowchart LR
 
 Timestamped Chinese / English subtitles and optional explanations support comprehension. Save a moment, line or passage with its source context; open it later in **Saved**. Original content is stored before slower background enrichment. Saving a video keeps a learning snapshot, not a video download.
 
-[![Actual YouTube viewing session: Popcorn subtitles, timestamps and save controls](docs/assets/readme/youtube-watching.png)](docs/assets/readme/youtube-watching.png)
+| Transcript and selection | Four-part explanation | Saved videos |
+| :---: | :---: | :---: |
+| [![Current extension transcript](docs/assets/readme/extension-transcript-current.png)](docs/assets/readme/extension-transcript-current.png) | [![Current extension explanation](docs/assets/readme/extension-explanation-current.png)](docs/assets/readme/extension-explanation-current.png) | [![Current extension Saved library](docs/assets/readme/extension-saved-current.png)](docs/assets/readme/extension-saved-current.png) |
+
+*Actual unpacked Chrome-extension UI, captured in an isolated browser with mocked learning records. The extension uses the same orange, sky blue and lemon palette as Web.*
+
+<details>
+<summary>Extension overview, account settings and recovery</summary>
+
+Overview retains chapters, key quotes and their Save / Copy actions. Account settings remain separate from Web login. Expired sessions offer explicit sign-in; reconnecting the same account preserves queued moments and the original explanation selection. A stale extension connection asks you to reload the YouTube tab.
+
+| Overview | Account settings | Explanation recovery |
+| :---: | :---: | :---: |
+| [![Extension overview](docs/assets/readme/extension-overview-current.png)](docs/assets/readme/extension-overview-current.png) | [![Extension account settings](docs/assets/readme/extension-settings-current.png)](docs/assets/readme/extension-settings-current.png) | [![Explanation session recovery](docs/assets/readme/extension-explanation-recovery-current.png)](docs/assets/readme/extension-explanation-recovery-current.png) |
+
+</details>
 
 ### 2. Choose what to learn, then understand how to use it
 
@@ -215,6 +230,8 @@ Implemented: expression selection and cards, practice rounds, daily sessions, ne
 | [![Current Vault source and attempt history](docs/assets/readme/vault-current.png)](docs/assets/readme/vault-current.png) | [![Current Progress evidence metrics](docs/assets/readme/progress-current.png)](docs/assets/readme/progress-current.png) |
 
 Recorded acceptance on **2 Nov 2026**: 1,833 application tests, 1,188 SQL assertions, 15 concurrency scenarios, 180 extension tests and 5 production browser workflows. Separately, 20 live-model review tasks passed individual human review. These are version-specific engineering and content checks, not measured learner improvement.
+
+Extension refresh on **23 Nov 2026**: 203 extension tests and two isolated browser workflows passed, including reconnecting and retrying the same explanation. [Design and recovery verification](docs/engineering/2026-11-23-extension-ui-and-recovery.md).
 
 [Engineering acceptance](https://github.com/LLLJJJcon/popcorn/blob/main/docs/engineering/group-4-main-integration-acceptance.md) · [Human review of generated tasks](https://github.com/LLLJJJcon/popcorn/blob/main/docs/engineering/prompt-runs/2026-11-01-transfer-scenario-v1-review-set.md)
 

@@ -50,7 +50,22 @@ flowchart LR
 
 带时间戳的中英字幕与按需解释辅助理解。保存当前时刻、字幕行或片段及其来源语境，之后在 **Saved** 中查看；原始内容先保存，较慢的补全任务在后台进行。保存视频保留学习快照，不下载视频文件。
 
-[![实际 YouTube 观看界面：Popcorn 字幕、时间定位和保存入口](docs/assets/readme/youtube-watching.png)](docs/assets/readme/youtube-watching.png)
+| 字幕与选词 | 四项解释 | 已保存视频 |
+| :---: | :---: | :---: |
+| [![新版插件字幕](docs/assets/readme/extension-transcript-current.png)](docs/assets/readme/extension-transcript-current.png) | [![新版插件解释](docs/assets/readme/extension-explanation-current.png)](docs/assets/readme/extension-explanation-current.png) | [![新版插件 Saved 视频列表](docs/assets/readme/extension-saved-current.png)](docs/assets/readme/extension-saved-current.png) |
+
+*以上来自真实解压扩展，在隔离浏览器中使用模拟学习数据截图；与 Web 共用橙、天蓝、柠檬黄配色。*
+
+<details>
+<summary>插件概览、账号设置与恢复</summary>
+
+Overview 保留章节、引用及其 Save / Copy。插件账号设置独立于 Web 登录；会话过期后可以显式重新登录同一账号，保留待同步记录与原解释选区；旧插件连接失效时明确提示刷新 YouTube 页面。
+
+| 概览 | 插件账号设置 | 解释恢复 |
+| :---: | :---: | :---: |
+| [![插件概览](docs/assets/readme/extension-overview-current.png)](docs/assets/readme/extension-overview-current.png) | [![插件账号设置](docs/assets/readme/extension-settings-current.png)](docs/assets/readme/extension-settings-current.png) | [![解释会话恢复](docs/assets/readme/extension-explanation-recovery-current.png)](docs/assets/readme/extension-explanation-recovery-current.png) |
+
+</details>
 
 ### 2. 自己选表达，再理解怎么用
 
@@ -211,6 +226,8 @@ flowchart TD
 已实现表达选择与学习卡、分轮练习、今日会话、近远迁移复习，以及现有 Vault / Progress 页面。当前范围为英文辅助、中文文字作答，以及支持原生简体中文字幕的 YouTube 视频；本次桌面重设计已覆盖 Home、Saved、Practice、反馈、Vault 和 Progress，语音练习仍不在范围内。
 
 **2026 年 11 月 2 日**的验收记录包含 1833 项应用测试、1188 条 SQL 断言、15 组并发场景、180 项扩展测试和 5 条生产构建浏览器链路；另有 20 道真实模型复习题经人工逐题审核。这些是特定版本的工程与内容检查，不是学习效果实验。
+
+**2026 年 11 月 23 日**的插件更新通过 203 项扩展测试与两条隔离浏览器链路，覆盖重新登录后重试原解释。[设计与恢复验证](docs/engineering/2026-11-23-extension-ui-and-recovery.md)。
 
 [工程验收](https://github.com/LLLJJJcon/popcorn/blob/main/docs/engineering/group-4-main-integration-acceptance.md) · [生成题目的人工审核](https://github.com/LLLJJJcon/popcorn/blob/main/docs/engineering/prompt-runs/2026-11-01-transfer-scenario-v1-review-set.md)
 

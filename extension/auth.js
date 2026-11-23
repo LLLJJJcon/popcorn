@@ -73,6 +73,19 @@ const POPCORN_AUTH = (() => {
     };
   }
 
+  function authFailure(code) {
+    const messages = {
+      AUTH_REQUIRED: "Sign in to Popcorn in extension settings.",
+      SESSION_EXPIRED: "Your session expired. Sign in again.",
+      AUTH_SERVICE_UNAVAILABLE: "Popcorn authentication is temporarily unavailable. Retry shortly.",
+      AUTH_RESPONSE_INVALID: "Popcorn authentication returned an unexpected response. Retry shortly.",
+    };
+    const error = new Error(messages[code]);
+    error.code = code;
+    error.retryable = ["AUTH_SERVICE_UNAVAILABLE", "AUTH_RESPONSE_INVALID"].includes(code);
+    return error;
+  }
+
   function createAuthClient({
     chrome,
     fetch = globalThis.fetch,
@@ -138,6 +151,8 @@ const POPCORN_AUTH = (() => {
       const credentials = normalizeCredentials(input);
       sessionGeneration += 1;
       const acceptedGeneration = sessionGeneration;
+      const existingSession = await getSession();
+      assertCurrentGeneration(acceptedGeneration);
       const endpoint = kind === "sign-up"
         ? `${authOrigin}/auth/v1/signup`
         : `${authOrigin}/auth/v1/token?grant_type=password`;
@@ -158,9 +173,14 @@ const POPCORN_AUTH = (() => {
         throw new Error("Popcorn sign-in could not be completed.");
       }
       const normalized = response.ok ? normalizeProviderSession(payload, now) : null;
-      if (!normalized) throw new Error("Popcorn sign-in could not be completed.");
+      if (!normalized || (existingSession && normalized.user.id !== existingSession.user.id)) {
+        throw new Error("Popcorn sign-in could not be completed.");
+      }
       return queueSessionMutation(async () => {
         assertCurrentGeneration(acceptedGeneration);
+        const latest = await getSession();
+        assertCurrentGeneration(acceptedGeneration);
+        if (latest && latest.user.id !== normalized.user.id) throw new Error("Popcorn sign-in could not be completed.");
         const saved = await saveSession(normalized);
         assertCurrentGeneration(acceptedGeneration);
         return saved;
@@ -179,7 +199,7 @@ const POPCORN_AUTH = (() => {
       await initialize();
       const refreshGeneration = sessionGeneration;
       const current = await getSession();
-      if (!current) throw new Error("No Popcorn session.");
+      if (!current) throw authFailure("AUTH_REQUIRED");
       let response;
       try {
         response = await fetch(`${authOrigin}/auth/v1/token?grant_type=refresh_token`, {
@@ -188,17 +208,20 @@ const POPCORN_AUTH = (() => {
           body: JSON.stringify({ refresh_token: current.refreshToken }),
         });
       } catch {
-        throw new Error("Popcorn session refresh failed.");
+        throw authFailure("AUTH_SERVICE_UNAVAILABLE");
       }
+      if (response.status === 429 || response.status >= 500) throw authFailure("AUTH_SERVICE_UNAVAILABLE");
+      if ([400, 401].includes(response.status)) throw authFailure("SESSION_EXPIRED");
+      if (!response.ok) throw authFailure("AUTH_RESPONSE_INVALID");
       let payload;
       try {
         payload = await response.json();
       } catch {
-        throw new Error("Popcorn session refresh failed.");
+        throw authFailure("AUTH_RESPONSE_INVALID");
       }
       const refreshed = response.ok ? normalizeProviderSession(payload, now) : null;
       if (!refreshed || refreshed.user.id !== current.user.id) {
-        throw new Error("Popcorn session refresh failed.");
+        throw authFailure("AUTH_RESPONSE_INVALID");
       }
       await queueSessionMutation(async () => {
         assertCurrentGeneration(refreshGeneration);
@@ -215,7 +238,7 @@ const POPCORN_AUTH = (() => {
     async function getAccessToken() {
       await initialize();
       const current = await getSession();
-      if (!current) throw new Error("No Popcorn session.");
+      if (!current) throw authFailure("AUTH_REQUIRED");
       if (current.accessExpiresAt > now() + 5000) return current.accessToken;
       if (!refreshMutex) {
         refreshMutex = refreshSession().finally(() => {
