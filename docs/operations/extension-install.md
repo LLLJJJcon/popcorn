@@ -66,6 +66,11 @@ before switching owners. Authentication-service outages offer Retry rather than
 claiming the session expired. Non-JSON API responses point to updating/restarting
 Popcorn and reloading the extension; raw server output is never displayed.
 
+For this local checkout, `node --env-file=.env.local scripts/build-local-extension.mjs`
+rebuilds the unpacked extension from the configured local runtime values. Do not
+reuse runtime settings from an earlier fixture build. Release packaging tests run
+in temporary checkouts and must not modify the unpacked directory used by Chrome.
+
 The legacy error `Failed to get explanation: Popcorn request failed.` identifies
 an older side-panel script. It does not by itself establish a particular HTTP
 status. Rebuild/reload the extension and refresh the old video tab before testing

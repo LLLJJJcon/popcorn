@@ -2139,6 +2139,27 @@ test("a rejected transcript fetch produces a bounded local-service recovery inst
   });
 });
 
+test("transcript authentication and protocol failures retain actionable safe error codes", async () => {
+  for (const code of ["AUTH_REQUIRED", "SESSION_EXPIRED", "AUTH_SERVICE_UNAVAILABLE"]) {
+    const helpers = loadBackgroundHelpers({ getAccessTokenImpl: async () => {
+      throw Object.assign(new Error("PRIVATE_AUTH_DETAIL"), { code });
+    } });
+    const result = await helpers.handleFetchTranscript("abc123XYZ00");
+    assert.equal(result.code, code);
+    assert.doesNotMatch(result.error, /PRIVATE_AUTH_DETAIL/);
+    const presentation = loadSidepanelHelpers().getTranscriptErrorPresentation(result);
+    if (code === "AUTH_REQUIRED" || code === "SESSION_EXPIRED") {
+      assert.equal(presentation.recovery, "sign-in");
+      assert.match(presentation.message, /sign in/i);
+    } else assert.match(presentation.message, /authentication.*unavailable/i);
+  }
+  const helpers = loadBackgroundHelpers({ fetchImpl: async () => new Response("<html>PRIVATE_STACK</html>", { status: 500 }) });
+  const result = await helpers.handleFetchTranscript("abc123XYZ00");
+  assert.equal(result.code, "API_RESPONSE_INVALID");
+  assert.doesNotMatch(result.error, /PRIVATE_STACK|<html>/);
+  assert.match(loadSidepanelHelpers().getTranscriptErrorPresentation(result).message, /restart|update/i);
+});
+
 test("a native-Chinese transcript server error retains the transcript-specific presentation", async () => {
   const background = loadBackgroundHelpers({ fetchImpl: async () => ({
     status: 422,

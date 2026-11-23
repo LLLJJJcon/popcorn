@@ -164,6 +164,8 @@ svg { flex-shrink:0; vertical-align:middle; }
 .welcome-desc,.error-message,.loading-subtext { font-size:14px; line-height:1.85; color:var(--text-secondary); }
 .loading-text { font-size:18px; font-weight:600; margin:18px 0 8px; }
 .error-btn { margin-top:20px; }
+.error-actions { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; }
+.error-container:has(#errorRecoveryBtn:not([hidden])) #errorBtn { border-color:#b4d8f2; background:#fff; color:var(--blue-ink); box-shadow:none; }
 .loading-bar { width:90px; height:7px; border-radius:2px; background:#ffe0c7; position:relative; overflow:hidden; }
 .loading-container .loading-bar { margin:0 auto; }
 .loading-bar::after { content:""; position:absolute; inset:0; width:25%; background:var(--accent); animation:loadingMove 1.2s ease-in-out infinite alternate; }

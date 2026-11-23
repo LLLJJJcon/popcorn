@@ -1004,6 +1004,9 @@ function setupEventListeners() {
       startDigest(currentVideoId, currentVideoUrl);
     }
   });
+  document.getElementById("errorRecoveryBtn")?.addEventListener("click", () => {
+    void chrome.runtime.sendMessage({ action: "openOptions", separateWindow: true }).catch(() => {});
+  });
 
   document.getElementById("settingsBtn")?.addEventListener("click", () => {
     chrome.runtime.sendMessage({ action: "openPopcorn" });
@@ -1292,6 +1295,8 @@ async function startDigest(videoId, videoUrl) {
   if (!transcriptResult.success) {
     const presentation = getTranscriptErrorPresentation(transcriptResult);
     showError(presentation.title, presentation.message);
+    const recovery = document.getElementById("errorRecoveryBtn");
+    if (recovery) recovery.hidden = presentation.recovery !== "sign-in";
     return;
   }
   if (transcriptResult.pending) {
@@ -1665,9 +1670,27 @@ function showError(title, message) {
   document.getElementById("errorTitle").textContent = title;
   document.getElementById("errorMessage").textContent = message;
   document.getElementById("errorBtn").textContent = "Try Again";
+  const recovery = document.getElementById("errorRecoveryBtn");
+  if (recovery) recovery.hidden = true;
 }
 
 function getTranscriptErrorPresentation(result) {
+  if (["AUTH_REQUIRED", "SESSION_EXPIRED"].includes(result?.code)) {
+    return {
+      title: result.code === "AUTH_REQUIRED" ? "Sign in to load subtitles" : "Extension session expired",
+      message: "Sign in to Popcorn in extension settings, then try again. Your saved moments stay on this device.",
+      recovery: "sign-in",
+    };
+  }
+  if (["AUTH_SERVICE_UNAVAILABLE", "AUTH_RESPONSE_INVALID"].includes(result?.code)) {
+    return { title: "Authentication service unavailable", message: "Popcorn authentication is temporarily unavailable. Keep this video open and try again shortly." };
+  }
+  if (["API_ROUTE_UNAVAILABLE", "API_RESPONSE_INVALID"].includes(result?.code)) {
+    return { title: "Popcorn needs restarting", message: "Update or restart the local Popcorn service, reload the extension, then refresh this YouTube tab." };
+  }
+  if (["PROVIDER_RATE_LIMITED", "PROVIDER_UNAVAILABLE"].includes(result?.code)) {
+    return { title: "Subtitle service unavailable", message: "The subtitle service is temporarily unavailable. Wait a moment and try again." };
+  }
   if (result?.code === "LOCAL_SERVICE_UNAVAILABLE") {
     return {
       title: "Popcorn service unavailable",

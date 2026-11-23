@@ -76,3 +76,40 @@ authentication outage classification, keyboard Retry focus and panel lifetime
 during login. Each was corrected with regression coverage. A stale destructive
 sign-out prompt was treated as a recovery defect and cleared on reconnect;
 queued records are never cleared by that UI change. No findings remain deferred.
+
+## Live-activation follow-up
+
+After activation, the user reported a generic Transcript unavailable screen.
+Follow-up inspection found that release tests wrote their fixture build directly
+to the real `dist/popcorn-extension` directory. The previous packaging step had
+reused that directory's runtime settings, retaining the test public-key placeholder
+instead of the `.env.local` value. This was an operational packaging mistake.
+
+Release tests now copy the packaging inputs into a disposable temporary checkout.
+A regression proves that fixture packaging leaves an existing installed runtime
+unchanged, comparing digests so failures never print the runtime key. The real
+extension is rebuilt from `.env.local`; the installed key matches that file both
+before and after the full test run. No user credential or account is replaced.
+
+The live server logs also exposed a separate Explain failure: a static route
+attempted to read a missing `context.params.videoId`. Explain now uses the
+validated request body, while dynamic routes retain their route parameters.
+The server-cookie adapter ignores only Next's specific read-only-render cookie
+error; other persistence errors still propagate and writable handlers retain
+their cookie behavior. The corrected production build is running on port 3000,
+and the missing background worker has been restored for existing queued work.
+
+Transcript failures now preserve bounded authentication, protocol and provider
+codes. A sign-in recovery button opens separate extension settings when needed,
+with Try Again retained for returning to the same video.
+
+The screenshot's same-title public video is
+https://www.youtube.com/watch?v=yTHyimgCwD8. A real native-only request through the
+configured transcript provider returned **384 Chinese segments**. This check did
+not create a learning record or access a personal browser session.
+
+Follow-up verification: **1,579 application tests**, **204 extension tests** and
+**three isolated browser workflows** passed. Production build passed. The new
+browser workflow covers transcript session expiry, separate-window reauthentication
+and successful retry of the original video. A final run in the user's real
+Chrome session still requires reloading the extension and refreshing its old tab.

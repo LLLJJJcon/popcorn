@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
-import { afterEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 
-const ARCHIVE = "dist/popcorn-extension.zip";
-const CHECKSUM = "dist/popcorn-extension.sha256";
+const repositoryRoot = process.cwd();
+let releaseRoot: string;
+let ARCHIVE: string;
+let CHECKSUM: string;
 const EXPECTED_ENTRIES = [
   "LICENSE",
   "UPSTREAM.md",
@@ -48,6 +50,22 @@ async function temporaryDirectory(prefix: string) {
   return directory;
 }
 
+beforeEach(async () => {
+  // Run the real packaging script in a disposable checkout. Fixture credentials
+  // must never overwrite the unpacked extension that Chrome is using.
+  releaseRoot = await temporaryDirectory("popcorn-package-fixture-");
+  for (const directory of ["scripts", "docs/operations", "third_party/youtube-digest"]) {
+    await mkdir(join(releaseRoot, directory), { recursive: true });
+  }
+  await cp(join(repositoryRoot, "extension"), join(releaseRoot, "extension"), { recursive: true });
+  for (const file of ["package.json", "LICENSE", "scripts/package-extension.sh", "scripts/build-local-extension.mjs", "scripts/check-extension-release.sh", "docs/operations/upstream-provenance.md", "third_party/youtube-digest/LICENSE"]) {
+    await copyFile(join(repositoryRoot, file), join(releaseRoot, file));
+  }
+  await symlink(join(repositoryRoot, "node_modules"), join(releaseRoot, "node_modules"), "dir");
+  ARCHIVE = join(releaseRoot, "dist/popcorn-extension.zip");
+  CHECKSUM = join(releaseRoot, "dist/popcorn-extension.sha256");
+});
+
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
@@ -65,7 +83,7 @@ function run(command: string, args: string[], options: { cwd?: string; env?: Nod
 }
 
 function packageExtension() {
-  return run("bash", ["scripts/package-extension.sh"], { env: publicEnvironment });
+  return run("bash", ["scripts/package-extension.sh"], { cwd: releaseRoot, env: publicEnvironment });
 }
 
 function checkArchive(archive: string) {
@@ -113,6 +131,16 @@ test("packages only the loadable extension release allowlist and records its che
     `${sha256(archive)}  popcorn-extension.zip\n`,
   );
   expect(checkArchive(ARCHIVE).status).toBe(0);
+});
+
+test("packaging fixture builds leaves the installed extension runtime untouched", async () => {
+  const installed = join(process.cwd(), "dist/popcorn-extension/runtime-config.js");
+  const before = await readFile(installed).catch(() => null);
+  const result = packageExtension();
+  expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+  const after = await readFile(installed).catch(() => null);
+  // Compare only digests so failures never print a user's public runtime key.
+  expect(after ? sha256(after) : null).toBe(before ? sha256(before) : null);
 });
 
 test("produces the same archive checksum from identical public inputs", async () => {

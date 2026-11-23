@@ -203,6 +203,19 @@ function normalizeTranscriptResult(data) {
 }
 
 function publicTranscriptFailure(error) {
+  const recoveryCopy = {
+    AUTH_REQUIRED: "Sign in to Popcorn in extension settings to load subtitles.",
+    SESSION_EXPIRED: "Your extension session expired. Sign in again to load subtitles.",
+    AUTH_SERVICE_UNAVAILABLE: "Popcorn authentication is temporarily unavailable. Retry shortly.",
+    AUTH_RESPONSE_INVALID: "Popcorn authentication returned an unexpected response. Retry shortly.",
+    API_ROUTE_UNAVAILABLE: "The transcript endpoint is unavailable. Update or restart Popcorn and reload the extension.",
+    API_RESPONSE_INVALID: "Popcorn returned an unexpected response. Restart Popcorn and reload the extension.",
+    PROVIDER_RATE_LIMITED: "The subtitle service is busy. Wait a moment and try again.",
+    PROVIDER_UNAVAILABLE: "The subtitle service is temporarily unavailable. Try again shortly.",
+  };
+  if (Object.hasOwn(recoveryCopy, error?.code)) {
+    return { success: false, code: error.code, error: recoveryCopy[error.code] };
+  }
   if (error?.code === "NATIVE_CHINESE_TRANSCRIPT_REQUIRED") {
     return {
       success: false,

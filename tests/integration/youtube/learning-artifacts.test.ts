@@ -1752,3 +1752,13 @@ describe("CONTRACT-009 Supabase adapters", () => {
     });
   });
 });
+
+test("static Explanation route admits exact evidence without dynamic Next route params", async () => {
+  const store=routeStore();
+  const route=createLearningArtifactRoute({jobType:"explain_selection",authenticate:async()=>({userId:USER_A}),store,promptVersion:"explain-selection-v2",requestId:()=>"static-explanation"});
+  const response=await route(new Request("https://app.popcorn.local/api/v1/explanations",{method:"POST",body:JSON.stringify(bodyFor("explain_selection"))}),{});
+  expect(response.status).toBe(202);
+  expect(await response.json()).toMatchObject({ok:true,data:{jobId:JOB_ID}});
+  expect(store.resolveEvidence).toHaveBeenCalledWith(USER_A,"abc123XYZ00");
+  expect(store.register).toHaveBeenCalledTimes(1);
+});

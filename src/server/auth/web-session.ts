@@ -23,7 +23,14 @@ export function createNextCookieAdapter(store: NextCookieStore): WebCookieAdapte
     getAll: () => store.getAll().map(({ name, value }) => ({ name, value })),
     setAll: (cookies) => {
       for (const { name, value, options } of cookies) {
-        store.set({ name, value, ...options });
+        try {
+          store.set({ name, value, ...options });
+        } catch (error) {
+          // Server Components may verify a refreshed session but cannot emit
+          // Set-Cookie. Writable route/action calls still persist every option.
+          if (error instanceof Error && /^Cookies can only be modified in a Server Action or Route Handler\./.test(error.message)) return;
+          throw error;
+        }
       }
     },
   };

@@ -227,7 +227,7 @@ flowchart TD
 
 **2026 年 11 月 2 日**的验收记录包含 1833 项应用测试、1188 条 SQL 断言、15 组并发场景、180 项扩展测试和 5 条生产构建浏览器链路；另有 20 道真实模型复习题经人工逐题审核。这些是特定版本的工程与内容检查，不是学习效果实验。
 
-**2026 年 11 月 23 日**的插件更新通过 203 项扩展测试与两条隔离浏览器链路，覆盖重新登录后重试原解释。[设计与恢复验证](docs/engineering/2026-11-23-extension-ui-and-recovery.md)。
+**2026 年 11 月 23 日**的插件更新通过 204 项扩展测试与三条隔离浏览器链路，覆盖重新登录后重试原解释。[设计与恢复验证](docs/engineering/2026-11-23-extension-ui-and-recovery.md)。
 
 [工程验收](https://github.com/LLLJJJcon/popcorn/blob/main/docs/engineering/group-4-main-integration-acceptance.md) · [生成题目的人工审核](https://github.com/LLLJJJcon/popcorn/blob/main/docs/engineering/prompt-runs/2026-11-01-transfer-scenario-v1-review-set.md)
 

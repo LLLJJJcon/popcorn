@@ -264,7 +264,7 @@ type RouteDependencies = {
   readonly requestId: () => string;
   readonly now?: () => string;
 };
-type RouteContext = { readonly params: Promise<{ readonly videoId?: string }> };
+type RouteContext = { readonly params?: Promise<{ readonly videoId?: string }> };
 
 function noStoreJson(body: unknown, status: number): Response {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -345,10 +345,10 @@ export function createLearningArtifactRoute(dependencies: RouteDependencies) {
         : ExplanationRequestSchema.safeParse(raw);
     if (!parsed.success) return noStoreJson(failure({ code: "VALIDATION_FAILED", message: "Invalid learning-artifact request", retryable: false }, requestId), 400);
 
-    const routeVideoId = (await context.params).videoId;
+    // Explanation is a static route; Next supplies no dynamic params there.
     const videoIdValue = dependencies.jobType === "explain_selection"
       ? (parsed.data as z.infer<typeof ExplanationRequestSchema>).videoId
-      : routeVideoId;
+      : (await context.params)?.videoId;
     const videoId = YouTubeVideoIdSchema.safeParse(videoIdValue);
     if (!videoId.success) return noStoreJson(failure({ code: "INVALID_YOUTUBE_VIDEO", message: "Invalid YouTube video ID", retryable: false }, requestId), 400);
     const owned = await dependencies.store.resolveEvidence(authenticated.userId, videoId.data);

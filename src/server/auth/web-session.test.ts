@@ -143,3 +143,15 @@ describe("createWebSessionAuthenticator", () => {
     });
   });
 });
+
+it("allows read-only Server Component cookie refresh while preserving writable route behavior", async () => {
+  const adapter=createNextCookieAdapter({getAll:()=>[{name:"sb-project-auth-token",value:"current"}],set:()=>{throw new Error("Cookies can only be modified in a Server Action or Route Handler. Read more: Next docs")}});
+  await expect(Promise.resolve().then(()=>adapter.setAll?.([{name:"sb-project-auth-token",value:"fresh",options:{path:"/"}}]))).resolves.toBeUndefined();
+  expect(adapter.getAll()).toEqual([{name:"sb-project-auth-token",value:"current"}]);
+});
+
+it("does not hide cookie persistence errors outside Next read-only rendering", () => {
+  const error=new Error("storage unavailable");
+  const adapter=createNextCookieAdapter({getAll:()=>[],set:()=>{throw error}});
+  expect(()=>adapter.setAll?.([{name:"session",value:"fresh",options:{}}])).toThrow(error);
+});

@@ -105,3 +105,30 @@ test("selection actions stay reachable in a narrow sidebar and explanation recov
   await expect(popcorn.panel.locator(".explain-module.meaning")).toContainText("absurd");
   await expect(popcorn.panel.locator(".explain-selected-text")).toContainText("这也太离谱了吧。");
 });
+
+test("transcript session expiry opens sign-in recovery and retries the same video", async ({ popcorn }) => {
+  await popcorn.signInAfterExplicitClick();
+  await popcorn.openChineseVideoAndPanel();
+  const rejectTranscript = (route: import("@playwright/test").Route) => route.fulfill({
+    status: 401, contentType: "application/json",
+    body: JSON.stringify({ ok: false, error: { code: "AUTH_REQUIRED", message: "Sign in required.", retryable: false } }),
+  });
+  await popcorn.context.route("**/api/v1/youtube/*/transcript", rejectTranscript);
+  await popcorn.panel.reload();
+  await expect(popcorn.panel.locator("#errorTitle")).toHaveText("Extension session expired");
+  await expect(popcorn.panel.locator("#errorRecoveryBtn")).toBeVisible();
+  const opened = popcorn.context.waitForEvent("page");
+  await popcorn.panel.locator("#errorRecoveryBtn").click();
+  const reconnect = await opened;
+  await reconnect.locator("#reauthBtn").click();
+  await reconnect.locator("#authEmail").fill("learner@example.com");
+  await reconnect.locator("#authPassword").fill("correct-horse");
+  await reconnect.locator("#signInBtn").click();
+  await expect(reconnect.locator("#authStatus")).toHaveText("Signed in.");
+  await reconnect.close();
+  await popcorn.youtube.bringToFront();
+  await popcorn.context.unroute("**/api/v1/youtube/*/transcript", rejectTranscript);
+  await popcorn.panel.locator("#errorBtn").click();
+  await expect(popcorn.panel.locator(".transcript-entry")).toHaveCount(2);
+  await expect(popcorn.panel.locator("#errorRecoveryBtn")).toBeHidden();
+});

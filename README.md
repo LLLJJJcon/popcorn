@@ -231,7 +231,7 @@ Implemented: expression selection and cards, practice rounds, daily sessions, ne
 
 Recorded acceptance on **2 Nov 2026**: 1,833 application tests, 1,188 SQL assertions, 15 concurrency scenarios, 180 extension tests and 5 production browser workflows. Separately, 20 live-model review tasks passed individual human review. These are version-specific engineering and content checks, not measured learner improvement.
 
-Extension refresh on **23 Nov 2026**: 203 extension tests and two isolated browser workflows passed, including reconnecting and retrying the same explanation. [Design and recovery verification](docs/engineering/2026-11-23-extension-ui-and-recovery.md).
+Extension refresh on **23 Nov 2026**: 204 extension tests and three isolated browser workflows passed, including reconnecting and retrying the same explanation. [Design and recovery verification](docs/engineering/2026-11-23-extension-ui-and-recovery.md).
 
 [Engineering acceptance](https://github.com/LLLJJJcon/popcorn/blob/main/docs/engineering/group-4-main-integration-acceptance.md) · [Human review of generated tasks](https://github.com/LLLJJJcon/popcorn/blob/main/docs/engineering/prompt-runs/2026-11-01-transfer-scenario-v1-review-set.md)
 
